@@ -1,0 +1,14 @@
+docs/19-winning-plan.md
+  h_137cc690990511 58-60
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "cb69fb03b644ce004c798114cf19c483f86839c0",
+  "prompts": {},
+  "humans": {
+    "h_137cc690990511": {
+      "author": "Ijidai Lassa <ijidai@cued.app>"
+    }
+  }
+}
