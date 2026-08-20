@@ -1,0 +1,28 @@
+.env.example
+  h_137cc690990511 17
+agents/co_founder/agent.py
+  h_137cc690990511 17,54
+agents/co_founder/instructions.py
+  h_137cc690990511 99-102
+agents/co_founder/tools/a2a_talk.py
+  h_137cc690990511 1-29
+mock_portal/main.py
+  h_137cc690990511 410-412,415-521
+requirements.txt
+  h_137cc690990511 3
+services/a2a_talk.py
+  h_137cc690990511 1-52
+tests/unit/test_a2a.py
+  h_137cc690990511 1-70
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "fd7118ce0daacdfbf099de115ae3aca44f335fb9",
+  "prompts": {},
+  "humans": {
+    "h_137cc690990511": {
+      "author": "Ijidai Lassa <ijidai@cued.app>"
+    }
+  }
+}
