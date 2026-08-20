@@ -30,11 +30,11 @@ async def verify_before_action(tool, args, tool_context):
     return None  # Day 7: compare and short-circuit on mismatch
 
 
-def build_agent() -> Agent:
+def build_agent(model=None) -> Agent:
     """Fresh instance per parent (voice + text surfaces each need their own tree)."""
     return Agent(
         name="form_filler_agent",
-        model=MODEL,
+        model=model or MODEL,
         instruction=FORM_FILLER_INSTRUCTION,
         tools=[
             browser.register_account,

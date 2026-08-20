@@ -15,6 +15,9 @@ from google import genai
 from google.genai import types
 
 MODEL_ID = os.environ.get("ADK_MODEL", "gemini-3.5-flash")
+# Bulk extraction tier (docs/19 §P1.7): cheap + fast for high-volume,
+# low-complexity record extraction; document understanding stays on flash.
+LITE_MODEL_ID = os.environ.get("LITE_MODEL", "gemini-3.5-flash-lite")
 
 _client = None
 
@@ -78,7 +81,7 @@ def extract_fn(source_text: str, entity_schema: dict) -> list[dict]:
     """Structured record extraction from fetched source text (with citations)."""
     schema_desc = ", ".join(entity_schema.keys())
     resp = get_client().models.generate_content(
-        model=MODEL_ID,
+        model=LITE_MODEL_ID,
         contents=(
             "Extract program records from the source text below. Return ONLY a "
             f"JSON list; each record has exactly these fields: {schema_desc}, "

@@ -72,9 +72,14 @@ packaging, A2A, embeddings, model breadth**.
    - Voice: **gemini-live-2.5-flash** (existing)
    Result: 4–5 models with a written rationale per assignment.
    *Criteria: bonus model count, cost-discipline narrative.*
+   **Status (Aug 20): BUILT — 5 tiers live-verified: 2.5-pro (orchestrator +
+   drafter), 3.5-flash (dialogue), 3.5-flash-lite (extraction),
+   live-2.5-flash (voice), embedding-001 (retrieval).**
 8. **Cloud TTS (Chirp HD)** for voice-note playback / assistant replies in
    the UI — VitaCare lists it; ours would match. Optional if Live voices
    suffice; cheap to add via the TTS API for the async voice-note path.
+   **Status (Aug 20): BUILT — `POST /api/tts` (Chirp-3-HD-Charon) + hover
+   read-aloud button on agent messages; API enabled via Service Usage.**
 
 ## P2 — demo & evidence packaging
 

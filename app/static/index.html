@@ -501,6 +501,15 @@ h2 .count {
 }
 .msg.agent > :first-child { margin-top: 0; }
 .msg.agent > :last-child { margin-bottom: 0; }
+.msg { position: relative; }
+.speak-btn {
+  position: absolute; top: 6px; right: 6px; width: 24px; height: 24px;
+  border-radius: var(--r-full); border: 0; background: transparent; color: var(--ink-4);
+  cursor: pointer; display: grid; place-items: center; opacity: 0; transition: opacity .15s;
+}
+.msg:hover .speak-btn { opacity: 1; }
+.speak-btn:hover { color: var(--ink-1); background: var(--surface-3); }
+.speak-btn svg { width: 13px; height: 13px; }
 .msg.agent p { margin: var(--sp-2) 0; }
 .msg.agent ul, .msg.agent ol { margin: var(--sp-2) 0; padding-left: var(--sp-5); }
 .msg.agent li { margin: 2px 0; }
@@ -691,6 +700,62 @@ a.cbtn { text-decoration: none; }
 .skel-chip { width: 54px; height: 16px; border-radius: var(--r-full); flex: none; }
 /* The global reduced-motion guard freezes `sheen`; hold a legible resting tone. */
 @media (prefers-reduced-motion: reduce) { .skel { background-image: none; } }
+
+/* ============================================================================
+   Reference tabs (docs/16 §7.10)
+   The panel stacked five sections into 2190px of content in a 642px column —
+   a 3.4-screen scroll, 73% of it the activity log. Tabs fix that, but tabs
+   hide state, and this is the panel that carries the approval gate. So the
+   split is by consequence: anything you ACT on stays pinned above the bar;
+   only reference material is tabbed, and each tab label carries its own count
+   plus an attention dot, so a section can ask for you while it is closed.
+   ========================================================================= */
+.refzone {
+  display: flex; flex-direction: column; min-height: 0; flex: 1;
+  border-top: 1px solid var(--divider); margin-top: var(--sp-4); padding-top: var(--sp-3);
+}
+#refTabs {
+  display: flex; gap: 2px; padding: 2px; flex: none;
+  background: var(--surface-2); border: 1px solid var(--border);
+  border-radius: var(--r-full); margin-bottom: var(--sp-3);
+}
+.rtab {
+  flex: 1 1 0; min-width: 0;
+  display: inline-flex; align-items: center; justify-content: center; gap: 3px;
+  height: 28px; padding: 0 5px; border: 0; border-radius: var(--r-full);
+  background: transparent; color: var(--ink-2); cursor: pointer;
+  font: 500 var(--fs-2)/1 var(--font-ui); white-space: nowrap;
+  transition: background var(--dur-1) var(--ease-out), color var(--dur-1) var(--ease-out);
+}
+.rtab:hover { background: var(--surface-3); color: var(--ink-1); }
+/* The open tab carries its own count and any attention dot, so it needs more
+   room than the closed ones — equal thirds truncated "The form 14/16" to
+   "The …". Give the tab being read the surplus. */
+.rtab[aria-selected="true"] { background: var(--accent); color: var(--accent-on); flex-grow: 1.4; }
+.rtab[aria-selected="true"]:hover { background: var(--accent); }
+.rtab .lbl { overflow: hidden; text-overflow: ellipsis; }
+.rtab .n {
+  font-size: var(--fs-1); font-variant-numeric: tabular-nums; opacity: .75;
+}
+/* Attention travels with the label, so a closed tab can still ask for you. */
+.rtab .att {
+  width: 6px; height: 6px; border-radius: var(--r-full);
+  background: var(--attn); flex: none;
+}
+.rtab[aria-selected="true"] .att { background: var(--accent-on); }
+
+.pane { display: none; min-height: 0; }
+.subhead {
+  font: 600 var(--fs-1)/var(--lh-1) var(--font-ui); letter-spacing: var(--tr-label);
+  text-transform: uppercase; color: var(--ink-3);
+  margin: var(--sp-4) 0 var(--sp-2); padding-top: var(--sp-3);
+  border-top: 1px solid var(--divider);
+}
+.pane[data-active="true"] { display: block; }
+/* The log is the reason the panel was 2190px; it scrolls inside its own pane. */
+#pane-audit { overflow-y: auto; overscroll-behavior: contain; flex: 1; }
+#pane-audit[data-active="true"] { display: flex; flex-direction: column; }
+.pane:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; border-radius: var(--r-2); }
 
 /* Recon evidence — what the vision pass saw before anything was filled.
    Shown above the fill report because it is the "why" for the "what". */
@@ -1079,17 +1144,31 @@ body[data-offline="true"] #offline { display: flex; }
            and approval gate.</p>
       </div>
     </div>
-    <h2 style="margin-top:var(--sp-4)">What Alex saw</h2>
-    <div id="reconSlot"></div>
-    <h2 style="margin-top:var(--sp-4)">Fill report</h2>
-    <div id="fillReport" class="mono">—</div>
-    <h2 style="margin-top:var(--sp-4)">Documents</h2>
-    <div id="documents" class="stack"></div>
-    <h2 style="margin-top:var(--sp-4)">Activity</h2>
+    <!-- Reference material (docs/16 §7.10). Everything above this line stays
+         pinned: the approval gate must never sit behind a tab. -->
+    <div class="refzone">
+      <div id="refTabs" role="tablist" aria-label="Reference"></div>
+
+      <!-- Recon and the fill report are one story about one object: what Alex
+           saw of the form, then what it put in. Split across two tabs they made
+           a founder check "did it fill right?" in two places — and four labels
+           did not fit the column. -->
+      <div id="pane-form" class="pane" role="tabpanel" aria-labelledby="tab-form" tabindex="0">
+        <div id="reconSlot"></div>
+        <div id="fillReport" class="mono"></div>
+      </div>
+
+      <div id="pane-docs" class="pane" role="tabpanel" aria-labelledby="tab-docs" tabindex="0">
+        <div id="documents" class="stack"></div>
+      </div>
+
+      <div id="pane-audit" class="pane" role="tabpanel" aria-labelledby="tab-audit" tabindex="0">
     <div id="audit" aria-busy="true">
       <div class="skel-row" aria-hidden="true"><div class="skel skel-line"></div><div class="skel skel-chip"></div></div>
       <div class="skel-row" aria-hidden="true"><div class="skel skel-line"></div><div class="skel skel-chip"></div></div>
       <div class="skel-row" aria-hidden="true"><div class="skel skel-line"></div><div class="skel skel-chip"></div></div>
+        </div>
+      </div>
     </div>
   </section>
 </main>
@@ -1389,6 +1468,7 @@ const emptyState = (icon, head, body, action = "") =>
   `<div class="empty">${ico(icon, "ico-lg")}<b>${head}</b><p>${body}</p>${action}</div>`;
 
 applyTheme(localStorage.getItem(THEME_KEY));
+addEventListener("DOMContentLoaded", buildRefTabs);
 async function api(path, opts = {}) {
   const r = await fetch(path, { headers: { "Content-Type": "application/json" }, ...opts });
   return r.json();
@@ -1620,7 +1700,10 @@ async function refresh() {
   loadDocuments();
 
   const audit = await api("/api/audit");
-  $("audit").innerHTML = (audit.audit || []).slice(0, 15).map(r => {
+  const rows = (audit.audit || []).slice(0, 15);
+  // A refusal is the safety gate working; it should be findable from a closed tab.
+  setTabState("audit", rows.length || null, rows.some(r => r.result !== "success"));
+  $("audit").innerHTML = rows.map(r => {
     const ok = r.result === "success";
     const detail = String(r.detail || "");
     return `<div class="audit-item">
@@ -1696,6 +1779,82 @@ function dismissBrowser() {
   renderBrowserPanel();
 }
 
+// ---------- reference tabs (docs/16 §7.10) ----------
+// Reference material only. The approval gate, stepper and draft sections stay
+// pinned above the bar — putting an irreversible decision behind a tab would
+// mean a founder can miss it, which is the one thing this panel exists to
+// prevent. Counts and the attention dot live on the labels so a closed tab can
+// still surface state.
+const REF_TABS = [
+  { id: "form",  label: "The form" },
+  { id: "docs",  label: "Documents" },
+  { id: "audit", label: "Activity" },
+];
+const TAB_KEY = "cofounder-reftab";
+let activeTab = localStorage.getItem(TAB_KEY) || "audit";
+if (!REF_TABS.some(t => t.id === activeTab)) activeTab = "audit";
+
+function buildRefTabs() {
+  $("refTabs").innerHTML = REF_TABS.map(t => `
+    <button class="rtab" id="tab-${t.id}" role="tab" data-tab="${t.id}"
+            aria-controls="pane-${t.id}" aria-selected="false" tabindex="-1">
+      <span class="lbl">${t.label}</span><span class="n" data-count></span><span data-att></span>
+    </button>`).join("");
+  $("refTabs").querySelectorAll(".rtab").forEach(b => {
+    b.onclick = () => selectTab(b.dataset.tab);
+    b.onkeydown = e => {
+      const i = REF_TABS.findIndex(t => t.id === b.dataset.tab);
+      let next = null;
+      if (e.key === "ArrowRight") next = (i + 1) % REF_TABS.length;
+      else if (e.key === "ArrowLeft") next = (i - 1 + REF_TABS.length) % REF_TABS.length;
+      else if (e.key === "Home") next = 0;
+      else if (e.key === "End") next = REF_TABS.length - 1;
+      if (next === null) return;
+      e.preventDefault();
+      selectTab(REF_TABS[next].id);
+      $("tab-" + REF_TABS[next].id).focus();
+    };
+  });
+  selectTab(activeTab);
+}
+
+function selectTab(id) {
+  activeTab = id;
+  localStorage.setItem(TAB_KEY, id);
+  for (const t of REF_TABS) {
+    const on = t.id === id;
+    const btn = $("tab-" + t.id);
+    if (btn) {
+      btn.setAttribute("aria-selected", String(on));
+      btn.tabIndex = on ? 0 : -1;   // roving tabindex: one stop for the whole bar
+    }
+    const pane = $("pane-" + t.id);
+    if (pane) pane.dataset.active = String(on);
+  }
+}
+
+// The form tab has two contributors (recon evidence, fill result). A closed
+// tab has room for one number, so it shows the one the founder would act on:
+// how many fields still need them. "14/16" was both wider than the tab and the
+// wrong question — the fraction belongs in the pane, where it is shown in full.
+// Nothing needing you means no count at all.
+const formTabState = { gapCount: 0, partialMap: false };
+function publishFormTab() {
+  setTabState("form", formTabState.gapCount || null,
+              formTabState.gapCount > 0 || formTabState.partialMap);
+}
+
+// Counts are pushed by whichever render owns that section, so a tab reports
+// state it is not currently showing.
+function setTabState(id, count, needsAttention) {
+  const btn = $("tab-" + id);
+  if (!btn) return;
+  btn.querySelector("[data-count]").textContent = count == null ? "" : String(count);
+  btn.querySelector("[data-att]").className = needsAttention ? "att" : "";
+  btn.querySelector("[data-att]").setAttribute(
+    "aria-label", needsAttention ? "needs you" : "");
+}
+
 // ---------- review ----------
 const STEPS = ["INTERVIEWING", "DRAFTING", "AWAITING_REVIEW", "APPROVED",
                "FORM_FILLING", "AWAITING_SUBMIT_APPROVAL", "SUBMITTED", "FOLLOW_UP"];
@@ -1758,15 +1917,18 @@ async function loadApp(id, silent) {
 
   const fr = activeApp.form_fill_report;
   const gaps = (fr && fr.needs_human) || [];
+  formTabState.gapCount = gaps.length;
+  publishFormTab();
   $("fillReport").innerHTML = fr
-    ? `<div class="row"><span class="badge" data-tone="${gaps.length ? "attn" : "ok"}">
+    ? `<div class="subhead">What Alex filled</div>
+       <div class="row"><span class="badge" data-tone="${gaps.length ? "attn" : "ok"}">
          <span class="tnum">${fr.filled}/${fr.total}</span> filled</span>
        ${gaps.length
          ? `<span class="badge" data-tone="attn">${ico("flag", "ico-sm")}${gaps.length} need you</span>`
          : `<span class="badge" data-tone="ok">${ico("check", "ico-sm")}nothing needs you</span>`}</div>
        ${gaps.length ? `<div class="detail" style="margin-top:var(--sp-2);color:var(--ink-3)">
          ${gaps.map(f => esc(f.field)).join(" · ")}</div>` : ""}`
-    : `<span style="color:var(--ink-3)">No form filled yet.</span>`;
+    : "";
 }
 // Recon evidence (docs/10 §Fill report): the form_map the vision pass built and
 // the frames it captured. Shown before the fill report — it is the "why" behind
@@ -1778,6 +1940,9 @@ async function loadRecon(appId) {
   catch { el.innerHTML = ""; return; }
 
   const fm = r.form_map, shots = r.screenshots || [];
+  // A partial map means recon ran out of budget — the founder should know.
+  formTabState.partialMap = !!(fm && fm.exhausted);
+  publishFormTab();
   if (!fm && !shots.length) {
     el.innerHTML = emptyState("eye", "No recon yet",
       "Before filling anything, Alex screenshots the form and maps every field. That evidence lands here.");
@@ -2078,6 +2243,7 @@ function docCardHtml(d, showApp) {
 }
 
 function renderDocuments() {
+  setTabState("docs", allDocs.length || null, false);
   const el = $("documents");
   if (!allDocs.length) {
     el.innerHTML = emptyState("file-doc", "No documents yet",

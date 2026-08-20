@@ -10,7 +10,7 @@ from google.adk.apps.app import ContextCacheConfig, EventsCompactionConfig
 
 from . import state_schema as ss
 from .callbacks import initialize_session_state
-from .config import MODEL, PERSONA_NAME
+from .config import MODEL, PERSONA_NAME, REASONING_MODEL
 from .instructions import ORCHESTRATOR_INSTRUCTION
 from .sub_agents import drafter, form_filler, interviewer, matchmaker, scout
 from .tools import alex_mail as alex_mail_tools
@@ -55,14 +55,14 @@ def build_root_agent(model) -> Agent:
             scout.build_agent(),
             matchmaker.build_agent(),
             interviewer.build_agent(),
-            drafter.build_agent(),
+            drafter.build_agent(REASONING_MODEL),
             form_filler.build_agent(),
         ],
         before_agent_callback=initialize_session_state,
     )
 
 
-root_agent = build_root_agent(MODEL)
+root_agent = build_root_agent(REASONING_MODEL)
 
 app = App(
     name="co_founder",

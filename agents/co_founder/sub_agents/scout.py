@@ -15,11 +15,11 @@ from ..workflow import get_workflow
 
 _schema = get_workflow().entity_schema
 
-def build_agent() -> Agent:
+def build_agent(model=None) -> Agent:
     """Fresh instance per parent (voice + text surfaces each need their own tree)."""
     return Agent(
         name="scout_agent",
-        model=MODEL,
+        model=model or MODEL,
         instruction=SCOUT_INSTRUCTION.replace(
             "__ENTITY_SCHEMA__", json.dumps(_schema, indent=2)
         ),

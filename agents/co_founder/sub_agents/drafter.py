@@ -6,11 +6,11 @@ from ..instructions import DRAFTER_INSTRUCTION
 from ..tools import documents, drafting, pipeline, profile
 
 
-def build_agent() -> Agent:
+def build_agent(model=None) -> Agent:
     """Fresh instance per parent (voice + text surfaces each need their own tree)."""
     return Agent(
         name="drafter_agent",
-        model=MODEL,
+        model=model or MODEL,
         instruction=DRAFTER_INSTRUCTION,
         tools=[
             drafting.save_draft_section,

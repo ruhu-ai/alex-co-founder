@@ -6,11 +6,11 @@ from ..config import MODEL
 from ..instructions import MATCHMAKER_INSTRUCTION
 from ..tools import pipeline, profile
 
-def build_agent() -> Agent:
+def build_agent(model=None) -> Agent:
     """Fresh instance per parent (voice + text surfaces each need their own tree)."""
     return Agent(
         name="matchmaker_agent",
-        model=MODEL,
+        model=model or MODEL,
         instruction=MATCHMAKER_INSTRUCTION,
         tools=[
             pipeline.get_unscored_opportunities,

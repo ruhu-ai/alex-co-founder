@@ -862,6 +862,20 @@ async def api_preview_artifact(name: str):
     return FileResponse(preview_path, media_type="application/pdf")
 
 
+@app.post("/api/tts")
+async def api_tts(payload: dict):
+    """Cloud TTS (Chirp 3 HD) — read an agent reply aloud (docs/19 §P1.8)."""
+    from fastapi.responses import Response
+
+    text = str(payload.get("text", ""))[:4500]
+    if not text.strip():
+        return JSONResponse({"error": "empty text"}, status_code=400)
+    result = voice_service.synthesize_speech(text)
+    if result.get("status") != "success":
+        return JSONResponse({"error": result.get("message", "tts failed")}, status_code=503)
+    return Response(content=result["audio"], media_type="audio/mpeg")
+
+
 @app.get("/healthz")
 def healthz() -> dict:
     return {"status": "ok", "app": agent_app.name,

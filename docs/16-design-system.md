@@ -487,6 +487,46 @@ because a blanked board during a blip reads as "everything was lost".
 The `sheen` animation is frozen by the global reduced-motion guard, so that case
 also drops the gradient and holds a flat resting tone.
 
+### 7.10 Reference tabs — `.refzone` / `.rtab`
+
+The review panel stacked five sections into **2190px of content in a 642px
+column** — a 3.4-screen scroll, 73% of it the activity log. Tabs fix the length,
+but tabs hide state, and this is the panel that carries the approval gate.
+
+**The split is by consequence, not by category.** Anything the founder *acts on*
+stays pinned above the bar: the approval gate, the stepper, the draft sections.
+Only reference material is tabbed. Putting an irreversible decision behind a tab
+would let a founder miss it, which is the single thing this panel exists to
+prevent — so `test_approval_gate_is_never_inside_a_tabpanel` fails the build if
+`#approvalSlot` ever moves into the zone.
+
+Three tabs: **The form**, **Documents**, **Activity**. Result: the panel scrolls
+**0px**; the log's 1628px scrolls inside its own pane.
+
+**Labels carry state.** Each tab shows a count and, when something needs the
+founder, an amber dot — so a *closed* tab can still ask for attention. The dot
+becomes `--accent-on` on the selected tab so it stays legible against the fill.
+
+Three things this got wrong first, all fixed by copy rather than CSS:
+
+- **Four tabs did not fit.** At 318px every label truncated. "What Alex saw" and
+  "Fill report" merged into "The form" — they were always one story about one
+  object (what Alex saw of the form, then what it put in), and split across two
+  tabs a founder checking "did it fill right?" had to look in two places.
+- **"78" recon frames** as a count read like 78 items and named nothing the
+  founder would act on.
+- **"14/16"** was both wider than a closed tab and the wrong question. A closed
+  tab has room for one number, so it shows the one you would act on: how many
+  fields still need you. Nothing needed means no count. The full fraction lives
+  in the pane.
+
+The open tab gets `flex-grow: 1.4` — it carries its own count and dot, so it
+needs more room than the closed ones.
+
+**Keyboard**: standard ARIA tabs — `role="tablist"`/`tab`/`tabpanel`, roving
+`tabindex` so the bar is one tab stop, ArrowLeft/Right/Home/End move selection
+and focus together. Selection persists in `localStorage`.
+
 ## 8. Layout
 
 ```
@@ -555,6 +595,9 @@ Guarded in CI (`.github/workflows/ci.yml`):
 
 - [x] `scripts/check_contrast.py` passes — 29 pairs per theme, parsed from the
       shipped HTML so it tests what deploys.
+- [x] The approval gate, stepper and draft sections are pinned outside every
+      tabpanel; each tab has a pane and each pane a tab; the activity log scrolls
+      inside its own pane. Verified to fail on a seeded gate-inside-a-pane move.
 - [x] Every catalog brand hue clears 3:1 on the dark panel after the `--brand-lift`
       compensation, and light mode leaves vendor hues untouched — including a
       guard that the threshold is still tripped by something.

@@ -295,3 +295,76 @@ def test_the_lift_is_actually_needed_by_something():
     tripped = [n for n, b in _catalog_brands().items()
                if _contrast(b, DARK_PANEL) < MIN_MARK_CONTRAST]
     assert tripped, "no brand trips the dark-panel threshold — is DARK_PANEL still right?"
+
+
+# --------------------------------------------------------------------------
+# review panel structure (docs/16 §7.10)
+# --------------------------------------------------------------------------
+#
+# The panel splits by consequence: anything the founder ACTS on is pinned, only
+# reference material is tabbed. The load-bearing property is that the approval
+# gate — the one irreversible decision in the product — can never end up behind
+# a tab, where it would be invisible unless you happened to be on that tab.
+
+
+def _ref_tab_ids() -> list[str]:
+    src = INDEX.read_text(encoding="utf-8")
+    start = src.index("const REF_TABS = [")
+    return re.findall(r'id:\s*"(\w+)"', src[start:src.index("];", start)])
+
+
+def test_approval_gate_is_never_inside_a_tabpanel():
+    """If #approvalSlot is ever nested in a pane, a pending approval becomes
+    invisible from the other tabs. That is the whole reason this panel is not
+    fully tabbed — pin it, or the safety story is decoration."""
+    src = INDEX.read_text(encoding="utf-8")
+    gate = src.index('id="approvalSlot"')
+    zone = src.index('<div class="refzone">')
+    assert gate < zone, (
+        "#approvalSlot moved into or below the tabbed reference zone — the "
+        "approval gate must stay pinned above it (docs/16 §7.10)."
+    )
+
+
+def test_draft_sections_and_stepper_are_pinned_too():
+    """They are what the founder acts on; they belong with the gate."""
+    src = INDEX.read_text(encoding="utf-8")
+    zone = src.index('<div class="refzone">')
+    for anchor in ('id="stepperSlot"', 'id="sections"'):
+        assert src.index(anchor) < zone, f"{anchor} must stay pinned above the tabs"
+
+
+@pytest.mark.parametrize("tab_id", _ref_tab_ids())
+def test_every_tab_has_a_pane(tab_id: str):
+    src = INDEX.read_text(encoding="utf-8")
+    assert f'id="pane-{tab_id}"' in src, (
+        f'REF_TABS declares "{tab_id}" but no #pane-{tab_id} exists — the tab '
+        "would select nothing."
+    )
+
+
+def test_every_pane_has_a_tab():
+    src = INDEX.read_text(encoding="utf-8")
+    panes = set(re.findall(r'id="pane-(\w+)"', src))
+    declared = set(_ref_tab_ids())
+    orphans = panes - declared
+    assert not orphans, f"panes with no tab to reach them: {sorted(orphans)}"
+
+
+def test_panes_are_wired_for_assistive_tech():
+    src = INDEX.read_text(encoding="utf-8")
+    for tab_id in _ref_tab_ids():
+        block = src[src.index(f'id="pane-{tab_id}"'):]
+        block = block[:block.index(">") + 1]
+        assert 'role="tabpanel"' in block, f"pane-{tab_id} is not a tabpanel"
+        assert f'aria-labelledby="tab-{tab_id}"' in block, \
+            f"pane-{tab_id} is not labelled by its tab"
+
+
+def test_activity_pane_scrolls_itself():
+    """The log was 1590px of the panel's 2190px. It must scroll inside its own
+    pane, or tabbing the panel achieves nothing."""
+    css = INDEX.read_text(encoding="utf-8")
+    rule = re.search(r"#pane-audit\s*\{([^}]*)\}", css)
+    assert rule and "overflow-y: auto" in rule.group(1), \
+        "#pane-audit no longer scrolls internally"
