@@ -1,0 +1,33 @@
+app/static/index.html
+  s_802e2630e19e55::t_18894c72875c60 723,731-733
+  s_802e2630e19e55::t_cee083d6872573 1147-1151,1157,1159-1165,1170-1171
+  s_802e2630e19e55::t_e9c4722724862b 704-722,726-730,735-747,754-759
+  s_802e2630e19e55::t_f57655ca4a0d0d 1836-1841,1843-1844,1920
+  s_802e2630e19e55::t_dfbe5c7e8c7a99 509,1471,1782-1788,1790-1833,1845-1856
+  s_802e2630e19e55::t_8a7bfd78381efb 1703-1706,1943,2246
+  s_802e2630e19e55::t_342514cbb757f9 748-753,1152-1156,1158,1789,1834-1835,1842,1921,1923-1924,1931,1944-1945
+  s_802e2630e19e55::t_6d51c278ade81f 724-725,734
+  s_802e2630e19e55::t_6b644cddfddec8 504-508,510-512,1857
+tests/unit/test_design_encodings.py
+  s_802e2630e19e55::t_756cd157d2bbe6 298-370
+docs/10-ui.md
+  s_802e2630e19e55::t_465be9d8844aac 58-65
+docs/16-design-system.md
+  s_802e2630e19e55::t_465be9d8844aac 490-529,598-600
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "6c8901da4e54d623c0408db5ddab27fd23b716d2",
+  "prompts": {},
+  "sessions": {
+    "s_802e2630e19e55": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f37afa33-5a12-4325-8a44-a3d8d21f5a59",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Ijidai Lassa <ijidai@cued.app>"
+    }
+  }
+}
