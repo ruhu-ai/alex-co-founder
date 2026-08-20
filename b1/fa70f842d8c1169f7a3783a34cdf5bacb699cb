@@ -1,0 +1,178 @@
+app/static/index.html
+  s_802e2630e19e55::t_675aa3033509b4 1541-1542,1547,1549,1551,1553-1556,1559-1561,1565-1567,1569-1572,1579-1589
+  s_802e2630e19e55::t_09814200f0089e 1083-1084,1088-1092,1094-1096,1098-1112,1114-1184,1186-1199,1203-1204,1206,1216,1222-1223,1228-1229,1231,1236,1243,1253-1254,1259-1260,1262,1264,1276,1284-1285,1289,1291-1295,1297,1318,2152,2166-2167,2172,2185-2186,2189,2199
+  s_802e2630e19e55::t_e9b602a424f5f2 902,907,950,952,968,970-979,982,993-994,1004-1005,1008-1010,1013,1015,1018,1020-1021,1023-1025,1027-1028,1034-1035,1048,1050-1052,1061-1064,1066-1070,1073-1078
+  s_802e2630e19e55::t_57414fd6ba2540 1650,1664-1712,1762-1763
+  s_802e2630e19e55::t_240920545978bb 82-85,122-125,165-168,567-573
+  s_802e2630e19e55::t_9ab44e9178b1e5 1595-1603,1611-1614,1618-1622,1626,1630-1634,1636-1637,1639-1645,1647-1648,1653,1655-1662
+  s_802e2630e19e55::t_6ee8f2b020ffb3 1953,1957,1963-1969,1976-1977,2049-2055,2058-2066,2068-2083,2120-2123,2188,2198
+  s_802e2630e19e55::t_fe5b4a3b844f89 778-779
+  s_802e2630e19e55::t_4b5a3d259b9ee8 867
+  s_802e2630e19e55::t_6baa06d55ecdef 405-418,958-965,1500,1797,1841-1842,1845-1850,2088,2105,2118
+  s_802e2630e19e55::t_96d76cdcb273f0 8-81,86-97,99-121,127-131,133,140-164,169-175,177-184,186-219,222,227-318,323,325-404,419,428-433,435-538,540-566,574-658,719-751,755-756,758,761-762,776,780-866,868-896,898
+  s_802e2630e19e55::t_2999b019e32ff6 1321-1322,1324-1326,1328-1336,1338-1341,1349-1352,1380,1385-1399
+  s_802e2630e19e55::t_6d977f47354918 1432-1433,1449-1452,1458,1470,1486-1488,1496,1499,1879-1880,1886-1889,1891
+  s_802e2630e19e55::t_a372f6e4396777 903-906,908-949,951
+  s_802e2630e19e55::t_065c5048f4f683 659-690,995-1003,1053-1057
+  s_802e2630e19e55::t_ba01f08d5d319c 1718-1719,1723,1739-1761,1764-1774,1822,1824,1827,1829-1830,1840,1843-1844,1902,1941,2036,2038
+  s_802e2630e19e55::t_e49cc99316adea 319-322,324
+  s_802e2630e19e55::t_6230996ba68653 420-427,966-967,969,980-981
+  s_802e2630e19e55::t_aeeba2c2fd30c4 691-718,1046-1047,1302-1317
+  s_802e2630e19e55::t_8694be9e3b8d98 752-754,757,759-760,763-775,777,986-990,1362-1363,1365-1370
+  s_802e2630e19e55::t_08a97a024aefdb 1353-1354
+  s_802e2630e19e55::t_55323f7b3824f5 1501-1508,1510,1525-1536,1539
+  s_802e2630e19e55::t_6d0ba5b3000f1a 135-139
+  s_802e2630e19e55::t_8be2d5f7eb061c 220-221,223-226
+  s_802e2630e19e55::t_069bb0ca2deba1 539
+  s_802e2630e19e55::t_2d22b1a5c1f6f9 1038-1045
+  s_802e2630e19e55::t_a04efce7a5c88a 1498,1511-1516,1518-1524,1537-1538,1727,1733,1779,1831,1836,1867,1870,2004,2006,2026-2027,2112-2117,2212,2218,2224-2225,2230,2237,2240-2251,2268,2284,2286,2335
+  s_802e2630e19e55::t_ee82e8ef847ab5 126,985,991,1071-1072,1277-1278,1649,1776-1778,1780-1796,1798,1801-1821,1828,1832-1835,1851,2040-2042,2044-2048,2067,2084-2087,2089-2104,2106-2111,2119,2126-2129,2136-2138,2140,2145-2151,2153-2165,2357
+docs/10-ui.md
+  s_802e2630e19e55::t_3b36dd69f9f00e 8-14,52,56
+mock_portal/main.py
+  s_802e2630e19e55::t_218205dda8e3b0 209-224,372
+  s_802e2630e19e55::t_a6a35ff5e8995a 287-309,316-317,319-330,332-340,342-348
+  s_802e2630e19e55::t_75a298cf184baf 121,123,127-129
+  s_802e2630e19e55::t_cf75c0304c5626 282-285,370,378-384,406-420,423,426-471
+  s_802e2630e19e55::t_6da59787b6eaf6 140-142,156-157,249-252,331,421-422,424-425
+  s_802e2630e19e55::t_f3942826427bae 72-120,122,124-126,130,133-134,136-139,143-155,158-208,230-234,237-242,248,253-255,260-268
+  s_802e2630e19e55::t_62e9cc92b871e2 131-132,135,472-477
+app/main.py
+  s_802e2630e19e55::t_b015b8c8611fc7 676-700,722-727
+scripts/build_icons.py
+  s_802e2630e19e55::t_402ebfc1b55047 50
+  s_802e2630e19e55::t_fd3c67fd71b795 1-49,51-125
+tests/unit/test_design_encodings.py
+  s_802e2630e19e55::t_00adc041139fef 1-118,122-136
+  s_802e2630e19e55::t_fa132873fd82c9 119-121
+.github/workflows/ci.yml
+  s_802e2630e19e55::t_7aeed8feeb0629 19
+  s_802e2630e19e55::t_4e336c5f10b86b 20-27
+docs/16-design-system.md
+  s_802e2630e19e55::t_eca56b1146f2d6 1-58,65-112,119,124-228,257,262,265,267,274,276,282,284,288-348,353-355,361-380,382-394,416-477
+  s_802e2630e19e55::t_59c180d21be32e 59-64,113-118,120-123,356-360,381
+  s_802e2630e19e55::t_64682aad6369b3 229-256,258-261,263-264,266,268-273,275,277-281,283,285-287
+  s_802e2630e19e55::t_f79229c66a7bf3 349-352,395-415
+  s_802e2630e19e55::t_1a59307c11cfff 478-526
+  s_802e2630e19e55::t_6ee54647e01f23 527-567
+AGENTS.md
+  s_802e2630e19e55::t_3b36dd69f9f00e 20-24
+scripts/check_contrast.py
+  s_802e2630e19e55::t_d324937028859c 1-16,20-55,80-99,112-114,118-119,121-129,131-136,139,158,161-167
+  s_802e2630e19e55::t_ccce4004f555eb 159-160
+  s_802e2630e19e55::t_e3ae19b3f32611 100-111,137-138
+  s_802e2630e19e55::t_6d0ba5b3000f1a 140-152
+  s_802e2630e19e55::t_b9d889fe33c1f8 17-19,56-79,115-117,120,130,153-157
+.opensrc
+  s_929cea4ded06e7::t_92e88d869b27a0 1
+app/static/vendor/icons/phosphor/LICENSE
+  s_802e2630e19e55::t_8d390965752f45 1-21
+app/static/vendor/icons/phosphor/arrow-square-out.svg
+  s_802e2630e19e55::t_679ce64ea37b6c 1
+app/static/vendor/icons/phosphor/arrow-up.svg
+  s_802e2630e19e55::t_fb56fe5bee459e 1
+app/static/vendor/icons/phosphor/arrows-clockwise.svg
+  s_802e2630e19e55::t_17f8106f9f4a81 1
+app/static/vendor/icons/phosphor/calendar-blank.svg
+  s_802e2630e19e55::t_8af56a8c2cb8ef 1
+app/static/vendor/icons/phosphor/caret-left.svg
+  s_802e2630e19e55::t_9031fe6aafe91c 1
+app/static/vendor/icons/phosphor/caret-right.svg
+  s_802e2630e19e55::t_b097e30fcc975f 1
+app/static/vendor/icons/phosphor/chat-circle.svg
+  s_802e2630e19e55::t_b4e4283111c4b7 1
+app/static/vendor/icons/phosphor/check.svg
+  s_802e2630e19e55::t_7ca7246bc66812 1
+app/static/vendor/icons/phosphor/clipboard-text.svg
+  s_802e2630e19e55::t_dd9d73c6cc9528 1
+app/static/vendor/icons/phosphor/clock.svg
+  s_802e2630e19e55::t_0a642312c1b83c 1
+app/static/vendor/icons/phosphor/cloud-arrow-up.svg
+  s_802e2630e19e55::t_9aec71dfbeb871 1
+app/static/vendor/icons/phosphor/code.svg
+  s_802e2630e19e55::t_992a2a4fafb2a7 1
+app/static/vendor/icons/phosphor/compass.svg
+  s_802e2630e19e55::t_15221d093e4b82 1
+app/static/vendor/icons/phosphor/download-simple.svg
+  s_802e2630e19e55::t_ada0ebad61896e 1
+app/static/vendor/icons/phosphor/envelope-simple.svg
+  s_802e2630e19e55::t_50bb633e4ddd0d 1
+app/static/vendor/icons/phosphor/eye.svg
+  s_802e2630e19e55::t_c45b237e03b282 1
+app/static/vendor/icons/phosphor/file-doc.svg
+  s_802e2630e19e55::t_af37bfec470dc8 1
+app/static/vendor/icons/phosphor/file-pdf.svg
+  s_802e2630e19e55::t_0b337bb504e2c3 1
+app/static/vendor/icons/phosphor/file-ppt.svg
+  s_802e2630e19e55::t_3b325636f297f8 1
+app/static/vendor/icons/phosphor/file-xls.svg
+  s_802e2630e19e55::t_f539c1008a7c08 1
+app/static/vendor/icons/phosphor/flag.svg
+  s_802e2630e19e55::t_1abda7137c3bec 1
+app/static/vendor/icons/phosphor/globe-simple.svg
+  s_802e2630e19e55::t_5d6b82b5ce082c 1
+app/static/vendor/icons/phosphor/kanban.svg
+  s_802e2630e19e55::t_e6bc56479fcbb3 1
+app/static/vendor/icons/phosphor/link-simple.svg
+  s_802e2630e19e55::t_5c9a332a44ab4d 1
+app/static/vendor/icons/phosphor/magnifying-glass.svg
+  s_802e2630e19e55::t_fa37e15ec0640a 1
+app/static/vendor/icons/phosphor/microphone.svg
+  s_802e2630e19e55::t_cbf47ce6275497 1
+app/static/vendor/icons/phosphor/minus.svg
+  s_802e2630e19e55::t_aab67e2fbafb09 1
+app/static/vendor/icons/phosphor/moon.svg
+  s_802e2630e19e55::t_05bf9b8a37dbaa 1
+app/static/vendor/icons/phosphor/note-pencil.svg
+  s_802e2630e19e55::t_6cacb92017382d 1
+app/static/vendor/icons/phosphor/paperclip.svg
+  s_802e2630e19e55::t_78fd5232a4e48c 1
+app/static/vendor/icons/phosphor/pause.svg
+  s_802e2630e19e55::t_ffda59bddbdf4f 1
+app/static/vendor/icons/phosphor/plugs.svg
+  s_802e2630e19e55::t_0cf01c91c95f0b 1
+app/static/vendor/icons/phosphor/plus.svg
+  s_802e2630e19e55::t_d1805ce99e48d2 1
+app/static/vendor/icons/phosphor/shield-check.svg
+  s_802e2630e19e55::t_bebf5af444fa2e 1
+app/static/vendor/icons/phosphor/sparkle.svg
+  s_802e2630e19e55::t_0bfc967d2f78aa 1
+app/static/vendor/icons/phosphor/star.svg
+  s_802e2630e19e55::t_9724b77d99cb28 1
+app/static/vendor/icons/phosphor/sun.svg
+  s_802e2630e19e55::t_b7c7d03556d5e6 1
+app/static/vendor/icons/phosphor/target.svg
+  s_802e2630e19e55::t_025db390aa2f93 1
+app/static/vendor/icons/phosphor/trash.svg
+  s_802e2630e19e55::t_0d97577887851f 1
+app/static/vendor/icons/phosphor/warning.svg
+  s_802e2630e19e55::t_7017c7b0ea8d6e 1
+app/static/vendor/icons/phosphor/waveform.svg
+  s_802e2630e19e55::t_4d5d4edaec8673 1
+app/static/vendor/icons/phosphor/x.svg
+  s_802e2630e19e55::t_be572737264e7b 1
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "b1fa70f842d8c1169f7a3783a34cdf5bacb699cb",
+  "prompts": {},
+  "sessions": {
+    "s_802e2630e19e55": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f37afa33-5a12-4325-8a44-a3d8d21f5a59",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Ijidai Lassa <ijidai@cued.app>"
+    },
+    "s_929cea4ded06e7": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a01cda-ee4a-77f3-b979-3e11ef4e15cf",
+        "model": "gpt-5.3-codex-spark"
+      },
+      "human_author": "Ijidai Lassa <ijidai@cued.app>"
+    }
+  }
+}
