@@ -172,6 +172,7 @@ def sign_in(portal_url: str, tool_context: ToolContext) -> dict:
     _register_fill(result, app_id, tool_context)
     inspect = run(browser_service.inspect(result["page"]))
     if inspect.get("status") == "success":
+        _remember_questions(app_id, inspect["fields"])
         _pages[app_id]["signature"] = inspect["signature"]
         tool_context.state["temp:portal_signature"] = inspect["signature"]
         return {"status": "success", "title": result["title"],
@@ -206,6 +207,7 @@ def open_portal(application_url: str, tool_context: ToolContext) -> dict:
     _register_fill(result, app_id, tool_context)
     inspect = run(browser_service.inspect(result["page"]))
     if inspect.get("status") == "success":
+        _remember_questions(app_id, inspect["fields"])
         _pages[app_id]["signature"] = inspect["signature"]
         tool_context.state["temp:portal_signature"] = inspect["signature"]
         return {"status": "success", "title": result["title"],
@@ -233,6 +235,7 @@ def inspect_form(tool_context: ToolContext) -> dict:
 
         artifact = f"inspect_{app_id}.json"
         storage.save_text(artifact, json.dumps(result["fields"], indent=2))
+        _remember_questions(app_id, result["fields"])
         session["signature"] = result["signature"]
         tool_context.state["temp:portal_signature"] = result["signature"]
         return {"status": "success", "field_count": len(result["fields"]),

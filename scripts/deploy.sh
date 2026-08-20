@@ -24,6 +24,13 @@ for SECRET in mock-portal-creds portal-webhook-token; do
   gcloud secrets describe "$SECRET" >/dev/null 2>&1 || gcloud secrets create "$SECRET" --replication-policy=automatic
 done
 
+echo "==> Compute SA roles (idempotent — learned the hard way, docs/13 §gotchas)"
+COMPUTE_SA="$(gcloud projects describe "$GOOGLE_CLOUD_PROJECT" --format='value(projectNumber)')-compute@developer.gserviceaccount.com"
+for ROLE in datastore.user secretmanager.secretAccessor aiplatform.user storage.objectAdmin cloudsql.client cloudbuild.builds.builder; do
+  gcloud projects add-iam-policy-binding "$GOOGLE_CLOUD_PROJECT" \
+    --member="serviceAccount:$COMPUTE_SA" --role="roles/$ROLE" --format="none" >/dev/null
+done
+
 echo "==> Cloud SQL (sessions) — create is slow; runs once"
 gcloud sql instances describe co-founder-sessions >/dev/null 2>&1 \
   || gcloud sql instances create co-founder-sessions --database-version=POSTGRES_16 \

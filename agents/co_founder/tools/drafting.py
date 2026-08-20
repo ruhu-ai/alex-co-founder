@@ -93,3 +93,32 @@ def get_section_feedback(section_id: str, tool_context: ToolContext) -> dict:
 
     return run(_go())
 
+
+
+def get_form_questions(tool_context: ToolContext) -> dict:
+    """Every question the program's application form actually asks.
+
+    Recorded from the live form by the recon/open-portal pass, so this is the
+    form's own wording — not a guess at what it wants. A document or draft is
+    only complete when it answers all of these.
+
+    Returns:
+        dict with status, count, and questions: each has name, label, type and
+        required. Empty until the form-filler has opened the portal.
+    """
+    from services import firestore
+
+    async def _go():
+        app_id = tool_context.state.get(ss.K_ACTIVE_APPLICATION_ID, "")
+        if not app_id:
+            return {"status": "error", "error": True,
+                    "message": "no active application — choose one first"}
+        app = await firestore.get_application(app_id) or {}
+        questions = app.get("form_questions", []) or []
+        if not questions:
+            return {"status": "success", "count": 0, "questions": [],
+                    "message": "the form has not been opened yet — the "
+                               "form-filler records the questions when it does"}
+        return {"status": "success", "count": len(questions), "questions": questions}
+
+    return run(_go())
