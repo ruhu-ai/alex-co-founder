@@ -1,6 +1,7 @@
 # ADR 001 — Agent Identity: Persona, Email, and Social Presence
 
-**Status:** Accepted (design); v1 build unchanged, mailbox is v2 scope
+**Status:** Accepted; **v2 mailbox implemented 2026-08-20** (`services/alex_mailbox.py`,
+`/webhooks/alex_mail`, tools `check_alex_inbox` / `send_alex_email`)
 **Date:** 2026-08-20
 **Context:** Ruhu, Inc. (org + venture), domain `ruhu.ai`
 
@@ -50,19 +51,26 @@ And the scaling corollary:
 (`docs/09-form-filler.md` §boundaries). Document-surface programs get the
 rendered application pack; the founder sends it.
 
-**v2 (role mailbox):**
-- Inbound: Gmail API `watch` on `alex@ruhu.ai` → Pub/Sub → existing
-  webhook/resume handler → parse to structured events. This closes the
-  `FOLLOW_UP` loop (confirmations, interview invites, results) with real
-  signals instead of founder forwarding — the mailbox is just another event
-  source in the dormancy architecture.
+**v2 (role mailbox) — implemented:**
+- Inbound: Gmail API `watch` on `alex@ruhu.ai` → Pub/Sub → `POST /webhooks/alex_mail`
+  → history-based fetch → classified events → follow-ups attached to matching
+  inflight applications → the founder's session is woken and Alex reports.
+  This closes the `FOLLOW_UP` loop (confirmations, interview invites, results)
+  with real signals instead of founder forwarding. Manual fallback:
+  `POST /tasks/alex_mail_scan` and the pane's Scan-now button.
 - **Extraction-only:** email bodies are untrusted input, treated exactly like
-  web pages — parsed to structured data, never followed as instructions.
-- Outbound: sending from `alex@ruhu.ai` is an irreversible external action →
-  same persisted, single-use approval-token gate as submission (principle 5).
+  web pages — parsed to structured events, never followed as instructions.
+- Outbound: `send_email` rides the same approval gate as submission
+  (`approval_service`, gate `send_email`) — a GRANTED, unexpired, unconsumed
+  approval resolved server-side; consuming it is the idempotency key.
 - Deliverability: SPF/DKIM/DMARC configured day one; correspondence volume
   only, never bulk. The agent mailbox never replaces the founder's address as
   *applicant contact* on application forms — applicant identity is contractual.
+- **Manual prerequisites (not code):** create the `alex` Workspace user in the
+  ruhu.ai admin console; create the Pub/Sub topic + push subscription to
+  `/webhooks/alex_mail`; set `ALEX_MAIL_PUBSUB_TOPIC` / `ALEX_MAIL_WEBHOOK_TOKEN`;
+  connect via Connectors → Alex's Mailbox, signing in **as alex@ruhu.ai**.
+  Gmail watch expires after 7 days — re-arm on the deadline tick.
 
 ## Consequences
 

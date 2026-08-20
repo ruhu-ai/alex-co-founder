@@ -114,14 +114,64 @@ async def submit(page, idempotency_key: str) -> dict:
             "message": "submitted but no confirmation id found on result page"}
 
 
+async def register(portal_url: str, email: str, password: str) -> dict:
+    """Open a portal's signup page and create an account (docs/17).
+
+    Heuristic, email+password only: finds the email + password fields on a
+    signup/register page and submits. SSO-only or bot-challenged pages return
+    blockers as data — the agent never improvises around them."""
+    context = await new_context()
+    try:
+        page = await context.new_page()
+        base = portal_url.rstrip("/")
+        found = False
+        for candidate in (f"{base}/signup", f"{base}/register", f"{base}/auth/signup", base):
+            try:
+                await page.goto(candidate, timeout=15000)
+                await page.wait_for_load_state("networkidle", timeout=10000)
+            except Exception:
+                continue
+            if await page.query_selector("input[type='password']"):
+                found = True
+                break
+        body = (await page.inner_text("body"))[:800] if page.url else ""
+        lowered = body.lower()
+        if any(s in lowered for s in ("captcha", "verify you are human", "cloudflare")):
+            await context.close()
+            return {"status": "blocked", "error": True,
+                    "message": "bot protection detected on signup — screenshot and hand "
+                               "to the founder; Alex never solves CAPTCHAs (docs/17)"}
+        if not found:
+            await context.close()
+            return {"status": "blocked", "error": True,
+                    "message": "no email+password signup form found (possibly SSO-only) — "
+                               "reported as a blocker"}
+        email_sel = "input[type='email'], [name='email'], [name='username']"
+        await page.fill(email_sel, email)
+        pw_fields = await page.query_selector_all("input[type='password']")
+        await pw_fields[0].fill(password)
+        if len(pw_fields) > 1:  # confirm-password field
+            await pw_fields[1].fill(password)
+        await page.click("button[type='submit'], input[type='submit']")
+        await page.wait_for_load_state("networkidle", timeout=15000)
+        body = (await page.inner_text("body"))[:800]
+        return {"status": "success", "context": context, "page": page, "body": body}
+    except Exception as exc:
+        await context.close()
+        return {"status": "error", "error": True, "message": f"registration failed: {exc}"}
+
+
 async def open_and_login(portal_url: str, username: str, password: str) -> dict:
     """Open the portal and log in. Returns the live page on success."""
     context = await new_context()
     try:
         page = await context.new_page()
         await page.goto(portal_url, timeout=30000)
-        if "/login" in page.url or await page.query_selector("input[type='password']"):
-            await page.fill("[name='username']", username)
+        if not await page.query_selector("input[type='password']"):
+            # landing page isn't the login page — try the conventional path
+            await page.goto(portal_url.rstrip("/") + "/login", timeout=15000)
+        if await page.query_selector("input[type='password']"):
+            await page.fill("[name='username'], [name='email']", username)
             await page.fill("[name='password']", password)
             await page.click("button[type='submit']")
             await page.wait_for_load_state("networkidle", timeout=15000)

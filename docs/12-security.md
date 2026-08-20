@@ -15,6 +15,10 @@ walk a judge through every row.
 | Company documents | uploaded docs live only in the founder's own GCS bucket (artifact service); extraction runs in-project; nothing leaves the founder's GCP boundary — a data-sovereignty point vs. consumer agent products |
 | Drive connector | OAuth `drive.readonly` only; founder selects specific files (no blanket indexing); refresh tokens in Secret Manager, never in state/logs |
 | Gmail connector | OAuth `gmail.readonly` only; reads ONE founder-chosen label (default `grants`); everything outside that label is invisible to the agent — no sender, no subject; can never send/delete; processed ids persisted so rescans are idempotent |
+| Calendar connector | OAuth `calendar.readonly` + `calendar.events`; reads (free/busy, events) ungated; **booking is approval-gated in code** (gate `book_meeting`: GRANTED, unexpired, single-use, server-resolved) with the event details shown to the founder before approval; edit/delete of existing events is never granted to the agent |
+| Alex's mailbox (adr/001) | Separate Workspace account (`alex@ruhu.ai`), separate OAuth grant (`ALEX_OAUTH_REFRESH_TOKEN`); `gmail.readonly` + `gmail.send`. It is the agent's OWN mailbox, so unlike the founder's connector it is NOT privacy-narrowed — full search and full reads allowed. Send is gated in code by the approval service (GRANTED, unexpired, single-use, server-resolved); inbound mail is extraction-only, never followed as instructions; webhook token-checked; can never delete/modify mail |
+| GitHub connector | Fine-grained PAT stored as a secret (`.env` local / Secret Manager prod); validated against the API at connect time; no agent tools consume it yet (lands with the dev workflow) |
+| Connector registry | Connectors are data (`services/connectors.py`), not UI code; the panel renders `GET /api/connectors`; adding one never bypasses the per-connector scope checks |
 
 ## Tool scoping matrix (enforce in code, assert in tests)
 
@@ -25,6 +29,7 @@ walk a judge through every row.
 | write profile facts | | | | ✓ | | | ✓ (via apply_profile_update) |
 | draft sections | | | | | ✓ | | |
 | browser / portal | | | | | | ✓ | |
+| general browsing (`browse.*`, 18) | ✓ | | | | | | |
 | request approval | | | | | | ✓ | |
 | submit (token-gated) | | | | | | ✓ | |
 | record feedback | ✓ | | | | | | |

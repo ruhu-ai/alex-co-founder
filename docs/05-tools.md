@@ -102,6 +102,19 @@ singleton; headless from `HEADLESS` env). Full behavioral spec in **09**.
 | `capture_screenshot` | `(label: str, tool_context) -> dict` | Artifact `fillshot_{application_id}_{ts}.png`; returns filename. |
 | `submit_form` | `(tool_context) -> dict` | Guard G2 — **takes no token argument** (a token argument would put the secret in the model's tool call, where it could be leaked or fabricated). The tool resolves the approval server-side: looks up the GRANTED, unexpired, unconsumed approval for `active_application_id`; none found → refusal + audit `refused`. Sends the derived `Idempotency-Key` header (see §Idempotency); the portal returns the ORIGINAL confirmation on a duplicate, so at-least-once retries (ADK resume, trigger redelivery, double-click) can never double-submit. On success: approval→CONSUMED, parse confirmation, `current_step=SUBMITTED`, audit `success`. |
 
+## `tools/browse.py`
+
+General-purpose interactive browsing for the **orchestrator** (open a page on
+request, navigate, read/answer) over the same shared Playwright browser.
+Full behavioral spec, guardrails, and the UI Browser panel in **18**.
+
+| Function | Signature | Behavior |
+|---|---|---|
+| `open_page` | `(url: str, purpose: str, tool_context) -> dict` | http/https + domain policy enforced pre-navigation in code. Opens the session's `browse:{session_id}` context; DOM text → artifact; returns `{status, url, title, excerpt, links, screenshot_artifact}`. Sets `browser_status`; audit `browse_open`. |
+| `read_page` | `(question: str, tool_context) -> dict` | Answers a question about the current page from extracted text (re-extracts on URL/DOM-hash change). Pure read. |
+| `browser_action` | `(goal: str, tool_context) -> dict` | One bounded vision action (allowlist `click | type | select | scroll | navigate_back | open_link | wait` — no submit/checkout/payment; password/payment fields refused in code). Budget: 20 actions / 90 s per goal → partial + `needs_human`. Screenshots + audit `browse_action`. |
+| `close_browser` | `(tool_context) -> dict` | Closes the browse context; `browser_status.active=false`; audit `browse_close`. |
+
 ## `tools/followup.py`
 
 | Function | Signature | Behavior |

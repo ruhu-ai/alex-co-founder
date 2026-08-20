@@ -75,6 +75,11 @@ DESCRIPTORS: list[dict[str, Any]] = [
         "soon_note": "Superseded by the alex@ruhu.ai role mailbox plan (adr/001) unless a non-Google mailbox is needed.",
     },
     {
+        "name": "alex_mail", "title": "Alex's Mailbox", "icon": "A", "brand": "#7c5cd6",
+        "blurb": "alex@ruhu.ai — Alex's own inbox: program replies land here and wake the pipeline; sending is approval-gated.",
+        "auth": "google_oauth", "aliases": ("email", "alex", "mailbox"),
+    },
+    {
         "name": "jira", "title": "Jira", "icon": "▣", "brand": "#0052cc",
         "blurb": "Search, summarize, create, and update issues.",
         "auth": "token", "available": False, "aliases": ("tickets", "issues"),

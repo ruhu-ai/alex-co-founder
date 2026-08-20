@@ -37,6 +37,8 @@ def build_agent() -> Agent:
         model=MODEL,
         instruction=FORM_FILLER_INSTRUCTION,
         tools=[
+            browser.register_account,
+            browser.sign_in,
             browser.open_portal,
             browser.inspect_form,
             browser.verify_page_state,

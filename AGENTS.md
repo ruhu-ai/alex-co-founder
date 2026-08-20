@@ -17,6 +17,11 @@ Binding principles (docs/README.md):
 7. Guards live in code, not prompts — callbacks and tool-internal checks.
 8. Isolated workers see nothing — `include_contents="none"` for the distiller.
 
+Founder-facing UI work is governed by `docs/16-design-system.md`: consume
+semantic tokens only, stay on the type scale, icons come from the generated
+Phosphor sprite (`scripts/build_icons.py`), and `scripts/check_contrast.py`
+must pass.
+
 Conventions: generic core naming (`Opportunity`, `Application`, never
 `GrantTracker`); every folder under `agents/` must be a valid agent package;
 secrets fetched by name at execution time; user ids `user` / `eval_founder` /

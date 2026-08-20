@@ -51,10 +51,19 @@ live (text→audio round-trip + browser mic pipeline, 2026-08-19).
 ## What NOT to build (scope guard, mirrors brief §5)
 
 - General business advice chat, strategy, pricing, hiring talk.
-- "Works on any website" automation.
+- "Works on any website" automation. (18's browse tools are **read-first** —
+  open/navigate/read on request with no submit capability; that is research,
+  not arbitrary-site automation.)
 - More workflow definitions than `grant_applications.yaml`.
 - Payments, taxes, legal workflows.
 - A frontend framework, auth system, or multi-user support beyond a `founder_id`.
+
+## Post-core additions (after final acceptance, time permitting)
+
+- **17 — real portal access** (registration + sign-in, mailbox verification).
+- **18 — browser agent**: orchestrator `browse.*` tools + Browser panel live
+  view. Cheap demo win (founder pastes a link, Alex reads it live on screen);
+  build only after the final acceptance criteria below are green.
 
 ## Final acceptance criteria (mapped to judging)
 

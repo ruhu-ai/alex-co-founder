@@ -62,6 +62,8 @@ async def create_opportunity(record: dict[str, Any]) -> str:
 
 
 async def get_opportunity(opportunity_id: str) -> Optional[dict[str, Any]]:
+    if not opportunity_id:  # empty id would build an invalid document path
+        return None
     doc = await get_client().collection("opportunities").document(opportunity_id).get()
     return doc.to_dict() | {"id": doc.id} if doc.exists else None
 
@@ -220,7 +222,8 @@ async def mark_distilled(feedback_id: str, rule_ids: list[str]) -> None:
 # approvals (docs/12: tokens exist only here — never in model context)
 # ---------------------------------------------------------------------------
 
-async def create_approval(application_id: str, gate: str, ttl_minutes: int) -> str:
+async def create_approval(application_id: str, gate: str, ttl_minutes: int,
+                          details: Optional[dict[str, Any]] = None) -> str:
     from datetime import timedelta
 
     doc_id = _new_id()
@@ -229,6 +232,7 @@ async def create_approval(application_id: str, gate: str, ttl_minutes: int) -> s
         {
             "application_id": application_id,
             "gate": gate,
+            "details": details or {},  # what the founder is approving (e.g. email to/subject/body)
             "token": None,
             "status": "PENDING",
             "expires_at": expires.isoformat(),
@@ -238,6 +242,18 @@ async def create_approval(application_id: str, gate: str, ttl_minutes: int) -> s
         }
     )
     return doc_id
+
+
+async def list_pending_approvals() -> list[dict[str, Any]]:
+    """All PENDING, unexpired approvals, newest first — the global approval inbox."""
+    now = _now()
+    query = get_client().collection("approvals").where("status", "==", "PENDING")
+    out = []
+    async for doc in query.stream():
+        record = doc.to_dict()
+        if record.get("expires_at", "") > now:
+            out.append(record | {"id": doc.id})
+    return sorted(out, key=lambda a: a.get("created_at", ""), reverse=True)
 
 
 async def grant_approval(approval_id: str, founder_id: str) -> None:
@@ -404,6 +420,41 @@ async def set_last_gmail_scan(summary: dict[str, Any]) -> None:
 
 async def get_last_gmail_scan() -> Optional[dict[str, Any]]:
     doc = await get_client().collection("gmail_state").document("last_scan").get()
+    return doc.to_dict() if doc.exists else None
+
+
+# alex_mail_state (adr/001 v2): same pattern as gmail_state, separate collection
+# — Alex's mailbox is a different account with its own idempotency store.
+
+async def get_processed_alex_ids() -> list[str]:
+    doc = await get_client().collection("alex_mail_state").document("processed").get()
+    return doc.to_dict().get("ids", []) if doc.exists else []
+
+
+async def add_processed_alex_ids(ids: list[str]) -> None:
+    ref = get_client().collection("alex_mail_state").document("processed")
+    doc = await ref.get()
+    existing = doc.to_dict().get("ids", []) if doc.exists else []
+    await ref.set({"ids": (existing + ids)[-2000:]})
+
+
+async def get_alex_history_id() -> Optional[str]:
+    doc = await get_client().collection("alex_mail_state").document("watch").get()
+    return doc.to_dict().get("history_id") if doc.exists else None
+
+
+async def set_alex_history_id(history_id: str) -> None:
+    await get_client().collection("alex_mail_state").document("watch").set(
+        {"history_id": history_id, "at": _now()})
+
+
+async def set_last_alex_scan(summary: dict[str, Any]) -> None:
+    await get_client().collection("alex_mail_state").document("last_scan").set(
+        {**summary, "at": _now()})
+
+
+async def get_last_alex_scan() -> Optional[dict[str, Any]]:
+    doc = await get_client().collection("alex_mail_state").document("last_scan").get()
     return doc.to_dict() if doc.exists else None
 
 

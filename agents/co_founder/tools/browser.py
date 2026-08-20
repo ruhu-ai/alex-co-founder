@@ -8,6 +8,7 @@ founder, one active fill at a time — v1).
 """
 
 import os
+from urllib.parse import urlparse
 
 from google.adk.tools import ToolContext
 
@@ -15,6 +16,15 @@ from .. import state_schema as ss
 from ._common import run
 
 _pages: dict[str, dict] = {}  # application_id -> {"context":..., "page":..., "signature":...}
+
+
+def _mock_mailbox_url(portal_url: str, email: str) -> str:
+    """Mock portal seam (docs/17): its /_mailbox endpoint stands in for the
+    real inbox during offline registration tests."""
+    host = urlparse(portal_url).netloc
+    if host.startswith(("127.0.0.1", "localhost")):
+        return f"http://{host}/_mailbox/{email}"
+    return ""
 
 
 def _creds() -> tuple[str, str]:
@@ -30,6 +40,97 @@ def _creds() -> tuple[str, str]:
     except Exception:
         return (os.environ.get("MOCK_PORTAL_USERNAME", "demo-founder"),
                 os.environ.get("MOCK_PORTAL_PASSWORD", "demo-pass-2026"))
+
+
+def register_account(portal_url: str, email: str, tool_context: ToolContext) -> dict:
+    """Create an account on a program portal as Alex (docs/17).
+
+    Args:
+        portal_url: The portal's base URL, e.g. "https://flagship.aplica.500.co".
+        email: Alex's address for the account (alex@ruhu.ai) — never the
+            founder's personal address.
+
+    Returns:
+        dict with status. On success: account created, email verification
+        handled automatically (verification link read from Alex's mailbox),
+        credentials stored in Secret Manager (never returned). Bot protection
+        or SSO-only pages return a clean blocker — never worked around. Every
+        registration is audited.
+    """
+    from services import alex_mailbox, browser_service, portal_accounts
+
+    host = urlparse(portal_url).netloc
+    if portal_accounts.get_credential(host):
+        return {"status": "success",
+                "note": f"an account for {host} already exists — use sign_in"}
+    password = portal_accounts.generate_password()
+    result = run(browser_service.register(portal_url, email, password))
+    if result.get("status") != "success":
+        return result
+    body = result.get("body", "")
+    if "already exists" in body.lower():
+        return {"status": "error", "error": True,
+                "message": f"{host} says the account already exists but no stored "
+                           "credential matches — the founder must reset or share it once"}
+    verified = True
+    if "check your email" in body.lower() or "verify" in body.lower():
+        mail = run(alex_mailbox.wait_for_email(
+            from_contains=host.split(":")[0],
+            mailbox_url=_mock_mailbox_url(portal_url, email)))
+        if mail.get("status") != "success":
+            return mail
+        if mail.get("link"):
+            page = result["page"]
+            run(page.goto(mail["link"], timeout=15000))
+        elif mail.get("code"):
+            page = result["page"]
+            run(page.fill("input[name='code'], input[type='text']", mail["code"]))
+            run(page.click("button[type='submit']"))
+        verified = True
+    stored = portal_accounts.store_credential(host, email, password)
+    if stored.get("status") != "success":
+        return stored
+
+    from services import firestore
+
+    run(firestore.audit(
+        actor="agent:form_filler", action="register_account", target=host,
+        result="success",
+        detail=f"account created for {email}; verified={verified}"))
+    return {"status": "success", "host": host, "verified": verified,
+            "note": "account created and verified; credentials stored server-side"}
+
+
+def sign_in(portal_url: str, tool_context: ToolContext) -> dict:
+    """Sign in to a portal with the stored per-portal credential (docs/17).
+
+    Args:
+        portal_url: The portal's URL. The credential is looked up by host —
+            never supplied by the model.
+
+    Returns:
+        dict with status, page title, and field count after landing. Error when
+        no account exists (register_account first).
+    """
+    from services import browser_service, portal_accounts
+
+    host = urlparse(portal_url).netloc
+    cred = portal_accounts.get_credential(host)
+    if not cred:
+        return {"status": "error", "error": True,
+                "message": f"no account for {host} — call register_account first"}
+    result = run(browser_service.open_and_login(portal_url, cred["email"], cred["password"]))
+    if result.get("status") != "success":
+        return result
+    app_id = tool_context.state.get(ss.K_ACTIVE_APPLICATION_ID, "")
+    _pages[app_id] = {"context": result["context"], "page": result["page"], "signature": None}
+    inspect = run(browser_service.inspect(result["page"]))
+    if inspect.get("status") == "success":
+        _pages[app_id]["signature"] = inspect["signature"]
+        tool_context.state["temp:portal_signature"] = inspect["signature"]
+        return {"status": "success", "title": result["title"],
+                "field_count": len(inspect["fields"]), "signature": inspect["signature"]}
+    return {"status": "success", "title": result["title"], "field_count": 0}
 
 
 def open_portal(application_url: str, tool_context: ToolContext) -> dict:

@@ -44,3 +44,30 @@ async def check_availability(tool_context: ToolContext, days_ahead: int = 7) -> 
         or {"error": true, "message": ...} when Calendar is not connected.
     """
     return await calendar_adapter.check_availability(days_ahead=days_ahead)
+
+
+async def book_meeting(tool_context: ToolContext, summary: str, start_iso: str,
+                       end_iso: str, attendees: list[str],
+                       application_id: str = "") -> dict:
+    """Book a meeting on the founder's calendar and email invites — approval-gated.
+
+    Use after agreeing a time with the founder (check_availability first).
+    Creates the event with a Google Meet link and emails every attendee. The
+    founder must approve in the approval banner first — without a granted
+    approval this returns needs_approval and files the request; never retry
+    to bypass the gate.
+
+    Args:
+        summary: Event title (e.g. "Madica intro call — Ruhu").
+        start_iso: Start, ISO-8601 with timezone (e.g. 2026-08-25T14:00:00+01:00).
+        end_iso: End, ISO-8601 with timezone; must be after start.
+        attendees: Recipient emails — external contacts plus the founder.
+        application_id: The application this meeting relates to, if any.
+
+    Returns:
+        {"status": "success", "event_id", "meet_link"} after a granted
+        approval, or {"status": "needs_approval", ...} while pending.
+    """
+    return await calendar_adapter.create_event(
+        summary=summary, start_iso=start_iso, end_iso=end_iso,
+        attendees=attendees, application_id=application_id)

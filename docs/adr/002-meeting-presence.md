@@ -1,6 +1,8 @@
 # ADR 002 — Meeting Presence: Notes, Scheduling, and the Live-Participation Ladder
 
-**Status:** Accepted (design); Level 1 + Calendar scheduling are v2 scope
+**Status:** Accepted; **Calendar booking implemented 2026-08-20**
+(`services/calendar_adapter.py::create_event`, tool `book_meeting`, gate
+`book_meeting`); Meet-notes ladder unchanged — Level 1 is v2
 **Date:** 2026-08-20
 **Sources (verified 2026-08-20, docs last updated 2026-07-22):**
 developers.google.com/workspace/meet/api/guides/overview,

@@ -6,6 +6,7 @@
 
 # runtime state
 sessions.db
+.portal_secrets.json
 artifacts/
 .extracted/
 .pytest_cache/

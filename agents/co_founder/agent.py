@@ -13,6 +13,7 @@ from .callbacks import initialize_session_state
 from .config import MODEL, PERSONA_NAME
 from .instructions import ORCHESTRATOR_INSTRUCTION
 from .sub_agents import drafter, form_filler, interviewer, matchmaker, scout
+from .tools import alex_mail as alex_mail_tools
 from .tools import calendar as calendar_tools
 from .tools import feedback as feedback_tools
 from .tools import pipeline
@@ -39,6 +40,11 @@ def build_root_agent(model) -> Agent:
             feedback_tools.record_feedback,
             calendar_tools.get_upcoming_meetings,
             calendar_tools.check_availability,
+            calendar_tools.book_meeting,
+            alex_mail_tools.check_alex_inbox,
+            alex_mail_tools.search_alex_mail,
+            alex_mail_tools.read_alex_message,
+            alex_mail_tools.send_alex_email,
         ],
         sub_agents=[
             scout.build_agent(),

@@ -45,8 +45,8 @@ def produce_document(kind: str, title: str, spec: dict, tool_context: ToolContex
         opp_name = ""
         if app_id:
             app = await firestore.get_application(app_id)
-            if app:
-                opp = await firestore.get_opportunity(app.get("opportunity_id", ""))
+            if app and app.get("opportunity_id"):
+                opp = await firestore.get_opportunity(app["opportunity_id"])
                 opp_name = opp.get("name", "") if opp else ""
         await firestore.create_document_record(
             founder, artifact_name, kind, title, session_id, app_id, opp_name,
@@ -57,6 +57,9 @@ def produce_document(kind: str, title: str, spec: dict, tool_context: ToolContex
             detail=f"{kind} '{title}' v{version} session={session_id}")
         return {"status": "success", "artifact_name": artifact_name,
                 "download_url": f"/api/artifacts/{artifact_name}/download",
-                "version": version, "bytes": produced["bytes"]}
+                "version": version, "bytes": produced["bytes"],
+                "note": "Reply to the founder with ONLY: the title, version, "
+                        "and download_url. Never paste the document's content "
+                        "into chat — the file is the deliverable."}
 
     return run(_go())

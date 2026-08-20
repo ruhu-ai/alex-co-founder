@@ -55,14 +55,17 @@ from .callbacks import initialize_session_state
 from .instructions import ORCHESTRATOR_INSTRUCTION
 from .sub_agents import (scout, matchmaker, interviewer,
                          drafter, form_filler, distiller)
-from .tools import pipeline, feedback as feedback_tools
+from .tools import pipeline, feedback as feedback_tools, browse as browse_tools
 
 root_agent = Agent(
     name="co_founder",
     model=MODEL,
     instruction=ORCHESTRATOR_INSTRUCTION,
     tools=[pipeline.get_pipeline, pipeline.choose_opportunity,
-           feedback_tools.record_feedback],
+           feedback_tools.record_feedback,
+           # general-purpose browsing (18) — open/navigate/read pages on request
+           browse_tools.open_page, browse_tools.read_page,
+           browse_tools.browser_action, browse_tools.close_browser],
     sub_agents=[scout.agent, matchmaker.agent, interviewer.agent,
                 drafter.agent, form_filler.agent],
     before_agent_callback=initialize_session_state,
@@ -344,6 +347,6 @@ Tools: `profile.apply_profile_update`, `feedback.get_feedback`, `feedback.mark_d
 ## Acceptance checks
 
 - [ ] `adk web` graph view shows 6 agents with the wiring above (root + 5 sub-agents); the distiller is standalone (07) and does not appear in the transfer graph.
-- [ ] Tool scoping: drafter's tool list contains no browser or submit tools; form-filler's contains no drafting tools (assert in a unit test importing both agents).
+- [ ] Tool scoping: drafter's tool list contains no browser or submit tools; form-filler's contains no drafting tools (assert in a unit test importing both agents). The orchestrator's `browse.*` tools (18) appear in **no** sub-agent's list.
 - [ ] Each instruction renders with state values present (no literal `{current_step}` reaching the model) — verify in `adk web` event view.
 - [ ] Compaction triggers after 8 turns; older turns collapse into summary events (visible in `adk web`).

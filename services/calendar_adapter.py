@@ -1,10 +1,12 @@
-"""Calendar adapter (docs/adr/002): read-only free/busy + upcoming events.
+"""Calendar adapter (docs/adr/002): free/busy, upcoming events, and
+approval-gated booking.
 
-Alex checks the founder's calendar to plan work around real availability
-("you're free Thursday afternoon — I'll have the draft ready by then") and to
-see upcoming meetings. Read-only by construction: the OAuth scope is
-calendar.readonly. Booking (calendar.events) ships only with approval-gated
-invites — see docs/adr/002 §Calendar.
+Alex checks the founder's calendar to plan work around real availability and
+books meetings with external contacts. Reads are ungated (calendar.readonly).
+Booking creates a real event and emails invites to attendees — an external,
+reputation-spending action — so it is approval-gated exactly like submit_form
+and send_email: a GRANTED, unexpired, unconsumed approval resolved
+server-side; consuming it is the idempotency key (principles 4, 5, 7).
 
 The Google client is injectable so tests run without OAuth.
 """
@@ -12,9 +14,10 @@ The Google client is injectable so tests run without OAuth.
 from __future__ import annotations
 
 import datetime as dt
+import uuid
 from typing import Any, Callable
 
-from services import google_oauth
+from services import firestore, google_oauth
 
 _service_factory: Callable[[], Any] | None = None
 
@@ -91,3 +94,81 @@ async def check_availability(days_ahead: int = 7) -> dict:
     busy = resp.get("calendars", {}).get("primary", {}).get("busy", [])
     return {"status": "success", "busy": busy,
             "window": {"start": time_min, "end": time_max}}
+
+
+async def create_event(summary: str, start_iso: str, end_iso: str,
+                       attendees: list[str], description: str = "",
+                       application_id: str = "") -> dict:
+    """Create an event on the founder's primary calendar and email invites —
+    approval-gated (principle 5).
+
+    Without a valid approval: creates/finds a PENDING approval for the founder
+    to grant in the UI and returns needs_approval. With one: inserts the event
+    (Meet link auto-attached, invites sent), consumes the approval
+    (single-use idempotency), and audits.
+    """
+    svc = _service()
+    if svc is None:
+        return _no_oauth()
+    if (_service_factory is None  # prod only: pre-check the write scope
+            and "https://www.googleapis.com/auth/calendar.events"
+            not in google_oauth.granted_scopes()):
+        return {"status": "error", "error": True,
+                "message": "Calendar write not granted — reconnect Calendar in the "
+                           "Connectors panel to enable booking."}
+    if not summary.strip():
+        return {"status": "error", "error": True, "message": "summary is required"}
+    try:
+        start = dt.datetime.fromisoformat(start_iso)
+        end = dt.datetime.fromisoformat(end_iso)
+    except ValueError:
+        return {"status": "error", "error": True,
+                "message": "start/end must be ISO-8601 (e.g. 2026-08-25T14:00:00+01:00)"}
+    if end <= start:
+        return {"status": "error", "error": True, "message": "end must be after start"}
+    guests = [a.strip() for a in attendees if "@" in a]
+    if not guests:
+        return {"status": "error", "error": True,
+                "message": "at least one attendee email is required"}
+    target = f"calendar:{application_id or 'general'}"
+
+    approval = await firestore.find_valid_approval(target)
+    if not approval:
+        pending = await firestore.find_pending_approval(target)
+        if not pending:
+            from services import approval_service
+
+            requested = await approval_service.request_approval(
+                target, gate="book_meeting",
+                details={"summary": summary, "start": start_iso, "end": end_iso,
+                         "attendees": guests})
+            pending = {"id": requested.get("approval_id")}
+        await firestore.audit("agent:orchestrator", "book_meeting", target,
+                              "refused", "no GRANTED approval — requested founder approval")
+        return {"status": "needs_approval", "error": True,
+                "approval_id": pending.get("id"),
+                "message": "Booking a meeting requires your approval — a request is waiting "
+                           "in the approval banner. Once granted, ask me to book again."}
+
+    event_body = {
+        "summary": summary,
+        "description": description,
+        "start": {"dateTime": start.isoformat()},
+        "end": {"dateTime": end.isoformat()},
+        "attendees": [{"email": a} for a in guests],
+        "conferenceData": {"createRequest": {"requestId": uuid.uuid4().hex,
+                                             "conferenceSolutionKey": {"type": "hangoutsMeet"}}},
+    }
+    try:
+        event = svc.events().insert(
+            calendarId="primary", body=event_body,
+            conferenceDataVersion=1, sendUpdates="all").execute()
+    except Exception as exc:
+        return {"status": "error", "error": True, "message": f"event insert failed: {exc}"}
+    await firestore.consume_approval(approval["id"])
+    await firestore.audit("agent:orchestrator", "book_meeting", target, "success",
+                          f"summary={summary[:80]} attendees={','.join(guests)} "
+                          f"event_id={event.get('id')}")
+    return {"status": "success", "event_id": event.get("id"),
+            "meet_link": event.get("hangoutLink", ""),
+            "message": f"Booked '{summary}' — invites sent to {', '.join(guests)}."}

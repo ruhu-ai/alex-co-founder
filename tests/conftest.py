@@ -93,15 +93,22 @@ def fake_store(monkeypatch):
     async def _update_application(aid, **fields):
         store.applications[aid].update(fields, updated_at=store._now())
 
-    async def _create_approval(application_id, gate, ttl_minutes):
+    async def _create_approval(application_id, gate, ttl_minutes, details=None):
         from datetime import timedelta
         aid = uuid.uuid4().hex
         expires = datetime.now(timezone.utc) + timedelta(minutes=ttl_minutes)
         store.approvals[aid] = {"id": aid, "application_id": application_id, "gate": gate,
+                                "details": details or {},
                                 "token": None, "status": "PENDING",
                                 "expires_at": expires.isoformat(), "granted_by": None,
                                 "consumed_at": None, "created_at": store._now()}
         return aid
+
+    async def _list_pending_approvals():
+        now = store._now()
+        return sorted((a for a in store.approvals.values()
+                       if a["status"] == "PENDING" and a["expires_at"] > now),
+                      key=lambda a: a.get("created_at", ""), reverse=True)
 
     async def _get_approval(aid):
         return store.approvals.get(aid)
@@ -216,6 +223,7 @@ def fake_store(monkeypatch):
         "grant_approval": _grant_approval, "deny_approval": _deny_approval,
         "find_valid_approval": _find_valid_approval, "consume_approval": _consume_approval,
         "find_pending_approval": _find_pending_approval,
+        "list_pending_approvals": _list_pending_approvals,
         "find_successful_action": _find_successful_action,
         "create_ingestion": _create_ingestion, "get_ingestion": _get_ingestion,
         "update_ingestion": _update_ingestion, "get_opportunity": _get_opportunity,

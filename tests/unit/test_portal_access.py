@@ -1,0 +1,96 @@
+"""Portal access tests (docs/17): credential store, email verification loop."""
+
+import json
+
+import pytest
+
+from services import alex_mailbox, portal_accounts
+
+pytestmark = pytest.mark.asyncio
+
+
+@pytest.fixture
+def secrets_tmp(tmp_path, monkeypatch):
+    monkeypatch.setenv("PORTAL_SECRETS_FILE", str(tmp_path / "secrets.json"))
+    monkeypatch.delenv("GOOGLE_CLOUD_PROJECT", raising=False)
+    portal_accounts._CACHE.clear()
+    yield tmp_path
+    portal_accounts._CACHE.clear()
+
+
+class TestPortalAccounts:
+    def test_password_complexity(self):
+        pw = portal_accounts.generate_password()
+        assert len(pw) >= 24
+        assert any(c.islower() for c in pw) and any(c.isupper() for c in pw)
+        assert any(c.isdigit() for c in pw) and any(c in "!@#$%^&*" for c in pw)
+
+    def test_store_fetch_delete(self, secrets_tmp):
+        assert portal_accounts.store_credential("example.co", "alex@ruhu.ai", "pw123!X")["status"] == "success"
+        cred = portal_accounts.get_credential("example.co")
+        assert cred["email"] == "alex@ruhu.ai" and cred["password"] == "pw123!X"
+        # metadata listing never leaks the password
+        listed = portal_accounts.list_portals()
+        assert listed["example.co"]["email"] == "alex@ruhu.ai"
+        assert "password" not in listed["example.co"]
+        portal_accounts.delete_credential("example.co")
+        assert portal_accounts.get_credential("example.co") is None
+
+    def test_unknown_host_is_none(self, secrets_tmp):
+        assert portal_accounts.get_credential("nope.example") is None
+
+    def test_persists_across_cache_clear(self, secrets_tmp):
+        portal_accounts.store_credential("persist.example", "a@b.co", "pw!X1")
+        portal_accounts._CACHE.clear()  # simulate restart
+        cred = portal_accounts.get_credential("persist.example")
+        assert cred and cred["password"] == "pw!X1"
+
+
+class _MockMailbox:
+    def __init__(self, messages):
+        self.messages = messages
+
+
+class TestWaitForEmail:
+    async def test_mock_mailbox_link_extraction(self, monkeypatch):
+        import httpx
+
+        class _Resp:
+            def json(self):
+                return {"messages": [{"from": "noreply@mockportal.dev",
+                                      "subject": "Verify your account",
+                                      "body": "Welcome! Click: http://portal/verify?token=abc123",
+                                      "link": "http://portal/verify?token=abc123"}]}
+
+        class _Client:
+            async def __aenter__(self): return self
+            async def __aexit__(self, *a): pass
+            async def get(self, url): return _Resp()
+
+        monkeypatch.setattr(httpx, "AsyncClient", lambda timeout: _Client())
+        result = await alex_mailbox.wait_for_email(
+            from_contains="mockportal", timeout_s=1, poll_s=0,
+            mailbox_url="http://mock/_mailbox/alex@ruhu.ai")
+        assert result["status"] == "success"
+        assert result["link"] == "http://portal/verify?token=abc123"
+        assert result["code"] == ""
+
+    async def test_timeout_is_error_data(self, monkeypatch):
+        import httpx
+
+        class _Resp:
+            def json(self): return {"messages": []}
+
+        class _Client:
+            async def __aenter__(self): return self
+            async def __aexit__(self, *a): pass
+            async def get(self, url): return _Resp()
+
+        monkeypatch.setattr(httpx, "AsyncClient", lambda timeout: _Client())
+        result = await alex_mailbox.wait_for_email(
+            timeout_s=0, poll_s=0, mailbox_url="http://mock/_mailbox/x@y.z")
+        assert result["status"] == "error" and result["error"] is True
+
+    def test_extract_code(self):
+        link, code = alex_mailbox._extract_link_or_code("Your code is 482913. Enter it.")
+        assert link == "" and code == "482913"

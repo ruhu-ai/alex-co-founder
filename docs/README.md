@@ -43,6 +43,9 @@ founder's voice and thinking through explicit feedback capture.
 | `14-build-plan.md` | 13-day plan, cut list, final acceptance criteria | Daily |
 | `adr/` | Decision records (001: agent identity — persona Alex, role mailbox, no social; 002: meeting presence — notes ladder, Calendar scheduling) | As decisions are made |
 | `15-document-outputs.md` | Document production: docx/xlsx/pptx builders, validation gate, downloads, Drive sync | Post-core |
+| `16-design-system.md` | Design tokens, icon sprite, contrast checks | Post-core |
+| `17-real-portal-access.md` | Portal registration + sign-in, mailbox verification loop, audited account creation | Post-core |
+| `18-browser-agent.md` | General-purpose browsing (`browse.*` tools), Browser panel live view | Post-core |
 
 ## Design principles (binding on all implementation)
 

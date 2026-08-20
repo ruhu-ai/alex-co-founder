@@ -123,6 +123,7 @@ Written via `tool_context.state`. Injected into instructions by name (see 04).
 | `checklist_status` | session | compact map `{item_key: status}` for instruction injection |
 | `pending_signals` | list | events the agent is dormant waiting on, e.g. `["founder_reply", "portal_confirmation"]` |
 | `current_section` | session | section key being drafted/reviewed |
+| `browser_status` | session | `{active, url, goal, last_action}` — live browse-session state (18) |
 | `today` | session | today's date (ISO), refreshed every turn by the callback — the agent's clock |
 | `user:profile_id` | user-scoped | founder profile doc id (survives across sessions) |
 | `user:prefs` | user-scoped | small map of founder interaction prefs |

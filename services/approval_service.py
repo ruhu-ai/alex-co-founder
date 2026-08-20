@@ -10,11 +10,18 @@ from services import firestore
 
 _TTL = int(os.environ.get("APPROVAL_TTL_MINUTES", "30"))
 
+# Gates the founder can grant. submit_application: form submission.
+# send_email: outbound mail from alex@ruhu.ai (adr/001).
+# book_meeting: calendar event + emailed invites (adr/002).
+GATES = {"submit_application", "send_email", "book_meeting"}
 
-async def request_approval(application_id: str, gate: str = "submit_application") -> dict:
-    if gate != "submit_application":
+
+async def request_approval(application_id: str, gate: str = "submit_application",
+                           details: dict | None = None) -> dict:
+    if gate not in GATES:
         return {"status": "error", "error": True, "message": f"unknown gate {gate!r}"}
-    approval_id = await firestore.create_approval(application_id, gate, _TTL)
+    approval_id = await firestore.create_approval(application_id, gate, _TTL,
+                                                  details=details)
     await firestore.audit("agent:form_filler", "request_approval",
                           f"applications/{application_id}", "success", f"gate={gate}")
     return {"status": "success", "approval_id": approval_id}  # never the token

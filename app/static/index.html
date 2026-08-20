@@ -5,426 +5,1205 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Co-Founder</title>
 <style>
-  :root {
-    --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, sans-serif;
-    --mono: ui-monospace, "SF Mono", Menlo, monospace;
-    --radius: 12px;
-    --radius-sm: 8px;
-  }
-  html[data-theme="dark"] {
-    color-scheme: dark;
-    --bg: #0c0e13; --panel: #14171f; --panel2: #1a1e28; --line: #262c3a;
-    --text: #e8ebf2; --dim: #8b93a7; --faint: #5b6373;
-    --accent: #5b8dff; --accent-soft: rgba(91,141,255,.14);
-    --red: #ff6b61; --amber: #f5b83d; --green: #3ecf72; --purple: #b58cff;
-    --you-bubble: #26314e; --agent-bubble: #1a1e28;
-    --shadow: 0 4px 16px rgba(0,0,0,.35);
-  }
-  html[data-theme="light"] {
+/* ============================================================================
+   Workbench — the Co-Founder design system.  Spec: docs/16-design-system.md
+   Layer 1: tokens.  Components below consume semantics only, never primitives.
+   ========================================================================= */
+
+:root {
+  /* ---- type ------------------------------------------------------------ */
+  --font-ui: ui-sans-serif, -apple-system, BlinkMacSystemFont, "SF Pro Text",
+             "Segoe UI Variable Text", "Segoe UI", Inter, Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-display: "SF Pro Display", ui-sans-serif, -apple-system, BlinkMacSystemFont,
+             "Segoe UI Variable Display", "Segoe UI", Inter, Roboto, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Mono", Menlo, Consolas, monospace;
+
+  --fs-1: 11px;  --lh-1: 16px;   /* badges, micro-labels, timestamps */
+  --fs-2: 12px;  --lh-2: 18px;   /* captions, meta, audit detail     */
+  --fs-3: 13px;  --lh-3: 20px;   /* dense UI: cards, buttons, rows   */
+  --fs-4: 14px;  --lh-4: 22px;   /* body, chat, inputs               */
+  --fs-5: 16px;  --lh-5: 24px;   /* lead, dialog body                */
+  --fs-6: 18px;  --lh-6: 26px;   /* panel titles                     */
+  --fs-7: 22px;  --lh-7: 30px;   /* sheet & dialog titles            */
+  --fs-8: 28px;  --lh-8: 34px;   /* display numerals, empty headline */
+
+  --tr-tight: -.015em;  --tr-normal: 0;  --tr-label: .06em;
+
+  /* ---- space ----------------------------------------------------------- */
+  --sp-1: 4px;  --sp-2: 8px;  --sp-3: 12px; --sp-4: 16px; --sp-5: 20px;
+  --sp-6: 24px; --sp-7: 32px; --sp-8: 40px; --sp-9: 48px;
+
+  /* ---- radius ---------------------------------------------------------- */
+  --r-1: 4px; --r-2: 6px; --r-3: 10px; --r-4: 14px; --r-5: 20px; --r-full: 999px;
+
+  /* ---- icon sizes ------------------------------------------------------ */
+  --ico-sm: 14px; --ico-md: 16px; --ico-lg: 20px; --ico-xl: 24px;
+
+  /* ---- motion ---------------------------------------------------------- */
+  --dur-1: 120ms; --dur-2: 180ms; --dur-3: 260ms;
+  --ease-out: cubic-bezier(.2,.8,.3,1);
+  --ease-in-out: cubic-bezier(.4,0,.2,1);
+
+  /* ---- layout ---------------------------------------------------------- */
+  --header-h: 52px;
+  --measure: 68ch;
+}
+
+/* ---------------------------------------------------------------------------
+   Dark is the base palette: the app ships dark and the demo is recorded dark.
+   Declared on bare :root so the un-stamped document always resolves.
+   @tokens dark
+   ------------------------------------------------------------------------ */
+:root {
+  color-scheme: dark;
+  --surface-0: #090B10;
+  --surface-1: #12151D;
+  --surface-2: #191D27;
+  --surface-3: #222735;
+  --border:    #353A4A;
+  --divider:   #262B38;
+  --field:     #5D6475;
+  --ink-1:     #E9ECF4;
+  --ink-2:     #A6AEC2;
+  --ink-3:     #7C8599;
+  --accent:    #6E9BFF;
+  --accent-ink:#6E9BFF;
+  --accent-on: #0A1020;
+  --attn:      #F0B341;
+  --attn-ink:  #F3C36B;
+  --ok:        #43D07C;
+  --ok-ink:    #5FDC93;
+  --danger:    #FF6B61;
+  --danger-ink:#FF8F87;
+  --danger-on: #2A0906;
+  --info:      #B58CFF;
+  --info-ink:  #C4A4FF;
+  --focus:     #8FB2FF;
+  --file-doc:    #6FA8FF;
+  --file-sheet:  #4CC97E;
+  --file-slides: #FF9C5A;
+  --file-pdf:    #FF8A7E;
+
+  --scrim: rgba(4, 6, 11, .66);
+  --e-1: 0 1px 2px rgba(0,0,0,.4);
+  --e-2: 0 4px 14px rgba(0,0,0,.45);
+  --e-3: 0 24px 60px rgba(0,0,0,.6);
+  --bubble-you: #23304D;
+}
+
+/* OS light preference — only when the founder has not chosen explicitly.
+   @tokens light */
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
     color-scheme: light;
-    --bg: #f4f5f8; --panel: #ffffff; --panel2: #f7f8fb; --line: #e3e6ee;
-    --text: #1b2230; --dim: #647089; --faint: #9aa3b5;
-    --accent: #3563d9; --accent-soft: rgba(53,99,217,.10);
-    --red: #d9433a; --amber: #b07d10; --green: #1d9e54; --purple: #7c5cd6;
-    --you-bubble: #dce7ff; --agent-bubble: #f0f2f8;
-    --shadow: 0 4px 16px rgba(20,30,60,.08);
-  }
-  * { box-sizing: border-box; }
-  body { margin: 0; font: 14px/1.55 var(--font); background: var(--bg); color: var(--text); }
-  ::-webkit-scrollbar { width: 8px; height: 8px; }
-  ::-webkit-scrollbar-thumb { background: var(--line); border-radius: 4px; }
+    --surface-0: #EFF2F7;
+    --surface-1: #FFFFFF;
+    --surface-2: #F5F7FC;
+    --surface-3: #E7ECF6;
+    --border:    #C9D0DE;
+    --divider:   #E4E8F1;
+    --field:     #8D94A3;
+    --ink-1:     #161B26;
+    --ink-2:     #4E5769;
+    --ink-3:     #646D80;
+    --accent:    #2F5BD0;
+    --accent-ink:#2F5BD0;
+    --accent-on: #FFFFFF;
+    --attn:      #B8830F;
+    --attn-ink:  #8A5A06;
+    --ok:        #12924E;
+    --ok-ink:    #0B7A41;
+    --danger:    #CE4136;
+    --danger-ink:#B8271C;
+    --danger-on: #FFFFFF;
+    --info:      #8257E5;
+    --info-ink:  #6440BE;
+    --focus:     #2F5BD0;
+    --file-doc:    #1F5FC4;
+    --file-sheet:  #12794A;
+    --file-slides: #A85118;
+    --file-pdf:    #BE3227;
 
-  header {
-    display: flex; align-items: center; gap: 10px; padding: 10px 18px;
-    border-bottom: 1px solid var(--line); background: var(--panel);
-    position: sticky; top: 0; z-index: 10;
+    --scrim: rgba(22, 27, 38, .38);
+    --e-1: 0 1px 2px rgba(22,30,54,.07);
+    --e-2: 0 4px 14px rgba(22,30,54,.10);
+    --e-3: 0 24px 60px rgba(22,30,54,.20);
+    --bubble-you: #DCE7FF;
   }
-  .brand { font-weight: 700; font-size: 15px; letter-spacing: -.01em; }
-  .brand span { color: var(--accent); }
-  .chip {
-    font-size: 11px; color: var(--dim); border: 1px solid var(--line);
-    padding: 2px 10px; border-radius: 99px; white-space: nowrap;
-  }
-  header .spacer { flex: 1; }
+}
 
-  button {
-    background: var(--accent); color: #fff; border: 0; border-radius: var(--radius-sm);
-    padding: 7px 14px; cursor: pointer; font: 500 13px var(--font);
-    transition: filter .15s, transform .05s;
-  }
-  button:hover { filter: brightness(1.12); }
-  button:active { transform: scale(.97); }
-  button.ghost { background: transparent; border: 1px solid var(--line); color: var(--text); }
-  button.danger { background: var(--red); }
-  button:disabled { opacity: .45; cursor: not-allowed; }
-  button.icon { padding: 7px 10px; }
+/* The toggle wins over the OS, in both directions. CSS cannot share one
+   declaration block across a media query and a plain selector, so this list is
+   necessarily a copy of the block above — scripts/check_contrast.py fails the
+   build if the two ever diverge.
+   @tokens light-toggle */
+:root[data-theme="light"] {
+  color-scheme: light;
+  --surface-0: #EFF2F7;
+  --surface-1: #FFFFFF;
+  --surface-2: #F5F7FC;
+  --surface-3: #E7ECF6;
+  --border:    #C9D0DE;
+  --divider:   #E4E8F1;
+  --field:     #8D94A3;
+  --ink-1:     #161B26;
+  --ink-2:     #4E5769;
+  --ink-3:     #646D80;
+  --accent:    #2F5BD0;
+  --accent-ink:#2F5BD0;
+  --accent-on: #FFFFFF;
+  --attn:      #B8830F;
+  --attn-ink:  #8A5A06;
+  --ok:        #12924E;
+  --ok-ink:    #0B7A41;
+  --danger:    #CE4136;
+  --danger-ink:#B8271C;
+  --danger-on: #FFFFFF;
+  --info:      #8257E5;
+  --info-ink:  #6440BE;
+  --focus:     #2F5BD0;
+  --file-doc:    #1F5FC4;
+  --file-sheet:  #12794A;
+  --file-slides: #A85118;
+  --file-pdf:    #BE3227;
 
-  main {
-    display: grid; grid-template-columns: 330px minmax(380px, 1fr) 400px;
-    gap: 14px; padding: 14px 18px; height: calc(100vh - 53px);
-  }
-  section {
-    background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
-    padding: 14px; overflow-y: auto; display: flex; flex-direction: column; min-height: 0;
-  }
-  h2 {
-    font-size: 11px; text-transform: uppercase; letter-spacing: .1em;
-    color: var(--faint); margin: 2px 0 10px; display: flex; align-items: center; gap: 8px;
-  }
-  h2 .count { background: var(--panel2); border: 1px solid var(--line); border-radius: 99px; padding: 0 7px; }
+  --scrim: rgba(22, 27, 38, .38);
+  --e-1: 0 1px 2px rgba(22,30,54,.07);
+  --e-2: 0 4px 14px rgba(22,30,54,.10);
+  --e-3: 0 24px 60px rgba(22,30,54,.20);
+  --bubble-you: #DCE7FF;
+}
 
-  /* ---- board ---- */
-  .lane-label { font-size: 11px; font-weight: 700; letter-spacing: .06em; margin: 14px 0 8px; }
-  .lane-label.SHORTLISTED { color: var(--green); }
-  .lane-label.DISCOVERED { color: var(--accent); }
-  .lane-label.ARCHIVED { color: var(--faint); }
-  .card {
-    border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 10px 12px;
-    margin-bottom: 8px; background: var(--panel2); transition: border-color .15s;
-  }
-  .card:hover { border-color: var(--accent); }
-  .card .name { font-weight: 600; font-size: 13px; margin-bottom: 4px; }
-  .card .meta { color: var(--dim); font-size: 12px; }
-  .card .why {
-    color: var(--dim); font-size: 12px; margin-top: 6px;
-    display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
-  }
-  .card .why.arch { color: var(--faint); font-style: italic; }
-  .badge {
-    display: inline-block; padding: 1px 8px; border-radius: 99px; font-size: 10px;
-    font-weight: 700; letter-spacing: .04em; border: 1px solid var(--line); color: var(--dim);
-  }
-  .badge.CRITICAL { color: var(--red); border-color: var(--red); }
-  .badge.URGENT { color: var(--amber); border-color: var(--amber); }
-  .badge.OVERDUE { color: var(--red); border-color: var(--red); background: rgba(255,107,97,.12); }
-  .badge.fit { color: var(--green); border-color: var(--green); }
-  .badge.state { color: var(--purple); border-color: var(--purple); }
-  .fitbar { height: 4px; background: var(--line); border-radius: 2px; margin-top: 8px; overflow: hidden; }
-  .fitbar i { display: block; height: 100%; background: var(--green); border-radius: 2px; }
-  .empty { color: var(--faint); text-align: center; padding: 28px 12px; font-size: 13px; }
-  .empty button { margin-top: 12px; }
+/* Tints derive from the resolved hue, so they stay correct on any surface. */
+:root, :root[data-theme="light"] {
+  --accent-bg: color-mix(in srgb, var(--accent) 14%, transparent);
+  --attn-bg:   color-mix(in srgb, var(--attn)   16%, transparent);
+  --ok-bg:     color-mix(in srgb, var(--ok)     15%, transparent);
+  --danger-bg: color-mix(in srgb, var(--danger) 15%, transparent);
+  --info-bg:   color-mix(in srgb, var(--info)   15%, transparent);
+}
 
-  /* ---- chat ---- */
-  #chatlog { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; padding: 4px 2px; }
-  .msg { max-width: 82%; padding: 10px 14px; border-radius: 14px; font-size: 13.5px; animation: pop .18s ease-out; }
-  @keyframes pop { from { opacity: 0; transform: translateY(6px); } }
-  .msg.you { align-self: flex-end; background: var(--you-bubble); border-bottom-right-radius: 4px; }
-  .msg.agent { align-self: flex-start; background: var(--agent-bubble); border: 1px solid var(--line); border-bottom-left-radius: 4px; }
-  .msg-head { display: flex; align-items: center; gap: 7px; margin-bottom: 5px; font-size: 11.5px; font-weight: 600; color: var(--dim); letter-spacing: .02em; }
-  .msg-head .avatar { width: 20px; height: 20px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center;
-                      font-size: 11px; font-weight: 700; color: #fff; background: var(--accent); flex: none; }
-  .msg.agent h1, .msg.agent h2, .msg.agent h3, .msg.agent h4 { font-size: 14px; margin: 10px 0 4px; }
-  .msg.agent h1:first-child, .msg.agent h2:first-child, .msg.agent h3:first-child { margin-top: 0; }
-  .msg-head + h1, .msg-head + h2, .msg-head + h3, .msg-head + p { margin-top: 0; }
-  .msg.agent p { margin: 6px 0; }
-  .msg.agent ul, .msg.agent ol { margin: 6px 0; padding-left: 20px; }
-  .msg.agent li { margin: 2px 0; }
-  .msg.agent code { font-family: var(--mono); font-size: 12px; background: var(--panel); border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; }
-  .msg.agent a { color: var(--accent); }
-  .msg.agent hr { border: 0; border-top: 1px solid var(--line); margin: 10px 0; }
-  .typing { display: inline-flex; gap: 5px; padding: 12px 16px; align-self: flex-start;
-            background: var(--agent-bubble); border: 1px solid var(--line); border-radius: 14px; }
-  .typing i { width: 6px; height: 6px; border-radius: 50%; background: var(--dim); animation: blink 1.2s infinite; }
-  .typing i:nth-child(2) { animation-delay: .2s; } .typing i:nth-child(3) { animation-delay: .4s; }
-  @keyframes blink { 0%, 80%, 100% { opacity: .25; } 40% { opacity: 1; } }
-  #composer { padding-top: 12px; border-top: 1px solid var(--line); margin-top: 10px; }
-  .pillbar {
-    display: flex; align-items: center; gap: 4px;
-    background: var(--panel2); border: 1px solid var(--line);
-    border-radius: 999px; padding: 5px 6px;
-  }
-  .pillbar:focus-within { border-color: var(--accent); }
-  .pillbar input {
-    flex: 1; background: transparent; border: 0; outline: none;
-    padding: 8px 6px; font: 14px var(--font); color: var(--text); min-width: 0;
-  }
-  .cbtn {
-    width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center;
-    background: transparent; border: 0; color: var(--dim); cursor: pointer; flex: none; padding: 0;
-  }
-  .cbtn:hover { background: var(--line); color: var(--text); }
-  .cbtn:disabled { opacity: .35; cursor: not-allowed; }
-  .cbtn svg { width: 18px; height: 18px; }
-  .cbtn.send { background: var(--accent); color: #fff; }
-  .cbtn.send:hover { filter: brightness(1.12); background: var(--accent); }
-  .cbtn.voicecall { background: var(--text); color: var(--bg); }
-  .cbtn.voicecall:hover { background: var(--text); filter: brightness(1.25); }
-  .cbtn.voicecall.live { background: var(--red); color: #fff; animation: pulse 1.6s infinite; }
-  .cbtn.voicecall.connecting { background: var(--amber); color: #fff; }
-  @keyframes pulse {
-    0%, 100% { box-shadow: 0 0 0 0 rgba(255,107,97,.45); }
-    50% { box-shadow: 0 0 0 7px rgba(255,107,97,0); }
-  }
-  .msg.voice { border-style: dashed; }
+/* ============================================================================
+   Base
+   ========================================================================= */
+*, *::before, *::after { box-sizing: border-box; }
 
-  /* ---- document cards (docs/15) ---- */
-  .doc-card {
-    display: flex; align-items: center; gap: 10px; border: 1px solid var(--line);
-    background: var(--panel2); border-radius: 10px; padding: 10px 12px; margin: 6px 0;
-  }
-  .doc-badge {
-    width: 34px; height: 34px; border-radius: 8px; display: grid; place-items: center;
-    font: 700 9px var(--font); color: #fff; flex: none; letter-spacing: .03em;
-  }
-  .doc-badge.docx { background: #2563eb; }
-  .doc-badge.xlsx { background: #16a34a; }
-  .doc-badge.pptx { background: #ea580c; }
-  .doc-badge.pdf { background: #dc2626; }
-  .doc-badge svg { width: 18px; height: 18px; }
-  .doc-card .name { font-weight: 600; font-size: 12.5px; overflow: hidden;
-                    text-overflow: ellipsis; white-space: nowrap; }
-  .doc-card .sub { font-size: 11px; color: var(--dim); }
-  .doc-tag { color: var(--accent); cursor: pointer; }
-  .doc-tag:hover { text-decoration: underline; }
-  a.cbtn { text-decoration: none; }
+body {
+  margin: 0;
+  background: var(--surface-0);
+  color: var(--ink-1);
+  font: 400 var(--fs-4)/var(--lh-4) var(--font-ui);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
 
-  /* ---- PDF preview modal (docs/15 §preview policy) ---- */
-  #pdfModal {
-    position: fixed; inset: 0; background: rgba(0,0,0,.6); display: none;
-    align-items: center; justify-content: center; z-index: 55; backdrop-filter: blur(3px);
-  }
-  #pdfModal .box {
-    background: var(--panel); border: 1px solid var(--line); border-radius: 16px;
-    width: 860px; max-width: 95vw; max-height: 92vh; display: flex; flex-direction: column;
-    box-shadow: var(--shadow);
-  }
-  #pdfModal .bar {
-    display: flex; align-items: center; gap: 10px; padding: 10px 16px;
-    border-bottom: 1px solid var(--line); font-size: 13px;
-  }
-  #pdfModal .bar .ttl { font-weight: 600; flex: 1; overflow: hidden;
-                        text-overflow: ellipsis; white-space: nowrap; }
-  #pdfModal .canvas-wrap { overflow: auto; flex: 1; display: flex; justify-content: center;
-                           padding: 16px; background: var(--panel2); }
-  #pdfModal canvas { box-shadow: var(--shadow); border-radius: 4px; background: #fff; }
+/* Every live-updating figure lines up: the board repaints every 5 s. */
+.tnum, .badge, .meter-val, .audit-item, .mono, time { font-variant-numeric: tabular-nums; }
 
-  /* ---- review ---- */
-  .stepper { display: flex; gap: 3px; margin: 4px 0 14px; }
-  .stepper i { flex: 1; height: 4px; border-radius: 2px; background: var(--line); }
-  .stepper i.done { background: var(--green); }
-  .stepper i.now { background: var(--accent); box-shadow: 0 0 6px var(--accent); }
-  .steplabel { font-size: 11px; color: var(--accent); font-weight: 600; margin: -8px 0 12px; }
-  .appcard { cursor: pointer; }
-  .appcard.active { border-color: var(--accent); background: var(--accent-soft); }
-  .section {
-    border: 1px solid var(--line); border-radius: var(--radius-sm);
-    padding: 12px; margin-bottom: 10px; background: var(--panel2);
-  }
-  .section .preview { color: var(--dim); font-size: 12.5px; margin-top: 6px; white-space: pre-wrap; }
-  .section .notes {
-    color: var(--amber); font-size: 12px; font-style: italic; margin: 8px 0;
-    border-left: 3px solid var(--amber); padding-left: 8px;
-  }
-  .section textarea {
-    width: 100%; background: var(--panel); color: var(--text); border: 1px solid var(--line);
-    border-radius: 6px; min-height: 90px; display: none; font: 12.5px var(--font); padding: 8px; margin-top: 8px;
-  }
-  .row { display: flex; gap: 6px; margin-top: 10px; align-items: center; flex-wrap: wrap; }
-  .row input[placeholder] {
-    flex: 1; min-width: 140px; background: var(--panel); border: 1px solid var(--line);
-    color: var(--text); border-radius: 6px; padding: 6px 9px; font-size: 12px; display: none;
-  }
-  .approval-banner {
-    border: 1px solid var(--amber); background: rgba(245,184,61,.1); border-radius: var(--radius-sm);
-    padding: 12px 14px; margin-bottom: 12px;
-  }
-  .approval-banner b { color: var(--amber); }
-  .audit-item { font: 11px/1.5 var(--mono); color: var(--dim); padding: 6px 0; border-bottom: 1px solid var(--line); }
-  .audit-item:last-child { border-bottom: 0; }
-  .audit-item .ok { color: var(--green); } .audit-item .refused { color: var(--red); }
-  .audit-item .when { color: var(--faint); float: right; }
-  .mono { font-family: var(--mono); font-size: 12px; color: var(--dim); }
+::-webkit-scrollbar { width: 9px; height: 9px; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: var(--r-full); }
+::-webkit-scrollbar-thumb:hover { background: var(--field); }
+::-webkit-scrollbar-track { background: transparent; }
 
-  #modal {
-    position: fixed; inset: 0; background: rgba(0,0,0,.55); display: none;
-    align-items: center; justify-content: center; z-index: 50; backdrop-filter: blur(3px);
-  }
-  #modal .box {
-    background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
-    padding: 22px; width: 400px; box-shadow: var(--shadow);
-  }
-  #toast {
-    position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%);
-    background: var(--panel); border: 1px solid var(--line); border-radius: 99px;
-    padding: 8px 18px; font-size: 12.5px; box-shadow: var(--shadow);
-    opacity: 0; transition: opacity .25s; pointer-events: none; z-index: 60;
-  }
+:where(a) { color: var(--accent-ink); text-underline-offset: 2px; }
 
-  /* ---- connections panel (macOS System-Settings grammar: grouped inset lists) ---- */
-  [data-brand="gmail"] { --brand: #ea4335; --brand-soft: rgba(234,67,53,.12); }
-  [data-brand="drive"] { --brand: #1a73e8; --brand-soft: rgba(26,115,232,.12); }
-  [data-brand="calendar"] { --brand: #188038; --brand-soft: rgba(24,128,56,.12); }
-  .grp { background: var(--panel2); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
-  .grp > * + * { border-top: 1px solid var(--line); }
-  .grp-h { font-size: 11px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase;
-           color: var(--dim); margin: 18px 2px 7px; }
-  .crow { display: flex; align-items: center; gap: 12px; padding: 11px 14px; min-height: 44px; }
-  .crow .grow { min-width: 0; flex: 1; }
-  .foot { font-size: 11.5px; color: var(--faint); padding: 7px 2px 0; line-height: 1.5; }
-  .cbadge { width: 34px; height: 34px; border-radius: 8px; background: var(--brand-soft);
-            color: var(--brand); display: grid; place-items: center; font-weight: 700;
-            font-size: 15px; flex: none; }
-  .cbadge.big { width: 44px; height: 44px; font-size: 19px; border-radius: 10px; }
-  .cbadge.sm { width: 24px; height: 24px; border-radius: 6px; font-size: 12px; }
-  .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; background: var(--green); }
-  .dot.off { background: var(--faint); }
-  .tag { font-size: 10.5px; font-weight: 700; padding: 2px 8px; border-radius: 5px; flex: none; }
-  .tag-accent { background: var(--accent-soft); color: var(--accent); }
-  .tag-warn { background: rgba(245,184,61,.15); color: var(--amber); }
-  .tag-quiet { background: var(--panel); border: 1px solid var(--line); color: var(--dim); }
-  .chev { color: var(--faint); font-size: 15px; flex: none; }
-  .pill { font-size: 12.5px; font-weight: 500; padding: 5px 13px; border-radius: 99px;
-          border: 0; cursor: pointer; flex: none; font-family: var(--font); }
-  .pill-accent { background: var(--accent); color: #fff; }
-  .pill-quiet { background: var(--accent-soft); color: var(--accent); }
-  .x { color: var(--faint); font-size: 15px; line-height: 1; background: none; border: 0;
-       cursor: pointer; padding: 2px 6px; }
-  .x:hover { color: var(--red); }
-  .connrow { cursor: pointer; background: none; border: 0; width: 100%; text-align: left;
-             font: inherit; color: inherit; }
-  .connrow:hover { background: var(--panel); }
-  #connections {
-    position: fixed; inset: 0; background: rgba(0,0,0,.5); display: none;
-    align-items: flex-start; justify-content: center; z-index: 40; backdrop-filter: blur(3px);
+/* One focus treatment, everywhere. */
+:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+  border-radius: var(--r-2);
+}
+:focus:not(:focus-visible) { outline: none; }
+
+/* ============================================================================
+   Icons — Phosphor "regular", vendored subset, one inline sprite.
+   Phosphor draws filled paths on a 256 grid, so icons take `fill`, not stroke.
+   ========================================================================= */
+.ico {
+  width: var(--ico-md); height: var(--ico-md);
+  flex: none; display: block; fill: currentColor;
+}
+.ico-sm { width: var(--ico-sm); height: var(--ico-sm); }
+.ico-lg { width: var(--ico-lg); height: var(--ico-lg); }
+.ico-xl { width: var(--ico-xl); height: var(--ico-xl); }
+#sprite { display: none; }
+
+/* ============================================================================
+   Button — one primitive, five variants, three sizes
+   ========================================================================= */
+.btn {
+  --btn-h: 32px;
+  display: inline-flex; align-items: center; justify-content: center; gap: var(--sp-2);
+  height: var(--btn-h); padding: 0 var(--sp-3);
+  border: 1px solid transparent; border-radius: var(--r-3);
+  font: 500 var(--fs-3)/1 var(--font-ui); white-space: nowrap;
+  background: var(--accent); color: var(--accent-on);
+  cursor: pointer;
+  transition: background var(--dur-1) var(--ease-out),
+              border-color var(--dur-1) var(--ease-out),
+              color var(--dur-1) var(--ease-out),
+              transform var(--dur-1) var(--ease-out);
+}
+.btn:hover { background: color-mix(in srgb, var(--accent) 86%, var(--ink-1)); }
+.btn:active { transform: scale(.975); }
+.btn:disabled { opacity: .45; cursor: not-allowed; transform: none; }
+
+.btn[data-size="sm"] { --btn-h: 26px; padding: 0 var(--sp-2); font-size: var(--fs-2); }
+.btn[data-size="lg"] { --btn-h: 38px; padding: 0 var(--sp-4); font-size: var(--fs-4); }
+
+.btn[data-variant="secondary"] {
+  background: var(--surface-2); border-color: var(--border); color: var(--ink-1);
+}
+.btn[data-variant="secondary"]:hover { background: var(--surface-3); border-color: var(--field); }
+
+.btn[data-variant="ghost"] { background: transparent; color: var(--ink-2); border-color: transparent; }
+.btn[data-variant="ghost"]:hover { background: var(--surface-2); color: var(--ink-1); }
+
+.btn[data-variant="quiet"] { background: var(--accent-bg); color: var(--accent-ink); }
+.btn[data-variant="quiet"]:hover { background: color-mix(in srgb, var(--accent) 24%, transparent); }
+
+.btn[data-variant="danger"] { background: var(--danger); color: var(--danger-on); }
+.btn[data-variant="danger"]:hover { background: color-mix(in srgb, var(--danger) 86%, var(--ink-1)); }
+
+.btn[data-shape="icon"] { width: var(--btn-h); padding: 0; border-radius: var(--r-full); }
+
+/* ============================================================================
+   Badge — tint + ink, never a solid fill except danger
+   ========================================================================= */
+.badge {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 2px var(--sp-2); border-radius: var(--r-full);
+  font: 600 var(--fs-1)/var(--lh-1) var(--font-ui); letter-spacing: var(--tr-label);
+  background: var(--surface-3); color: var(--ink-2); white-space: nowrap;
+}
+.badge[data-tone="accent"] { background: var(--accent-bg); color: var(--accent-ink); }
+.badge[data-tone="ok"]     { background: var(--ok-bg);     color: var(--ok-ink); }
+.badge[data-tone="attn"]   { background: var(--attn-bg);   color: var(--attn-ink); }
+.badge[data-tone="danger"] { background: var(--danger-bg); color: var(--danger-ink); }
+.badge[data-tone="info"]   { background: var(--info-bg);   color: var(--info-ink); }
+
+/* ============================================================================
+   Field — inputs and textareas
+   ========================================================================= */
+.field {
+  width: 100%; background: var(--surface-1); color: var(--ink-1);
+  border: 1px solid var(--border); border-radius: var(--r-2);
+  padding: var(--sp-2) var(--sp-3);
+  font: 400 var(--fs-3)/var(--lh-3) var(--font-ui);
+  transition: border-color var(--dur-1) var(--ease-out);
+}
+.field::placeholder { color: var(--ink-3); }
+.field:hover { border-color: var(--field); }
+.field:focus { border-color: var(--accent); outline: none; box-shadow: 0 0 0 3px var(--accent-bg); }
+
+/* ============================================================================
+   Card
+   ========================================================================= */
+.card {
+  border: 1px solid var(--border); border-radius: var(--r-3);
+  padding: var(--sp-3); background: var(--surface-2);
+  display: flex; flex-direction: column; gap: var(--sp-1);
+  transition: border-color var(--dur-1) var(--ease-out),
+              background var(--dur-1) var(--ease-out);
+}
+.card:hover { border-color: var(--field); }
+.card .name {
+  font: 600 var(--fs-3)/var(--lh-3) var(--font-ui);
+  letter-spacing: var(--tr-tight); color: var(--ink-1);
+}
+.card .meta {
+  display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap;
+  color: var(--ink-3); font-size: var(--fs-2); line-height: var(--lh-2);
+}
+.card .why {
+  color: var(--ink-2); font-size: var(--fs-2); line-height: var(--lh-2);
+  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
+}
+.card .why.arch {
+  color: var(--ink-3); font-style: italic; -webkit-line-clamp: none; display: block;
+  border-left: 2px solid var(--ink-3); padding-left: var(--sp-2);
+}
+
+/* ============================================================================
+   Meter — fit score.  Hue encodes the value; the number is always present.
+   ========================================================================= */
+.meter { display: flex; align-items: center; gap: var(--sp-2); }
+.meter-track {
+  flex: 1; height: 4px; background: var(--surface-3);
+  border-radius: var(--r-full); overflow: hidden; min-width: 40px;
+}
+.meter-fill { display: block; height: 100%; border-radius: var(--r-full); background: var(--ink-3); }
+.meter[data-band="mid"]  .meter-fill { background: var(--attn); }
+.meter[data-band="high"] .meter-fill { background: var(--ok); }
+.meter-val {
+  font: 600 var(--fs-1)/var(--lh-1) var(--font-ui); color: var(--ink-3); flex: none;
+}
+.meter[data-band="mid"]  .meter-val { color: var(--attn-ink); }
+.meter[data-band="high"] .meter-val { color: var(--ok-ink); }
+
+/* ============================================================================
+   Empty state
+   ========================================================================= */
+.empty {
+  display: flex; flex-direction: column; align-items: center; gap: var(--sp-2);
+  text-align: center; padding: var(--sp-6) var(--sp-4); color: var(--ink-3);
+}
+.empty .ico { color: var(--ink-3); }
+.empty b {
+  font: 600 var(--fs-4)/var(--lh-4) var(--font-ui); color: var(--ink-2);
+  text-wrap: balance;
+}
+.empty p { margin: 0; font-size: var(--fs-3); line-height: var(--lh-3); max-width: 34ch; text-wrap: balance; }
+
+/* ============================================================================
+   Layout
+   ========================================================================= */
+header {
+  display: flex; align-items: center; gap: var(--sp-2);
+  height: var(--header-h); padding: 0 var(--sp-4);
+  border-bottom: 1px solid var(--border); background: var(--surface-1);
+  position: sticky; top: 0; z-index: 10; box-shadow: var(--e-2);
+}
+.brand {
+  font: 700 var(--fs-5)/1 var(--font-display); letter-spacing: var(--tr-tight);
+  color: var(--ink-1); margin-right: var(--sp-1);
+}
+.brand span { color: var(--accent-ink); }
+.chip {
+  font: 500 var(--fs-1)/var(--lh-1) var(--font-mono);
+  color: var(--ink-3); background: var(--surface-2);
+  border: 1px solid var(--divider); padding: 3px var(--sp-2);
+  border-radius: var(--r-full); white-space: nowrap;
+}
+header .spacer { flex: 1; }
+
+main {
+  display: grid;
+  grid-template-columns: clamp(300px, 24vw, 360px) minmax(420px, 1fr) clamp(340px, 27vw, 420px);
+  gap: var(--sp-3); padding: var(--sp-3) var(--sp-4);
+  height: calc(100dvh - var(--header-h));
+}
+main > section {
+  background: var(--surface-1); border: 1px solid var(--border);
+  border-radius: var(--r-4); padding: var(--sp-3);
+  overflow-y: auto; overscroll-behavior: contain;
+  display: flex; flex-direction: column; min-height: 0;
+}
+h2 {
+  font: 600 var(--fs-1)/var(--lh-1) var(--font-ui);
+  text-transform: uppercase; letter-spacing: var(--tr-label);
+  color: var(--ink-3); margin: var(--sp-1) 0 var(--sp-3);
+  display: flex; align-items: center; gap: var(--sp-2);
+}
+h2 .count {
+  background: var(--surface-3); color: var(--ink-2);
+  border-radius: var(--r-full); padding: 1px 7px; font-variant-numeric: tabular-nums;
+}
+.stack { display: flex; flex-direction: column; gap: var(--sp-2); }
+
+/* Pane switcher — only exists in the single-column layout. */
+#paneTabs {
+  display: none; gap: 2px; padding: 2px; margin-right: var(--sp-1);
+  background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r-full);
+}
+#paneTabs button {
+  display: inline-flex; align-items: center; gap: var(--sp-1);
+  height: 26px; padding: 0 var(--sp-3); border: 0; border-radius: var(--r-full);
+  background: transparent; color: var(--ink-2); cursor: pointer;
+  font: 500 var(--fs-2)/1 var(--font-ui);
+  transition: background var(--dur-1) var(--ease-out), color var(--dur-1) var(--ease-out);
+}
+#paneTabs button[aria-selected="true"] { background: var(--accent); color: var(--accent-on); }
+
+/* Below three columns the review panel is a drawer; below two it is a tab. */
+@media (max-width: 1150px) {
+  header .chip { display: none; }
+}
+@media (max-width: 1000px) {
+  /* Icon-only header actions; the accessible name lives on aria-label. */
+  header .btn > span { display: none; }
+  header .btn { padding: 0 var(--sp-2); }
+}
+@media (max-width: 1279px) {
+  main { grid-template-columns: clamp(280px, 30vw, 340px) minmax(0, 1fr); }
+  #review {
+    position: fixed; top: var(--header-h); right: 0; bottom: 0; width: min(420px, 92vw);
+    border-radius: var(--r-4) 0 0 var(--r-4); box-shadow: var(--e-3); z-index: 20;
+    transform: translateX(100%); transition: transform var(--dur-3) var(--ease-out);
   }
-  #connections .sheet {
-    background: var(--panel); border: 1px solid var(--line); border-radius: 16px;
-    width: 620px; max-width: 94vw; max-height: 84vh; overflow-y: auto;
-    margin-top: 6vh; padding: 22px 24px; box-shadow: var(--shadow);
+  body[data-drawer="open"] #review { transform: none; }
+  #drawerBtn { display: inline-flex !important; }
+}
+@media (max-width: 959px) {
+  main { grid-template-columns: minmax(0, 1fr); }
+  #board { display: none; }
+  body[data-pane="board"] #board { display: flex; }
+  body[data-pane="board"] #chat { display: none; }
+  #paneTabs { display: flex !important; }
+}
+
+/* ============================================================================
+   Board
+   ========================================================================= */
+.lane-label {
+  display: flex; align-items: center; gap: var(--sp-2);
+  font: 600 var(--fs-1)/var(--lh-1) var(--font-ui); letter-spacing: var(--tr-label);
+  text-transform: uppercase; margin: var(--sp-4) 0 var(--sp-2); color: var(--ink-3);
+}
+.lane-label:first-child { margin-top: 0; }
+.lane-label::after { content: ""; flex: 1; height: 1px; background: var(--divider); }
+.lane-label.SHORTLISTED { color: var(--ok-ink); }
+.lane-label.DISCOVERED  { color: var(--accent-ink); }
+.lane-label.ARCHIVED    { color: var(--ink-3); }
+.appcard { cursor: pointer; }
+.appcard.active { border-color: var(--accent); background: var(--accent-bg); }
+
+/* ============================================================================
+   Chat
+   ========================================================================= */
+#chatlog {
+  flex: 1; overflow-y: auto; overscroll-behavior: contain;
+  display: flex; flex-direction: column; gap: var(--sp-3); padding: var(--sp-1) 2px;
+}
+.msg {
+  max-width: min(82%, var(--measure));
+  padding: var(--sp-3) var(--sp-4); border-radius: var(--r-4);
+  font-size: var(--fs-4); line-height: var(--lh-4);
+  animation: rise var(--dur-2) var(--ease-out);
+}
+@keyframes rise { from { opacity: 0; transform: translateY(6px); } }
+.msg.you {
+  align-self: flex-end; background: var(--bubble-you); color: var(--ink-1);
+  border-bottom-right-radius: var(--r-1);
+}
+.msg.agent {
+  align-self: flex-start; background: var(--surface-2);
+  border: 1px solid var(--border); border-bottom-left-radius: var(--r-1);
+}
+.msg-head {
+  display: flex; align-items: center; gap: var(--sp-2); margin-bottom: var(--sp-2);
+  font: 600 var(--fs-1)/var(--lh-1) var(--font-ui); color: var(--ink-3);
+  letter-spacing: var(--tr-label); text-transform: uppercase;
+}
+.msg-head .avatar {
+  width: 20px; height: 20px; border-radius: var(--r-full);
+  display: inline-flex; align-items: center; justify-content: center;
+  font: 700 var(--fs-1)/1 var(--font-display); letter-spacing: 0;
+  color: var(--accent-on); background: var(--accent); flex: none;
+}
+.msg.agent :is(h3, h4, h5, h6) {
+  font: 600 var(--fs-4)/var(--lh-4) var(--font-ui);
+  margin: var(--sp-3) 0 var(--sp-1); letter-spacing: var(--tr-tight);
+}
+.msg.agent > :first-child { margin-top: 0; }
+.msg.agent > :last-child { margin-bottom: 0; }
+.msg.agent p { margin: var(--sp-2) 0; }
+.msg.agent ul, .msg.agent ol { margin: var(--sp-2) 0; padding-left: var(--sp-5); }
+.msg.agent li { margin: 2px 0; }
+.msg.agent code {
+  font: 400 var(--fs-2)/1.5 var(--font-mono); background: var(--surface-1);
+  border: 1px solid var(--divider); border-radius: var(--r-1); padding: 1px 4px;
+}
+.msg.agent hr { border: 0; border-top: 1px solid var(--divider); margin: var(--sp-3) 0; }
+.msg.voice { border-style: dashed; }
+
+.typing {
+  display: inline-flex; gap: 5px; padding: var(--sp-3) var(--sp-4); align-self: flex-start;
+  background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r-4);
+}
+.typing i { width: 6px; height: 6px; border-radius: var(--r-full); background: var(--ink-3);
+            animation: blink 1.2s infinite; }
+.typing i:nth-child(2) { animation-delay: .2s; }
+.typing i:nth-child(3) { animation-delay: .4s; }
+@keyframes blink { 0%, 80%, 100% { opacity: .25; } 40% { opacity: 1; } }
+
+#composer { padding-top: var(--sp-3); border-top: 1px solid var(--divider); margin-top: var(--sp-2); }
+.pillbar {
+  display: flex; align-items: center; gap: var(--sp-1);
+  background: var(--surface-2); border: 1px solid var(--border);
+  border-radius: var(--r-full); padding: 5px 6px;
+  transition: border-color var(--dur-1) var(--ease-out), box-shadow var(--dur-1) var(--ease-out);
+}
+.pillbar:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-bg); }
+.pillbar input {
+  flex: 1; background: transparent; border: 0; outline: none; min-width: 0;
+  padding: var(--sp-2) var(--sp-1); color: var(--ink-1);
+  font: 400 var(--fs-4)/var(--lh-4) var(--font-ui);
+}
+.pillbar input::placeholder { color: var(--ink-3); }
+.cbtn {
+  width: 34px; height: 34px; border-radius: var(--r-full);
+  display: grid; place-items: center; flex: none; padding: 0;
+  background: transparent; border: 0; color: var(--ink-2); cursor: pointer;
+  font: 500 var(--fs-3)/1 var(--font-ui);
+  transition: background var(--dur-1) var(--ease-out), color var(--dur-1) var(--ease-out);
+}
+.cbtn:hover { background: var(--surface-3); color: var(--ink-1); }
+.cbtn:disabled { opacity: .35; cursor: not-allowed; }
+.cbtn .ico { width: 18px; height: 18px; }
+.cbtn.send { background: var(--accent); color: var(--accent-on); }
+.cbtn.send:hover { background: color-mix(in srgb, var(--accent) 86%, var(--ink-1)); }
+.cbtn.voicecall { background: var(--ink-1); color: var(--surface-1); }
+.cbtn.voicecall:hover { background: var(--ink-2); }
+.cbtn.voicecall.live { background: var(--danger); color: var(--danger-on); animation: pulse 1.6s infinite; }
+.cbtn.voicecall.connecting { background: var(--attn); color: var(--surface-0); }
+@keyframes pulse {
+  0%, 100% { box-shadow: 0 0 0 0 var(--danger-bg); }
+  50% { box-shadow: 0 0 0 7px transparent; }
+}
+a.cbtn { text-decoration: none; }
+
+/* ============================================================================
+   Document cards (docs/15)
+   ========================================================================= */
+.doc-card {
+  display: flex; align-items: center; gap: var(--sp-3);
+  border: 1px solid var(--border); background: var(--surface-2);
+  border-radius: var(--r-3); padding: var(--sp-2) var(--sp-3);
+}
+.doc-badge {
+  width: 34px; height: 34px; border-radius: var(--r-2); flex: none;
+  display: grid; place-items: center;
+  color: var(--mark); background: color-mix(in srgb, var(--mark) 15%, transparent);
+}
+.doc-badge.docx { --mark: var(--file-doc); }
+.doc-badge.xlsx { --mark: var(--file-sheet); }
+.doc-badge.pptx { --mark: var(--file-slides); }
+.doc-badge.pdf  { --mark: var(--file-pdf); }
+.doc-badge .ico { width: 18px; height: 18px; }
+.doc-card .name {
+  font: 500 var(--fs-3)/var(--lh-3) var(--font-ui); color: var(--ink-1);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.doc-card .sub { font-size: var(--fs-2); line-height: var(--lh-2); color: var(--ink-3); }
+.doc-tag { color: var(--accent-ink); cursor: pointer; }
+.doc-tag:hover { text-decoration: underline; }
+
+/* ============================================================================
+   Dialog — one primitive for the approval gate, the preview, the sheet
+   ========================================================================= */
+.dialog {
+  position: fixed; inset: 0; background: var(--scrim); display: none;
+  align-items: center; justify-content: center; z-index: 50;
+  backdrop-filter: blur(3px); padding: var(--sp-4);
+}
+.dialog[data-open="true"] { display: flex; }
+.dialog .box {
+  background: var(--surface-1); border: 1px solid var(--border);
+  border-radius: var(--r-5); box-shadow: var(--e-3);
+  max-height: 92vh; display: flex; flex-direction: column;
+  animation: lift var(--dur-3) var(--ease-out);
+}
+@keyframes lift { from { opacity: 0; transform: translateY(10px) scale(.985); } }
+.dialog h3 {
+  font: 600 var(--fs-7)/var(--lh-7) var(--font-display);
+  letter-spacing: var(--tr-tight); margin: 0;
+}
+
+/* The approval gate outweighs every other surface on the page, deliberately:
+   nothing irreversible may look like a routine button. */
+#modal .box { width: 460px; max-width: 100%; padding: var(--sp-5); gap: var(--sp-3); }
+#modal .gate-head {
+  display: flex; align-items: center; gap: var(--sp-3);
+  padding-bottom: var(--sp-3); border-bottom: 2px solid var(--attn);
+}
+#modal .gate-head .ico { color: var(--attn); }
+#modal .gate-body { font-size: var(--fs-5); line-height: var(--lh-5); color: var(--ink-1); margin: 0; }
+#modal .gate-note {
+  font-size: var(--fs-3); line-height: var(--lh-3); color: var(--ink-2);
+  background: var(--attn-bg); border-radius: var(--r-2); padding: var(--sp-2) var(--sp-3);
+}
+#modal .gate-actions { display: flex; gap: var(--sp-2); }
+
+/* ============================================================================
+   Review panel
+   ========================================================================= */
+.stepper { display: flex; gap: 3px; margin: var(--sp-1) 0 var(--sp-2); }
+.stepper i { flex: 1; height: 4px; border-radius: var(--r-full); background: var(--surface-3); }
+.stepper i.done { background: var(--ok); }
+.stepper i.now { background: var(--accent); box-shadow: 0 0 8px var(--accent-bg); }
+.steplabel {
+  font: 600 var(--fs-2)/var(--lh-2) var(--font-ui); color: var(--accent-ink);
+  margin-bottom: var(--sp-3); letter-spacing: var(--tr-label); text-transform: uppercase;
+}
+.section {
+  border: 1px solid var(--border); border-radius: var(--r-3);
+  padding: var(--sp-3); background: var(--surface-2);
+  display: flex; flex-direction: column; gap: var(--sp-2);
+}
+.section-head { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
+.section-head b {
+  font: 600 var(--fs-3)/var(--lh-3) var(--font-ui); letter-spacing: var(--tr-tight);
+}
+.section-head .meta { color: var(--ink-3); font-size: var(--fs-2); margin-left: auto; }
+.section .preview {
+  color: var(--ink-2); font-size: var(--fs-3); line-height: var(--lh-3);
+  white-space: pre-wrap; max-width: var(--measure);
+}
+/* The adaptation proof (docs/10) — the one line that shows the agent learned. */
+.section .notes {
+  display: flex; gap: var(--sp-2); align-items: flex-start;
+  color: var(--attn-ink); font-size: var(--fs-2); line-height: var(--lh-2); font-style: italic;
+  background: var(--attn-bg); border-left: 2px solid var(--attn);
+  border-radius: 0 var(--r-2) var(--r-2) 0; padding: var(--sp-2) var(--sp-3);
+}
+.section .notes .ico { color: var(--attn); margin-top: 1px; }
+.section textarea {
+  display: none; min-height: 96px; resize: vertical;
+  font: 400 var(--fs-3)/var(--lh-3) var(--font-ui);
+}
+.row { display: flex; gap: var(--sp-2); align-items: center; flex-wrap: wrap; }
+.row .reason { flex: 1; min-width: 160px; display: none; }
+
+/* ============================================================================
+   Skeletons — first paint only. They live in the markup and are destroyed by
+   the first successful render, so they can never flash on the 5 s poll.
+   Shaped like the content they stand in for: a board card is a title, a meta
+   line and a meter, so its skeleton is too.
+   ========================================================================= */
+.skel {
+  background: var(--surface-3); border-radius: var(--r-2);
+  background-image: linear-gradient(90deg,
+    transparent 0%,
+    color-mix(in srgb, var(--ink-3) 12%, transparent) 50%,
+    transparent 100%);
+  background-size: 200% 100%; background-repeat: no-repeat;
+  animation: sheen 1.4s var(--ease-in-out) infinite;
+}
+@keyframes sheen { from { background-position: 180% 0; } to { background-position: -80% 0; } }
+.skel-card {
+  border: 1px solid var(--border); border-radius: var(--r-3);
+  padding: var(--sp-3); background: var(--surface-2);
+  display: flex; flex-direction: column; gap: var(--sp-2);
+}
+.skel-line { height: 10px; }
+.skel-line.title { height: 13px; width: 62%; }
+.skel-line.meta  { width: 40%; }
+.skel-line.body  { width: 100%; }
+.skel-line.body.short { width: 78%; }
+.skel-row { display: flex; align-items: center; gap: var(--sp-2); padding: var(--sp-2) 0; }
+.skel-row .skel-line { flex: 1; }
+.skel-chip { width: 54px; height: 16px; border-radius: var(--r-full); flex: none; }
+/* The global reduced-motion guard freezes `sheen`; hold a legible resting tone. */
+@media (prefers-reduced-motion: reduce) { .skel { background-image: none; } }
+
+/* Recon evidence — what the vision pass saw before anything was filled.
+   Shown above the fill report because it is the "why" for the "what". */
+.evidence { display: flex; flex-direction: column; gap: var(--sp-2); margin-bottom: var(--sp-3); }
+.evidence .hd {
+  display: flex; align-items: center; gap: var(--sp-2);
+  font-size: var(--fs-2); line-height: var(--lh-2); color: var(--ink-2);
+}
+.evidence .hd .ico { color: var(--ink-3); }
+.filmstrip {
+  display: flex; gap: var(--sp-2); overflow-x: auto; overscroll-behavior-x: contain;
+  padding-bottom: var(--sp-1);
+}
+.filmstrip button {
+  flex: none; width: 92px; height: 60px; padding: 0; cursor: pointer;
+  border: 1px solid var(--border); border-radius: var(--r-2); overflow: hidden;
+  background: var(--surface-3);
+  transition: border-color var(--dur-1) var(--ease-out);
+}
+.filmstrip button:hover { border-color: var(--accent); }
+.filmstrip img { width: 100%; height: 100%; object-fit: cover; object-position: top center; display: block; }
+#shotModal .box { width: min(1100px, 100%); padding: 0; overflow: hidden; }
+#shotModal .bar {
+  display: flex; align-items: center; gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-3); border-bottom: 1px solid var(--divider);
+}
+#shotModal .bar .ttl { flex: 1; font: 400 var(--fs-2)/var(--lh-2) var(--font-mono); color: var(--ink-2); }
+#shotModal img { max-width: 100%; max-height: 78vh; display: block; background: var(--surface-2); }
+
+.approval-banner {
+
+  display: flex; flex-direction: column; gap: var(--sp-2);
+  border: 1px solid var(--attn); background: var(--attn-bg);
+  border-radius: var(--r-3); padding: var(--sp-3); margin-bottom: var(--sp-3);
+}
+.approval-banner .hd {
+  display: flex; align-items: center; gap: var(--sp-2);
+  font: 600 var(--fs-3)/var(--lh-3) var(--font-ui); color: var(--attn-ink);
+}
+.approval-banner p { margin: 0; font-size: var(--fs-2); line-height: var(--lh-2); color: var(--ink-2); }
+
+/* Global approval inbox banner — every gate (submit, send_email) surfaces
+   here, not just the open application's. */
+#gateBanner:empty { display: none; }
+#gateBanner { padding: var(--sp-2) var(--sp-4) 0; }
+#gateBanner .approval-banner { margin-bottom: 0; flex-direction: row; align-items: center; gap: var(--sp-3); }
+.gate-details { font: 12.5px/1.5 var(--font-mono); background: var(--surface-2, var(--panel2));
+  border-radius: var(--r-2, 8px); padding: 8px 10px; margin: 8px 0; white-space: pre-wrap;
+  word-break: break-word; max-height: 160px; overflow-y: auto; }
+
+/* Audit — a grid, so timestamps align instead of floating. */
+.audit-item {
+  display: grid; grid-template-columns: 1fr auto; gap: 2px var(--sp-2);
+  padding: var(--sp-2) 0; border-bottom: 1px solid var(--divider);
+  font: 400 var(--fs-2)/var(--lh-2) var(--font-mono); color: var(--ink-2);
+}
+.audit-item:last-child { border-bottom: 0; }
+.audit-item .who { color: var(--ink-1); font-weight: 600; }
+.audit-item .when { color: var(--ink-3); font-size: var(--fs-1); white-space: nowrap; }
+.audit-item .detail { grid-column: 1 / -1; color: var(--ink-3); overflow-wrap: anywhere; }
+.mono { font: 400 var(--fs-2)/var(--lh-2) var(--font-mono); color: var(--ink-2); }
+
+/* A toast carries its outcome in form as well as words: in a product whose
+   claim is trust, "Approved" and "Couldn't reach the server" must not look
+   identical at a glance. */
+#toast {
+  position: fixed; bottom: var(--sp-5); left: 50%; transform: translateX(-50%);
+  display: flex; align-items: center; gap: var(--sp-2);
+  background: var(--surface-1); border: 1px solid var(--border); color: var(--ink-1);
+  border-left: 3px solid var(--tone, var(--border));
+  border-radius: var(--r-3); padding: var(--sp-2) var(--sp-4);
+  font-size: var(--fs-3); line-height: var(--lh-3); box-shadow: var(--e-2);
+  opacity: 0; transition: opacity var(--dur-3) var(--ease-out);
+  pointer-events: none; z-index: 60; max-width: min(520px, 90vw);
+}
+#toast .ico { color: var(--tone, var(--ink-3)); }
+#toast[data-tone="ok"]     { --tone: var(--ok); }
+#toast[data-tone="attn"]   { --tone: var(--attn); }
+#toast[data-tone="danger"] { --tone: var(--danger); }
+
+/* Connection loss is a state of the whole surface, not a transient message. */
+#offline {
+  display: none; align-items: center; gap: var(--sp-2);
+  background: var(--danger-bg); color: var(--danger-ink);
+  border-bottom: 1px solid var(--danger);
+  padding: var(--sp-2) var(--sp-4); font-size: var(--fs-2); line-height: var(--lh-2);
+}
+body[data-offline="true"] #offline { display: flex; }
+/* The stale data stays at full contrast deliberately: dimming it would break
+   every ratio in §2.4, and the banner already says the data may be behind. */
+
+/* ============================================================================
+   PDF preview
+   ========================================================================= */
+#pdfModal .box { width: 900px; max-width: 100%; }
+#pdfModal .bar {
+  display: flex; align-items: center; gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-3); border-bottom: 1px solid var(--divider);
+}
+#pdfModal .bar .ttl {
+  font: 600 var(--fs-4)/var(--lh-4) var(--font-ui); flex: 1;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+#pdfModal .canvas-wrap {
+  overflow: auto; flex: 1; display: flex; justify-content: center;
+  padding: var(--sp-4); background: var(--surface-2);
+  border-radius: 0 0 var(--r-5) var(--r-5);
+}
+#pdfModal canvas { box-shadow: var(--e-2); border-radius: var(--r-1); background: #fff; }
+#pdfPageInfo { font-size: var(--fs-2); color: var(--ink-3); font-variant-numeric: tabular-nums; }
+
+/* ============================================================================
+   Connectors sheet — grouped inset lists (macOS System Settings grammar)
+   Brand hues are foreign material: quarantined to the monogram tile.
+   ========================================================================= */
+#connections { align-items: flex-start; z-index: 40; }
+#connections .sheet {
+  background: var(--surface-0); width: 720px; max-width: 100%; max-height: 84vh;
+  overflow-y: auto; overscroll-behavior: contain;
+  margin-top: 6vh; padding: var(--sp-6) var(--sp-6);
+  border-radius: var(--r-5); box-shadow: var(--e-3);
+  animation: lift var(--dur-3) var(--ease-out);
+}
+.conn-title {
+  font: 600 var(--fs-7)/var(--lh-7) var(--font-display); letter-spacing: var(--tr-tight);
+}
+.conn-sub { font-size: var(--fs-2); line-height: var(--lh-2); color: var(--ink-3); }
+.grp {
+  background: var(--surface-1); border-radius: var(--r-3); overflow: hidden;
+  box-shadow: 0 0 0 1px var(--border), var(--e-1);
+}
+.grp > * + * { border-top: 1px solid var(--divider); }
+.grp-h {
+  font: 600 var(--fs-2)/var(--lh-2) var(--font-ui); color: var(--ink-3);
+  margin: var(--sp-5) 0 var(--sp-2); padding: 0 var(--sp-4);
+}
+.crow {
+  display: flex; align-items: center; gap: var(--sp-3);
+  padding: var(--sp-3) var(--sp-4); min-height: 44px;
+  font-size: var(--fs-3); line-height: var(--lh-3);
+}
+.crow .grow { min-width: 0; flex: 1; }
+.crow .grow b { font-weight: 500; color: var(--ink-1); }
+.connrow {
+  cursor: pointer; background: none; border: 0; width: 100%; text-align: left;
+  font: inherit; color: inherit;
+  transition: background var(--dur-1) var(--ease-out);
+}
+.connrow:hover { background: var(--surface-2); }
+.foot { font-size: var(--fs-2); line-height: var(--lh-2); color: var(--ink-3); padding: var(--sp-2) var(--sp-4) 0; }
+.cbadge {
+  width: 34px; height: 34px; border-radius: var(--r-2); flex: none;
+  background: var(--brand-soft, var(--surface-3)); color: var(--brand, var(--ink-2));
+  display: grid; place-items: center; font: 600 var(--fs-5)/1 var(--font-display);
+}
+.cbadge.big { width: 44px; height: 44px; border-radius: var(--r-3); }
+.cbadge.big .ico { width: 22px; height: 22px; }
+.cbadge.sm { width: 24px; height: 24px; border-radius: var(--r-1); font-size: var(--fs-2); }
+.cbadge.sm .ico { width: 13px; height: 13px; }
+.cbadge .ico { width: 18px; height: 18px; }
+.dot { width: 8px; height: 8px; border-radius: var(--r-full); flex: none; background: var(--ok); }
+.dot.off { background: var(--ink-3); }
+.tag {
+  font: 600 var(--fs-1)/var(--lh-1) var(--font-ui); padding: 3px var(--sp-2);
+  border-radius: var(--r-1); flex: none;
+}
+.tag-accent { background: var(--accent-bg); color: var(--accent-ink); }
+.tag-warn { background: var(--attn-bg); color: var(--attn-ink); }
+.tag-quiet { background: var(--surface-3); color: var(--ink-2); }
+.chip-ok {
+  font: 500 var(--fs-2)/var(--lh-2) var(--font-ui); padding: 3px var(--sp-3);
+  border-radius: var(--r-full); background: var(--ok-bg); color: var(--ok-ink); flex: none;
+}
+.chev { color: var(--ink-3); flex: none; }
+.x {
+  color: var(--ink-3); background: none; border: 0; cursor: pointer;
+  padding: var(--sp-1); border-radius: var(--r-2); display: grid; place-items: center;
+  font: 500 var(--fs-3)/1 var(--font-ui);
+  transition: color var(--dur-1) var(--ease-out), background var(--dur-1) var(--ease-out);
+}
+.x:hover { color: var(--danger-ink); background: var(--danger-bg); }
+.status-line {
+  display: flex; align-items: center; gap: var(--sp-2);
+  font-size: var(--fs-2); line-height: var(--lh-2); color: var(--ink-2); flex-wrap: wrap;
+}
+.textin {
+  background: var(--surface-1); color: var(--ink-1); width: 100%;
+  border: 1px solid var(--border); border-radius: var(--r-full);
+  padding: 7px var(--sp-4); font: 400 var(--fs-3)/var(--lh-3) var(--font-ui); outline: none;
+  transition: border-color var(--dur-1) var(--ease-out), box-shadow var(--dur-1) var(--ease-out);
+}
+.textin::placeholder { color: var(--ink-3); }
+.textin:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-bg); }
+.sheet code {
+  font: 400 var(--fs-2)/1.5 var(--font-mono); background: var(--surface-2);
+  border: 1px solid var(--divider); border-radius: var(--r-1); padding: 1px 5px;
+}
+
+/* ============================================================================
+   Motion preference
+   ========================================================================= */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+    scroll-behavior: auto !important;
   }
-  .conn-title { font-size: 19px; font-weight: 700; letter-spacing: -.01em; }
-  .conn-sub { font-size: 12.5px; color: var(--dim); display: flex; align-items: center; gap: 6px; }
-  .textin {
-    background: var(--panel); border: 1px solid var(--line); color: var(--text);
-    border-radius: 8px; padding: 7px 11px; font: 12.5px var(--font); outline: none; width: 100%;
-  }
-  .textin:focus { border-color: var(--accent); }
-  .sheet code { font-family: var(--mono); font-size: 11.5px; background: var(--panel2);
-                border: 1px solid var(--line); border-radius: 4px; padding: 0 5px; }
-  .status-line { display: flex; align-items: baseline; gap: 6px; font-size: 12.5px;
-                 color: var(--dim); flex-wrap: wrap; }
+}
 </style>
 </head>
 <body>
+
+<!-- @sprite:begin -->
+<!-- Generated by scripts/build_icons.py from the vendored Phosphor subset
+     (MIT, app/static/vendor/icons/phosphor/LICENSE). Do not hand-edit:
+     add a row to ICONS in that script and re-run. Spec: docs/16 §5. -->
+<svg id="sprite" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false">
+  <symbol id="i-send" viewBox="0 0 256 256"><path d="M205.66,117.66a8,8,0,0,1-11.32,0L136,59.31V216a8,8,0,0,1-16,0V59.31L61.66,117.66a8,8,0,0,1-11.32-11.32l72-72a8,8,0,0,1,11.32,0l72,72A8,8,0,0,1,205.66,117.66Z"/></symbol>
+  <symbol id="i-mic" viewBox="0 0 256 256"><path d="M128,176a48.05,48.05,0,0,0,48-48V64a48,48,0,0,0-96,0v64A48.05,48.05,0,0,0,128,176ZM96,64a32,32,0,0,1,64,0v64a32,32,0,0,1-64,0Zm40,143.6V240a8,8,0,0,1-16,0V207.6A80.11,80.11,0,0,1,48,128a8,8,0,0,1,16,0,64,64,0,0,0,128,0,8,8,0,0,1,16,0A80.11,80.11,0,0,1,136,207.6Z"/></symbol>
+  <symbol id="i-waveform" viewBox="0 0 256 256"><path d="M56,96v64a8,8,0,0,1-16,0V96a8,8,0,0,1,16,0ZM88,24a8,8,0,0,0-8,8V224a8,8,0,0,0,16,0V32A8,8,0,0,0,88,24Zm40,32a8,8,0,0,0-8,8V192a8,8,0,0,0,16,0V64A8,8,0,0,0,128,56Zm40,32a8,8,0,0,0-8,8v64a8,8,0,0,0,16,0V96A8,8,0,0,0,168,88Zm40-16a8,8,0,0,0-8,8v96a8,8,0,0,0,16,0V80A8,8,0,0,0,208,72Z"/></symbol>
+  <symbol id="i-paperclip" viewBox="0 0 256 256"><path d="M209.66,122.34a8,8,0,0,1,0,11.32l-82.05,82a56,56,0,0,1-79.2-79.21L147.67,35.73a40,40,0,1,1,56.61,56.55L105,193A24,24,0,1,1,71,159L154.3,74.38A8,8,0,1,1,165.7,85.6L82.39,170.31a8,8,0,1,0,11.27,11.36L192.93,81A24,24,0,1,0,159,47L59.76,147.68a40,40,0,1,0,56.53,56.62l82.06-82A8,8,0,0,1,209.66,122.34Z"/></symbol>
+  <symbol id="i-chat" viewBox="0 0 256 256"><path d="M128,24A104,104,0,0,0,36.18,176.88L24.83,210.93a16,16,0,0,0,20.24,20.24l34.05-11.35A104,104,0,1,0,128,24Zm0,192a87.87,87.87,0,0,1-44.06-11.81,8,8,0,0,0-6.54-.67L40,216,52.47,178.6a8,8,0,0,0-.66-6.54A88,88,0,1,1,128,216Z"/></symbol>
+  <symbol id="i-plug" viewBox="0 0 256 256"><path d="M149.66,138.34a8,8,0,0,0-11.32,0L120,156.69,99.31,136l18.35-18.34a8,8,0,0,0-11.32-11.32L88,124.69,69.66,106.34a8,8,0,0,0-11.32,11.32L64.69,124,41.37,147.31a32,32,0,0,0,0,45.26l5.38,5.37-28.41,28.4a8,8,0,0,0,11.32,11.32l28.4-28.41,5.37,5.38a32,32,0,0,0,45.26,0L132,191.31l6.34,6.35a8,8,0,0,0,11.32-11.32L131.31,168l18.35-18.34A8,8,0,0,0,149.66,138.34Zm-52.29,65a16,16,0,0,1-22.62,0L52.69,181.25a16,16,0,0,1,0-22.62L76,135.31,120.69,180Zm140.29-185a8,8,0,0,0-11.32,0l-28.4,28.41-5.37-5.38a32.05,32.05,0,0,0-45.26,0L124,64.69l-6.34-6.35a8,8,0,0,0-11.32,11.32l80,80a8,8,0,0,0,11.32-11.32L191.31,132l23.32-23.31a32,32,0,0,0,0-45.26l-5.38-5.37,28.41-28.4A8,8,0,0,0,237.66,18.34Zm-34.35,79L180,120.69,135.31,76l23.32-23.31a16,16,0,0,1,22.62,0l22.06,22A16,16,0,0,1,203.31,97.37Z"/></symbol>
+  <symbol id="i-refresh" viewBox="0 0 256 256"><path d="M224,48V96a8,8,0,0,1-8,8H168a8,8,0,0,1,0-16h28.69L182.06,73.37a79.56,79.56,0,0,0-56.13-23.43h-.45A79.52,79.52,0,0,0,69.59,72.71,8,8,0,0,1,58.41,61.27a96,96,0,0,1,135,.79L208,76.69V48a8,8,0,0,1,16,0ZM186.41,183.29a80,80,0,0,1-112.47-.66L59.31,168H88a8,8,0,0,0,0-16H40a8,8,0,0,0-8,8v48a8,8,0,0,0,16,0V179.31l14.63,14.63A95.43,95.43,0,0,0,130,222.06h.53a95.36,95.36,0,0,0,67.07-27.33,8,8,0,0,0-11.18-11.44Z"/></symbol>
+  <symbol id="i-sun" viewBox="0 0 256 256"><path d="M120,40V16a8,8,0,0,1,16,0V40a8,8,0,0,1-16,0Zm72,88a64,64,0,1,1-64-64A64.07,64.07,0,0,1,192,128Zm-16,0a48,48,0,1,0-48,48A48.05,48.05,0,0,0,176,128ZM58.34,69.66A8,8,0,0,0,69.66,58.34l-16-16A8,8,0,0,0,42.34,53.66Zm0,116.68-16,16a8,8,0,0,0,11.32,11.32l16-16a8,8,0,0,0-11.32-11.32ZM192,72a8,8,0,0,0,5.66-2.34l16-16a8,8,0,0,0-11.32-11.32l-16,16A8,8,0,0,0,192,72Zm5.66,114.34a8,8,0,0,0-11.32,11.32l16,16a8,8,0,0,0,11.32-11.32ZM48,128a8,8,0,0,0-8-8H16a8,8,0,0,0,0,16H40A8,8,0,0,0,48,128Zm80,80a8,8,0,0,0-8,8v24a8,8,0,0,0,16,0V216A8,8,0,0,0,128,208Zm112-88H216a8,8,0,0,0,0,16h24a8,8,0,0,0,0-16Z"/></symbol>
+  <symbol id="i-moon" viewBox="0 0 256 256"><path d="M233.54,142.23a8,8,0,0,0-8-2,88.08,88.08,0,0,1-109.8-109.8,8,8,0,0,0-10-10,104.84,104.84,0,0,0-52.91,37A104,104,0,0,0,136,224a103.09,103.09,0,0,0,62.52-20.88,104.84,104.84,0,0,0,37-52.91A8,8,0,0,0,233.54,142.23ZM188.9,190.34A88,88,0,0,1,65.66,67.11a89,89,0,0,1,31.4-26A106,106,0,0,0,96,56,104.11,104.11,0,0,0,200,160a106,106,0,0,0,14.92-1.06A89,89,0,0,1,188.9,190.34Z"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 256 256"><path d="M224,128a8,8,0,0,1-8,8H136v80a8,8,0,0,1-16,0V136H40a8,8,0,0,1,0-16h80V40a8,8,0,0,1,16,0v80h80A8,8,0,0,1,224,128Z"/></symbol>
+  <symbol id="i-minus" viewBox="0 0 256 256"><path d="M224,128a8,8,0,0,1-8,8H40a8,8,0,0,1,0-16H216A8,8,0,0,1,224,128Z"/></symbol>
+  <symbol id="i-close" viewBox="0 0 256 256"><path d="M205.66,194.34a8,8,0,0,1-11.32,11.32L128,139.31,61.66,205.66a8,8,0,0,1-11.32-11.32L116.69,128,50.34,61.66A8,8,0,0,1,61.66,50.34L128,116.69l66.34-66.35a8,8,0,0,1,11.32,11.32L139.31,128Z"/></symbol>
+  <symbol id="i-search" viewBox="0 0 256 256"><path d="M229.66,218.34l-50.07-50.06a88.11,88.11,0,1,0-11.31,11.31l50.06,50.07a8,8,0,0,0,11.32-11.32ZM40,112a72,72,0,1,1,72,72A72.08,72.08,0,0,1,40,112Z"/></symbol>
+  <symbol id="i-chev-left" viewBox="0 0 256 256"><path d="M165.66,202.34a8,8,0,0,1-11.32,11.32l-80-80a8,8,0,0,1,0-11.32l80-80a8,8,0,0,1,11.32,11.32L91.31,128Z"/></symbol>
+  <symbol id="i-chev-right" viewBox="0 0 256 256"><path d="M181.66,133.66l-80,80a8,8,0,0,1-11.32-11.32L164.69,128,90.34,53.66a8,8,0,0,1,11.32-11.32l80,80A8,8,0,0,1,181.66,133.66Z"/></symbol>
+  <symbol id="i-board" viewBox="0 0 256 256"><path d="M216,48H40a8,8,0,0,0-8,8V208a16,16,0,0,0,16,16H88a16,16,0,0,0,16-16V160h48v16a16,16,0,0,0,16,16h40a16,16,0,0,0,16-16V56A8,8,0,0,0,216,48ZM88,208H48V128H88Zm0-96H48V64H88Zm64,32H104V64h48Zm56,32H168V128h40Zm0-64H168V64h40Z"/></symbol>
+  <symbol id="i-clipboard" viewBox="0 0 256 256"><path d="M168,152a8,8,0,0,1-8,8H96a8,8,0,0,1,0-16h64A8,8,0,0,1,168,152Zm-8-40H96a8,8,0,0,0,0,16h64a8,8,0,0,0,0-16Zm56-64V216a16,16,0,0,1-16,16H56a16,16,0,0,1-16-16V48A16,16,0,0,1,56,32H92.26a47.92,47.92,0,0,1,71.48,0H200A16,16,0,0,1,216,48ZM96,64h64a32,32,0,0,0-64,0ZM200,48H173.25A47.93,47.93,0,0,1,176,64v8a8,8,0,0,1-8,8H88a8,8,0,0,1-8-8V64a47.93,47.93,0,0,1,2.75-16H56V216H200Z"/></symbol>
+  <symbol id="i-check" viewBox="0 0 256 256"><path d="M229.66,77.66l-128,128a8,8,0,0,1-11.32,0l-56-56a8,8,0,0,1,11.32-11.32L96,188.69,218.34,66.34a8,8,0,0,1,11.32,11.32Z"/></symbol>
+  <symbol id="i-alert" viewBox="0 0 256 256"><path d="M236.8,188.09,149.35,36.22h0a24.76,24.76,0,0,0-42.7,0L19.2,188.09a23.51,23.51,0,0,0,0,23.72A24.35,24.35,0,0,0,40.55,224h174.9a24.35,24.35,0,0,0,21.33-12.19A23.51,23.51,0,0,0,236.8,188.09ZM222.93,203.8a8.5,8.5,0,0,1-7.48,4.2H40.55a8.5,8.5,0,0,1-7.48-4.2,7.59,7.59,0,0,1,0-7.72L120.52,44.21a8.75,8.75,0,0,1,15,0l87.45,151.87A7.59,7.59,0,0,1,222.93,203.8ZM120,144V104a8,8,0,0,1,16,0v40a8,8,0,0,1-16,0Zm20,36a12,12,0,1,1-12-12A12,12,0,0,1,140,180Z"/></symbol>
+  <symbol id="i-flag" viewBox="0 0 256 256"><path d="M42.76,50A8,8,0,0,0,40,56V224a8,8,0,0,0,16,0V179.77c26.79-21.16,49.87-9.75,76.45,3.41,16.4,8.11,34.06,16.85,53,16.85,13.93,0,28.54-4.75,43.82-18a8,8,0,0,0,2.76-6V56A8,8,0,0,0,218.76,50c-28,24.23-51.72,12.49-79.21-1.12C111.07,34.76,78.78,18.79,42.76,50ZM216,172.25c-26.79,21.16-49.87,9.74-76.45-3.41-25-12.35-52.81-26.13-83.55-8.4V59.79c26.79-21.16,49.87-9.75,76.45,3.4,25,12.35,52.82,26.13,83.55,8.4Z"/></symbol>
+  <symbol id="i-star" viewBox="0 0 256 256"><path d="M239.18,97.26A16.38,16.38,0,0,0,224.92,86l-59-4.76L143.14,26.15a16.36,16.36,0,0,0-30.27,0L90.11,81.23,31.08,86a16.46,16.46,0,0,0-9.37,28.86l45,38.83L53,211.75a16.38,16.38,0,0,0,24.5,17.82L128,198.49l50.53,31.08A16.4,16.4,0,0,0,203,211.75l-13.76-58.07,45-38.83A16.43,16.43,0,0,0,239.18,97.26Zm-15.34,5.47-48.7,42a8,8,0,0,0-2.56,7.91l14.88,62.8a.37.37,0,0,1-.17.48c-.18.14-.23.11-.38,0l-54.72-33.65a8,8,0,0,0-8.38,0L69.09,215.94c-.15.09-.19.12-.38,0a.37.37,0,0,1-.17-.48l14.88-62.8a8,8,0,0,0-2.56-7.91l-48.7-42c-.12-.1-.23-.19-.13-.5s.18-.27.33-.29l63.92-5.16A8,8,0,0,0,103,91.86l24.62-59.61c.08-.17.11-.25.35-.25s.27.08.35.25L153,91.86a8,8,0,0,0,6.75,4.92l63.92,5.16c.15,0,.24,0,.33.29S224,102.63,223.84,102.73Z"/></symbol>
+  <symbol id="i-sparkle" viewBox="0 0 256 256"><path d="M197.58,129.06,146,110l-19-51.62a15.92,15.92,0,0,0-29.88,0L78,110l-51.62,19a15.92,15.92,0,0,0,0,29.88L78,178l19,51.62a15.92,15.92,0,0,0,29.88,0L146,178l51.62-19a15.92,15.92,0,0,0,0-29.88ZM137,164.22a8,8,0,0,0-4.74,4.74L112,223.85,91.78,169A8,8,0,0,0,87,164.22L32.15,144,87,123.78A8,8,0,0,0,91.78,119L112,64.15,132.22,119a8,8,0,0,0,4.74,4.74L191.85,144ZM144,40a8,8,0,0,1,8-8h16V16a8,8,0,0,1,16,0V32h16a8,8,0,0,1,0,16H184V64a8,8,0,0,1-16,0V48H152A8,8,0,0,1,144,40ZM248,88a8,8,0,0,1-8,8h-8v8a8,8,0,0,1-16,0V96h-8a8,8,0,0,1,0-16h8V72a8,8,0,0,1,16,0v8h8A8,8,0,0,1,248,88Z"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 256 256"><path d="M128,24A104,104,0,1,0,232,128,104.11,104.11,0,0,0,128,24Zm0,192a88,88,0,1,1,88-88A88.1,88.1,0,0,1,128,216Zm64-88a8,8,0,0,1-8,8H128a8,8,0,0,1-8-8V72a8,8,0,0,1,16,0v48h48A8,8,0,0,1,192,128Z"/></symbol>
+  <symbol id="i-pause" viewBox="0 0 256 256"><path d="M200,32H160a16,16,0,0,0-16,16V208a16,16,0,0,0,16,16h40a16,16,0,0,0,16-16V48A16,16,0,0,0,200,32Zm0,176H160V48h40ZM96,32H56A16,16,0,0,0,40,48V208a16,16,0,0,0,16,16H96a16,16,0,0,0,16-16V48A16,16,0,0,0,96,32Zm0,176H56V48H96Z"/></symbol>
+  <symbol id="i-shield" viewBox="0 0 256 256"><path d="M208,40H48A16,16,0,0,0,32,56v56c0,52.72,25.52,84.67,46.93,102.19,23.06,18.86,46,25.26,47,25.53a8,8,0,0,0,4.2,0c1-.27,23.91-6.67,47-25.53C198.48,196.67,224,164.72,224,112V56A16,16,0,0,0,208,40Zm0,72c0,37.07-13.66,67.16-40.6,89.42A129.3,129.3,0,0,1,128,223.62a128.25,128.25,0,0,1-38.92-21.81C61.82,179.51,48,149.3,48,112l0-56,160,0ZM82.34,141.66a8,8,0,0,1,11.32-11.32L112,148.69l50.34-50.35a8,8,0,0,1,11.32,11.32l-56,56a8,8,0,0,1-11.32,0Z"/></symbol>
+  <symbol id="i-compass" viewBox="0 0 256 256"><path d="M128,24A104,104,0,1,0,232,128,104.11,104.11,0,0,0,128,24Zm0,192a88,88,0,1,1,88-88A88.1,88.1,0,0,1,128,216ZM172.42,72.84l-64,32a8.05,8.05,0,0,0-3.58,3.58l-32,64A8,8,0,0,0,80,184a8.1,8.1,0,0,0,3.58-.84l64-32a8.05,8.05,0,0,0,3.58-3.58l32-64a8,8,0,0,0-10.74-10.74ZM138,138,97.89,158.11,118,118l40.15-20.07Z"/></symbol>
+  <symbol id="i-target" viewBox="0 0 256 256"><path d="M221.87,83.16A104.1,104.1,0,1,1,195.67,49l22.67-22.68a8,8,0,0,1,11.32,11.32l-96,96a8,8,0,0,1-11.32-11.32l27.72-27.72a40,40,0,1,0,17.87,31.09,8,8,0,1,1,16-.9,56,56,0,1,1-22.38-41.65L184.3,60.39a87.88,87.88,0,1,0,23.13,29.67,8,8,0,0,1,14.44-6.9Z"/></symbol>
+  <symbol id="i-pencil" viewBox="0 0 256 256"><path d="M229.66,58.34l-32-32a8,8,0,0,0-11.32,0l-96,96A8,8,0,0,0,88,128v32a8,8,0,0,0,8,8h32a8,8,0,0,0,5.66-2.34l96-96A8,8,0,0,0,229.66,58.34ZM124.69,152H104V131.31l64-64L188.69,88ZM200,76.69,179.31,56,192,43.31,212.69,64ZM224,128v80a16,16,0,0,1-16,16H48a16,16,0,0,1-16-16V48A16,16,0,0,1,48,32h80a8,8,0,0,1,0,16H48V208H208V128a8,8,0,0,1,16,0Z"/></symbol>
+  <symbol id="i-trash" viewBox="0 0 256 256"><path d="M216,48H176V40a24,24,0,0,0-24-24H104A24,24,0,0,0,80,40v8H40a8,8,0,0,0,0,16h8V208a16,16,0,0,0,16,16H192a16,16,0,0,0,16-16V64h8a8,8,0,0,0,0-16ZM96,40a8,8,0,0,1,8-8h48a8,8,0,0,1,8,8v8H96Zm96,168H64V64H192ZM112,104v64a8,8,0,0,1-16,0V104a8,8,0,0,1,16,0Zm48,0v64a8,8,0,0,1-16,0V104a8,8,0,0,1,16,0Z"/></symbol>
+  <symbol id="i-download" viewBox="0 0 256 256"><path d="M224,144v64a8,8,0,0,1-8,8H40a8,8,0,0,1-8-8V144a8,8,0,0,1,16,0v56H208V144a8,8,0,0,1,16,0Zm-101.66,5.66a8,8,0,0,0,11.32,0l40-40a8,8,0,0,0-11.32-11.32L136,124.69V32a8,8,0,0,0-16,0v92.69L93.66,98.34a8,8,0,0,0-11.32,11.32Z"/></symbol>
+  <symbol id="i-eye" viewBox="0 0 256 256"><path d="M247.31,124.76c-.35-.79-8.82-19.58-27.65-38.41C194.57,61.26,162.88,48,128,48S61.43,61.26,36.34,86.35C17.51,105.18,9,124,8.69,124.76a8,8,0,0,0,0,6.5c.35.79,8.82,19.57,27.65,38.4C61.43,194.74,93.12,208,128,208s66.57-13.26,91.66-38.34c18.83-18.83,27.3-37.61,27.65-38.4A8,8,0,0,0,247.31,124.76ZM128,192c-30.78,0-57.67-11.19-79.93-33.25A133.47,133.47,0,0,1,25,128,133.33,133.33,0,0,1,48.07,97.25C70.33,75.19,97.22,64,128,64s57.67,11.19,79.93,33.25A133.46,133.46,0,0,1,231.05,128C223.84,141.46,192.43,192,128,192Zm0-112a48,48,0,1,0,48,48A48.05,48.05,0,0,0,128,80Zm0,80a32,32,0,1,1,32-32A32,32,0,0,1,128,160Z"/></symbol>
+  <symbol id="i-file-doc" viewBox="0 0 256 256"><path d="M52,144H36a8,8,0,0,0-8,8v56a8,8,0,0,0,8,8H52a36,36,0,0,0,0-72Zm0,56H44V160h8a20,20,0,0,1,0,40Zm169.53-4.91a8,8,0,0,1,.25,11.31A30.06,30.06,0,0,1,200,216c-17.65,0-32-16.15-32-36s14.35-36,32-36a30.06,30.06,0,0,1,21.78,9.6,8,8,0,0,1-11.56,11.06A14.24,14.24,0,0,0,200,160c-8.82,0-16,9-16,20s7.18,20,16,20a14.24,14.24,0,0,0,10.22-4.66A8,8,0,0,1,221.53,195.09ZM128,144c-17.65,0-32,16.15-32,36s14.35,36,32,36,32-16.15,32-36S145.65,144,128,144Zm0,56c-8.82,0-16-9-16-20s7.18-20,16-20,16,9,16,20S136.82,200,128,200ZM48,120a8,8,0,0,0,8-8V40h88V88a8,8,0,0,0,8,8h48v16a8,8,0,0,0,16,0V88a8,8,0,0,0-2.34-5.66l-56-56A8,8,0,0,0,152,24H56A16,16,0,0,0,40,40v72A8,8,0,0,0,48,120ZM160,51.31,188.69,80H160Z"/></symbol>
+  <symbol id="i-file-sheet" viewBox="0 0 256 256"><path d="M156,208a8,8,0,0,1-8,8H120a8,8,0,0,1-8-8V152a8,8,0,0,1,16,0v48h20A8,8,0,0,1,156,208ZM92.65,145.49a8,8,0,0,0-11.16,1.86L68,166.24,54.51,147.35a8,8,0,1,0-13,9.3L58.17,180,41.49,203.35a8,8,0,0,0,13,9.3L68,193.76l13.49,18.89a8,8,0,0,0,13-9.3L77.83,180l16.68-23.35A8,8,0,0,0,92.65,145.49Zm98.94,25.82c-4-1.16-8.14-2.35-10.45-3.84-1.25-.82-1.23-1-1.12-1.9a4.54,4.54,0,0,1,2-3.67c4.6-3.12,15.34-1.72,19.82-.56a8,8,0,0,0,4.07-15.48c-2.11-.55-21-5.22-32.83,2.76a20.58,20.58,0,0,0-8.95,14.95c-2,15.88,13.65,20.41,23,23.11,12.06,3.49,13.12,4.92,12.78,7.59-.31,2.41-1.26,3.33-2.15,3.93-4.6,3.06-15.16,1.55-19.54.35A8,8,0,0,0,173.93,214a60.63,60.63,0,0,0,15.19,2c5.82,0,12.3-1,17.49-4.46a20.81,20.81,0,0,0,9.18-15.23C218,179,201.48,174.17,191.59,171.31ZM40,112V40A16,16,0,0,1,56,24h96a8,8,0,0,1,5.66,2.34l56,56A8,8,0,0,1,216,88v24a8,8,0,1,1-16,0V96H152a8,8,0,0,1-8-8V40H56v72a8,8,0,0,1-16,0ZM160,80h28.68L160,51.31Z"/></symbol>
+  <symbol id="i-file-slides" viewBox="0 0 256 256"><path d="M224,152a8,8,0,0,1-8,8H204v48a8,8,0,0,1-16,0V160H176a8,8,0,0,1,0-16h40A8,8,0,0,1,224,152ZM92,172a28,28,0,0,1-28,28H56v8a8,8,0,0,1-16,0V152a8,8,0,0,1,8-8H64A28,28,0,0,1,92,172Zm-16,0a12,12,0,0,0-12-12H56v24h8A12,12,0,0,0,76,172Zm84,0a28,28,0,0,1-28,28h-8v8a8,8,0,0,1-16,0V152a8,8,0,0,1,8-8h16A28,28,0,0,1,160,172Zm-16,0a12,12,0,0,0-12-12h-8v24h8A12,12,0,0,0,144,172ZM40,112V40A16,16,0,0,1,56,24h96a8,8,0,0,1,5.66,2.34l56,56A8,8,0,0,1,216,88v24a8,8,0,0,1-16,0V96H152a8,8,0,0,1-8-8V40H56v72a8,8,0,0,1-16,0ZM160,80h28.69L160,51.31Z"/></symbol>
+  <symbol id="i-file-pdf" viewBox="0 0 256 256"><path d="M224,152a8,8,0,0,1-8,8H192v16h16a8,8,0,0,1,0,16H192v16a8,8,0,0,1-16,0V152a8,8,0,0,1,8-8h32A8,8,0,0,1,224,152ZM92,172a28,28,0,0,1-28,28H56v8a8,8,0,0,1-16,0V152a8,8,0,0,1,8-8H64A28,28,0,0,1,92,172Zm-16,0a12,12,0,0,0-12-12H56v24h8A12,12,0,0,0,76,172Zm88,8a36,36,0,0,1-36,36H112a8,8,0,0,1-8-8V152a8,8,0,0,1,8-8h16A36,36,0,0,1,164,180Zm-16,0a20,20,0,0,0-20-20h-8v40h8A20,20,0,0,0,148,180ZM40,112V40A16,16,0,0,1,56,24h96a8,8,0,0,1,5.66,2.34l56,56A8,8,0,0,1,216,88v24a8,8,0,0,1-16,0V96H152a8,8,0,0,1-8-8V40H56v72a8,8,0,0,1-16,0ZM160,80h28.69L160,51.31Z"/></symbol>
+  <symbol id="i-cloud-up" viewBox="0 0 256 256"><path d="M178.34,165.66,160,147.31V208a8,8,0,0,1-16,0V147.31l-18.34,18.35a8,8,0,0,1-11.32-11.32l32-32a8,8,0,0,1,11.32,0l32,32a8,8,0,0,1-11.32,11.32ZM160,40A88.08,88.08,0,0,0,81.29,88.68,64,64,0,1,0,72,216h40a8,8,0,0,0,0-16H72a48,48,0,0,1,0-96c1.1,0,2.2,0,3.29.12A88,88,0,0,0,72,128a8,8,0,0,0,16,0,72,72,0,1,1,100.8,66,8,8,0,0,0,3.2,15.34,7.9,7.9,0,0,0,3.2-.68A88,88,0,0,0,160,40Z"/></symbol>
+  <symbol id="i-inbox" viewBox="0 0 256 256"><path d="M224,48H32a8,8,0,0,0-8,8V192a16,16,0,0,0,16,16H216a16,16,0,0,0,16-16V56A8,8,0,0,0,224,48ZM203.43,64,128,133.15,52.57,64ZM216,192H40V74.19l82.59,75.71a8,8,0,0,0,10.82,0L216,74.19V192Z"/></symbol>
+  <symbol id="i-calendar" viewBox="0 0 256 256"><path d="M208,32H184V24a8,8,0,0,0-16,0v8H88V24a8,8,0,0,0-16,0v8H48A16,16,0,0,0,32,48V208a16,16,0,0,0,16,16H208a16,16,0,0,0,16-16V48A16,16,0,0,0,208,32ZM72,48v8a8,8,0,0,0,16,0V48h80v8a8,8,0,0,0,16,0V48h24V80H48V48ZM208,208H48V96H208V208Z"/></symbol>
+  <symbol id="i-globe" viewBox="0 0 256 256"><path d="M128,24h0A104,104,0,1,0,232,128,104.12,104.12,0,0,0,128,24Zm87.62,96H175.79C174,83.49,159.94,57.67,148.41,42.4A88.19,88.19,0,0,1,215.63,120ZM96.23,136h63.54c-2.31,41.61-22.23,67.11-31.77,77C118.45,203.1,98.54,177.6,96.23,136Zm0-16C98.54,78.39,118.46,52.89,128,43c9.55,9.93,29.46,35.43,31.77,77Zm11.36-77.6C96.06,57.67,82,83.49,80.21,120H40.37A88.19,88.19,0,0,1,107.59,42.4ZM40.37,136H80.21c1.82,36.51,15.85,62.33,27.38,77.6A88.19,88.19,0,0,1,40.37,136Zm108,77.6c11.53-15.27,25.56-41.09,27.38-77.6h39.84A88.19,88.19,0,0,1,148.41,213.6Z"/></symbol>
+  <symbol id="i-code" viewBox="0 0 256 256"><path d="M69.12,94.15,28.5,128l40.62,33.85a8,8,0,1,1-10.24,12.29l-48-40a8,8,0,0,1,0-12.29l48-40a8,8,0,0,1,10.24,12.3Zm176,27.7-48-40a8,8,0,1,0-10.24,12.3L227.5,128l-40.62,33.85a8,8,0,1,0,10.24,12.29l48-40a8,8,0,0,0,0-12.29ZM162.73,32.48a8,8,0,0,0-10.25,4.79l-64,176a8,8,0,0,0,4.79,10.26A8.14,8.14,0,0,0,96,224a8,8,0,0,0,7.52-5.27l64-176A8,8,0,0,0,162.73,32.48Z"/></symbol>
+  <symbol id="i-link" viewBox="0 0 256 256"><path d="M165.66,90.34a8,8,0,0,1,0,11.32l-64,64a8,8,0,0,1-11.32-11.32l64-64A8,8,0,0,1,165.66,90.34ZM215.6,40.4a56,56,0,0,0-79.2,0L106.34,70.45a8,8,0,0,0,11.32,11.32l30.06-30a40,40,0,0,1,56.57,56.56l-30.07,30.06a8,8,0,0,0,11.31,11.32L215.6,119.6a56,56,0,0,0,0-79.2ZM138.34,174.22l-30.06,30.06a40,40,0,1,1-56.56-56.57l30.05-30.05a8,8,0,0,0-11.32-11.32L40.4,136.4a56,56,0,0,0,79.2,79.2l30.06-30.07a8,8,0,0,0-11.32-11.31Z"/></symbol>
+  <symbol id="i-external" viewBox="0 0 256 256"><path d="M224,104a8,8,0,0,1-16,0V59.32l-66.33,66.34a8,8,0,0,1-11.32-11.32L196.68,48H152a8,8,0,0,1,0-16h64a8,8,0,0,1,8,8Zm-40,24a8,8,0,0,0-8,8v72H48V80h72a8,8,0,0,0,0-16H48A16,16,0,0,0,32,80V208a16,16,0,0,0,16,16H176a16,16,0,0,0,16-16V136A8,8,0,0,0,184,128Z"/></symbol>
+</svg>
+<!-- @sprite:end -->
+
 <header>
   <div class="brand">Co-<span>Founder</span></div>
   <span class="chip">grant_applications</span>
   <span class="chip" id="sessionTag"></span>
   <div class="spacer"></div>
-  <button class="ghost" onclick="openConnections()">⌘ Connections</button>
-  <button class="ghost" id="sweepBtn" onclick="runSweep()">⟳ Run discovery sweep</button>
-  <button class="ghost icon" id="themeBtn" onclick="toggleTheme()" title="Toggle light / dark">☾</button>
-  <button onclick="newSession()">+ New session</button>
+  <div id="paneTabs" role="tablist" aria-label="Panel">
+    <button role="tab" aria-selected="false" onclick="showPane('board')">
+      <svg class="ico ico-sm" aria-hidden="true"><use href="#i-board"/></svg>Pipeline
+    </button>
+    <button role="tab" aria-selected="true" onclick="showPane('chat')">
+      <svg class="ico ico-sm" aria-hidden="true"><use href="#i-chat"/></svg>Chat
+    </button>
+  </div>
+  <button class="btn" data-variant="ghost" onclick="openConnections()" aria-label="Connections" title="Connections">
+    <svg class="ico" aria-hidden="true"><use href="#i-plug"/></svg><span>Connections</span>
+  </button>
+  <button class="btn" data-variant="ghost" id="sweepBtn" onclick="runSweep()" aria-label="Run discovery sweep" title="Run discovery sweep">
+    <svg class="ico" aria-hidden="true"><use href="#i-refresh"/></svg><span>Run discovery sweep</span>
+  </button>
+  <button class="btn" data-variant="ghost" data-shape="icon" id="themeBtn"
+          onclick="toggleTheme()" title="Switch to light theme" aria-label="Switch to light theme">
+    <svg class="ico" aria-hidden="true"><use href="#i-moon" id="themeIcon"/></svg>
+  </button>
+  <button class="btn" data-variant="secondary" data-shape="icon" id="drawerBtn"
+          style="display:none" onclick="toggleDrawer()" title="Show review panel" aria-label="Show review panel">
+    <svg class="ico" aria-hidden="true"><use href="#i-clipboard"/></svg>
+  </button>
+  <button class="btn" onclick="newSession()" aria-label="New session" title="New session">
+    <svg class="ico" aria-hidden="true"><use href="#i-plus"/></svg><span>New session</span>
+  </button>
 </header>
 
+<div id="gateBanner"></div>
+
+<div id="offline" role="status">
+  <svg class="ico ico-sm" aria-hidden="true"><use href="#i-alert"/></svg>
+  <span>Can't reach the server — showing the last data Alex sent. Retrying…</span>
+</div>
+
 <main>
-  <section id="board">
-    <h2>Pipeline</h2>
-    <div id="boardCols"></div>
-    <h2 style="margin-top:18px">Committed applications</h2>
-    <div id="apps"></div>
+  <section id="board" aria-labelledby="boardTitle">
+    <h2 id="boardTitle">Pipeline</h2>
+    <div id="boardCols" class="stack" aria-busy="true">
+      <div class="skel-card" aria-hidden="true"><div class="skel skel-line title"></div>
+        <div class="skel skel-line meta"></div><div class="skel skel-line body"></div>
+        <div class="skel skel-line body short"></div></div>
+      <div class="skel-card" aria-hidden="true"><div class="skel skel-line title"></div>
+        <div class="skel skel-line meta"></div><div class="skel skel-line body short"></div></div>
+      <div class="skel-card" aria-hidden="true"><div class="skel skel-line title"></div>
+        <div class="skel skel-line meta"></div><div class="skel skel-line body"></div></div>
+    </div>
+    <h2 style="margin-top:var(--sp-5)">Committed applications</h2>
+    <div id="apps" class="stack"></div>
   </section>
 
-  <section>
-    <h2>Conversation</h2>
-    <div id="chatlog"></div>
+  <section id="chat" aria-labelledby="chatTitle">
+    <h2 id="chatTitle">Conversation</h2>
+    <div id="chatlog" role="log" aria-live="polite" aria-relevant="additions"></div>
     <div id="composer">
       <div class="pillbar">
-        <button class="cbtn" title="Add a company document"
+        <button class="cbtn" title="Add a company document" aria-label="Add a company document"
                 onclick="document.getElementById('docUpload').click()">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          <svg class="ico" aria-hidden="true"><use href="#i-paperclip"/></svg>
         </button>
         <input type="file" id="docUpload" style="display:none" onchange="uploadDoc(this)">
-        <input id="msg" placeholder="Ask your co-founder…" autocomplete="off"
+        <input id="msg" placeholder="Ask your co-founder…" autocomplete="off" aria-label="Message"
                onkeydown="if(event.key==='Enter')send()" oninput="$('sendBtn').disabled=!this.value.trim()">
-        <button class="cbtn" id="micBtn" title="Record a voice note">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10a7 7 0 0014 0"/><line x1="12" y1="19" x2="12" y2="22"/></svg>
+        <button class="cbtn" id="micBtn" title="Record a voice note" aria-label="Record a voice note">
+          <svg class="ico" aria-hidden="true"><use href="#i-mic"/></svg>
         </button>
-        <button class="cbtn voicecall" id="talkBtn" title="Real-time voice conversation" onclick="toggleVoice()">
-          <svg viewBox="0 0 24 24" fill="currentColor"><rect x="3" y="10" width="2.5" height="4" rx="1.2"/><rect x="7.5" y="7" width="2.5" height="10" rx="1.2"/><rect x="12" y="4" width="2.5" height="16" rx="1.2"/><rect x="16.5" y="8" width="2.5" height="8" rx="1.2"/><rect x="21" y="10.5" width="2" height="3" rx="1" transform="translate(-2 0)"/></svg>
+        <button class="cbtn voicecall" id="talkBtn" title="Talk to Alex in real time"
+                aria-label="Talk to Alex in real time" onclick="toggleVoice()">
+          <svg class="ico" aria-hidden="true"><use href="#i-waveform"/></svg>
         </button>
-        <button class="cbtn send" id="sendBtn" title="Send" onclick="send()" disabled>
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/></svg>
+        <button class="cbtn send" id="sendBtn" title="Send" aria-label="Send" onclick="send()" disabled>
+          <svg class="ico" aria-hidden="true"><use href="#i-send"/></svg>
         </button>
       </div>
     </div>
   </section>
 
-  <section id="review">
-    <h2>Review</h2>
+  <section id="review" aria-labelledby="reviewTitle">
+    <h2 id="reviewTitle">Review</h2>
     <div id="approvalSlot"></div>
     <div id="stepperSlot"></div>
-    <div id="sections"><div class="empty">Pick an application to review its sections.</div></div>
-    <h2 style="margin-top:16px">Fill report</h2>
+    <div id="sections" class="stack">
+      <div class="empty">
+        <svg class="ico ico-lg" aria-hidden="true"><use href="#i-clipboard"/></svg>
+        <b>Nothing to review</b>
+        <p>Pick an application on the left to see its draft sections, fill report
+           and approval gate.</p>
+      </div>
+    </div>
+    <h2 style="margin-top:var(--sp-4)">What Alex saw</h2>
+    <div id="reconSlot"></div>
+    <h2 style="margin-top:var(--sp-4)">Fill report</h2>
     <div id="fillReport" class="mono">—</div>
-    <h2 style="margin-top:16px">Documents</h2>
-    <div id="documents"></div>
-    <h2 style="margin-top:16px">Activity</h2>
-    <div id="audit"></div>
+    <h2 style="margin-top:var(--sp-4)">Documents</h2>
+    <div id="documents" class="stack"></div>
+    <h2 style="margin-top:var(--sp-4)">Activity</h2>
+    <div id="audit" aria-busy="true">
+      <div class="skel-row" aria-hidden="true"><div class="skel skel-line"></div><div class="skel skel-chip"></div></div>
+      <div class="skel-row" aria-hidden="true"><div class="skel skel-line"></div><div class="skel skel-chip"></div></div>
+      <div class="skel-row" aria-hidden="true"><div class="skel skel-line"></div><div class="skel skel-chip"></div></div>
+    </div>
   </section>
 </main>
 
-<div id="modal">
+<!-- The approval gate (docs/16 §7.5): visually the heaviest surface on the
+     page. Nothing irreversible may look like a routine button. -->
+<div id="modal" class="dialog" role="dialog" aria-modal="true" aria-labelledby="gateTitle"
+     onclick="if(event.target===this)closeApproval()">
   <div class="box">
-    <h3 style="margin-top:0">Approval gate</h3>
-    <p id="modalText">Submit this application? This action is irreversible.</p>
-    <div class="row">
-      <button onclick="resolveApproval('grant')">Approve &amp; submit</button>
-      <button class="ghost" onclick="resolveApproval('deny')">Not yet</button>
+    <div class="gate-head">
+      <svg class="ico ico-lg" aria-hidden="true"><use href="#i-shield"/></svg>
+      <h3 id="gateTitle">Your approval is required</h3>
+    </div>
+    <p class="gate-body" id="modalText">Submit this application?</p>
+    <div class="gate-details" id="gateDetails" style="display:none"></div>
+    <div class="gate-note" id="gateNote">Submitting is irreversible. Alex has filled the form and will
+      not send anything until you approve here.</div>
+    <div class="gate-actions">
+      <button class="btn" data-variant="danger" data-size="lg" id="gateConfirm"
+              onclick="resolveApproval('grant')">Approve &amp; submit</button>
+      <button class="btn" data-variant="secondary" data-size="lg"
+              onclick="resolveApproval('deny')">Not yet</button>
     </div>
   </div>
 </div>
 
-<!-- Connections panel: grouped inset lists, capability tags, privacy footnotes -->
-<div id="connections" onclick="if(event.target===this)closeConnections()">
+<div id="connections" class="dialog" role="dialog" aria-modal="true" aria-label="Connectors"
+     onclick="if(event.target===this)closeConnections()">
   <div class="sheet">
 
     <div id="connList">
-      <div style="display:flex;align-items:center;margin-bottom:4px">
-        <span class="conn-title">Connections</span>
+      <div style="display:flex;align-items:center;margin-bottom:4px;gap:10px">
+        <div>
+          <div class="conn-title">Connectors</div>
+          <div class="conn-sub">Apps and tools your co-founder can use. Connected ones come first.</div>
+        </div>
         <span style="flex:1"></span>
-        <button class="x" onclick="closeConnections()">×</button>
+        <input class="textin" id="connSearch" placeholder="Search" style="max-width:170px"
+               oninput="renderConnectorList()">
+        <button class="x" onclick="closeConnections()" aria-label="Close"><svg class="ico" aria-hidden="true"><use href="#i-close"/></svg></button>
       </div>
-      <div class="grp-h">Google Workspace · read-only</div>
-      <div class="grp" id="googleAccountRow"></div>
+      <div id="connListGroups"></div>
+      <div class="foot" id="connListFoot"></div>
+    </div>
+
+    <div id="connBrowser" style="display:none" data-brand="browser">
+      <button class="x" style="float:right" onclick="closeConnections()" aria-label="Close"><svg class="ico" aria-hidden="true"><use href="#i-close"/></svg></button>
+      <button class="btn" data-variant="quiet" data-size="sm" onclick="showConn('list')"><svg class="ico ico-sm" aria-hidden="true"><use href="#i-chev-left"/></svg>Connectors</button>
+      <div style="display:flex;align-items:center;gap:12px;margin:12px 0 4px">
+        <span class="cbadge big"><svg class="ico" aria-hidden="true"><use href="#i-globe"/></svg></span>
+        <div class="grow">
+          <div class="conn-title">Browser</div>
+          <div class="status-line"><span class="dot"></span> Built in · always available</div>
+        </div>
+      </div>
+      <div class="grp-h">What it does</div>
       <div class="grp">
-        <button class="crow connrow" data-brand="drive" onclick="showConn('drive')">
-          <span class="cbadge">▲</span>
-          <span class="grow">
-            <b>Google Drive</b>
-            <div class="conn-sub" id="driveRowSub">Company records — decks, plans, models</div>
-          </span>
-          <span id="driveRowStatus"></span>
-          <span class="chev">›</span>
-        </button>
-        <button class="crow connrow" data-brand="gmail" onclick="showConn('gmail')">
-          <span class="cbadge">✉</span>
-          <span class="grow">
-            <b>Gmail</b>
-            <div class="conn-sub" id="gmailRowSub">Portal mail — confirmations, requests, results</div>
-          </span>
-          <span id="gmailRowStatus"></span>
-          <span class="chev">›</span>
-        </button>
-        <button class="crow connrow" data-brand="calendar" onclick="showConn('calendar')">
-          <span class="cbadge">◷</span>
-          <span class="grow">
-            <b>Calendar</b>
-            <div class="conn-sub" id="calendarRowSub">Free/busy + upcoming meetings — planning around your time</div>
-          </span>
-          <span id="calendarRowStatus"></span>
-          <span class="chev">›</span>
-        </button>
+        <div class="crow"><span class="grow">The form-filler's Playwright browser — maps application portals, pre-fills forms from approved answers, and captures screenshots as evidence. Nothing to connect.</span></div>
       </div>
-      <div class="foot">Read-only scopes by construction — the agent can never send, delete, or modify
-        anything in your Google account. It only sees what you explicitly select here.</div>
+      <div class="grp-h">Access</div>
+      <div class="grp">
+        <div class="crow"><span class="grow"><b>Navigate &amp; read pages</b></span><span class="tag tag-quiet">allowed</span></div>
+        <div class="crow"><span class="grow"><b>Fill form fields</b></span><span class="tag tag-quiet">approved answers only</span></div>
+        <div class="crow"><span class="grow"><b>Submit forms</b></span><span class="tag tag-warn">approval-gated</span></div>
+      </div>
+    </div>
+
+    <div id="connGithub" style="display:none" data-brand="github">
+      <button class="x" style="float:right" onclick="closeConnections()" aria-label="Close"><svg class="ico" aria-hidden="true"><use href="#i-close"/></svg></button>
+      <button class="btn" data-variant="quiet" data-size="sm" onclick="showConn('list')"><svg class="ico ico-sm" aria-hidden="true"><use href="#i-chev-left"/></svg>Connectors</button>
+      <div style="display:flex;align-items:center;gap:12px;margin:12px 0 4px">
+        <span class="cbadge big"><svg class="ico" aria-hidden="true"><use href="#i-code"/></svg></span>
+        <div class="grow">
+          <div class="conn-title">GitHub</div>
+          <div class="status-line" id="githubStatusLine"></div>
+        </div>
+      </div>
+      <div id="githubConnected" style="display:none">
+        <div class="grp-h">Account</div>
+        <div class="grp">
+          <div class="crow"><span class="grow"><b id="githubLogin"></b>
+            <span class="conn-sub">token validated against the GitHub API</span></span>
+            <button class="btn" data-variant="danger" data-size="sm" onclick="disconnectGithub()">Disconnect</button></div>
+        </div>
+      </div>
+      <div id="githubConnect">
+        <div class="grp-h">How connecting works</div>
+        <div class="grp" id="githubInstructions"></div>
+        <div class="crow" style="padding:10px 2px;gap:8px">
+          <input class="textin" id="ghToken" type="password" placeholder="github_pat_…">
+          <button class="btn" data-size="sm" onclick="connectGithub()">Connect</button>
+        </div>
+      </div>
+      <div class="grp-h">Access</div>
+      <div class="grp">
+        <div class="crow"><span class="grow"><b>Store &amp; validate credential</b></span><span class="tag tag-quiet">today</span></div>
+        <div class="crow"><span class="grow"><b>Repo / issue tools</b></span><span class="tag tag-warn">lands with the dev workflow</span></div>
+      </div>
+      <div class="foot">The token is stored as a secret, never in session state, prompts, or logs.</div>
+    </div>
+
+    <div id="connAlex" style="display:none" data-brand="alex_mail">
+      <button class="x" style="float:right" onclick="closeConnections()" aria-label="Close"><svg class="ico" aria-hidden="true"><use href="#i-close"/></svg></button>
+      <button class="btn" data-variant="quiet" data-size="sm" onclick="showConn('list')"><svg class="ico ico-sm" aria-hidden="true"><use href="#i-chev-left"/></svg>Connectors</button>
+      <div style="display:flex;align-items:center;gap:12px;margin:12px 0 4px">
+        <span class="cbadge big"><svg class="ico" aria-hidden="true"><use href="#i-sparkle"/></svg></span>
+        <div class="grow">
+          <div class="conn-title">Alex's Mailbox</div>
+          <div class="status-line" id="alexStatusLine"></div>
+        </div>
+        <button class="btn" data-variant="accent" data-size="sm" id="alexScanBtn" onclick="scanAlexMail()"><svg class="ico ico-sm" aria-hidden="true"><use href="#i-refresh"/></svg>Scan now</button>
+      </div>
+      <div class="foot">alex@ruhu.ai — a real Workspace mailbox operated by Alex. When connecting,
+        sign in <b>as alex@ruhu.ai</b> on the consent screen (not your own account).
+        Program replies land here and wake the pipeline; follow-ups attach to matching applications.</div>
+      <div class="grp-h">Last scan</div>
+      <div class="grp" id="alexLastScan"></div>
+      <div class="grp-h">Push notifications</div>
+      <div class="grp">
+        <div class="crow"><span class="grow">Gmail watch → Pub/Sub → webhook
+          wakes Alex the moment mail arrives. Requires <code>ALEX_MAIL_PUBSUB_TOPIC</code> in .env.</span>
+          <button class="btn" data-variant="quiet" data-size="sm" onclick="enableAlexWatch()">Enable watch</button></div>
+      </div>
+      <div class="grp-h">Access</div>
+      <div class="grp">
+        <div class="crow"><span class="grow"><b>Read &amp; search the whole mailbox</b></span><span class="tag tag-quiet">read-only</span></div>
+        <div class="crow"><span class="grow"><b>Send mail</b></span><span class="tag tag-warn">approval-gated — every send needs your approval</span></div>
+        <div class="crow"><span class="grow"><b>Delete / modify mail</b></span><span class="tag tag-warn">never</span></div>
+      </div>
+    </div>
+
+    <div id="connSoon" style="display:none">
+      <button class="x" style="float:right" onclick="closeConnections()" aria-label="Close"><svg class="ico" aria-hidden="true"><use href="#i-close"/></svg></button>
+      <button class="btn" data-variant="quiet" data-size="sm" onclick="showConn('list')"><svg class="ico ico-sm" aria-hidden="true"><use href="#i-chev-left"/></svg>Connectors</button>
+      <div style="display:flex;align-items:center;gap:12px;margin:12px 0 4px">
+        <span class="cbadge big" id="soonBadge">?</span>
+        <div class="grow">
+          <div class="conn-title" id="soonTitle"></div>
+          <div class="status-line"><span class="tag tag-quiet">Coming soon</span></div>
+        </div>
+      </div>
+      <div class="grp"><div class="crow"><span class="grow" id="soonBlurb"></span></div></div>
+      <div class="foot" id="soonNote"></div>
     </div>
 
     <div id="connDrive" style="display:none" data-brand="drive">
-      <button class="x" style="float:right" onclick="closeConnections()">×</button>
-      <button class="pill pill-quiet" onclick="showConn('list')">‹ Connections</button>
+      <button class="x" style="float:right" onclick="closeConnections()" aria-label="Close"><svg class="ico" aria-hidden="true"><use href="#i-close"/></svg></button>
+      <button class="btn" data-variant="quiet" data-size="sm" onclick="showConn('list')"><svg class="ico ico-sm" aria-hidden="true"><use href="#i-chev-left"/></svg>Connectors</button>
       <div style="display:flex;align-items:center;gap:12px;margin:12px 0 4px">
-        <span class="cbadge big">▲</span>
+        <span class="cbadge big"><svg class="ico" aria-hidden="true"><use href="#i-cloud-up"/></svg></span>
         <div class="grow">
           <div class="conn-title">Google Drive</div>
           <div class="status-line" id="driveStatusLine"></div>
@@ -434,34 +1213,34 @@
       <div class="grp" id="driveFiles"></div>
       <div class="crow" style="padding:10px 2px;gap:8px">
         <input class="textin" id="driveFileId" placeholder="Drive file id (Share → Copy link → the id in the URL)">
-        <button class="pill pill-accent" onclick="addDriveFile()">Add</button>
+        <button class="btn" data-size="sm" onclick="addDriveFile()">Add</button>
       </div>
       <div class="foot">Only files listed here exist for the agent — no blanket indexing.
         Ingesting runs the standard pipeline: extract → auto-apply confident facts → you see conflicts only.</div>
       <div class="grp-h">Access</div>
       <div class="grp">
-        <div class="crow"><span class="grow" style="font-size:12.5px"><b>Read selected files</b></span><span class="tag tag-quiet">read-only</span></div>
-        <div class="crow"><span class="grow" style="font-size:12.5px"><b>Write / delete / share</b></span><span class="tag tag-warn">never</span></div>
+        <div class="crow"><span class="grow"><b>Read selected files</b></span><span class="tag tag-quiet">read-only</span></div>
+        <div class="crow"><span class="grow"><b>Write / delete / share</b></span><span class="tag tag-warn">never</span></div>
       </div>
     </div>
 
     <div id="connGmail" style="display:none" data-brand="gmail">
-      <button class="x" style="float:right" onclick="closeConnections()">×</button>
-      <button class="pill pill-quiet" onclick="showConn('list')">‹ Connections</button>
+      <button class="x" style="float:right" onclick="closeConnections()" aria-label="Close"><svg class="ico" aria-hidden="true"><use href="#i-close"/></svg></button>
+      <button class="btn" data-variant="quiet" data-size="sm" onclick="showConn('list')"><svg class="ico ico-sm" aria-hidden="true"><use href="#i-chev-left"/></svg>Connectors</button>
       <div style="display:flex;align-items:center;gap:12px;margin:12px 0 4px">
-        <span class="cbadge big">✉</span>
+        <span class="cbadge big"><svg class="ico" aria-hidden="true"><use href="#i-inbox"/></svg></span>
         <div class="grow">
           <div class="conn-title">Gmail</div>
           <div class="status-line" id="gmailStatusLine"></div>
         </div>
-        <button class="pill pill-accent" id="gmailScanBtn" onclick="scanGmail()">Scan now</button>
+        <button class="btn" data-size="sm" id="gmailScanBtn" onclick="scanGmail()">Scan now</button>
       </div>
       <div class="grp-h">Watched label</div>
       <div class="grp">
         <div class="crow" style="gap:8px">
           <span class="conn-sub" style="flex:none">label:</span>
           <input class="textin" id="gmailLabel" placeholder="grants">
-          <button class="pill pill-quiet" onclick="saveGmailLabel()">Save</button>
+          <button class="btn" data-variant="quiet" data-size="sm" onclick="saveGmailLabel()">Save</button>
         </div>
       </div>
       <div class="foot">Unread mail under this label is classified (confirmation / request / result),
@@ -471,18 +1250,18 @@
       <div class="grp" id="gmailLastScan"></div>
       <div class="grp-h">Access</div>
       <div class="grp">
-        <div class="crow"><span class="grow" style="font-size:12.5px"><b>Read watched label</b></span><span class="tag tag-quiet">read-only</span></div>
-        <div class="crow"><span class="grow" style="font-size:12.5px"><b>Send / delete / other labels</b></span><span class="tag tag-warn">never</span></div>
+        <div class="crow"><span class="grow"><b>Read watched label</b></span><span class="tag tag-quiet">read-only</span></div>
+        <div class="crow"><span class="grow"><b>Send / delete / other labels</b></span><span class="tag tag-warn">never</span></div>
       </div>
     </div>
 
     <div id="connCalendar" style="display:none" data-brand="calendar">
-      <button class="x" style="float:right" onclick="closeConnections()">×</button>
-      <button class="pill pill-quiet" onclick="showConn('list')">‹ Connections</button>
+      <button class="x" style="float:right" onclick="closeConnections()" aria-label="Close"><svg class="ico" aria-hidden="true"><use href="#i-close"/></svg></button>
+      <button class="btn" data-variant="quiet" data-size="sm" onclick="showConn('list')"><svg class="ico ico-sm" aria-hidden="true"><use href="#i-chev-left"/></svg>Connectors</button>
       <div style="display:flex;align-items:center;gap:12px;margin:12px 0 4px">
-        <span class="cbadge big">◷</span>
+        <span class="cbadge big"><svg class="ico" aria-hidden="true"><use href="#i-calendar"/></svg></span>
         <div class="grow">
-          <div class="conn-title">Calendar</div>
+          <div class="conn-title">Google Calendar</div>
           <div class="status-line" id="calendarStatusLine"></div>
         </div>
       </div>
@@ -494,45 +1273,72 @@
         accept or counter.</div>
       <div class="grp-h">Access</div>
       <div class="grp">
-        <div class="crow"><span class="grow" style="font-size:12.5px"><b>Read events &amp; free/busy</b></span><span class="tag tag-quiet">read-only</span></div>
-        <div class="crow"><span class="grow" style="font-size:12.5px"><b>Create / edit / delete events</b></span><span class="tag tag-warn">not yet — ships with approval-gated booking (adr/002)</span></div>
+        <div class="crow"><span class="grow"><b>Read events &amp; free/busy</b></span><span class="tag tag-quiet">read-only</span></div>
+        <div class="crow"><span class="grow"><b>Create events &amp; send invites</b></span><span class="tag tag-warn">approval-gated — every booking needs your approval</span></div>
+        <div class="crow"><span class="grow"><b>Edit / delete events</b></span><span class="tag tag-warn">never — only you change existing events</span></div>
       </div>
     </div>
 
   </div>
 </div>
-<div id="pdfModal" onclick="if(event.target===this)closePdf()">
+<div id="pdfModal" class="dialog" role="dialog" aria-modal="true" aria-labelledby="pdfTitle"
+     onclick="if(event.target===this)closePdf()">
   <div class="box">
     <div class="bar">
       <span class="ttl" id="pdfTitle">Preview</span>
-      <button class="cbtn" onclick="pdfNav(-1)" title="Previous page">‹</button>
+      <button class="cbtn" onclick="pdfNav(-1)" title="Previous page" aria-label="Previous page"><svg class="ico" aria-hidden="true"><use href="#i-chev-left"/></svg></button>
       <span id="pdfPageInfo" style="font-size:12px;color:var(--dim)"></span>
-      <button class="cbtn" onclick="pdfNav(1)" title="Next page">›</button>
-      <button class="cbtn" onclick="pdfZoomBy(-0.2)" title="Zoom out">−</button>
-      <button class="cbtn" onclick="pdfZoomBy(0.2)" title="Zoom in">＋</button>
-      <a class="cbtn" id="pdfDownload" title="Download" download>
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+      <button class="cbtn" onclick="pdfNav(1)" title="Next page" aria-label="Next page"><svg class="ico" aria-hidden="true"><use href="#i-chev-right"/></svg></button>
+      <button class="cbtn" onclick="pdfZoomBy(-0.2)" title="Zoom out" aria-label="Zoom out"><svg class="ico" aria-hidden="true"><use href="#i-minus"/></svg></button>
+      <button class="cbtn" onclick="pdfZoomBy(0.2)" title="Zoom in" aria-label="Zoom in"><svg class="ico" aria-hidden="true"><use href="#i-plus"/></svg></button>
+      <a class="cbtn" id="pdfDownload" title="Download" aria-label="Download" download>
+        <svg class="ico" aria-hidden="true"><use href="#i-download"/></svg>
       </a>
-      <button class="x" onclick="closePdf()">×</button>
+      <button class="x" onclick="closePdf()" aria-label="Close"><svg class="ico" aria-hidden="true"><use href="#i-close"/></svg></button>
     </div>
     <div class="canvas-wrap"><canvas id="pdfCanvas"></canvas></div>
   </div>
 </div>
-<div id="toast"></div>
+<div id="shotModal" class="dialog" role="dialog" aria-modal="true" aria-label="Recon screenshot"
+     onclick="if(event.target===this)closeDialog('shotModal')">
+  <div class="box">
+    <div class="bar">
+      <span class="ttl" id="shotTitle"></span>
+      <a class="cbtn" id="shotDownload" title="Download" aria-label="Download" download>
+        <svg class="ico" aria-hidden="true"><use href="#i-download"/></svg>
+      </a>
+      <button class="x" onclick="closeDialog('shotModal')" aria-label="Close">
+        <svg class="ico" aria-hidden="true"><use href="#i-close"/></svg>
+      </button>
+    </div>
+    <img id="shotImg" alt="Screenshot the agent captured while mapping the form">
+  </div>
+</div>
+
+<div id="toast" role="status" aria-live="polite"></div>
 
 <script>
-// ---------- theme ----------
+// ---------- theme (docs/16 §1: three resolution states) ----------
+// No stamp = follow the OS. A stamp = the founder chose, and beats the OS.
 const THEME_KEY = "cofounder-theme";
+function resolvedTheme() {
+  return document.documentElement.dataset.theme
+    || (matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark");
+}
 function applyTheme(t) {
-  document.documentElement.dataset.theme = t;
-  document.getElementById("themeBtn").textContent = t === "dark" ? "☾" : "☀";
-  localStorage.setItem(THEME_KEY, t);
+  if (t) document.documentElement.dataset.theme = t;
+  else delete document.documentElement.dataset.theme;
+  const dark = resolvedTheme() === "dark";
+  const label = dark ? "Switch to light theme" : "Switch to dark theme";
+  $("themeIcon").setAttribute("href", dark ? "#i-moon" : "#i-sun");
+  $("themeBtn").title = label;
+  $("themeBtn").setAttribute("aria-label", label);
+  if (t) localStorage.setItem(THEME_KEY, t); else localStorage.removeItem(THEME_KEY);
 }
-function toggleTheme() {
-  applyTheme(document.documentElement.dataset.theme === "dark" ? "light" : "dark");
-}
-applyTheme(localStorage.getItem(THEME_KEY)
-  || (matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark"));
+function toggleTheme() { applyTheme(resolvedTheme() === "dark" ? "light" : "dark"); }
+matchMedia("(prefers-color-scheme: light)").addEventListener("change", () => {
+  if (!localStorage.getItem(THEME_KEY)) applyTheme(null);
+});
 
 // ---------- state ----------
 let sessionId = null, activeApp = null, pendingApproval = null, thinking = false;
@@ -540,6 +1346,12 @@ let chatCount = 0;
 
 // ---------- helpers ----------
 const $ = id => document.getElementById(id);
+// Every icon comes from the sprite (docs/16 §5) — never an emoji or symbol glyph.
+const ico = (name, cls = "") => `<svg class="ico ${cls}" aria-hidden="true"><use href="#i-${name}"/></svg>`;
+const emptyState = (icon, head, body, action = "") =>
+  `<div class="empty">${ico(icon, "ico-lg")}<b>${head}</b><p>${body}</p>${action}</div>`;
+
+applyTheme(localStorage.getItem(THEME_KEY));
 async function api(path, opts = {}) {
   const r = await fetch(path, { headers: { "Content-Type": "application/json" }, ...opts });
   return r.json();
@@ -547,10 +1359,15 @@ async function api(path, opts = {}) {
 function esc(s) {
   return String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
-function toast(text) {
+const TOAST_ICON = { ok: "check", attn: "flag", danger: "alert", neutral: "sparkle" };
+function toast(text, tone = "neutral") {
   const t = $("toast");
-  t.textContent = text; t.style.opacity = 1;
-  clearTimeout(t._h); t._h = setTimeout(() => t.style.opacity = 0, 2600);
+  t.dataset.tone = tone;
+  t.innerHTML = ico(TOAST_ICON[tone] || TOAST_ICON.neutral, "ico-sm") +
+                `<span>${esc(text)}</span>`;
+  t.style.opacity = 1;
+  clearTimeout(t._h);
+  t._h = setTimeout(() => t.style.opacity = 0, tone === "danger" ? 5000 : 2800);
 }
 function timeAgo(iso) {
   if (!iso) return "";
@@ -560,13 +1377,26 @@ function timeAgo(iso) {
   if (s < 86400) return Math.floor(s / 3600) + "h ago";
   return Math.floor(s / 86400) + "d ago";
 }
+// Urgency is encoded twice — tone and text — so colour is never the only channel.
 function deadlineChip(o) {
   if (!o.deadline) return "";
   const days = Math.ceil((new Date(o.deadline) - Date.now()) / 86400000);
   if (isNaN(days)) return "";
-  if (days < 0) return `<span class="badge OVERDUE">overdue</span>`;
-  const cls = days <= 3 ? "CRITICAL" : days <= 10 ? "URGENT" : "";
-  return `<span class="badge ${cls}">${days}d left</span>`;
+  if (days < 0) return `<span class="badge" data-tone="danger">${ico("alert", "ico-sm")}overdue</span>`;
+  const tone = days <= 3 ? "danger" : days <= 10 ? "attn" : "neutral";
+  const mark = days <= 10 ? ico("clock", "ico-sm") : "";
+  return `<span class="badge" data-tone="${tone}">${mark}${days}d left</span>`;
+}
+
+// Fit is banded so the hue carries meaning; the number is always shown too.
+function fitMeter(score) {
+  if (score == null) return "";
+  const band = score >= 70 ? "high" : score >= 50 ? "mid" : "low";
+  return `<div class="meter" data-band="${band}" role="meter" aria-valuenow="${score}"
+       aria-valuemin="0" aria-valuemax="100" aria-label="Fit score">
+    <span class="meter-val">FIT ${score}</span>
+    <span class="meter-track"><i class="meter-fill" style="width:${Math.max(2, Math.min(100, score))}%"></i></span>
+  </div>`;
 }
 
 // minimal, safe markdown: escape first, then transform
@@ -599,6 +1429,8 @@ function agentHead() {
   return `<div class="msg-head"><span class="avatar">${esc(PERSONA[0] || "A")}</span>${esc(PERSONA)}</div>`;
 }
 function addMsg(who, text) {
+  const ph = $("chatlog").querySelector(".empty");
+  if (ph) ph.remove();
   const d = document.createElement("div");
   d.className = "msg " + who;
   if (who === "agent") d.innerHTML = agentHead() + md(text); else d.textContent = text;
@@ -614,12 +1446,16 @@ function setThinking(on) {
     $("chatlog").appendChild(t); $("chatlog").scrollTop = $("chatlog").scrollHeight;
   }
 }
+function chatPlaceholder() {
+  $("chatlog").innerHTML = emptyState("sparkle", `${esc(PERSONA)} is ready`,
+    "Ask for anything on your plate — or upload your deck and it will start building your profile.");
+}
 async function newSession() {
   const r = await api("/session/new", { method: "POST", body: "{}" });
   sessionId = r.session_id;
   $("sessionTag").textContent = "session " + sessionId;
   chatCount = 0;
-  $("chatlog").innerHTML = "";
+  chatPlaceholder();
 }
 // Agent-initiated messages (sweep reports, deadline nudges) land in the
 // session without the founder sending anything — sync from history.
@@ -631,6 +1467,7 @@ async function syncChat() {
   chatCount = msgs.length;
   const log = $("chatlog");
   log.innerHTML = "";
+  if (!msgs.length) chatPlaceholder();
   for (const m of msgs) addMsg(m.role, m.text);
   renderSessionDocCards();
 }
@@ -646,7 +1483,9 @@ async function send() {
   try {
     const r = await api("/wake", { method: "POST", body: JSON.stringify({ message: text, session_id: sessionId }) });
     (r.replies || []).forEach(t => addMsg("agent", t));
-  } catch (e) { addMsg("agent", "⚠️ Something went wrong — please try again."); }
+  } catch (e) {
+    addMsg("agent", "I couldn't reach the server, so that message wasn't sent. Try again.");
+  }
   setThinking(false);
   refresh();
 }
@@ -654,58 +1493,114 @@ async function send() {
 // ---------- board ----------
 async function runSweep() {
   const b = $("sweepBtn");
-  b.disabled = true; b.textContent = "⟳ Sweeping…";
+  b.disabled = true; b.querySelector("span").textContent = "Sweeping…";
   await api("/tasks/discover", { method: "POST", body: "{}" });
-  toast("Discovery sweep started — the agent works in the background. New finds and scores appear here automatically.");
-  setTimeout(() => { b.disabled = false; b.textContent = "⟳ Run discovery sweep"; }, 15000);
+  toast("Sweep running. Alex works in the background — new finds appear here as they're scored.", "ok");
+  setTimeout(() => { b.disabled = false; b.querySelector("span").textContent = "Run discovery sweep"; }, 15000);
 }
+let offlineSince = 0, booted = false;
+
+// Skeletons are markup, so the first successful render destroys them by
+// replacing innerHTML. This only has to drop the busy flag screen readers use.
+function markLoaded() {
+  if (booted) return;
+  booted = true;
+  for (const id of ["boardCols", "audit"]) $(id).removeAttribute("aria-busy");
+}
+
+function setOffline(down) {
+  document.body.dataset.offline = down ? "true" : "";
+  if (down && !offlineSince) offlineSince = Date.now();
+  if (!down && offlineSince) { offlineSince = 0; toast("Back online.", "ok"); }
+}
+
 async function refresh() {
-  const board = await api("/api/pipeline");
+  refreshGateBanner();
+  let board;
+  try {
+    board = await api("/api/pipeline");
+    setOffline(false);
+  } catch {
+    setOffline(true);
+    // Before the first render there is nothing to preserve, so the skeletons
+    // must resolve into an explanation rather than shimmering forever.
+    if (!booted) {
+      markLoaded();
+      $("boardCols").innerHTML = emptyState("alert", "Can't reach the server",
+        "Alex's pipeline is unavailable. This retries on its own every few seconds.",
+        `<button class="btn" data-variant="secondary" data-size="sm" onclick="refresh()">
+           ${ico("refresh", "ico-sm")}Retry now</button>`);
+      $("audit").innerHTML = "";
+    }
+    // After the first render, keep the last good data on screen — a blanked
+    // board during a blip reads as "everything was lost", which is worse.
+    return;
+  }
+  markLoaded();
   const groups = board.opportunities || {};
+  const LANE_COPY = { SHORTLISTED: "Worth applying to", DISCOVERED: "Found, not yet scored",
+                      ARCHIVED: "Ruled out, with reasons" };
   let html = "";
   for (const state of ["SHORTLISTED", "DISCOVERED", "ARCHIVED"]) {
     const items = groups[state] || [];
     if (!items.length) continue;
-    html += `<div class="lane-label ${state}">${state} · ${items.length}</div>`;
+    html += `<div class="lane-label ${state}" title="${LANE_COPY[state]}">${state} · ${items.length}</div>`;
     for (const o of items) {
-      const fit = o.fit_score != null
-        ? `<span class="badge fit">fit ${o.fit_score}</span>
-           <div class="fitbar"><i style="width:${o.fit_score}%"></i></div>` : "";
+      // An archived item is evidence of a decision: its reason always shows.
       const why = o.archive_reason
-        ? `<div class="why arch">Archived: ${esc(o.archive_reason)}</div>`
+        ? `<div class="why arch">Ruled out — ${esc(o.archive_reason)}</div>`
         : (o.fit_rationale ? `<div class="why">${esc(o.fit_rationale)}</div>` : "");
-      html += `<div class="card">
-        <div class="name">${esc(o.name || "untitled")}</div>
-        <div class="meta">${esc(o.award || "")} ${deadlineChip(o)}</div>
-        ${fit}${why}</div>`;
+      html += `<article class="card">
+        <div class="name">${esc(o.name || "Untitled programme")}</div>
+        <div class="meta">${o.award ? `<span>${esc(o.award)}</span>` : ""}${deadlineChip(o)}</div>
+        ${fitMeter(o.fit_score)}${why}</article>`;
     }
   }
-  $("boardCols").innerHTML = html ||
-    `<div class="empty">No opportunities yet.<br><button onclick="runSweep()">Run a discovery sweep</button></div>`;
+  $("boardCols").innerHTML = html || emptyState("compass", "Nothing found yet",
+    "Alex sweeps your sources for grants, accelerators and programmes that fit your profile.",
+    `<button class="btn" data-size="sm" onclick="runSweep()">${ico("refresh")}Run a sweep</button>`);
 
   const apps = board.applications || [];
   $("apps").innerHTML = apps.map(a =>
-    `<div class="card appcard ${activeApp && activeApp.id === a.id ? "active" : ""}" onclick="loadApp('${a.id}')">
+    `<article class="card appcard ${activeApp && activeApp.id === a.id ? "active" : ""}"
+       tabindex="0" role="button" aria-label="Review ${esc(a.opportunity_name || a.id)}"
+       onclick="loadApp('${a.id}')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();loadApp('${a.id}')}">
        <div class="name">${esc(a.opportunity_name || a.id.slice(0, 8))}</div>
-       <span class="badge state">${a.state}</span> ${deadlineChip(a)}</div>`).join("")
-    || `<div class="empty">none in flight — pick a prospect from the board and tell the agent</div>`;
+       <div class="meta"><span class="badge" data-tone="info">${stateLabel(a.state)}</span>${deadlineChip(a)}</div>
+     </article>`).join("")
+    || emptyState("clipboard", "No applications in flight",
+         "Pick a shortlisted programme above and tell Alex to start — it interviews you, then drafts.");
   if (!activeApp && apps.length) loadApp(apps[0].id);
   if (activeApp) loadApp(activeApp.id, true);
   syncChat();
   loadDocuments();
 
   const audit = await api("/api/audit");
-  $("audit").innerHTML = (audit.audit || []).slice(0, 15).map(r =>
-    `<div class="audit-item"><span class="when">${timeAgo(r.created_at)}</span>
-     <b>${esc(r.actor || "")}</b> ${esc(r.action || "")}
-     <span class="${r.result === "success" ? "ok" : "refused"}">${esc(r.result || "")}</span>
-     ${r.detail ? `<br>${esc(String(r.detail).slice(0, 110))}${String(r.detail).length > 110 ? "…" : ""}` : ""}</div>`).join("")
-    || `<div class="empty">no activity yet</div>`;
+  $("audit").innerHTML = (audit.audit || []).slice(0, 15).map(r => {
+    const ok = r.result === "success";
+    const detail = String(r.detail || "");
+    return `<div class="audit-item">
+      <span><span class="who">${esc(r.actor || "")}</span> ${esc(r.action || "")}
+        <span class="badge" data-tone="${ok ? "ok" : "danger"}">${esc(r.result || "")}</span></span>
+      <time class="when" datetime="${esc(r.created_at || "")}">${timeAgo(r.created_at)}</time>
+      ${detail ? `<span class="detail">${esc(detail.slice(0, 140))}${detail.length > 140 ? "…" : ""}</span>` : ""}
+    </div>`;
+  }).join("") || emptyState("shield", "No activity yet",
+    "Every action Alex takes — searches, drafts, form fills, submissions — is recorded here.");
 }
 
 // ---------- review ----------
 const STEPS = ["INTERVIEWING", "DRAFTING", "AWAITING_REVIEW", "APPROVED",
                "FORM_FILLING", "AWAITING_SUBMIT_APPROVAL", "SUBMITTED", "FOLLOW_UP"];
+
+// The state machine's vocabulary is not the founder's (docs/16 §10).
+const STATE_COPY = {
+  INTERVIEWING: "Answering questions", DRAFTING: "Alex is drafting",
+  AWAITING_REVIEW: "Needs your review", APPROVED: "Approved",
+  FORM_FILLING: "Filling the form", AWAITING_SUBMIT_APPROVAL: "Needs your approval",
+  SUBMITTED: "Submitted", FOLLOW_UP: "Following up", CLOSED: "Closed",
+};
+const stateLabel = st => esc(STATE_COPY[st] || String(st || "").replaceAll("_", " "));
 async function loadApp(id, silent) {
   try { activeApp = await api("/api/applications/" + id); }
   catch { return; }
@@ -713,80 +1608,245 @@ async function loadApp(id, silent) {
 
   const idx = STEPS.indexOf(activeApp.state);
   $("stepperSlot").innerHTML = `
-    <div class="stepper">${STEPS.map((s, i) =>
-      `<i class="${i < idx ? "done" : i === idx ? "now" : ""}"></i>`).join("")}</div>
-    <div class="steplabel">${activeApp.state.replaceAll("_", " ")}</div>`;
+    <div class="stepper" role="img"
+         aria-label="Step ${idx + 1} of ${STEPS.length} — ${STATE_COPY[activeApp.state] || activeApp.state}">
+      ${STEPS.map((s, i) => `<i class="${i < idx ? "done" : i === idx ? "now" : ""}"></i>`).join("")}</div>
+    <div class="steplabel">${stateLabel(activeApp.state)}</div>`;
 
   $("approvalSlot").innerHTML = activeApp.pending_approval_id ? `
     <div class="approval-banner">
-      <b>⏸ Awaiting your approval.</b>
-      <div class="meta" style="margin:4px 0 8px">The form is filled. Submission is irreversible — it only happens if you approve.</div>
-      <div class="row" style="margin-top:0">
-        <button onclick="showApproval('${activeApp.pending_approval_id}')">Review &amp; approve</button>
+      <div class="hd">${ico("pause")}Waiting on you</div>
+      <p>The form is filled and checked. Nothing is sent until you approve — and submitting cannot be undone.</p>
+      <div class="row">
+        <button class="btn" data-size="sm"
+          onclick="showApproval('${activeApp.pending_approval_id}')">Review &amp; approve</button>
       </div>
     </div>` : "";
 
+  const SECTION_TONE = { approved: "ok", rejected: "danger", draft: "neutral" };
   const sections = activeApp.draft_sections || [];
   $("sections").innerHTML = sections.map(s => `
     <div class="section" data-sid="${s.section_id}">
-      <b>${esc(s.section_key)}</b> <span class="badge">${s.status}</span>
-      <span class="meta">v${s.version} · ${s.word_count || "?"} words</span>
-      <div class="preview">${esc((s.content || "").slice(0, 260))}${(s.content || "").length > 260 ? "…" : ""}</div>
-      ${s.notes ? `<div class="notes">“${esc(s.notes)}”</div>` : ""}
-      <textarea>${esc(s.content || "")}</textarea>
-      <div class="row">
-        <button onclick="feedback('${s.section_id}','approve',this)">Approve</button>
-        <button class="ghost" onclick="toggleEdit(this)">Edit</button>
-        <button class="danger" onclick="feedback('${s.section_id}','reject',this)">Reject</button>
-        <input placeholder="reason (required — it's what the agent learns from)" />
+      <div class="section-head">
+        <b>${esc(s.section_key)}</b>
+        <span class="badge" data-tone="${SECTION_TONE[s.status] || "neutral"}">${esc(s.status)}</span>
+        <span class="meta tnum">v${s.version} · ${s.word_count || "?"} words</span>
       </div>
-    </div>`).join("") || `<div class="empty">no sections yet</div>`;
+      <div class="preview">${esc((s.content || "").slice(0, 260))}${(s.content || "").length > 260 ? "…" : ""}</div>
+      ${s.notes ? `<div class="notes">${ico("sparkle", "ico-sm")}<span>${esc(s.notes)}</span></div>` : ""}
+      <textarea class="field" aria-label="Edit ${esc(s.section_key)}">${esc(s.content || "")}</textarea>
+      <div class="row">
+        <button class="btn" data-size="sm" onclick="feedback('${s.section_id}','approve',this)">
+          ${ico("check", "ico-sm")}Approve</button>
+        <button class="btn" data-variant="secondary" data-size="sm" onclick="toggleEdit(this)">
+          ${ico("pencil", "ico-sm")}Edit</button>
+        <button class="btn" data-variant="danger" data-size="sm" onclick="feedback('${s.section_id}','reject',this)">
+          Reject</button>
+        <input class="field reason" aria-label="Reason" placeholder="Why? Alex learns from this." />
+      </div>
+    </div>`).join("") || emptyState("chat", "Nothing drafted yet",
+      "Alex interviews you first, then drafts each section in your voice for you to approve.");
+
+  loadRecon(activeApp.id);
 
   const fr = activeApp.form_fill_report;
+  const gaps = (fr && fr.needs_human) || [];
   $("fillReport").innerHTML = fr
-    ? `filled <b>${fr.filled}/${fr.total}</b> fields` +
-      ((fr.needs_human || []).length
-        ? `<br>needs you: ${fr.needs_human.map(f => esc(f.field)).join(", ")}`
-        : `<br><span style="color:var(--green)">nothing needs you</span>`)
-    : "—";
+    ? `<div class="row"><span class="badge" data-tone="${gaps.length ? "attn" : "ok"}">
+         <span class="tnum">${fr.filled}/${fr.total}</span> filled</span>
+       ${gaps.length
+         ? `<span class="badge" data-tone="attn">${ico("flag", "ico-sm")}${gaps.length} need you</span>`
+         : `<span class="badge" data-tone="ok">${ico("check", "ico-sm")}nothing needs you</span>`}</div>
+       ${gaps.length ? `<div class="detail" style="margin-top:var(--sp-2);color:var(--ink-3)">
+         ${gaps.map(f => esc(f.field)).join(" · ")}</div>` : ""}`
+    : `<span style="color:var(--ink-3)">No form filled yet.</span>`;
 }
+// Recon evidence (docs/10 §Fill report): the form_map the vision pass built and
+// the frames it captured. Shown before the fill report — it is the "why" behind
+// the "what", and it is the first thing a judge asks to see.
+async function loadRecon(appId) {
+  const el = $("reconSlot");
+  let r;
+  try { r = await api(`/api/applications/${appId}/recon`); }
+  catch { el.innerHTML = ""; return; }
+
+  const fm = r.form_map, shots = r.screenshots || [];
+  if (!fm && !shots.length) {
+    el.innerHTML = emptyState("eye", "No recon yet",
+      "Before filling anything, Alex screenshots the form and maps every field. That evidence lands here.");
+    return;
+  }
+
+  const notes = ((fm && fm.observations) || [])
+    .map(o => o.note).filter(Boolean).slice(-1)[0] || "";
+  const summary = fm
+    ? `<div class="hd">${ico("eye", "ico-sm")}
+        <span>${esc(notes || "form mapped")} · <span class="tnum">${fm.steps_taken ?? "?"}</span>
+        step${fm.steps_taken === 1 ? "" : "s"} in <span class="tnum">${fm.time_seconds ?? 0}</span>s</span>
+        ${fm.exhausted ? `<span class="badge" data-tone="attn">${ico("alert", "ico-sm")}partial map</span>` : ""}
+        ${r.form_map_artifact
+          ? `<a href="/api/artifacts/${r.form_map_artifact}/download" download
+               style="margin-left:auto">form map</a>` : ""}
+      </div>` : "";
+
+  const strip = shots.length
+    ? `<div class="filmstrip" role="list" aria-label="Recon screenshots, newest first">
+         ${shots.map(name => `<button role="listitem" title="${esc(name)}"
+             onclick="showShot('${esc(name)}')">
+             <img loading="lazy" src="/api/artifacts/${esc(name)}/download" alt=""></button>`).join("")}
+       </div>
+       ${r.screenshot_total > shots.length
+         ? `<div class="hd"><span class="tnum">${r.screenshot_total - shots.length}</span>
+              earlier frame${r.screenshot_total - shots.length === 1 ? "" : "s"} not shown</div>` : ""}`
+    : "";
+
+  el.innerHTML = `<div class="evidence">${summary}${strip}</div>`;
+}
+
+function showShot(name) {
+  $("shotTitle").textContent = name;
+  $("shotImg").src = `/api/artifacts/${name}/download`;
+  $("shotDownload").href = `/api/artifacts/${name}/download`;
+  openDialog("shotModal");
+}
+
 function toggleEdit(btn) {
   const box = btn.closest(".section");
   const ta = box.querySelector("textarea");
   const show = ta.style.display !== "block";
   ta.style.display = show ? "block" : "none";
-  box.querySelector("input[placeholder]").style.display = show ? "block" : "none";
+  box.querySelector(".reason").style.display = show ? "block" : "none";
+  if (show) ta.focus();
 }
 async function feedback(sectionId, type, btn) {
   const box = btn.closest(".section");
-  const reasonEl = box.querySelector("input[placeholder]");
+  const reasonEl = box.querySelector(".reason");
   if (type !== "approve") reasonEl.style.display = "block";
   const reason = reasonEl.value, edited = box.querySelector("textarea").value;
   if ((type === "reject" || type === "edit") && !reason.trim()) {
-    toast("A reason is required — it is what the agent learns from");
+    toast("Alex needs a reason — that is what shapes the next draft.", "attn");
     reasonEl.focus(); return;
   }
   const r = await api("/api/feedback", { method: "POST", body: JSON.stringify({
     session_id: sessionId, application_id: activeApp.id, section_id: sectionId,
     type, reason, edited_text: type === "edit" ? edited : "" }) });
-  toast("Feedback recorded — " + type + (r.distillation ? " · rule distilled inline" : ""));
+  toast(type === "approve" ? "Approved." : "Rejected. Alex will avoid this next time.", "ok");
   addMsg("agent", `Noted — feedback on **${sectionId}** recorded (${type}).` +
     (r.distillation ? " I distilled your reason into a rule that shapes future drafts." : ""));
   refresh();
 }
 
+// ---------- dialogs (docs/16 §7.5) ----------
+// One primitive for all three overlays: focus moves in on open, returns on
+// close, Escape closes the topmost, click-outside closes.
+let lastFocus = null;
+function openDialog(id, focusSel) {
+  lastFocus = document.activeElement;
+  $(id).dataset.open = "true";
+  const target = focusSel && $(id).querySelector(focusSel);
+  (target || $(id).querySelector("button, [href], input")).focus();
+}
+function closeDialog(id) {
+  $(id).dataset.open = "false";
+  if (lastFocus && document.contains(lastFocus)) lastFocus.focus();
+  lastFocus = null;
+}
+function topDialog() {
+  return [...document.querySelectorAll('.dialog[data-open="true"]')].pop();
+}
+document.addEventListener("keydown", e => {
+  const dlg = topDialog();
+  if (!dlg) return;
+  if (e.key === "Escape") {
+    e.preventDefault();
+    ({ modal: closeApproval, pdfModal: closePdf, connections: closeConnections,
+       shotModal: () => closeDialog("shotModal") })[dlg.id]();
+    return;
+  }
+  if (e.key !== "Tab") return;
+  const f = [...dlg.querySelectorAll('button, [href], input, textarea, [tabindex]:not([tabindex="-1"])')]
+    .filter(el => !el.disabled && el.offsetParent !== null);
+  if (!f.length) return;
+  const first = f[0], last = f[f.length - 1];
+  if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+  else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+});
+
 // ---------- approval gate ----------
+let gateItems = {};  // approval_id → record (global inbox: submit + send_email)
+
+async function refreshGateBanner() {
+  try {
+    const j = await api("/api/approvals/pending");
+    const pending = (j || {}).pending || [];
+    gateItems = Object.fromEntries(pending.map(a => [a.id, a]));
+    const shown = pending.filter(a => !activeApp || a.id !== activeApp.pending_approval_id);
+    $("gateBanner").innerHTML = shown.map(a => {
+      const label = a.gate === "send_email"
+        ? `Alex wants to send an email${a.details && a.details.to ? ` to <b>${esc(a.details.to)}</b>` : ""}`
+        : a.gate === "book_meeting"
+          ? `Alex wants to book a meeting${a.details && a.details.summary ? ` — <b>${esc(a.details.summary)}</b>` : ""}`
+          : "An application is waiting for your submit approval";
+      return `<div class="approval-banner">
+        <div class="hd">${ico("pause")}Waiting on you</div>
+        <p class="grow">${label}</p>
+        <button class="btn" data-size="sm" onclick="showApproval('${a.id}')">Review &amp; approve</button>
+      </div>`;
+    }).join("");
+  } catch { /* banner is best-effort; the per-app banner still works */ }
+}
+
 function showApproval(approvalId) {
   pendingApproval = approvalId;
-  $("modal").style.display = "flex";
+  const a = gateItems[approvalId];
+  const det = (a && a.details) || {};
+  const isEmail = a && a.gate === "send_email";
+  const isBooking = a && a.gate === "book_meeting";
+  $("modalText").textContent = isEmail
+    ? "Send this email from alex@ruhu.ai?"
+    : isBooking
+      ? "Create this event and email the invites?"
+      : `Submit your application to ${(activeApp && activeApp.opportunity_name) || "this programme"}?`;
+  $("gateDetails").style.display = (isEmail || isBooking) && (det.to || det.summary) ? "" : "none";
+  $("gateDetails").textContent = isEmail && det.to
+    ? `To: ${det.to}\nSubject: ${det.subject || ""}\n\n${det.body || ""}`
+    : isBooking && det.summary
+      ? `What: ${det.summary}\nWhen: ${(det.start || "").replace("T", " ")} → ${(det.end || "").split("T")[1] || ""}\nWho: ${(det.attendees || []).join(", ")}`
+      : "";
+  $("gateNote").textContent = isEmail
+    ? "This sends real email from Alex's mailbox. The approval is single-use — Alex sends once, then it's spent."
+    : isBooking
+      ? "This creates a real event on your calendar and emails every attendee an invite with a Meet link. Single-use approval."
+      : "Submitting is irreversible. Alex has filled the form and will not send anything until you approve here.";
+  $("gateConfirm").textContent = isEmail ? "Approve & send" : isBooking ? "Approve & book" : "Approve & submit";
+  openDialog("modal", "#gateConfirm");
 }
+function closeApproval() { pendingApproval = null; closeDialog("modal"); }
 async function resolveApproval(decision) {
   if (!pendingApproval) return;
-  await api(`/api/approvals/${pendingApproval}/resolve`, { method: "POST", body: JSON.stringify({ decision }) });
-  pendingApproval = null;
-  $("modal").style.display = "none";
-  toast(decision === "grant" ? "Approved — submitting now." : "Held. Nothing was submitted.");
+  const id = pendingApproval;
+  const gate = gateItems[id] && gateItems[id].gate;
+  closeApproval();
+  await api(`/api/approvals/${id}/resolve`, { method: "POST", body: JSON.stringify({ decision }) });
+  toast(decision === "grant"
+      ? (gate === "send_email" ? "Approved — tell Alex to send, and it goes."
+         : gate === "book_meeting" ? "Approved — tell Alex to book it, and invites go out."
+         : "Approved — Alex is submitting now.")
+      : "Held. Nothing was sent.",
+        decision === "grant" ? "ok" : "attn");
   refresh();
+}
+
+// ---------- responsive panes ----------
+// Below 960px the board and the conversation share one column; the review
+// panel is a drawer at every width under 1280px (docs/16 §8).
+function toggleDrawer() {
+  document.body.dataset.drawer = document.body.dataset.drawer === "open" ? "" : "open";
+}
+function showPane(which) {
+  document.body.dataset.pane = which;
+  document.querySelectorAll("#paneTabs button").forEach((b, i) =>
+    b.setAttribute("aria-selected", String((i === 0) === (which === "board"))));
 }
 
 // ---------- voice + docs ----------
@@ -804,10 +1864,10 @@ $("micBtn").onclick = async () => {
     fd.append("context", "founder voice note");
     const r = await fetch("/api/voice-note", { method: "POST", body: fd });
     const j = await r.json();
-    if (j.transcript) { addMsg("you", "🎙 " + j.transcript); toast("Voice note transcribed"); }
+    if (j.transcript) { addMsg("you", j.transcript); toast("Voice note transcribed.", "ok"); }
   };
   recorder.start();
-  toast("Recording… tap again to stop (max 30s)");
+  toast("Recording… tap again to stop (max 30s).");
   setTimeout(() => recorder.state === "recording" && recorder.stop(), 30000);
 };
 async function uploadDoc(input) {
@@ -816,17 +1876,19 @@ async function uploadDoc(input) {
   const fd = new FormData(); fd.append("file", f);
   const d = document.createElement("div");
   d.className = "msg agent";
-  d.innerHTML = `<i>📄 Reading <b>${esc(f.name)}</b> — extracting profile facts… (this takes ~15s)</i>`;
+  d.innerHTML = `${agentHead()}<p>Reading <b>${esc(f.name)}</b> — pulling out facts about your
+    company. This takes about 15 seconds.</p>`;
   $("chatlog").appendChild(d);
   $("chatlog").scrollTop = $("chatlog").scrollHeight;
   try {
     const r = await fetch("/api/ingest", { method: "POST", body: fd });
     const j = await r.json();
-    d.innerHTML = j.status === "success"
-      ? `📄 <b>${esc(f.name)}</b> ingested — ${esc(j.summary || "")}. Confident facts apply themselves; I'll only ask you about conflicts.`
-      : `⚠️ ${esc(j.message || "ingest failed")}`;
+    d.innerHTML = agentHead() + (j.status === "success"
+      ? `<p>Read <b>${esc(f.name)}</b> — ${esc(j.summary || "facts extracted")}. I've applied
+         what I'm confident about; I'll only come back to you about conflicts.</p>`
+      : `<p>I couldn't read <b>${esc(f.name)}</b>: ${esc(j.message || "the file wouldn't parse")}.</p>`);
   } catch (e) {
-    d.innerHTML = "⚠️ Upload failed: " + esc(e.message || e);
+    d.innerHTML = agentHead() + `<p>The upload didn't reach me: ${esc(e.message || e)}. Try again.</p>`;
   }
   refresh();
 }
@@ -837,7 +1899,7 @@ let pdfjsLib = null, pdfDoc = null, pdfPage = 1, pdfZoom = 1.1;
 async function previewDoc(artifact, title) {
   $("pdfTitle").textContent = title;
   $("pdfDownload").href = `/api/artifacts/${artifact}/download`;
-  $("pdfModal").style.display = "flex";
+  openDialog("pdfModal");
   $("pdfPageInfo").textContent = "converting…";
   try {
     if (!pdfjsLib) {
@@ -876,7 +1938,7 @@ function pdfNav(d) {
   renderPdfPage();
 }
 function pdfZoomBy(d) { pdfZoom = Math.min(3, Math.max(0.5, pdfZoom + d)); renderPdfPage(); }
-function closePdf() { $("pdfModal").style.display = "none"; pdfDoc = null; }
+function closePdf() { closeDialog("pdfModal"); pdfDoc = null; }
 
 // ---------- documents (docs/15) ----------
 let allDocs = [], viewingSession = null;
@@ -888,37 +1950,31 @@ async function loadDocuments() {
   renderSessionDocCards();
 }
 
-const DOC_ICONS = {
-  docx: '<svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="12" x2="16" y2="12"/><line x1="8" y1="15.5" x2="16" y2="15.5"/><line x1="8" y1="19" x2="13" y2="19"/></svg>',
-  xlsx: '<svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="2"/><line x1="4" y1="9.5" x2="20" y2="9.5"/><line x1="4" y1="15" x2="20" y2="15"/><line x1="9.5" y1="9.5" x2="9.5" y2="20"/><line x1="15" y1="9.5" x2="15" y2="20"/></svg>',
-  pptx: '<svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="12" rx="1.5"/><line x1="12" y1="16" x2="12" y2="20"/><line x1="8" y1="20" x2="16" y2="20"/><polyline points="7.5 8.5 10 11 13 8 16.5 12"/></svg>',
-  pdf: '<svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><path d="M9 13.5c.5-2 1-3.5 1.5-3.5s.3 2 1.5 3.5c1 1.2 2.5 1.5 3 1" /><circle cx="9.8" cy="16.8" r="1"/></svg>',
-};
+const DOC_ICONS = { docx: "file-doc", xlsx: "file-sheet", pptx: "file-slides", pdf: "file-pdf" };
 
 function docCardHtml(d, showApp) {
   return `<div class="doc-card">
-    <span class="doc-badge ${d.kind}">${DOC_ICONS[d.kind] || DOC_ICONS.docx}</span>
+    <span class="doc-badge ${d.kind}">${ico(DOC_ICONS[d.kind] || DOC_ICONS.docx)}</span>
     <div style="min-width:0;flex:1">
       <div class="name" title="${esc(d.title)}">${esc(d.title)}</div>
       <div class="sub">v${d.version} · ${timeAgo(d.created_at)}${showApp && d.opportunity_name ? " · " + esc(d.opportunity_name) : ""}
         · <span class="doc-tag" onclick="viewSession('${d.session_id}')">${esc(d.session_id || "session")}</span></div>
     </div>
-    <a class="cbtn" title="Download" href="/api/artifacts/${d.artifact_name}/download" download>
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-    </a>
-    <button class="cbtn" title="Preview" onclick="previewDoc('${d.artifact_name}', '${esc(d.title).replace(/'/g, "\\'")}')">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-    </button>
-    <button class="cbtn" title="Copy to Drive" onclick="syncDrive('${d.artifact_name}')">
-      <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 3l8 14H4L8 3zm8 14l4-7h-8l4 7zM12 10h10l-4 7h-4l-2-3.5L12 10z" opacity=".9"/></svg>
-    </button>
+    <a class="cbtn" title="Download" aria-label="Download" href="/api/artifacts/${d.artifact_name}/download" download>
+      ${ico("download")}</a>
+    <button class="cbtn" title="Preview" aria-label="Preview"
+            onclick="previewDoc('${d.artifact_name}', '${esc(d.title).replace(/'/g, "\\'")}')">
+      ${ico("eye")}</button>
+    <button class="cbtn" title="Copy to Drive" aria-label="Copy to Drive" onclick="syncDrive('${d.artifact_name}')">
+      ${ico("cloud-up")}</button>
   </div>`;
 }
 
 function renderDocuments() {
   const el = $("documents");
   if (!allDocs.length) {
-    el.innerHTML = `<div class="empty">No documents yet — ask your co-founder for an application pack, a budget, or a deck.</div>`;
+    el.innerHTML = emptyState("file-doc", "No documents yet",
+      "Ask Alex for an application pack, a budget, or a deck — finished files land here.");
     return;
   }
   const groups = {};
@@ -945,9 +2001,9 @@ function renderSessionDocCards() {
 
 // provenance navigation: doc → the conversation that produced it
 async function viewSession(sid) {
-  if (!sid || sid === sessionId) { toast("This document was made in the current session"); return; }
+  if (!sid || sid === sessionId) { toast("This document was made in the session you are already viewing."); return; }
   const h = await api("/api/chat/" + sid);
-  if (h.error) { toast("Session not found"); return; }
+  if (h.error) { toast("That session no longer exists.", "danger"); return; }
   if (!viewingSession) viewingSession = sessionId;
   sessionId = sid;
   chatCount = (h.messages || []).length;
@@ -967,67 +2023,153 @@ function backToSession() {
 async function syncDrive(name) {
   toast("Copying to Drive…");
   const r = await api(`/api/documents/${name}/sync_drive`, { method: "POST", body: "{}" });
-  toast(r.status === "success" ? "Copied — open your Drive" : (r.message || "Drive sync failed"));
+  toast(r.status === "success" ? "Copied to your Drive." : (r.message || "Couldn't copy to Drive."),
+        r.status === "success" ? "ok" : "danger");
 }
 
 // ---------- connections (Drive + Gmail) ----------
 let connState = null;
 
 function openConnections() {
-  $("connections").style.display = "flex";
   showConn("list");
   loadConnections();
+  openDialog("connections", "#connSearch");
 }
-function closeConnections() { $("connections").style.display = "none"; }
-document.addEventListener("keydown", e => e.key === "Escape" && closeConnections());
+function closeConnections() { closeDialog("connections"); }
 
+const CONN_PANES = { list: "connList", drive: "connDrive", gmail: "connGmail",
+                     calendar: "connCalendar", browser: "connBrowser",
+                     github: "connGithub", alex_mail: "connAlex", soon: "connSoon" };
 function showConn(which) {
-  $("connList").style.display = which === "list" ? "" : "none";
-  $("connDrive").style.display = which === "drive" ? "" : "none";
-  $("connGmail").style.display = which === "gmail" ? "" : "none";
-  $("connCalendar").style.display = which === "calendar" ? "" : "none";
+  const c = connectorCatalog.find(x => x.name === which);
+  const pane = CONN_PANES[which] && (!c || c.available) ? which : "soon";
+  for (const id of Object.values(CONN_PANES)) $(id).style.display = "none";
+  $(CONN_PANES[pane]).style.display = "";
+  if (pane === "soon" && c) {
+    $("soonBadge").innerHTML = connMark(c);
+    $("soonBadge").style.setProperty("--brand", c.brand);
+    $("soonBadge").style.setProperty("--brand-soft", c.brand + "1f");
+    $("soonTitle").textContent = c.title;
+    $("soonBlurb").textContent = c.blurb;
+    $("soonNote").textContent = c.soon_note || "On the roadmap.";
+  }
 }
 
-const KIND_LABEL = { confirmation: "✓ confirmation", request: "⚑ request",
-                     result_positive: "★ result", result_negative: "✕ result", update: "update" };
+// Registry-driven list (pattern: andrewyng/openworker ConnectorsList): the
+// catalog comes from GET /api/connectors; adding a connector is backend data.
+let connectorCatalog = [], connShowAll = false;
+const CONN_FOLD = 8;
+
+// Neutral marks, never logotypes (submission rules). Unknown connectors fall
+// back to the glyph the backend sends, so a server-side addition still renders.
+const CONN_ICON = { drive: "cloud-up", gmail: "inbox", calendar: "calendar",
+                    browser: "globe", github: "code", imap: "inbox",
+                    alex_mail: "sparkle",
+                    slack: "chat", telegram: "send", jira: "board" };
+const connMark = c => CONN_ICON[c.name] ? ico(CONN_ICON[c.name]) : esc(c.icon || "");
+
+function connRow(c) {
+  const badge = `<span class="cbadge" style="--brand:${c.brand};--brand-soft:${c.brand}1f">${connMark(c)}</span>`;
+  if (c.connected) {
+    return `<button class="crow connrow" onclick='showConn("${c.name}")'>
+      ${badge}
+      <span class="grow"><b>${esc(c.title)}</b><div class="conn-sub">${esc(c.status_line || "Connected")}</div></span>
+      <span class="chip-ok">Ready</span><span class="chev">${ico("chev-right", "ico-sm")}</span></button>`;
+  }
+  const action = !c.available
+    ? `<span class="tag tag-quiet">Soon</span>`
+    : c.auth === "google_oauth"
+      ? `<a class="btn" data-variant="quiet" data-size="sm" href="/api/integrations/google/connect?connector=${c.name}" onclick="event.stopPropagation()">Connect</a>`
+      : `<span class="btn" data-variant="quiet" data-size="sm">Connect</span>`;
+  return `<button class="crow connrow" onclick='showConn("${c.name}")'>
+    ${badge}
+    <span class="grow"><b>${esc(c.title)}</b><div class="conn-sub">${esc(c.blurb)}</div></span>
+    ${action}</button>`;
+}
+
+function renderConnectorList() {
+  const q = ($("connSearch").value || "").trim().toLowerCase();
+  const match = c => !q || c.title.toLowerCase().includes(q) || c.name.includes(q)
+    || (c.aliases || []).some(a => a.includes(q));
+  const connected = connectorCatalog.filter(c => c.connected && match(c));
+  const available = connectorCatalog.filter(c => !c.connected && match(c));
+  const shown = (connShowAll || q) ? available : available.slice(0, CONN_FOLD);
+  let html = "";
+  if (connected.length)
+    html += `<div class="grp-h">Connected · ${connected.length}</div><div class="grp">${connected.map(connRow).join("")}</div>`;
+  html += `<div class="grp-h">Available</div><div class="grp">${shown.map(connRow).join("")
+    || `<div class="crow"><span class="grow conn-sub">Nothing matches.</span></div>`}</div>`;
+  if (!connShowAll && !q && available.length > CONN_FOLD)
+    html += `<div class="foot">${available.length - CONN_FOLD} more · <a onclick="connShowAll=true;renderConnectorList()">show all</a></div>`;
+  $("connListGroups").innerHTML = html;
+}
+
+async function connectGithub() {
+  const t = $("ghToken").value.trim(); if (!t) return;
+  $("ghToken").value = "";
+  const j = await api("/api/connectors/github/token", { method: "POST",
+    headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token: t }) });
+  if (j.status === "success") { toast(`GitHub connected as ${j.login}.`, "ok"); await loadConnections(); showConn("github"); }
+  else toast(j.message || "Couldn't connect GitHub — check the token.", "danger");
+}
+async function disconnectGithub() {
+  await api("/api/connectors/github/token", { method: "DELETE" });
+  toast("GitHub disconnected.", "ok"); await loadConnections(); showConn("github");
+}
+
+const KIND_LABEL = { confirmation: "confirmation", request: "request",
+                     result_positive: "result", result_negative: "result", update: "update" };
+const KIND_TONE = { confirmation: "ok", request: "attn", result_positive: "ok",
+                    result_negative: "danger", update: "accent" };
 
 async function loadConnections() {
+  const cat = await api("/api/connectors");
+  connectorCatalog = (cat || {}).connectors || [];
+  renderConnectorList();
+
   connState = await api("/api/integrations");
   const conn = connState.connectors || {};
   const any = Object.values(conn).some(Boolean);
   const driveFiles = (connState.drive || {}).files || [];
   const gmail = connState.gmail || {};
 
-  const rowStatus = k => conn[k]
-    ? `<span class="dot"></span>`
-    : `<a class="pill pill-quiet" href="/api/integrations/google/connect?connector=${k}">Connect</a>`;
-  const notConn = `<span class="dot off"></span><span>Not connected — click its <b>Connect</b> on the Connections list (one click, no restart)</span>`;
+  $("connListFoot").innerHTML = (any
+    ? `Signed in as <b style="color:var(--ink)">${esc(connState.account_email || "Google account")}</b> · <a href="/api/integrations/google/connect">Reconnect all</a><br>` : "")
+    + `Google connectors are read-only by construction — the agent can never send, delete, or modify anything in your Google account.`;
 
-  $("googleAccountRow").innerHTML = any
-    ? `<div class="crow"><span class="dot"></span>
-         <span class="grow conn-sub">Signed in as <b style="color:var(--ink)">${esc(connState.account_email || "Google account")}</b></span>
-         <a class="pill pill-quiet" href="/api/integrations/google/connect">Reconnect all</a></div>`
-    : `<div class="crow"><span class="grow conn-sub">Each connector connects separately — you grant only the scopes you choose. All read-only.</span></div>`;
-
-  $("driveRowStatus").innerHTML = rowStatus("drive");
-  $("gmailRowStatus").innerHTML = rowStatus("gmail");
-  $("calendarRowStatus").innerHTML = rowStatus("calendar");
-  $("driveRowSub").textContent = conn.drive
-    ? `${driveFiles.length} file(s) selected · read-only` : "Company records — decks, plans, models";
-  $("gmailRowSub").textContent = conn.gmail
-    ? `watching label “${gmail.label || "grants"}” · read-only` : "Portal mail — confirmations, requests, results";
-  $("calendarRowSub").textContent = conn.calendar
-    ? "primary calendar · read-only" : "Free/busy + upcoming meetings — planning around your time";
-
+  const notConn = `<span class="dot off"></span><span>Not connected — click its <b>Connect</b> on the Connectors list (one click, no restart)</span>`;
   $("driveStatusLine").innerHTML = conn.drive ? `<span class="dot"></span> Connected · read-only` : notConn;
   $("gmailStatusLine").innerHTML = conn.gmail ? `<span class="dot"></span> Connected · read-only` : notConn;
   $("calendarStatusLine").innerHTML = conn.calendar ? `<span class="dot"></span> Connected · read-only` : notConn;
+
+  $("alexStatusLine").innerHTML = conn.alex_mail
+    ? `<span class="dot"></span> Connected · read + approval-gated send` : notConn;
+  const alexLast = (connState.alex_mail || {}).last_scan;
+  $("alexLastScan").innerHTML = alexLast && !alexLast.error
+    ? (alexLast.events || []).map(e => `
+      <div class="crow">
+        <span class="tag tag-accent">${KIND_LABEL[e.kind] || e.kind}</span>
+        <span class="grow"><b>${esc(e.subject || "(no subject)")}</b>
+          <span class="conn-sub">${esc(e.from || "")} — ${esc((e.excerpt || "").slice(0, 90))}…</span></span>
+      </div>`).join("") ||
+      `<div class="crow"><span class="grow conn-sub">Scanned ${timeAgo(alexLast.at)} — no new mail.</span></div>`
+    : `<div class="crow"><span class="grow conn-sub">${alexLast && alexLast.error ? esc(alexLast.error) : "Never scanned."}</span></div>`;
+
+  const gh = connectorCatalog.find(c => c.name === "github") || {};
+  $("githubStatusLine").innerHTML = gh.connected
+    ? `<span class="dot"></span> Connected` : `<span class="dot off"></span> Not connected`;
+  $("githubConnected").style.display = gh.connected ? "" : "none";
+  $("githubConnect").style.display = gh.connected ? "none" : "";
+  if (gh.connected) $("githubLogin").textContent = gh.status_line || "Connected";
+  $("githubInstructions").innerHTML = (gh.instructions || []).map(
+    (s, i) => `<div class="crow"><span class="conn-sub" style="flex:none">${i + 1}.</span>
+      <span class="grow">${esc(s)}</span></div>`).join("");
 
   if (conn.calendar) {
     api("/api/integrations/calendar/upcoming").then(j => {
       const evs = (j || {}).events || [];
       $("calendarUpcoming").innerHTML = evs.length
-        ? evs.map(e => `<div class="crow"><span class="grow" style="font-size:12.5px"><b>${esc(e.summary)}</b>
+        ? evs.map(e => `<div class="crow"><span class="grow"><b>${esc(e.summary)}</b>
             <span class="conn-sub">${esc((e.start || "").replace("T", " ").slice(0, 16))}</span></span></div>`).join("")
         : `<div class="crow"><span class="grow conn-sub">Nothing scheduled in the next 7 days.</span></div>`;
     }).catch(() => {
@@ -1040,11 +2182,11 @@ async function loadConnections() {
   $("driveFiles").innerHTML = driveFiles.length
     ? driveFiles.map(f => `
       <div class="crow">
-        <span class="cbadge sm">▲</span>
-        <span class="grow" style="font-size:12.5px"><b>${esc(f.name)}</b>
+        <span class="cbadge sm"><svg class="ico" aria-hidden="true"><use href="#i-cloud-up"/></svg></span>
+        <span class="grow"><b>${esc(f.name)}</b>
           <span class="conn-sub">${esc(f.id)}</span></span>
-        <button class="pill pill-quiet" onclick="ingestDrive('${f.id}')">Ingest</button>
-        <button class="x" title="Remove" onclick="removeDriveFile('${f.id}')">×</button>
+        <button class="btn" data-variant="quiet" data-size="sm" onclick="ingestDrive('${f.id}')">Ingest</button>
+        <button class="x" title="Remove" aria-label="Remove" onclick="removeDriveFile('${f.id}')"><svg class="ico" aria-hidden="true"><use href="#i-close"/></svg></button>
       </div>`).join("")
     : `<div class="crow"><span class="grow conn-sub">Nothing selected yet — add a file id below.</span></div>`;
 
@@ -1053,8 +2195,8 @@ async function loadConnections() {
   $("gmailLastScan").innerHTML = last && !last.error
     ? (last.events || []).map(e => `
       <div class="crow">
-        <span class="tag tag-accent">${KIND_LABEL[e.kind] || e.kind}</span>
-        <span class="grow" style="font-size:12.5px"><b>${esc(e.subject || "(no subject)")}</b>
+        <span class="badge" data-tone="${KIND_TONE[e.kind] || "neutral"}">${KIND_LABEL[e.kind] || e.kind}</span>
+        <span class="grow"><b>${esc(e.subject || "(no subject)")}</b>
           <span class="conn-sub">${esc(e.from || "")} — ${esc((e.excerpt || "").slice(0, 90))}…</span></span>
       </div>`).join("") ||
       `<div class="crow"><span class="grow conn-sub">Scanned ${timeAgo(last.at)} — no new mail.</span></div>`
@@ -1067,32 +2209,45 @@ async function addDriveFile() {
   await api("/api/integrations/drive/files", { method: "POST",
     body: JSON.stringify({ file_id: id, action: "add" }) });
   $("driveFileId").value = "";
-  toast("File added — the agent may now read it");
+  toast("Added — Alex may now read that file.", "ok");
   loadConnections();
 }
 async function removeDriveFile(id) {
   await api("/api/integrations/drive/files", { method: "POST",
     body: JSON.stringify({ file_id: id, action: "remove" }) });
-  toast("Removed — the agent can no longer see that file");
+  toast("Removed — Alex can no longer see that file.", "ok");
   loadConnections();
 }
 async function ingestDrive(id) {
   toast("Fetching from Drive and extracting…");
   const r = await api("/api/ingest/drive", { method: "POST", body: JSON.stringify({ file_id: id }) });
-  toast(r.status === "success" ? `Ingested — ${r.summary || "facts extracted"}` : (r.message || "Ingest failed"));
+  toast(r.status === "success" ? `Read it — ${r.summary || "facts extracted"}.` : (r.message || "Couldn't read that file."),
+        r.status === "success" ? "ok" : "danger");
 }
 async function saveGmailLabel() {
   const label = $("gmailLabel").value.trim() || "grants";
   await api("/api/integrations/gmail/label", { method: "POST", body: JSON.stringify({ label }) });
-  toast(`Now watching label “${label}”`);
+  toast(`Now watching label “${label}”.`, "ok");
   loadConnections();
 }
 async function scanGmail() {
   const b = $("gmailScanBtn");
   b.disabled = true; b.textContent = "Scanning…";
   await api("/tasks/gmail_scan", { method: "POST", body: "{}" });
-  toast("Scan started — new mail is classified and reported in chat");
+  toast("Scanning — new mail is classified and reported in chat.", "ok");
   setTimeout(() => { b.disabled = false; b.textContent = "Scan now"; loadConnections(); }, 8000);
+}
+async function scanAlexMail() {
+  const b = $("alexScanBtn");
+  b.disabled = true;
+  await api("/tasks/alex_mail_scan", { method: "POST", body: "{}" });
+  toast("Scanning Alex's mailbox — findings appear in chat");
+  setTimeout(() => { b.disabled = false; loadConnections(); }, 8000);
+}
+async function enableAlexWatch() {
+  const j = await api("/api/integrations/alex_mail/watch", { method: "POST", body: "{}" });
+  toast(j.status === "success" ? "Watch enabled — mail now wakes Alex instantly"
+                               : (j.message || "Watch setup failed"));
 }
 
 // ---------- real-time voice (Gemini Live bidi via /live/{session}) ----------
@@ -1110,7 +2265,7 @@ async function toggleVoice() {
     const ws = new WebSocket(`${proto}://${location.host}/live/${sessionId}`);
     ws.onmessage = onVoiceFrame;
     ws.onclose = () => { stopVoice(); };
-    ws.onerror = () => { toast("Voice connection failed"); stopVoice(); };
+    ws.onerror = () => { toast("Voice connection failed.", "danger"); stopVoice(); };
     await new Promise((res, rej) => { ws.onopen = res; });
 
     const micCtx = new AudioContext({ sampleRate: 16000 });
@@ -1126,9 +2281,9 @@ async function toggleVoice() {
               stream, node, nextPlay: 0 };
     btn.classList.remove("connecting");
     btn.classList.add("live");
-    toast("Listening — just talk. Tap the red button to hang up.");
+    toast("Listening — just talk. Tap the red button to hang up.", "ok");
   } catch (e) {
-    toast("Microphone unavailable: " + (e.message || e));
+    toast("Microphone unavailable: " + (e.message || e), "danger");
   }
   btn.disabled = false;
 }
@@ -1177,7 +2332,7 @@ function onVoiceFrame(evt) {
   } else if (frame.transcript) {
     renderLiveTranscript(frame.transcript);
   } else if (frame.error) {
-    toast("Voice: " + frame.error); stopVoice();
+    toast("Voice: " + frame.error, "danger"); stopVoice();
   }
 }
 
@@ -1199,7 +2354,7 @@ function renderLiveTranscript({ who, text, finished }) {
   liveCaptions[key] = text;
   let el = document.getElementById("liveCaption");
   const combined = [liveCaptions.you && "You: " + liveCaptions.you,
-                    liveCaptions.agent && "Co-Founder: " + liveCaptions.agent]
+                    liveCaptions.agent && PERSONA + ": " + liveCaptions.agent]
                    .filter(Boolean).join("\n");
   if (!combined) return;
   if (!el) {

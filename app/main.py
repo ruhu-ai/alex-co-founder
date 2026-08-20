@@ -346,6 +346,13 @@ class ApprovalResolve(BaseModel):
     decision: str  # grant | deny
 
 
+@app.get("/api/approvals/pending")
+async def api_approvals_pending():
+    """The global approval inbox — every gate (submit, send_email) lands here."""
+    return {"status": "success",
+            "pending": await firestore.list_pending_approvals()}
+
+
 @app.post("/api/approvals/{approval_id}/resolve")
 async def api_resolve_approval(approval_id: str, payload: ApprovalResolve):
     return await approval_service.resolve(approval_id, payload.decision, FOUNDER_ID)
@@ -381,18 +388,23 @@ async def api_ingest(file: UploadFile = File(...)):
 # ---------------------------------------------------------------------------
 
 def _oauth_flow(scopes: list[str] | None = None):
-    """Loopback web flow against the Desktop-app OAuth client (docs/12).
-    Local single-founder tool: no state nonce; consent always re-prompted so
-    scope changes (e.g. calendar added) mint a fresh refresh token.
-    `scopes` defaults to the full grant; per-connector Connect buttons pass
-    just their own scopes (incremental authorization — Google merges grants)."""
+    """Loopback/web flow for the Connectors panel (docs/12).
+
+    Client type comes from GOOGLE_OAUTH_CLIENT_TYPE: "installed" (Desktop app
+    client — loopback redirects, local dev) or "web" (Web application client —
+    works for both local loopback AND the Cloud Run https URL, as long as each
+    redirect URI is registered on the client). Consent always re-prompted so
+    scope changes mint a fresh refresh token. `scopes` defaults to the full
+    grant; per-connector Connect buttons pass just their own scopes
+    (incremental authorization — Google merges grants)."""
     from google_auth_oauthlib.flow import Flow
 
     from services import google_oauth
 
     base = os.environ.get("AGENT_BASE_URL", "http://127.0.0.1:8090")
+    client_type = os.environ.get("GOOGLE_OAUTH_CLIENT_TYPE", "installed")
     return Flow.from_client_config(
-        {"installed": {
+        {client_type: {
             "client_id": os.environ.get("GOOGLE_OAUTH_CLIENT_ID", ""),
             "client_secret": os.environ.get("GOOGLE_OAUTH_CLIENT_SECRET", ""),
             "auth_uri": "https://accounts.google.com/o/oauth2/auth",
@@ -406,21 +418,25 @@ def _oauth_flow(scopes: list[str] | None = None):
 @app.get("/api/integrations/google/connect")
 async def api_google_connect(connector: str = ""):
     """Connect button target: redirect the browser to Google consent.
-    ?connector=drive|gmail|calendar requests only that connector's scopes."""
+    ?connector=drive|gmail|calendar requests only that connector's scopes on
+    the founder account; ?connector=alex_mail consents AS alex@ruhu.ai (sign
+    in as that account on the consent screen) — adr/001."""
     from fastapi.responses import RedirectResponse
 
     from services import google_oauth
 
+    account = google_oauth.CONNECTOR_ACCOUNT.get(connector, "founder")
     flow = _oauth_flow(google_oauth.SCOPE_MAP.get(connector))
     url, _ = flow.authorization_url(
-        prompt="consent", access_type="offline", include_granted_scopes=True)
+        prompt="consent", access_type="offline", include_granted_scopes=True,
+        state=account)
     return RedirectResponse(url)
 
 
 @app.get("/api/integrations/google/callback")
-async def api_google_callback(code: str = ""):
-    """Consent redirect: exchange the code, persist the refresh token (no
-    restart needed), land back on the app."""
+async def api_google_callback(code: str = "", state: str = "founder"):
+    """Consent redirect: exchange the code, persist the refresh token for the
+    account named in `state` (no restart needed), land back on the app."""
     from fastapi.responses import RedirectResponse
 
     from services import google_oauth
@@ -428,7 +444,7 @@ async def api_google_callback(code: str = ""):
     if not code:
         return JSONResponse({"status": "error", "error": True,
                              "message": "no code in callback"}, status_code=400)
-    flow = _oauth_flow()
+    flow = _oauth_flow(google_oauth.ALL_SCOPES)
     try:
         flow.fetch_token(code=code)
     except Exception as exc:
@@ -438,8 +454,36 @@ async def api_google_callback(code: str = ""):
     if not token:
         return JSONResponse({"status": "error", "error": True,
                              "message": "no refresh token returned — consent again"}, status_code=400)
-    google_oauth.save_refresh_token(token)
-    return RedirectResponse("/?connected=google")
+    account = state if state in google_oauth.ACCOUNT_ENV else "founder"
+    google_oauth.save_refresh_token(token, account=account)
+    return RedirectResponse(f"/?connected={account}")
+
+
+@app.get("/api/connectors")
+async def api_connectors():
+    """Connector catalog (registry-as-data, services/connectors.py) — the
+    Connections panel renders this and never hardcodes a connector."""
+    from services import connectors
+
+    return {"status": "success", "connectors": connectors.catalog()}
+
+
+class GithubTokenRequest(BaseModel):
+    token: str
+
+
+@app.post("/api/connectors/github/token")
+async def api_github_connect(payload: GithubTokenRequest):
+    from services import connectors
+
+    return await connectors.github_connect(payload.token)
+
+
+@app.delete("/api/connectors/github/token")
+async def api_github_disconnect():
+    from services import connectors
+
+    return await connectors.github_disconnect()
 
 
 @app.get("/api/integrations")
@@ -455,7 +499,8 @@ async def api_integrations():
             "connectors": {k: google_oauth.configured(k) for k in google_oauth.SCOPE_MAP},
             "drive": {"files": integ.get("drive_files", [])},
             "gmail": {"label": integ.get("gmail_label", "grants"),
-                      "last_scan": await firestore.get_last_gmail_scan()}}
+                      "last_scan": await firestore.get_last_gmail_scan()},
+            "alex_mail": {"last_scan": await firestore.get_last_alex_scan()}}
 
 
 class DriveFileRequest(BaseModel):
@@ -468,6 +513,18 @@ async def api_calendar_upcoming():
     from services import calendar_adapter
 
     return await calendar_adapter.list_upcoming(days_ahead=7, max_results=5)
+
+
+@app.post("/api/integrations/alex_mail/watch")
+async def api_alex_mail_watch():
+    """Register Gmail push notifications for Alex's inbox (adr/001 v2)."""
+    from services import alex_mailbox
+
+    topic = os.environ.get("ALEX_MAIL_PUBSUB_TOPIC", "")
+    if not topic:
+        return {"status": "error", "error": True,
+                "message": "ALEX_MAIL_PUBSUB_TOPIC not set (projects/<p>/topics/<t>)"}
+    return await alex_mailbox.start_watch(topic)
     name: str = ""
     action: str = "add"  # add | remove
 
@@ -557,8 +614,89 @@ async def _gmail_scan_and_report() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Alex's mailbox (adr/001 v2): Pub/Sub push + manual/scheduled scan
+# ---------------------------------------------------------------------------
+
+@app.post("/webhooks/alex_mail")
+async def alex_mail_push(request: Request, background: BackgroundTasks):
+    """Gmail push notification (via Pub/Sub) for alex@ruhu.ai. Fast-ack; the
+    history fetch + founder report run in the background. Token-checked when
+    ALEX_MAIL_WEBHOOK_TOKEN is set (same posture as the portal webhook)."""
+    token = os.environ.get("ALEX_MAIL_WEBHOOK_TOKEN", "")
+    if token and request.query_params.get("token") != token:
+        return JSONResponse({"error": "bad webhook token"}, status_code=401)
+    background.add_task(_alex_mail_process)
+    return JSONResponse({"status": "accepted"}, status_code=202)
+
+
+@app.post("/tasks/alex_mail_scan")
+async def tasks_alex_mail_scan(background: BackgroundTasks):
+    background.add_task(_alex_mail_process)
+    return JSONResponse({"status": "accepted"}, status_code=202)
+
+
+async def _alex_mail_process() -> None:
+    """New mail in Alex's inbox → classified events → follow-ups on matching
+    inflight applications → the agent reports to the founder (wake)."""
+    from services import alex_mailbox
+
+    result = await alex_mailbox.fetch_history_events()
+    if result.get("status") != "success":
+        await firestore.set_last_alex_scan({"error": result.get("message", ""), "events": []})
+        return
+    events = result.get("events", [])
+    if not events:
+        return
+    apps = await firestore.list_inflight_applications(FOUNDER_ID)
+    for a in apps:
+        opp = await firestore.get_opportunity(a.get("opportunity_id", ""))
+        a["opportunity_name"] = opp.get("name", "") if opp else ""
+    for event in events:
+        haystack = f"{event.get('subject', '')} {event.get('excerpt', '')}".lower()
+        match = next((a for a in apps
+                      if a.get("opportunity_name")
+                      and a["opportunity_name"].lower() in haystack), None)
+        if match:
+            followups = match.get("followups", [])
+            followups.append({"kind": f"email_{event['kind']}", "due_at": "",
+                              "status": "PENDING",
+                              "note": f"{event['from']}: {event['subject']}"})
+            await firestore.update_application(match["id"], followups=followups)
+    lines = "; ".join(f"[{e['kind']}] {e['subject']} (from {e['from']})" for e in events[:5])
+    await _notify_founder(
+        f"System: {len(events)} new message(s) arrived in Alex's mailbox "
+        f"(alex@ruhu.ai): {lines}. Report them to the founder, matched to "
+        "applications where possible, with what each one needs next.")
+
+
+# ---------------------------------------------------------------------------
 # documents (docs/15): registry, downloads, Drive sync
 # ---------------------------------------------------------------------------
+
+@app.get("/api/applications/{application_id}/recon")
+async def api_recon(application_id: str):
+    """Vision-recon evidence for one application: the form_map the agent built
+    and the screenshots it took getting there (docs/09 Tier 1, docs/10 §Fill
+    report). This is the 'show your working' surface — judges ask for it."""
+    import json as _json
+
+    artifact = f"form_map_{application_id}.json"
+    form_map = None
+    if storage.exists(artifact):
+        try:
+            form_map = _json.loads(storage.read_text(artifact))
+        except (ValueError, OSError):
+            form_map = None
+
+    prefix = f"recon_{application_id}_"
+    shots = sorted((a for a in storage.list_artifacts()
+                    if a.startswith(prefix) and a.endswith(".png")),
+                   key=lambda a: a[len(prefix):], reverse=True)
+    return {"status": "success", "application_id": application_id,
+            "form_map": form_map,
+            "form_map_artifact": artifact if form_map else None,
+            "screenshots": shots[:8], "screenshot_total": len(shots)}
+
 
 @app.get("/api/documents")
 async def api_documents(session_id: str = "", application_id: str = ""):
@@ -581,7 +719,12 @@ async def api_download_artifact(name: str):
     from fastapi.responses import FileResponse
     from services import document_service
 
-    ext = name.rsplit(".", 1)[-1]
+    ext = name.rsplit(".", 1)[-1].lower()
+    images = {"png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg", "webp": "image/webp"}
+    if ext in images:
+        # No filename= : FileResponse would set Content-Disposition: attachment,
+        # and the recon filmstrip needs these to render in an <img>.
+        return FileResponse(path, media_type=images[ext])
     mime = document_service.mime_for(ext) if ext in ("docx", "xlsx", "pptx", "pdf") \
         else "application/octet-stream"
     return FileResponse(path, media_type=mime, filename=name)

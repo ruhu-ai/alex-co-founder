@@ -2,7 +2,8 @@
 
 import pytest
 
-from services import (approval_service, calendar_adapter, discovery_service,
+from services import (alex_mailbox, approval_service, calendar_adapter,
+                      discovery_service,
                       drive_adapter, gmail_adapter, pipeline_service,
                       profile_service, recon_service)
 
@@ -501,3 +502,175 @@ class TestCalendarAdapter:
         monkeypatch.setattr("services.google_oauth.get_credentials", lambda: None)
         result = await calendar_adapter.check_availability()
         assert result["status"] == "error" and result["error"] is True
+
+
+class _FakeAlexMessages:
+    def __init__(self, stubs=None, messages=None, sent=None):
+        self._stubs = stubs or []
+        self._msgs = messages or {}
+        self.sent = sent if sent is not None else []
+
+    def list(self, **kw): return _FakeReq({"messages": self._stubs})
+    def get(self, userId, id, format, **kw): return _FakeReq(self._msgs[id])
+    def send(self, userId, body):
+        self.sent.append(body)
+        return _FakeReq({"id": "sent-1"})
+
+
+class _FakeAlexUsers:
+    def __init__(self, msgs): self._m = msgs
+    def messages(self): return self._m
+
+
+class _FakeAlexGmail:
+    def __init__(self, msgs): self._u = _FakeAlexUsers(msgs)
+    def users(self): return self._u
+
+
+class TestAlexMailbox:
+    def teardown_method(self):
+        alex_mailbox.set_service_factory(None)
+
+    async def test_send_refused_without_approval(self, monkeypatch):
+        sent = []
+        alex_mailbox.set_service_factory(lambda: _FakeAlexGmail(_FakeAlexMessages(sent=sent)))
+        async def _none(target): return None
+        monkeypatch.setattr("services.alex_mailbox.firestore.find_valid_approval", _none)
+        monkeypatch.setattr("services.alex_mailbox.firestore.find_pending_approval", _none)
+        async def _req(target, gate, details=None):
+            assert gate == "send_email"
+            assert details and details["to"] == "program@example.org"
+            return {"status": "success", "approval_id": "ap1"}
+        monkeypatch.setattr("services.approval_service.request_approval", _req)
+        async def _audit(*a, **k): pass
+        monkeypatch.setattr("services.alex_mailbox.firestore.audit", _audit)
+        result = await alex_mailbox.send_email("program@example.org", "Question", "Hi")
+        assert result["status"] == "needs_approval" and result["error"] is True
+        assert sent == []  # nothing left the building
+
+    async def test_send_with_approval_sends_and_consumes(self, monkeypatch):
+        sent = []
+        consumed = []
+        alex_mailbox.set_service_factory(lambda: _FakeAlexGmail(_FakeAlexMessages(sent=sent)))
+        async def _valid(target): return {"id": "ap1"}
+        monkeypatch.setattr("services.alex_mailbox.firestore.find_valid_approval", _valid)
+        async def _consume(aid): consumed.append(aid)
+        monkeypatch.setattr("services.alex_mailbox.firestore.consume_approval", _consume)
+        async def _audit(*a, **k): pass
+        monkeypatch.setattr("services.alex_mailbox.firestore.audit", _audit)
+        result = await alex_mailbox.send_email("program@example.org", "Question", "Hi")
+        assert result["status"] == "success" and result["message_id"] == "sent-1"
+        assert len(sent) == 1 and consumed == ["ap1"]
+
+    async def test_send_rejects_bad_recipient(self):
+        alex_mailbox.set_service_factory(lambda: _FakeAlexGmail(_FakeAlexMessages()))
+        result = await alex_mailbox.send_email("not-an-email", "Hi", "Body")
+        assert result["status"] == "error" and "recipient" in result["message"]
+
+    async def test_scan_classifies_and_dedupes(self, monkeypatch):
+        processed = []
+        async def _processed(): return list(processed)
+        monkeypatch.setattr("services.alex_mailbox.firestore.get_processed_alex_ids", _processed)
+        async def _mark(ids): processed.extend(ids)
+        monkeypatch.setattr("services.alex_mailbox.firestore.add_processed_alex_ids", _mark)
+        async def _scan(s): pass
+        monkeypatch.setattr("services.alex_mailbox.firestore.set_last_alex_scan", _scan)
+        msgs = _FakeAlexMessages(
+            stubs=[{"id": "m1"}, {"id": "m2"}],
+            messages={"m1": _gmail_msg("Application received"),
+                      "m2": _gmail_msg("Unfortunately not selected")})
+        alex_mailbox.set_service_factory(lambda: _FakeAlexGmail(msgs))
+        result = await alex_mailbox.scan_unread()
+        assert result["status"] == "success"
+        assert [e["kind"] for e in result["events"]] == ["confirmation", "result_negative"]
+        assert set(processed) == {"m1", "m2"}
+        # rescan is idempotent — same messages are skipped
+        result2 = await alex_mailbox.scan_unread()
+        assert result2["events"] == []
+
+    async def test_unconfigured_oauth_is_error_data(self, monkeypatch):
+        alex_mailbox.set_service_factory(None)
+        monkeypatch.setattr("services.google_oauth.get_credentials", lambda account="founder": None)
+        result = await alex_mailbox.scan_unread()
+        assert result["status"] == "error" and result["error"] is True
+
+    # search + full read (the mailbox is the agent's own — not privacy-narrowed)
+    async def test_search_returns_summaries(self):
+        msgs = _FakeAlexMessages(
+            stubs=[{"id": "m1"}],
+            messages={"m1": _gmail_msg("Interview invitation")})
+        alex_mailbox.set_service_factory(lambda: _FakeAlexGmail(msgs))
+        result = await alex_mailbox.search_messages("subject:interview")
+        assert result["status"] == "success"
+        assert result["results"][0]["subject"] == "Interview invitation"
+        assert result["results"][0]["id"] == "m1"
+
+    async def test_get_message_returns_full_body(self):
+        msgs = _FakeAlexMessages(messages={"m1": _gmail_msg(
+            "We received your application", body="Full body text here")})
+        alex_mailbox.set_service_factory(lambda: _FakeAlexGmail(msgs))
+        result = await alex_mailbox.get_message("m1")
+        assert result["status"] == "success"
+        assert result["message"]["body"] == "Full body text here"
+
+
+class _FakeCalendarInsertEvents(_FakeCalendarEvents):
+    def __init__(self, inserted): super().__init__([]); self.inserted = inserted
+    def insert(self, calendarId, body, conferenceDataVersion, sendUpdates):
+        self.inserted.append(body)
+        return _FakeReq({"id": "evt-1", "hangoutLink": "https://meet.google.com/abc-defg-hij"})
+
+
+class _FakeCalendarInsert:
+    def __init__(self, inserted): self._e = _FakeCalendarInsertEvents(inserted)
+    def events(self): return self._e
+    def freebusy(self): return _FakeCalendarFreebusy([])
+
+
+class TestCalendarBooking:
+    def teardown_method(self):
+        calendar_adapter.set_service_factory(None)
+
+    async def test_booking_refused_without_approval(self, monkeypatch):
+        inserted = []
+        calendar_adapter.set_service_factory(lambda: _FakeCalendarInsert(inserted))
+        async def _none(target): return None
+        monkeypatch.setattr("services.calendar_adapter.firestore.find_valid_approval", _none)
+        monkeypatch.setattr("services.calendar_adapter.firestore.find_pending_approval", _none)
+        async def _req(target, gate, details=None):
+            assert gate == "book_meeting"
+            assert details["attendees"] == ["investor@fund.com"]
+            return {"status": "success", "approval_id": "ap1"}
+        monkeypatch.setattr("services.approval_service.request_approval", _req)
+        async def _audit(*a, **k): pass
+        monkeypatch.setattr("services.calendar_adapter.firestore.audit", _audit)
+        result = await calendar_adapter.create_event(
+            "Intro call", "2026-08-25T14:00:00+01:00", "2026-08-25T14:30:00+01:00",
+            ["investor@fund.com"])
+        assert result["status"] == "needs_approval" and result["error"] is True
+        assert inserted == []  # nothing on the calendar
+
+    async def test_booking_with_approval_inserts_and_consumes(self, monkeypatch):
+        inserted, consumed = [], []
+        calendar_adapter.set_service_factory(lambda: _FakeCalendarInsert(inserted))
+        async def _valid(target): return {"id": "ap1"}
+        monkeypatch.setattr("services.calendar_adapter.firestore.find_valid_approval", _valid)
+        async def _consume(aid): consumed.append(aid)
+        monkeypatch.setattr("services.calendar_adapter.firestore.consume_approval", _consume)
+        async def _audit(*a, **k): pass
+        monkeypatch.setattr("services.calendar_adapter.firestore.audit", _audit)
+        result = await calendar_adapter.create_event(
+            "Intro call", "2026-08-25T14:00:00+01:00", "2026-08-25T14:30:00+01:00",
+            ["investor@fund.com"])
+        assert result["status"] == "success"
+        assert result["meet_link"] == "https://meet.google.com/abc-defg-hij"
+        assert inserted[0]["attendees"] == [{"email": "investor@fund.com"}]
+        assert consumed == ["ap1"]
+
+    async def test_booking_validates_times(self):
+        calendar_adapter.set_service_factory(lambda: _FakeCalendarInsert([]))
+        bad = await calendar_adapter.create_event("X", "not-a-date", "2026-08-25T14:30:00+01:00", ["a@b.co"])
+        assert bad["status"] == "error" and "ISO-8601" in bad["message"]
+        back = await calendar_adapter.create_event(
+            "X", "2026-08-25T15:00:00+01:00", "2026-08-25T14:30:00+01:00", ["a@b.co"])
+        assert back["status"] == "error" and "after start" in back["message"]
