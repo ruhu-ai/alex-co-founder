@@ -531,11 +531,40 @@ and focus together. Selection persists in `localStorage`.
 
 ```
 header 52px (sticky, --e-2)
-main   grid, gap --sp-3, padding --sp-3 --sp-4
-       ├ board   clamp(300px, 24vw, 360px)
-       ├ chat    minmax(420px, 1fr)
+main   grid, gap 0, padding 0            ← full bleed
+       ├ left cell  var(--left-w, clamp(300px, 24vw, 360px))   border-right: 1px --border
+       │    ├ Pipeline surface (default)
+       │    └ Browser surface (docs/18) — same cell, switched
+       ├ chat    minmax(420px, 1fr)          border-right: 1px --border
        └ review  clamp(340px, 27vw, 420px)
 ```
+
+**One workspace, not three cards.** The panels run edge to edge, separated by a
+single hairline; each carries its own `--sp-3 --sp-4` padding so content never
+touches a divider. The earlier treatment — floating rounded cards on the
+`--surface-0` ground — implied three independent objects and spent roughly 56px
+horizontal and 24px vertical on chrome, which a dense operations surface (§0)
+cannot afford: the review panel gained 26px of usable height from this change
+alone.
+
+**The left cell is a switchable, resizable surface.** Pipeline and Browser
+share it (never both at once); a ghost globe button in the header (top-left,
+after the chips) toggles them, and the Browser surface auto-opens when a
+browser run starts. The hairline between the left cell and the chat is a drag
+handle (`role="separator"`, 10px hit area, keyboard arrows at 16px steps);
+the width is clamped 260–600px and persisted in `localStorage`
+(`leftPanelWidth`). The Browser surface follows the watch-view grammar:
+toolbar (globe, read-only URL pill, Stop for active browse runs, close-back
+to Pipeline), a stage with the latest audited frame, and a meta line — it is
+a live view, not an interactive browser.
+
+`--surface-0` therefore shows only *through* the dividers at full width. It is
+still painted on `body` (§1) because it is the ground behind the drawer and any
+overscroll.
+
+The drawer below 1280px is the exception: it genuinely floats above the chat, so
+it keeps a border, a left-side radius and `--e-3`. `#chat` drops its divider
+there, since nothing sits to its right.
 
 Panel height is `calc(100dvh - var(--header-h))` — `--header-h` is a token, not
 a magic `53px`, and `dvh` keeps mobile browser chrome from clipping the composer.
@@ -544,9 +573,9 @@ Breakpoints — the old layout had none and broke below ~1150px:
 
 | Width | Behaviour |
 |---|---|
-| ≥1280px | three columns as above |
-| 960–1279px | board + chat; review becomes a right drawer opened from the header |
-| <960px | single column, tabbed: Pipeline / Conversation / Review |
+| ≥1280px | three columns as above; left cell switchable + draggable |
+| 960–1279px | left cell + chat; review becomes a right drawer opened from the header |
+| <960px | single column, tabbed: Pipeline / Conversation / Browser; review stays a header drawer; the drag handle and surface toggle hide (tabs cover them) |
 
 Every panel scrolls independently with `overscroll-behavior: contain`. Wide
 content (fill reports, audit detail) gets its own `overflow-x: auto`; the body
@@ -628,6 +657,8 @@ Verified in-browser:
 - [x] Layout holds at 1440, 1280, 1100, 960 and 720 px with no sideways body
       scroll. **720px is also the 200%-zoom case** (a 1440 window at 200% is a
       720 CSS-px viewport) — that is what caught the header overflow.
+- [x] Panels are full-bleed with hairline dividers and no outer padding; the
+      sub-1280px drawer keeps its border, radius and shadow.
 - [x] `prefers-reduced-motion: reduce` parses, targets `*, ::before, ::after`,
       and collapses transitions from 120ms to 0.01ms when applied.
 - [x] Every live-updating number uses tabular numerals.

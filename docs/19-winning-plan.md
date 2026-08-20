@@ -27,15 +27,17 @@ packaging, A2A, embeddings, model breadth**.
 ## P0 — ship-readiness (nothing else matters until these are done)
 
 1. **Cloud Run deploy** (docs/13): app + mock portal, secrets in Secret
+   **Status (Aug 20): DEPLOYED + verified — app, mock portal, Cloud SQL,
+   Scheduler/PubSub OIDC loop live.**
    Manager, `--min-instances 1` for the demo window, `/healthz` warm, Cloud
    SQL sessions, Scheduler → `/tasks/discover` + `/tasks/deadline_scan` daily.
    *Criteria: Production Readiness.*
-2. **Vertex Agent Engine deploy** (hybrid, `adk deploy agent_engine`): the
-   agent package deploys standalone → Agent Registry listing + managed
-   runtime + console observability. Cloud Run keeps the app. **Hard 45-minute
-   timebox** — IAM/manifest issues swallow days; on any GCP deploy error, cut
-   immediately. Cloud Run alone satisfies 100% of the infra requirements;
-   the write-up then notes GEAP as roadmap.
+2. **Vertex Agent Engine deploy** (hybrid, `adk deploy agent_engine`).
+   **Status (Aug 20): DEPLOYED inside the 45-min box —
+   reasoningEngines/3585069262793867264 (us-central1), console playground
+   live.** Cloud Run keeps the app; Agent Engine gives Registry + managed
+   runtime + observability. Trap fixed: payload limit (8 MB) — deploy from a
+   clean staging copy excluding `.adk/` history + `__pycache__`.
    *Criteria: Fortified boxes (Registry, Runtime), Architectural Discipline.*
 3. **Real data run**: real pitch deck → profile → live sweep → real program
    → full loop to produced documents. This becomes the demo's backbone and

@@ -611,5 +611,6 @@ async def ping_agent():
 
 
 @app.get("/healthz")
+@app.get("/health")  # GFE intercepts /healthz at the edge; /health is reachable
 def healthz():
     return {"status": "ok", "programs": len(PROGRAMS)}

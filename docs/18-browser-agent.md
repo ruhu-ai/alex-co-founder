@@ -303,26 +303,30 @@ an empty placeholder.
 
 ## UI: Browser panel (live view)
 
-**Visual rules in 16-design-system.md** (panel = `.card`, status = `.badge`,
-icon from the Phosphor sprite). Placement: top of the REVIEW PANEL column (10).
+**Visual rules in 16-design-system.md** (surface = a panel in the three-column
+grid, toolbar pill, `.badge`, globe icon from the Phosphor sprite).
+**Placement:** the Browser **surface** shares the left grid cell with the
+Pipeline (10 §Layout, 16 §8) — a header globe button toggles them, the surface
+auto-opens when a run starts, and the divider between the left cell and the
+chat is a drag handle. Below 960px it becomes the third pane tab.
 
-**Panel lifecycle (three orthogonal fields):** `visible` (rendered at all),
+**Panel lifecycle (three orthogonal fields):** `visible` (surface open),
 `active` (run in progress), `kind` (`browse` | `fill`). A run starting →
-visible+active. Run closing → active=false, the last screenshot + summary
-**stay** until the founder dismisses (Dismiss button, local UI state only —
-no server round-trip) or the next run starts.
+surface opens, live badge on. Run closing → the last screenshot + summary
+**stay** on the stage until the next run starts or the founder switches back
+to Pipeline (the toolbar's board button — no server round-trip).
 
 ```
 ┌── BROWSER ─────────────────────────────┐
-│ ● Alex is browsing — "checking the FAQ"│
-│ https://program.example/faq  (read-only)│
+│ ● live                                 │
+│ 🌐 https://program.example/faq  [Stop]⏴│
 │ ┌────────────────────────────────────┐ │
 │ │        latest screenshot           │ │
 │ └────────────────────────────────────┘ │
 │ last: opened "Eligibility" · 12s ago   │
-│ [Stop browsing]              [Dismiss] │
 └────────────────────────────────────────┘
 ```
+(⏴ = back-to-Pipeline button; the surface fills the left cell, not a card.)
 
 **Data:** polls `GET /api/browser/state?session_id=...` on the existing 5 s
 UI cycle (10 §Behavior rules — no new transport):
@@ -339,11 +343,15 @@ UI cycle (10 §Behavior rules — no new transport):
 The panel renders `fill` first when non-null, else `browse`; both null →
 panel hidden (or showing the retained post-run snapshot until Dismiss).
 
-**Controls:** **Stop browsing** → `POST /api/browser/stop` — shown only for
-`kind=browse` + active. For `kind=fill` the panel is watch-only in v1 (fill
+**Controls:** **Stop** → `POST /api/browser/stop` — shown only for
+`kind=browse` + active. For `kind=fill` the surface is watch-only in v1 (fill
 control stays on the existing approval-gate path, 09/10); no Stop button is
-rendered. Otherwise read-only — no click-through, no founder takeover (the
-founder acts through chat).
+rendered. The toolbar's board button switches the surface back to Pipeline
+(local only, no server round-trip). **The URL bar is typeable:** entering a
+URL composes a chat message ("Open <url> and tell me what it says.") through
+the normal send path — the request travels the agent's policy and audit
+trail, so the founder gets the Cowork-style affordance without this surface
+ever navigating directly. No click-through, no founder takeover beyond that.
 
 This is the OpenHands `BrowserPanel` pattern (URL bar + latest screenshot per
 step) — deliberately **not** VNC in v1. **Upgrade path (documented, not
@@ -424,5 +432,5 @@ SSRF guard stays enabled under test and loopback is never exempted.
 - [ ] **Tool scoping:** orchestrator's tool list includes the four browse tools; no sub-agent's list does (04/12 matrix test).
 - [ ] **State reconciliation:** kill the server mid-run → restart → run reads `closed/restart`; `GET /api/browser/state` returns `active: false`; the next wake rewrites the `browser_status` projection.
 - [ ] **Endpoints:** unknown/other-founder `session_id` → 404; `POST /api/browser/stop` twice → second returns `already_closed: true`; audit shows `browse_stop` with `actor=founder:<id>`; route handlers verified to make exactly one service call with unchanged arguments (delegation test).
-- [ ] **Panel:** during a fixture run the UI shows URL + goal + a screenshot refresh within one 5 s poll cycle; close → panel retains the last snapshot; Dismiss hides it (no server call); Stop renders only for active `kind=browse`.
+- [ ] **Panel:** during a fixture run the Browser surface auto-opens with URL + goal + a screenshot refresh within one 5 s poll cycle; close → the stage retains the last snapshot; the toolbar button returns to Pipeline (no server call); Stop renders only for active `kind=browse`.
 - [ ] **Docstring coverage:** `adk web` tool view shows an `Args:` entry for every parameter of the four browse tools (05 convention).

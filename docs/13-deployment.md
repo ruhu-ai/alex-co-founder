@@ -51,6 +51,22 @@ which in the cloud is at 3am with nobody watching." Same class of trap as
 `aiosqlite` locally. The `host=/cloudsql/<proj>:<region>:<instance>` unix-socket
 form is what Cloud Run mounts with `--add-cloudsql-instances`.
 
+## Production gotchas (learned 2026-08-20, first deploy)
+
+- **`/healthz` is intercepted by the Google Front End** — use `/health`
+  (both services expose it; the edge owns `/healthz`).
+- **Org policy `iam.allowedPolicyMemberDomains`** blocks `allUsers` on
+  Workspace-org projects: grant yourself `roles/orgpolicy.policyAdmin` on the
+  org, then set a project-level `allowAll` policy before public deploy.
+- **Compute SA needs explicit roles** for the app: `datastore.user`,
+  `secretmanager.secretAccessor`, `aiplatform.user`, `storage.objectAdmin`,
+  `cloudsql.client`, and `cloudbuild.builds.builder` (source deploys).
+- **Cloud SQL tier**: new gcloud defaults to ENTERPRISE_PLUS edition;
+  `db-f1-micro` needs `--edition=ENTERPRISE`.
+- **gcloud flag renames (2026 CLI):** `--env-vars-file` (YAML, not dotenv —
+  deploy.sh converts), `--push-auth-service-account`,
+  `--push-auth-token-audience`.
+
 ## Local development
 
 ```bash

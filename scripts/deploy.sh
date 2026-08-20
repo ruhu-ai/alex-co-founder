@@ -14,9 +14,6 @@ grep -q "^BROWSE_OPEN_WEB=false" .env.prod \
 set -a; source .env.prod; set +a
 : "${DB_PASSWORD:?set DB_PASSWORD in .env.prod}"
 
-APP_URL="https://co-founder-$(gcloud run services describe co-founder --region="$REGION" --format='value(status.url)' 2>/dev/null | sed 's|https://co-founder-||' || echo "placeholder").run.app"
-APP_URL="$(gcloud run services describe co-founder --region="$REGION" --format='value(status.url)' 2>/dev/null || echo '')"
-MOCK_URL="$(gcloud run services describe mock-portal --region="$REGION" --format='value(status.url)' 2>/dev/null || echo '')"
 
 echo "==> Firestore (native mode, idempotent)"
 gcloud firestore databases describe --database="(default)" >/dev/null 2>&1 \
@@ -29,7 +26,8 @@ done
 
 echo "==> Cloud SQL (sessions) — create is slow; runs once"
 gcloud sql instances describe co-founder-sessions >/dev/null 2>&1 \
-  || gcloud sql instances create co-founder-sessions --database-version=POSTGRES_16 --tier=db-f1-micro --region="$REGION"
+  || gcloud sql instances create co-founder-sessions --database-version=POSTGRES_16 \
+       --edition=ENTERPRISE --tier=db-f1-micro --region="$REGION"
 gcloud sql databases describe adk_sessions --instance=co-founder-sessions >/dev/null 2>&1 \
   || gcloud sql databases create adk_sessions --instance=co-founder-sessions
 gcloud sql users describe adk --instance=co-founder-sessions >/dev/null 2>&1 \
@@ -52,10 +50,11 @@ echo "    mock portal: $MOCK_URL"
 
 echo "==> Deploy co-founder (single browser-owning instance, docs/13)"
 sed -i '' "s|^MOCK_PORTAL_URL=.*|MOCK_PORTAL_URL=$MOCK_URL|" .env.prod
+grep -E '^[A-Z_]+=' .env.prod | sed -E 's/^([A-Z_]+)=(.*)$/\1: "\2"/' > /tmp/co_founder_env.yaml
 gcloud run deploy co-founder --source . --region="$REGION" \
   --allow-unauthenticated --min-instances 0 --max-instances 1 --memory 2Gi \
   --add-cloudsql-instances "${GOOGLE_CLOUD_PROJECT}:${REGION}:co-founder-sessions" \
-  --set-env-vars-from-file .env.prod
+  --env-vars-file /tmp/co_founder_env.yaml
 APP_URL="$(gcloud run services describe co-founder --region="$REGION" --format='value(status.url)')"
 echo "    app: $APP_URL"
 
@@ -83,13 +82,13 @@ gcloud run services add-iam-policy-binding co-founder --region="$REGION" \
 gcloud pubsub subscriptions describe discovery-tick-push >/dev/null 2>&1 \
   || gcloud pubsub subscriptions create discovery-tick-push --topic=discovery-tick \
        --push-endpoint="$APP_URL/tasks/discover" \
-       --push-oidc-service-account-email="$SA" \
-       --push-oidc-token-audience="$APP_URL"
+       --push-auth-service-account="$SA" \
+       --push-auth-token-audience="$APP_URL"
 gcloud pubsub subscriptions describe deadline-tick-push >/dev/null 2>&1 \
   || gcloud pubsub subscriptions create deadline-tick-push --topic=deadline-tick \
        --push-endpoint="$APP_URL/webhooks/deadline" \
-       --push-oidc-service-account-email="$SA" \
-       --push-oidc-token-audience="$APP_URL"
+       --push-auth-service-account="$SA" \
+       --push-auth-token-audience="$APP_URL"
 
 echo "==> Done. Verify: docs/13 §verification checklist."
 echo "    APP:  $APP_URL"

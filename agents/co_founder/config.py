@@ -9,6 +9,11 @@ import os
 import google.auth
 from google.adk.models import Gemini
 from google.genai import types
+from dotenv import load_dotenv
+
+# .env at the repo root is the local-dev configuration source (docs/13);
+# load_dotenv never overrides variables already present in the environment.
+load_dotenv()
 
 try:
     _, _project_id = google.auth.default()

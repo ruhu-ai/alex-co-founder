@@ -381,18 +381,41 @@ header {
 }
 header .spacer { flex: 1; }
 
+/* One workspace, not three cards. Panels run edge to edge and are separated by
+   a single hairline — the gap-and-radius treatment implied three independent
+   objects and spent ~56px horizontal / 24px vertical on chrome the dense
+   operations surface in §0 needs back. The floating drawer below 1280px keeps
+   its card treatment, because there it genuinely does float. */
 main {
   display: grid;
-  grid-template-columns: clamp(300px, 24vw, 360px) minmax(420px, 1fr) clamp(340px, 27vw, 420px);
-  gap: var(--sp-3); padding: var(--sp-3) var(--sp-4);
+  grid-template-columns: var(--left-w, clamp(300px, 24vw, 360px)) minmax(420px, 1fr) clamp(340px, 27vw, 420px);
+  gap: 0; padding: 0;
   height: calc(100dvh - var(--header-h));
 }
-main > section {
-  background: var(--surface-1); border: 1px solid var(--border);
-  border-radius: var(--r-4); padding: var(--sp-3);
+main > section, #leftCell > section {
+  background: var(--surface-1); border: 0; border-radius: 0;
+  padding: var(--sp-3) var(--sp-4);
   overflow-y: auto; overscroll-behavior: contain;
   display: flex; flex-direction: column; min-height: 0;
 }
+/* The left cell hosts two switchable surfaces — Pipeline and Browser (18) —
+   and the drag handle on its hairline resizes it (--left-w, persisted). */
+#leftCell { position: relative; display: flex; flex-direction: column; min-height: 0; }
+#leftCell > section { flex: 1; }
+#leftCell, #chat { border-right: 1px solid var(--border); }
+#browserSurface { display: none; }
+@media (min-width: 960px) {
+  body[data-surface="browser"] #board { display: none; }
+  body[data-surface="browser"] #browserSurface { display: flex; }
+}
+#splitHandle {
+  position: absolute; top: 0; bottom: 0; right: -5px; width: 10px;
+  cursor: col-resize; z-index: 6; touch-action: none;
+}
+#splitHandle:hover, #splitHandle:focus-visible { background: var(--surface-3); }
+
+/* `.btn`/`.badge` set display, which beats the UA [hidden] rule — restore it. */
+[hidden] { display: none !important; }
 h2 {
   font: 600 var(--fs-1)/var(--lh-1) var(--font-ui);
   text-transform: uppercase; letter-spacing: var(--tr-label);
@@ -429,9 +452,11 @@ h2 .count {
   header .btn { padding: 0 var(--sp-2); }
 }
 @media (max-width: 1279px) {
-  main { grid-template-columns: clamp(280px, 30vw, 340px) minmax(0, 1fr); }
+  main { grid-template-columns: var(--left-w, clamp(280px, 30vw, 340px)) minmax(0, 1fr); }
+  #chat { border-right: 0; }
   #review {
     position: fixed; top: var(--header-h); right: 0; bottom: 0; width: min(420px, 92vw);
+    border: 1px solid var(--border); border-right: 0;
     border-radius: var(--r-4) 0 0 var(--r-4); box-shadow: var(--e-3); z-index: 20;
     transform: translateX(100%); transition: transform var(--dur-3) var(--ease-out);
   }
@@ -440,9 +465,13 @@ h2 .count {
 }
 @media (max-width: 959px) {
   main { grid-template-columns: minmax(0, 1fr); }
+  #leftCell { border-right: 0; }
   #board { display: none; }
   body[data-pane="board"] #board { display: flex; }
   body[data-pane="board"] #chat { display: none; }
+  body[data-pane="browser"] #browserSurface { display: flex; }
+  body[data-pane="browser"] #chat { display: none; }
+  #splitHandle, #surfaceBtn { display: none; }
   #paneTabs { display: flex !important; }
 }
 
@@ -785,25 +814,27 @@ a.cbtn { text-decoration: none; }
 #shotModal .bar .ttl { flex: 1; font: 400 var(--fs-2)/var(--lh-2) var(--font-mono); color: var(--ink-2); }
 #shotModal img { max-width: 100%; max-height: 78vh; display: block; background: var(--surface-2); }
 
-/* Browser panel (docs/18): the latest audited frame, not an interactive VNC. */
-.browser-panel { display: flex; flex-direction: column; gap: var(--sp-2); margin-bottom: var(--sp-4); }
-.browser-panel[hidden] { display: none; }
-.browser-panel .browser-head { display: flex; align-items: center; gap: var(--sp-2); }
-.browser-panel .browser-head .ico { color: var(--accent); }
-.browser-panel .browser-head strong { flex: 1; font-size: var(--fs-3); line-height: var(--lh-3); }
-.browser-panel .browser-goal { color: var(--ink-2); font-size: var(--fs-2); line-height: var(--lh-2); }
-.browser-panel .browser-url {
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  color: var(--ink-2); background: var(--surface-3); border: 1px solid var(--border);
-  border-radius: var(--r-2); padding: var(--sp-1) var(--sp-2);
-  font: 400 var(--fs-1)/var(--lh-2) var(--font-mono);
+/* Browser surface (docs/18): a full-height watch view — toolbar, stage, meta.
+   The latest audited frame, not an interactive VNC. */
+.browser-toolbar { display: flex; align-items: center; gap: var(--sp-2); margin-bottom: var(--sp-2); }
+.browser-toolbar > .ico { color: var(--accent); flex: none; }
+.browser-urlbar {
+  flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  color: var(--ink-2); background: var(--surface-2); border: 1px solid var(--border);
+  border-radius: var(--r-full); padding: var(--sp-1) var(--sp-3);
+  font: 400 var(--fs-2)/var(--lh-2) var(--font-mono);
 }
-.browser-panel .browser-shot {
-  width: 100%; aspect-ratio: 16 / 10; object-fit: cover; object-position: top center;
-  display: block; border: 1px solid var(--border); border-radius: var(--r-2);
+input.browser-urlbar { color: var(--ink-1); }
+input.browser-urlbar::placeholder { color: var(--ink-3); }
+input.browser-urlbar:focus { outline: none; border-color: var(--accent); }
+.browser-goal { color: var(--ink-2); font-size: var(--fs-2); line-height: var(--lh-2); margin-bottom: var(--sp-2); }
+.browser-stage { flex: 1; min-height: 0; overflow-y: auto; }
+.browser-stage img {
+  display: block; width: 100%; height: auto;
+  border: 1px solid var(--border); border-radius: var(--r-3);
   background: var(--surface-3);
 }
-.browser-panel .browser-last { color: var(--ink-3); font-size: var(--fs-2); line-height: var(--lh-2); }
+.browser-last { color: var(--ink-3); font-size: var(--fs-2); line-height: var(--lh-2); margin-top: var(--sp-2); }
 
 .approval-banner {
 
@@ -1054,6 +1085,10 @@ body[data-offline="true"] #offline { display: flex; }
   <div class="brand">Co-<span>Founder</span></div>
   <span class="chip">grant_applications</span>
   <span class="chip" id="sessionTag"></span>
+  <button class="btn" data-variant="ghost" data-shape="icon" id="surfaceBtn"
+          onclick="toggleSurface()" title="Show browser" aria-label="Show browser" aria-pressed="false">
+    <svg class="ico" aria-hidden="true"><use href="#i-globe"/></svg>
+  </button>
   <div class="spacer"></div>
   <div id="paneTabs" role="tablist" aria-label="Panel">
     <button role="tab" aria-selected="false" onclick="showPane('board')">
@@ -1061,6 +1096,9 @@ body[data-offline="true"] #offline { display: flex; }
     </button>
     <button role="tab" aria-selected="true" onclick="showPane('chat')">
       <svg class="ico ico-sm" aria-hidden="true"><use href="#i-chat"/></svg>Chat
+    </button>
+    <button role="tab" aria-selected="false" onclick="showPane('browser')">
+      <svg class="ico ico-sm" aria-hidden="true"><use href="#i-globe"/></svg>Browser
     </button>
   </div>
   <button class="btn" data-variant="ghost" onclick="openConnections()" aria-label="Connections" title="Connections">
@@ -1090,7 +1128,8 @@ body[data-offline="true"] #offline { display: flex; }
 </div>
 
 <main>
-  <section id="board" aria-labelledby="boardTitle">
+  <div id="leftCell">
+    <section id="board" aria-labelledby="boardTitle">
     <h2 id="boardTitle">Pipeline</h2>
     <div id="boardCols" class="stack" aria-busy="true">
       <div class="skel-card" aria-hidden="true"><div class="skel skel-line title"></div>
@@ -1103,7 +1142,31 @@ body[data-offline="true"] #offline { display: flex; }
     </div>
     <h2 style="margin-top:var(--sp-5)">Committed applications</h2>
     <div id="apps" class="stack"></div>
-  </section>
+    </section>
+
+    <section id="browserSurface" aria-labelledby="browserTitle">
+      <h2 id="browserTitle">Browser <span class="badge" data-tone="info" id="browserLive" hidden>live</span></h2>
+      <div class="browser-toolbar">
+        <svg class="ico" aria-hidden="true"><use href="#i-globe"/></svg>
+        <input class="browser-urlbar" id="browserUrl" type="text" inputmode="url"
+               placeholder="Type a URL — Alex opens it" autocomplete="off" spellcheck="false"
+               aria-label="Type a URL for Alex to open"
+               onkeydown="if(event.key==='Enter')browseTo(this.value)">
+        <button class="btn" data-variant="danger" data-size="sm" id="browserStopBtn"
+                hidden onclick="stopBrowsing()">Stop</button>
+        <button class="btn" data-variant="ghost" data-shape="icon" onclick="showSurface('board')"
+                title="Show pipeline" aria-label="Show pipeline">
+          <svg class="ico" aria-hidden="true"><use href="#i-board"/></svg>
+        </button>
+      </div>
+      <div class="browser-goal" id="browserGoal" hidden></div>
+      <div class="browser-stage" id="browserStage" aria-live="polite"></div>
+      <div class="browser-last" id="browserLast"></div>
+    </section>
+
+    <div id="splitHandle" role="separator" aria-orientation="vertical" tabindex="0"
+         aria-label="Resize left panel" title="Drag to resize"></div>
+  </div>
 
   <section id="chat" aria-labelledby="chatTitle">
     <h2 id="chatTitle">Conversation</h2>
@@ -1133,7 +1196,6 @@ body[data-offline="true"] #offline { display: flex; }
 
   <section id="review" aria-labelledby="reviewTitle">
     <h2 id="reviewTitle">Review</h2>
-    <div id="browserPanel" class="card browser-panel" hidden aria-live="polite"></div>
     <div id="approvalSlot"></div>
     <div id="stepperSlot"></div>
     <div id="sections" class="stack">
@@ -1458,7 +1520,7 @@ matchMedia("(prefers-color-scheme: light)").addEventListener("change", () => {
 // ---------- state ----------
 let sessionId = null, activeApp = null, pendingApproval = null, thinking = false;
 let chatCount = 0;
-let browserSnapshot = null, dismissedBrowserRun = "";
+let browserSnapshot = null;
 
 // ---------- helpers ----------
 const $ = id => document.getElementById(id);
@@ -1716,6 +1778,42 @@ async function refresh() {
     "Every action Alex takes — searches, drafts, form fills, submissions — is recorded here.");
 }
 
+// ---------- left surface: Pipeline ⇄ Browser + drag resize (docs/10, 18) ----------
+function showSurface(which) {
+  document.body.dataset.surface = which;
+  const btn = $("surfaceBtn");
+  btn.setAttribute("aria-pressed", String(which === "browser"));
+  btn.title = btn.ariaLabel = which === "browser" ? "Show pipeline" : "Show browser";
+}
+function toggleSurface() {
+  showSurface(document.body.dataset.surface === "browser" ? "board" : "browser");
+}
+
+const mainEl = document.querySelector("main"), splitHandle = $("splitHandle");
+const savedLeftW = localStorage.getItem("leftPanelWidth");
+if (savedLeftW) mainEl.style.setProperty("--left-w", savedLeftW);
+splitHandle.addEventListener("pointerdown", (e) => {
+  splitHandle.setPointerCapture(e.pointerId);
+  const move = (ev) => {
+    const w = Math.min(600, Math.max(260, ev.clientX - mainEl.getBoundingClientRect().left));
+    mainEl.style.setProperty("--left-w", `${Math.round(w)}px`);
+  };
+  splitHandle.addEventListener("pointermove", move);
+  splitHandle.addEventListener("pointerup", () => {
+    splitHandle.removeEventListener("pointermove", move);
+    localStorage.setItem("leftPanelWidth", mainEl.style.getPropertyValue("--left-w"));
+  }, { once: true });
+});
+splitHandle.addEventListener("keydown", (e) => {
+  if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+  const rendered = mainEl.firstElementChild.getBoundingClientRect().width;
+  const cur = parseInt(mainEl.style.getPropertyValue("--left-w"), 10) || rendered;
+  const w = Math.min(600, Math.max(260, cur + (e.key === "ArrowRight" ? 16 : -16)));
+  mainEl.style.setProperty("--left-w", `${Math.round(w)}px`);
+  localStorage.setItem("leftPanelWidth", `${Math.round(w)}px`);
+  e.preventDefault();
+});
+
 // ---------- live browser work (docs/18) ----------
 async function loadBrowserState() {
   if (!sessionId) return;
@@ -1726,42 +1824,64 @@ async function loadBrowserState() {
             : state.browse && state.browse.active ? { ...state.browse, kind: "browse" }
             : state.browse ? { ...state.browse, kind: "browse" }
             : state.fill ? { ...state.fill, kind: "fill" } : null;
-  if (run) {
-    if (!browserSnapshot || browserSnapshot.run_id !== run.run_id) dismissedBrowserRun = "";
-    browserSnapshot = run;
-  }
+  const wasActive = browserSnapshot && browserSnapshot.active;
+  if (run) browserSnapshot = run;
+  // A run starting is the "watch it work" moment — surface it (wide layouts;
+  // narrow layouts get the Browser pane tab instead).
+  if (run && run.active && !wasActive && window.innerWidth >= 960
+      && document.body.dataset.surface !== "browser") showSurface("browser");
   renderBrowserPanel();
 }
 
 function renderBrowserPanel() {
-  const panel = $("browserPanel"), run = browserSnapshot;
-  if (!run || dismissedBrowserRun === run.run_id) { panel.hidden = true; panel.innerHTML = ""; return; }
-  const active = run.active && run.status === "active";
-  const label = run.kind === "fill"
-    ? (active ? `${PERSONA} is filling a form` : "Form work finished")
-    : run.status === "blocked" ? `${PERSONA}'s browser is blocked`
-      : active ? `${PERSONA} is browsing` : "Browsing finished";
-  const tone = run.status === "blocked" ? "danger" : active ? "info" : "neutral";
-  const last = run.last_action
-    ? `Last: ${esc(run.last_action.kind)} “${esc(run.last_action.target || "page")}” · ${timeAgo(run.last_action.at)}`
-    : (active ? "Opening the page…" : "Last frame retained");
-  const shot = run.screenshot_url
-    ? `<img class="browser-shot" src="${esc(run.screenshot_url)}?v=${encodeURIComponent(run.last_action?.at || run.run_id)}"
-         alt="Latest browser screenshot">`
-    : `<div class="browser-shot empty">${ico("eye", "ico-lg")}<span>Waiting for the first frame</span></div>`;
-  panel.innerHTML = `
-    <div class="browser-head">${ico("globe")}<strong>${esc(label)}</strong>
-      <span class="badge" data-tone="${tone}">${esc(run.kind)}</span></div>
-    <div class="browser-goal">“${esc(run.goal || "browser work")}”</div>
-    <div class="browser-url" title="${esc(run.url || "")}">${esc(run.url || "about:blank")}
-      ${run.kind === "browse" ? " · read-only" : ""}</div>
-    ${shot}<div class="browser-last">${last}</div>
-    <div class="row">
-      ${active && run.kind === "browse" ? `<button class="btn" data-variant="danger" data-size="sm"
-        onclick="stopBrowsing()">Stop browsing</button>` : ""}
-      <button class="btn" data-variant="secondary" data-size="sm" onclick="dismissBrowser()">Dismiss</button>
-    </div>`;
-  panel.hidden = false;
+  const run = browserSnapshot;
+  const live = !!(run && run.active && run.status === "active");
+  const liveBadge = $("browserLive");
+  liveBadge.hidden = !(run && (live || run.status === "blocked"));
+  liveBadge.dataset.tone = run && run.status === "blocked" ? "danger" : "info";
+  liveBadge.textContent = run && run.status === "blocked" ? "blocked" : "live";
+  $("browserStopBtn").hidden = !(live && run.kind === "browse");
+  const urlEl = $("browserUrl");
+  if (document.activeElement !== urlEl) {  // never clobber a URL being typed
+    urlEl.value = run ? (run.url || "") : "";
+    urlEl.title = run && run.url ? run.url : "";
+  }
+  const goalEl = $("browserGoal");
+  if (run) {
+    const label = run.kind === "fill"
+      ? (live ? `${PERSONA} is filling a form` : "Form work finished")
+      : run.status === "blocked" ? `${PERSONA}'s browser is blocked`
+        : live ? `${PERSONA} is browsing` : "Browsing finished";
+    goalEl.hidden = false;
+    goalEl.textContent = run.goal ? `${label} — “${run.goal}”` : label;
+  } else {
+    goalEl.hidden = true;
+  }
+  const stage = $("browserStage");
+  if (run && run.screenshot_url) {
+    stage.innerHTML = `<img src="${esc(run.screenshot_url)}?v=${encodeURIComponent(run.last_action?.at || run.run_id)}"
+         alt="Latest browser screenshot">`;
+  } else {
+    stage.innerHTML = emptyState("globe",
+      run ? "Waiting for the first frame" : "Alex isn't browsing",
+      run ? "The next screenshot lands here within a few seconds."
+          : "Type a URL above or paste a link in chat — watch Alex read it here.");
+  }
+  $("browserLast").textContent = run
+    ? (run.last_action
+        ? `Last: ${run.last_action.kind} “${run.last_action.target || "page"}” · ${timeAgo(run.last_action.at)}`
+        : (live ? "Opening the page…" : "Last frame retained"))
+    : "";
+}
+
+// Typing a URL asks Alex to open it — through chat, so the request stays on
+// the agent's policy + audit path; this surface never navigates directly.
+function browseTo(raw) {
+  let url = (raw || "").trim();
+  if (!url) return;
+  if (!/^https?:\/\//i.test(url)) url = `https://${url}`;
+  $("msg").value = `Open ${url} and tell me what it says.`;
+  send();
 }
 
 async function stopBrowsing() {
@@ -1772,11 +1892,6 @@ async function stopBrowsing() {
   toast(result.status === "success" ? "Browsing stopped." : (result.message || "Couldn't stop browsing."),
         result.status === "success" ? "ok" : "danger");
   await loadBrowserState();
-}
-
-function dismissBrowser() {
-  if (browserSnapshot) dismissedBrowserRun = browserSnapshot.run_id;
-  renderBrowserPanel();
 }
 
 // ---------- reference tabs (docs/16 §7.10) ----------
@@ -2117,8 +2232,9 @@ function toggleDrawer() {
 }
 function showPane(which) {
   document.body.dataset.pane = which;
+  const order = ["board", "chat", "browser"];
   document.querySelectorAll("#paneTabs button").forEach((b, i) =>
-    b.setAttribute("aria-selected", String((i === 0) === (which === "board"))));
+    b.setAttribute("aria-selected", String(order[i] === which)));
 }
 
 // ---------- voice + docs ----------

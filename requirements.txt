@@ -1,5 +1,6 @@
 # Co-Founder — requirements (see docs/13-deployment.md)
 google-adk[eval]>=2.6
+python-dotenv
 a2a-sdk
 google-genai
 google-cloud-aiplatform[agent-engines,evaluation]

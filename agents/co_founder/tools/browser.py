@@ -29,6 +29,25 @@ def _session_key(tool_context: ToolContext) -> dict[str, str]:
     }
 
 
+def _remember_questions(app_id: str, fields: list[dict]) -> None:
+    """Persist the questions the form asks onto the application.
+
+    `inspect()` has always read every field's label; the result was used for a
+    count and a page signature and then dropped. The drafter therefore had no
+    idea what the form asked and answered only the sections that happened to
+    exist — 10 of 16 in the observed run. The questions are the specification
+    for the document, so they have to outlive the browser session.
+    """
+    if not app_id or not fields:
+        return
+    from services import firestore
+
+    questions = [{"name": f.get("name", ""), "label": f.get("label", "").strip(),
+                  "type": f.get("type", ""), "required": bool(f.get("required"))}
+                 for f in fields if f.get("name")]
+    run(firestore.update_application(app_id, form_questions=questions))
+
+
 def _register_fill(result: dict, app_id: str, tool_context: ToolContext) -> dict:
     from services import browser_service
 
