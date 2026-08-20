@@ -407,8 +407,117 @@ async def submit(program_id: str, request: Request):
 
 
 # ---------------------------------------------------------------------------
-# Registration + mailbox (docs/16) — the agent's account-creation target
+# A2A protocol (docs/19 §P1.5): the portal is a REAL A2A agent — "Program
+# Office" — discoverable via its agent card, answering message/send for
+# requirements, deadlines, and submission status. Rules in code, no model.
 # ---------------------------------------------------------------------------
+
+_AGENT_URL = os.environ.get("MOCK_PORTAL_PUBLIC_URL", "http://127.0.0.1:8091")
+
+
+def _agent_card() -> dict:
+    return {
+        "name": "Mock Portal Program Office",
+        "description": "The program office for this grant portal: answers questions "
+                       "about application requirements, deadlines and extensions, "
+                       "and submission status.",
+        "url": f"{_AGENT_URL}/a2a",
+        "version": "1.0.0",
+        "provider": {"organization": "Mock Portal Programs", "url": _AGENT_URL},
+        "preferredTransport": "JSONRPC",
+        "capabilities": {"streaming": False, "pushNotifications": False},
+        "defaultInputModes": ["text"],
+        "defaultOutputModes": ["text"],
+        "skills": [
+            {"id": "requirements", "name": "Application requirements",
+             "description": "What materials and fields an application requires",
+             "tags": ["requirements", "materials", "application"],
+             "examples": ["What do I need to apply for the Meridian Pre-Seed Grant?"]},
+            {"id": "deadlines", "name": "Deadlines & extensions",
+             "description": "Deadline dates and extension policy per program",
+             "tags": ["deadline", "extension"],
+             "examples": ["When is the deadline? Can it be extended?"]},
+            {"id": "status", "name": "Submission status",
+             "description": "Look up a submission by confirmation id",
+             "tags": ["status", "confirmation"],
+             "examples": ["What is the status of MP-1A2B?"]},
+        ],
+    }
+
+
+@app.get("/.well-known/agent.json")
+@app.get("/.well-known/agent-card.json")
+def a2a_agent_card():
+    return _agent_card()
+
+
+def _program_office_answer(text: str) -> str:
+    """Deterministic Program Office replies (rules in code — mock but real A2A)."""
+    lowered = text.lower()
+    if any(w in lowered for w in ("status", "confirmation", "received", "mp-")):
+        import re as _re
+
+        m = _re.search(r"MP-[0-9A-F]{4}", text.upper())
+        if m:
+            cid = m.group(0)
+            for sub in _submissions.values():
+                if sub["confirmation_id"] == cid:
+                    return (f"Submission {cid} for program {sub['program_id']} is "
+                            f"RECEIVED and under review (submitted {sub['submitted_at']}).")
+            return f"No submission found with confirmation id {cid}."
+        return "Share your confirmation id (format MP-XXXX) and I'll look up the status."
+    if any(w in lowered for w in ("deadline", "extend", "extension", "when")):
+        lines = [f"{p['name']}: deadline {p['deadline']}" for p in PROGRAMS.values()]
+        return ("Deadlines — " + "; ".join(lines) +
+                ". Extensions are not granted; submit before the deadline.")
+    if any(w in lowered for w in ("require", "material", "need", "document", "apply", "field")):
+        out = []
+        for pid, p in PROGRAMS.items():
+            fields = ", ".join(f["label"] for f in _fields("v1") if f["required"])
+            out.append(f"{p['name']} ({p['award']}): required — {fields}.")
+        return " ".join(out)
+    return ("I am the Program Office for this portal. Ask me about application "
+            "requirements, deadlines and extensions, or a submission status "
+            "(confirmation id MP-XXXX).")
+
+
+@app.post("/a2a")
+async def a2a_endpoint(request: Request):
+    """A2A JSON-RPC: message/send → Program Office reply as an A2A Message."""
+    try:
+        rpc = await request.json()
+    except Exception:
+        return JSONResponse({"jsonrpc": "2.0", "id": None,
+                             "error": {"code": -32700, "message": "parse error"}},
+                            status_code=400)
+    rpc_id = rpc.get("id")
+    if rpc.get("method") != "message/send":
+        return {"jsonrpc": "2.0", "id": rpc_id,
+                "error": {"code": -32601, "message": f"method not found: {rpc.get('method')}"}}
+    params = rpc.get("params") or {}
+    message = params.get("message") or {}
+    texts = [p.get("text", "") for p in message.get("parts", [])
+             if p.get("kind") == "text" or "text" in p]
+    question = " ".join(t for t in texts if t).strip()
+    if not question:
+        return {"jsonrpc": "2.0", "id": rpc_id,
+                "error": {"code": -32602, "message": "message has no text parts"}}
+    answer = _program_office_answer(question)
+    await firestore_audit_a2a(question, answer)
+    return {"jsonrpc": "2.0", "id": rpc_id,
+            "result": {
+                "kind": "message",
+                "role": "agent",
+                "messageId": uuid.uuid4().hex,
+                "parts": [{"kind": "text", "text": answer}],
+            }}
+
+
+async def firestore_audit_a2a(question: str, answer: str) -> None:
+    """Every negotiation logged (mock-local; the agent side audits its own too)."""
+    _saves.setdefault("a2a_log", []).append(
+        {"q": question[:200], "a": answer[:200],
+         "at": datetime.now(timezone.utc).isoformat()})
 
 _accounts: dict[str, dict] = {}   # email -> {password, verified, token}
 _mailbox: dict[str, list] = {}    # email -> [messages]
