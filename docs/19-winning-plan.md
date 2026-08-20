@@ -55,6 +55,9 @@ packaging, A2A, embeddings, model breadth**.
    instantly; the protocol is JSON-RPC over HTTP, so a minimal real
    implementation costs the same as a fake one. 1-day timebox; if the SDK
    fights back, cut entirely rather than ship a lookalike.
+   **Status (Aug 20): BUILT — spec-shaped agent card + message/send on the
+   portal, SDK-compatible client on Alex, live beat verified end-to-end,
+   5 unit tests; a2a-sdk pinned.**
    *Criteria: Innovation headline, Google-tech breadth.*
 6. **Vertex text-embeddings** (`gemini-embedding-001`) for canonical-answer
    retrieval — replaces tag retrieval in `get_relevant_answers` (docs/06
