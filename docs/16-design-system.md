@@ -141,10 +141,38 @@ Current state: **31/31 pass in dark, 29/29 pass in light.**
 ### 2.5 Connector brand colours
 
 Third-party brand hues (`#ea4335` Gmail, `#1a73e8` Drive …) arrive as data from
-`GET /api/connectors` and are applied *only* to a 34 px monogram tile via
-`--brand` / `--brand-soft`. They never touch text, borders, or fills elsewhere —
-they are foreign material, quarantined to one element. Submission rules forbid
-third-party logos, so marks are neutral geometric monograms, never logotypes.
+`GET /api/connectors` and are applied *only* to a 34 px mark tile via `--brand` /
+`--brand-soft`. They never touch text, borders, or fills elsewhere — they are
+foreign material, quarantined to one element. Submission rules forbid
+third-party logos, so the marks themselves are generic (§5.5), never logotypes.
+
+**Brand hues are chosen for a white page, so some are unreadable on ours.**
+Measured against `--surface-1` in dark: GitHub `#1f2328` scores **1.16**, Slack
+`#611f69` **1.66**, Jira `#0052cc` **2.68** — invisible, in the theme the demo
+is recorded in.
+
+The fix splits cleanly between the two things that know different halves of the
+problem. Whether a hue is too dark is a property of the colour, so the UI tests
+it at render time and stamps `data-dim`; *how much* to compensate depends on the
+theme, so CSS owns it through one token:
+
+```css
+.cbadge[data-dim] { color: color-mix(in srgb, var(--ink-1) var(--brand-lift), var(--brand)); }
+```
+
+`--brand-lift` is **55%** in dark and **0%** in light — so the rule is a literal
+no-op on white and the vendor's own colour is preserved untouched, which matters:
+shifting a brand hue that is already legible is a needless deviation. After the
+lift the three failures read 5.84 / 6.44 / 7.42.
+
+Brand colours are backend data, so this cannot be checked at build time from the
+stylesheet alone. `tests/unit/test_design_encodings.py` walks the catalog and
+asserts every hue clears 3:1 after the theme-appropriate lift, that light stays
+at 0%, and — guarding the guard — that at least one hue still trips the
+threshold, so the test can never pass vacuously.
+
+*Technique adapted from `andrewyng/openworker`'s `isDarkMark()` (luminance test,
+then compensate). Pattern only — no assets or code were taken; see §5.5.*
 
 ---
 
@@ -272,19 +300,64 @@ picks, in colours the theme cannot control, at sizes the scale does not know
 about — and the recording machine may not match the dev machine. `⌘` sat on the
 Connections button as decoration, falsely implying a keyboard shortcut.
 
-### 5.4 Inventory (42)
+### 5.4 Inventory (46)
 
 `send · mic · waveform · paperclip · chat · plug · refresh · sun · moon · plus ·
 minus · close · search · chev-left · chev-right · board · clipboard · check ·
 alert · flag · star · sparkle · clock · pause · shield · compass · target ·
 pencil · trash · download · eye · file-doc · file-sheet · file-slides ·
-file-pdf · cloud-up · inbox · calendar · globe · code · link · external`
+file-pdf · cloud-up · inbox · at · calendar · globe · git-branch · hash ·
+paper-plane · code · link · external`
 
-Connector monograms map by connector `name` to a sprite symbol and fall back to
-the backend's `icon` glyph for connectors the frontend does not yet know — so
-adding a connector server-side still renders. Marks are neutral (`cloud-up` for
-Drive, `inbox` for Gmail, `code` for GitHub), never logotypes: submission rules
-forbid third-party logos.
+### 5.5 Connector marks
+
+Real product logos would be better here — a connector picker is scanned by mark,
+not by name, which is why every commercial one uses them. We do not, for one
+reason: *"No third-party logos/ads in any submission material"*, and the UI
+appears in the submission video. This is a rules constraint, not a claim that
+generic marks read better.
+
+Given that, the marks have to work harder, and **neutral is not a licence to
+reuse**. Two rules, both enforced by
+`tests/unit/test_design_encodings.py`:
+
+- **One distinct mark per connector.** Gmail and IMAP were both `inbox`,
+  separated only by brand tint — which vanishes on a greyscale display and
+  survives compression poorly. IMAP is now `at`.
+- **No connector wears an action icon.** Telegram was `send`, the composer's own
+  submit arrow, so a connector looked like a button. It is now `paper-plane`.
+
+| Connector | Mark | Why |
+|---|---|---|
+| Google Drive | `cloud-up` | company records, uploaded |
+| Gmail | `inbox` | the one watched label |
+| Email (IMAP) | `at` | any account — deliberately not a second envelope |
+| Google Calendar | `calendar` | — |
+| Browser | `globe` | the Playwright surface |
+| GitHub | `git-branch` | repositories, not generic `code` |
+| Slack | `hash` | Slack's own channel convention, generically drawn |
+| Telegram | `paper-plane` | messaging, without borrowing `send` |
+| Alex's Mailbox | `sparkle` | ours, not third-party, so the agent mark fits |
+| Jira | `board` | — |
+
+Brand hue still carries recognition, quarantined to the 34px tile (§2.5).
+Unknown connectors fall back to the catalog's Unicode glyph so a server-side
+addition still renders — but `test_every_connector_has_a_mark` fails the build
+rather than letting that fallback ship silently.
+
+Switching to real logos later is one map plus one vendored set: `CONN_ICON` in
+`index.html` keys off the connector `name`, so no markup changes.
+
+**Why we do not copy them from a reference repo.** `andrewyng/openworker` ships a
+handsome connector list, and it is on the reading list in `AGENTS.md` — as
+*"read-only pattern mining, never import from them"*. Three reasons that rule is
+right here: its own marks are, by its own comment, *"hand-drawn … deliberately
+simplified geometry — not exact reproductions"*, so copying them buys the
+trademark exposure without the craft; the vendored checkout carries no LICENSE
+file, and the hackathon requires disclosing any incorporated pre-existing code;
+and where a logo came from does not change the submission rule. Mining the
+*grammar* — grouped inset rows, the brand-tinted tile, the dark-mark lift in
+§2.5 — is exactly what that repo is there for.
 
 ## 6. Motion
 
@@ -482,6 +555,12 @@ Guarded in CI (`.github/workflows/ci.yml`):
 
 - [x] `scripts/check_contrast.py` passes — 29 pairs per theme, parsed from the
       shipped HTML so it tests what deploys.
+- [x] Every catalog brand hue clears 3:1 on the dark panel after the `--brand-lift`
+      compensation, and light mode leaves vendor hues untouched — including a
+      guard that the threshold is still tripped by something.
+- [x] Every connector has a distinct, non-action sprite mark and no brand logo is
+      vendored — four guards in `test_design_encodings.py`, each verified to fail
+      on a seeded regression (including a broken glob path).
 - [x] The two light-palette blocks agree (same script; verified to fail on a
       seeded divergence).
 - [x] `python scripts/build_icons.py` reproduces the committed sprite

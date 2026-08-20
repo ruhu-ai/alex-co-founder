@@ -17,12 +17,22 @@ from services import firestore
 ExtractFn = Callable[[str, str], list[dict[str, Any]]]
 _extract_fn: ExtractFn | None = None
 
+# Injectable embeddings (docs/06 §retrieval, 19 §P1.6). None in tests and
+# offline dev → deterministic tag retrieval stays primary (fallback guard).
+EmbedFn = Callable[[list[str]], list[list[float]]]
+_embed_fn: EmbedFn | None = None
+
 
 def set_extract_fn(fn: ExtractFn) -> None:
     """Tests and offline dev inject a fake extractor; prod wires the Gemini
     document-understanding call (Day 3 live check, needs ADC)."""
     global _extract_fn
     _extract_fn = fn
+
+
+def set_embed_fn(fn: EmbedFn | None) -> None:
+    global _embed_fn
+    _embed_fn = fn
 
 
 async def get_profile(founder_id: str) -> dict[str, Any]:
@@ -47,11 +57,31 @@ async def get_voice_rules(founder_id: str) -> list[dict[str, Any]]:
     return sorted(rules, key=lambda r: r.get("created_at", ""), reverse=True)
 
 
+def _cosine(a: list[float], b: list[float]) -> float:
+    dot = sum(x * y for x, y in zip(a, b))
+    na = sum(x * x for x in a) ** 0.5
+    nb = sum(x * x for x in b) ** 0.5
+    return dot / (na * nb) if na and nb else 0.0
+
+
 async def get_relevant_answers(founder_id: str, section_key: str, limit: int = 5) -> list[dict[str, Any]]:
-    """Deterministic retrieval (docs/06 §retrieval): exact question_key match,
-    then tag overlap, then recency. Max `limit`."""
+    """Retrieval (docs/06 §retrieval). Semantic when embeddings are wired:
+    cosine top-k over answer texts — 'describe your traction' matches '1,200
+    patients on follow-up plans' with zero shared words. Deterministic
+    (exact key, tag overlap, recency) when offline, in tests, or on backend
+    error — the fallback guard from 19 §P1.6."""
     profile = await firestore.get_profile(founder_id)
     answers = profile.get("canonical_answers", [])
+    if _embed_fn is not None and answers:
+        try:
+            texts = [f"{a.get('question_key', '')}: {a.get('text', '')}" for a in answers]
+            vecs = _embed_fn([section_key] + texts)
+            section_vec, answer_vecs = vecs[0], vecs[1:]
+            ranked = sorted(zip(answer_vecs, answers),
+                            key=lambda p: _cosine(p[0], section_vec), reverse=True)
+            return [a for _, a in ranked[:limit]]
+        except Exception:
+            pass  # backend hiccup → deterministic path, never an outage
     exact = [a for a in answers if a.get("question_key") == section_key]
     tagged = [a for a in answers
               if a.get("question_key") != section_key and section_key in a.get("tags", [])]

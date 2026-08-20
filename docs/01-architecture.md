@@ -65,6 +65,7 @@ co-founder/
 │           ├── drafting.py        # save_draft_section, get_section_feedback
 │           ├── feedback.py        # record_feedback (+ triggers distill)
 │           ├── browser.py         # Playwright wrapper: open/inspect/fill/verify/submit
+│           ├── browse.py          # read-only browsing: open/read/act/close (18)
 │           └── followup.py        # schedule_followup, record_status
 ├── app/
 │   ├── main.py                    # FastAPI: ADK app + custom routes, single Runner
@@ -76,6 +77,7 @@ co-founder/
 │   ├── firestore.py               # client + collection accessors
 │   ├── memory.py                  # FirestoreMemoryService(BaseMemoryService)
 │   ├── secrets.py                 # Secret Manager fetch (cached)
+│   ├── browser_service.py         # shared Chromium, run registry, action/network policy (18)
 │   └── storage.py                 # GCS artifact helpers
 ├── mock_portal/
 │   ├── main.py                    # standalone FastAPI mock application portal
@@ -134,6 +136,9 @@ co-founder/
 | `AGENT_BASE_URL` | `http://127.0.0.1:8090` | used by mock portal to call webhooks |
 | `MOCK_PORTAL_URL` | `http://127.0.0.1:8091` | form-filler target |
 | `HEADLESS` | `true` | Playwright headless; `false` to watch the browser while developing |
+| `BROWSE_OPEN_WEB` | _(unset)_ | dev-only: allow non-allowlisted public hosts (18); production must leave unset/false — fail-closed |
+| `BROWSE_ALLOWED_DOMAINS` | _(empty)_ | comma-separated host patterns; with `BROWSE_OPEN_WEB` unset, empty = deny-all (18) |
+| `BROWSE_BLOCKED_DOMAINS` | _(empty)_ | deny wins over the allowlist (18) |
 | `APPROVAL_TTL_MINUTES` | `30` | approval token lifetime |
 
 ## Workflow engine (build the loader, one instance)

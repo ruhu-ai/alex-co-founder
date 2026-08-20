@@ -131,6 +131,45 @@ class TestRetrieval:
         assert answers[2]["question_key"] == "team"               # recency last
 
 
+class TestSemanticRetrieval:
+    """Embeddings retrieval (docs/06, 19 §P1.6): semantic when wired,
+    deterministic fallback otherwise."""
+
+    async def _seed(self):
+        for qk, text in [("describe_traction", "1,200 patients on follow-up plans"),
+                         ("team", "two founders, one PhD"),
+                         ("market_size", "SAM $9B across MEA")]:
+            await profile_service.apply_update(
+                "f1", "canonical_answer_update",
+                {"question_key": qk, "text": text, "tags": [], "approved_at": "2026-08-01"},
+                "evidence")
+
+    def teardown_method(self):
+        profile_service.set_embed_fn(None)
+
+    async def test_semantic_ranking_when_wired(self, fake_store):
+        await self._seed()
+        # fake embedder: the traction text vector points at the section vector
+        def fake_embed(texts):
+            return [[1.0, 0.0]] + [[1.0, 0.0] if "patients" in t else [0.0, 1.0]
+                                   for t in texts[1:]]
+        profile_service.set_embed_fn(fake_embed)
+        answers = await profile_service.get_relevant_answers("f1", "describe_traction")
+        assert answers[0]["question_key"] == "describe_traction"
+
+    async def test_fallback_on_backend_error(self, fake_store):
+        await self._seed()
+        profile_service.set_embed_fn(lambda texts: (_ for _ in ()).throw(RuntimeError("down")))
+        answers = await profile_service.get_relevant_answers("f1", "describe_traction")
+        assert answers  # deterministic path still returns, never an outage
+
+    async def test_deterministic_primary_when_unwired(self, fake_store):
+        await self._seed()
+        profile_service.set_embed_fn(None)
+        answers = await profile_service.get_relevant_answers("f1", "describe_traction")
+        assert answers[0]["question_key"] == "describe_traction"  # exact match first
+
+
 class TestIngestionGate:
     async def test_proposals_never_write_directly(self, fake_store):
         profile_service.set_extract_fn(lambda artifact, fid: [

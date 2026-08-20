@@ -2,7 +2,7 @@
 
 The client is lazy: importing this module never requires credentials; the first
 call does. Collections: opportunities, applications, profiles, feedback,
-approvals, audit, ingestions.
+approvals, audit, ingestions, browser_runs.
 """
 
 from __future__ import annotations
@@ -325,6 +325,119 @@ async def list_audit(limit: int = 30) -> list[dict[str, Any]]:
     """Recent audit rows, newest first (UI activity feed)."""
     query = get_client().collection("audit").order_by("created_at", direction="DESCENDING").limit(limit)
     return [doc.to_dict() | {"id": doc.id} async for doc in query.stream()]
+
+
+# ---------------------------------------------------------------------------
+# browser run registry + crash-safe action ledger (docs/02, 18)
+# ---------------------------------------------------------------------------
+
+async def create_browser_run(record: dict[str, Any]) -> str:
+    """Persist a fully formed BrowserRun using its server-minted run id."""
+    run_id = record["run_id"]
+    now = _now()
+    await get_client().collection("browser_runs").document(run_id).set(
+        {**record, "created_at": record.get("created_at", now), "updated_at": now}
+    )
+    return run_id
+
+
+async def get_browser_run(run_id: str) -> Optional[dict[str, Any]]:
+    if not run_id:
+        return None
+    doc = await get_client().collection("browser_runs").document(run_id).get()
+    return doc.to_dict() | {"run_id": doc.id} if doc.exists else None
+
+
+async def update_browser_run(run_id: str, **fields: Any) -> None:
+    """Update mutable BrowserRun fields; immutable identity and goal are ignored."""
+    fields.pop("goal", None)
+    fields.pop("run_id", None)
+    await get_client().collection("browser_runs").document(run_id).update(
+        {**fields, "updated_at": _now()}
+    )
+
+
+async def list_browser_runs(app_name: str, user_id: str, session_id: str,
+                            kind: str | None = None) -> list[dict[str, Any]]:
+    """List one session's runs newest-first without a composite-index dependency."""
+    query = get_client().collection("browser_runs").where("user_id", "==", user_id)
+    rows = [doc.to_dict() | {"run_id": doc.id} async for doc in query.stream()]
+    rows = [row for row in rows
+            if row.get("app_name") == app_name and row.get("session_id") == session_id]
+    if kind:
+        rows = [row for row in rows if row.get("kind") == kind]
+    return sorted(rows, key=lambda row: row.get("created_at", ""), reverse=True)
+
+
+async def find_active_browser_run(app_name: str, user_id: str, session_id: str,
+                                  kind: str = "browse") -> Optional[dict[str, Any]]:
+    rows = await list_browser_runs(app_name, user_id, session_id, kind)
+    return next((row for row in rows if row.get("status") == "active"), None)
+
+
+async def list_active_browser_runs() -> list[dict[str, Any]]:
+    query = get_client().collection("browser_runs").where("status", "==", "active")
+    return [doc.to_dict() | {"run_id": doc.id} async for doc in query.stream()]
+
+
+async def reserve_browser_action(run_id: str, now_iso: str, max_actions: int) -> dict[str, Any]:
+    """Atomically reserve one action against the durable count/deadline budget."""
+    from google.cloud import firestore as gc_firestore
+
+    ref = get_client().collection("browser_runs").document(run_id)
+    transaction = get_client().transaction()
+
+    @gc_firestore.async_transactional
+    async def _reserve(txn):
+        snap = await ref.get(transaction=txn)
+        if not snap.exists:
+            return {"exceeded": True, "reason": "closed", "count": 0}
+        run = snap.to_dict()
+        count = int(run.get("action_count", 0))
+        if run.get("status") != "active":
+            return {"exceeded": True, "reason": "closed", "count": count}
+        if run.get("deadline_at", "") <= now_iso:
+            return {"exceeded": True, "reason": "time", "count": count}
+        if count >= max_actions:
+            return {"exceeded": True, "reason": "count", "count": count}
+        count += 1
+        txn.update(ref, {"action_count": count, "updated_at": now_iso})
+        return {"exceeded": False, "reason": None, "count": count}
+
+    return await _reserve(transaction)
+
+
+async def get_browser_action(run_id: str, action_id: str) -> Optional[dict[str, Any]]:
+    ref = (get_client().collection("browser_runs").document(run_id)
+           .collection("actions").document(action_id))
+    doc = await ref.get()
+    return doc.to_dict() | {"action_id": doc.id} if doc.exists else None
+
+
+async def prepare_browser_action(run_id: str, action_id: str, record: dict[str, Any]) -> dict:
+    """Create PREPARED once; return the existing row on an invocation retry."""
+    from google.cloud import firestore as gc_firestore
+
+    ref = (get_client().collection("browser_runs").document(run_id)
+           .collection("actions").document(action_id))
+    transaction = get_client().transaction()
+
+    @gc_firestore.async_transactional
+    async def _prepare(txn):
+        snap = await ref.get(transaction=txn)
+        if snap.exists:
+            return {"created": False, **snap.to_dict(), "action_id": snap.id}
+        value = {**record, "status": "PREPARED", "created_at": _now()}
+        txn.set(ref, value)
+        return {"created": True, **value, "action_id": action_id}
+
+    return await _prepare(transaction)
+
+
+async def update_browser_action(run_id: str, action_id: str, **fields: Any) -> None:
+    ref = (get_client().collection("browser_runs").document(run_id)
+           .collection("actions").document(action_id))
+    await ref.update({**fields, "updated_at": _now()})
 
 
 # ---------------------------------------------------------------------------

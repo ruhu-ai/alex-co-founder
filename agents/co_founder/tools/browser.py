@@ -18,6 +18,33 @@ from ._common import run
 _pages: dict[str, dict] = {}  # application_id -> {"context":..., "page":..., "signature":...}
 
 
+def _session_key(tool_context: ToolContext) -> dict[str, str]:
+    session = getattr(tool_context, "session", None)
+    return {
+        "app_name": getattr(session, "app_name", "") or "co_founder",
+        "user_id": getattr(tool_context, "user_id", "")
+        or getattr(session, "user_id", ""),
+        "session_id": getattr(session, "id", "")
+        or getattr(session, "session_id", ""),
+    }
+
+
+def _register_fill(result: dict, app_id: str, tool_context: ToolContext) -> dict:
+    from services import browser_service
+
+    registered = run(browser_service.register_fill_run(
+        _session_key(tool_context), result["context"], result["page"],
+        f"fill application {app_id or 'portal'}",
+    ))
+    _pages[app_id] = {
+        "context": result["context"], "page": result["page"], "signature": None,
+        "run_id": registered["run_id"],
+    }
+    tool_context.state[ss.K_BROWSER_STATUS] = run(
+        browser_service.browser_status_projection(_session_key(tool_context)))
+    return registered
+
+
 def _mock_mailbox_url(portal_url: str, email: str) -> str:
     """Mock portal seam (docs/17): its /_mailbox endpoint stands in for the
     real inbox during offline registration tests."""
@@ -123,7 +150,7 @@ def sign_in(portal_url: str, tool_context: ToolContext) -> dict:
     if result.get("status") != "success":
         return result
     app_id = tool_context.state.get(ss.K_ACTIVE_APPLICATION_ID, "")
-    _pages[app_id] = {"context": result["context"], "page": result["page"], "signature": None}
+    _register_fill(result, app_id, tool_context)
     inspect = run(browser_service.inspect(result["page"]))
     if inspect.get("status") == "success":
         _pages[app_id]["signature"] = inspect["signature"]
@@ -157,7 +184,7 @@ def open_portal(application_url: str, tool_context: ToolContext) -> dict:
     if result.get("status") != "success":
         return result
     app_id = tool_context.state.get(ss.K_ACTIVE_APPLICATION_ID, "")
-    _pages[app_id] = {"context": result["context"], "page": result["page"], "signature": None}
+    _register_fill(result, app_id, tool_context)
     inspect = run(browser_service.inspect(result["page"]))
     if inspect.get("status") == "success":
         _pages[app_id]["signature"] = inspect["signature"]
@@ -271,7 +298,7 @@ def fill_fields(mapping: dict, tool_context: ToolContext) -> dict:
         can complete). Writes the form_fill_report and runs the post-fill
         vision self-check.
     """
-    from services import browser_service, firestore, pipeline_service
+    from services import browser_service, firestore, pipeline_service, storage
 
     app_id = tool_context.state.get(ss.K_ACTIVE_APPLICATION_ID, "")
     session = _pages.get(app_id)
@@ -283,9 +310,15 @@ def fill_fields(mapping: dict, tool_context: ToolContext) -> dict:
     if result.get("status") != "success":
         return result
 
+    shot_name = f"fillshot_{app_id}_after_fill.png"
+    run(browser_service.screenshot(session["page"], storage.artifact_path(shot_name)))
+    run(browser_service.update_fill_run(
+        session.get("run_id", ""), "fill", f"filled {result['filled']}/{len(mapping)}",
+        shot_name))
     report = {"filled": result["filled"], "total": len(mapping),
               "needs_human": result["needs_human"],
-              "portal_state_hash": session.get("signature"), "ran_at": ""}
+              "portal_state_hash": session.get("signature"),
+              "screenshot_artifact": shot_name, "ran_at": ""}
 
     async def _persist():
         await firestore.update_application(app_id, form_fill_report=report)
@@ -324,6 +357,8 @@ def capture_screenshot(label: str, tool_context: ToolContext) -> dict:
         return {"status": "error", "error": True, "message": "no open portal"}
     name = f"fillshot_{app_id}_{label}_{int(time.time())}.png"
     run(browser_service.screenshot(session["page"], storage.artifact_path(name)))
+    run(browser_service.update_fill_run(
+        session.get("run_id", ""), "screenshot", label, name))
     return {"status": "success", "artifact": name}
 
 
@@ -383,4 +418,11 @@ def submit_form(tool_context: ToolContext) -> dict:
     if transition.get("status") == "success":
         state[ss.K_CURRENT_STEP] = ss.ApplicationStep.SUBMITTED
         state[ss.K_PENDING_SIGNALS] = ["portal_confirmation"]
+    if session.get("run_id"):
+        run(browser_service.close_run(
+            session["run_id"], "agent_close", "agent:form_filler"))
+        state[ss.K_BROWSER_STATUS] = {
+            "active": False, "kind": None, "run_id": None, "url": None,
+            "goal": None, "last_action": None,
+        }
     return {"status": "success", "confirmation_id": confirmation}

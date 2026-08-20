@@ -71,6 +71,10 @@ Rules (corrected against the reference implementation):
 | `POST /api/approvals/{approval_id}/resolve` | founder grants/denies at the gate | `{decision: "grant"|"deny"}` → mints/consumes token flow (see 12), resumes session |
 | `POST /api/voice-note` | voice-note upload (multipart) | stores artifact, transcribes via the service-layer function, forwards extracted intent through the normal resume path (tool `submit_voice_note` wraps the same service function) |
 | `GET /api/applications/{id}` | application detail for UI (drafts, fill report, audit) | |
+| `GET /api/artifacts/{name}/preview` | inline artifact for the UI (browser pageshots, fill screenshots — 18) | founder/session-checked; streams with correct MIME |
+| `GET /api/artifacts/{name}/download` | document downloads (15) | `Content-Disposition: attachment`, correct OOXML MIME |
+| `GET /api/browser/state?session_id=` | Browser panel snapshot (18) | → `get_browser_state` dict; unknown/non-founder session → 404 |
+| `POST /api/browser/stop` | founder stops a browse run (18) | `{session_id}`, requires `Content-Type: application/json` → idempotent `{status, already_closed?}`; audits `browse_stop` as `founder:<id>` |
 
 ```python
 class WebhookPayload(BaseModel):

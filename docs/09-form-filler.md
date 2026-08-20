@@ -78,6 +78,13 @@ TIER 2 — VISION RECOVERY & FILL (escalation only)
 
 **Guardrails — binding on every tier, no exceptions:**
 
+0. **Shared execution primitive:** vision actions execute through
+   `services/browser_service.execute_action(page, proposal, policy="form_fill")`
+   (18 §Action model) — indexed-snapshot proposals, element + `dom_hash`
+   revalidation immediately before execution, idempotent `action_id`s. The
+   `form_fill` policy keeps the wider allowlist below; general browsing uses
+   the narrower `research` policy.
+
 1. **The vision loop can never submit.** Its action allowlist is
    `click | type | select | scroll | navigate_back` — the final submit control
    is excluded by construction. Submission happens ONLY via the deterministic,
@@ -126,6 +133,12 @@ Programs accept applications three ways; v1 covers each deliberately:
 
 - One module-level Playwright Chromium instance per server process; a new
   browser **context** per fill run (isolated cookies), closed after.
+- **Every fill run is recorded in Firestore `browser_runs` with `kind="fill"`**
+  (18 §BrowserRun contract): created at `open_portal` (`status=active`),
+  updated with `current_url` / `screenshot_artifact` / `last_action` through
+  the run, and closed (`agent_close` | `error`) when the run ends — this is
+  what lets the UI Browser panel (18) watch fills live with the same payload
+  shape as browse runs.
 - `HEADLESS=false` for development so you can watch it work; `true` on Cloud Run.
 - Every fill run: screenshots after fill and after submit → artifacts.
 

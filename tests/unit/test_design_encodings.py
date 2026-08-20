@@ -134,3 +134,164 @@ def test_overdue_says_overdue():
 @pytest.mark.skipif(NODE is None, reason="node not available")
 def test_no_deadline_renders_nothing():
     assert _run_js(_extract("deadlineChip"), "deadlineChip({})") == ""
+
+
+# --------------------------------------------------------------------------
+# connector marks (docs/16 §5.4)
+# --------------------------------------------------------------------------
+#
+# Connectors are backend data, so the catalog grows without anyone touching the
+# frontend. The failure mode is silent: an unmapped connector falls back to the
+# Unicode glyph in the catalog, which renders in whatever font the OS picks, in
+# a colour the theme does not control. These tests make that a build failure.
+
+CONNECTORS = Path(__file__).resolve().parents[2] / "services" / "connectors.py"
+
+
+def _connector_names() -> list[str]:
+    return sorted(set(re.findall(r'"name": "([a-z_]+)"', CONNECTORS.read_text(encoding="utf-8"))))
+
+
+def _mark_map() -> dict[str, str]:
+    src = INDEX.read_text(encoding="utf-8")
+    start = src.index("const CONN_ICON = {")
+    return dict(re.findall(r"(\w+):\s*\"([\w-]+)\"", src[start:src.index("};", start)]))
+
+
+def _sprite_symbols() -> set[str]:
+    return set(re.findall(r'<symbol id="i-([\w-]+)"', INDEX.read_text(encoding="utf-8")))
+
+
+def test_every_connector_has_a_mark():
+    unmapped = [n for n in _connector_names() if n not in _mark_map()]
+    assert not unmapped, (
+        f"connectors with no sprite mark: {unmapped} — they will fall back to the "
+        "catalog's Unicode glyph. Add them to CONN_ICON in index.html."
+    )
+
+
+def test_every_mark_exists_in_the_sprite():
+    sprite, bad = _sprite_symbols(), {}
+    for name, mark in _mark_map().items():
+        if mark not in sprite:
+            bad[name] = mark
+    assert not bad, f"marks referencing missing sprite symbols: {bad}"
+
+
+def test_no_two_connectors_share_a_mark():
+    """Gmail and IMAP both reading as an envelope is the bug this pins: brand
+    tint alone does not survive a greyscale display or a compressed video frame."""
+    seen: dict[str, list[str]] = {}
+    for name, mark in _mark_map().items():
+        seen.setdefault(mark, []).append(name)
+    clashes = {m: n for m, n in seen.items() if len(n) > 1}
+    assert not clashes, f"connectors sharing a mark: {clashes}"
+
+
+def test_connector_marks_do_not_reuse_action_icons():
+    """A connector must not wear an icon that means "do something" elsewhere —
+    Telegram once used `send`, the composer's own submit arrow."""
+    actions = {"send", "download", "close", "plus", "minus", "check", "refresh"}
+    reused = {n: m for n, m in _mark_map().items() if m in actions}
+    assert not reused, f"connector marks colliding with action icons: {reused}"
+
+
+def test_no_third_party_logos_are_vendored():
+    """Submission rule: "No third-party logos/ads in any submission material."
+    The vendored icon set is generic Phosphor; this fails if a brand mark
+    is ever dropped in beside it."""
+    icon_dir = INDEX.parent / "vendor" / "icons" / "phosphor"
+    vendored = {f.stem for f in icon_dir.glob("*.svg")}
+    # Guard the guard: a wrong path here would make this assertion vacuous.
+    assert len(vendored) > 20, f"expected the vendored icon set at {icon_dir}, found {len(vendored)}"
+    brands = {"google", "gmail", "slack", "github", "telegram", "jira", "notion",
+              "google-drive", "google-logo", "slack-logo", "github-logo",
+              "telegram-logo", "microsoft-outlook-logo", "notion-logo", "figma-logo"}
+    assert not (vendored & brands), f"brand logos vendored: {sorted(vendored & brands)}"
+
+
+# --------------------------------------------------------------------------
+# brand marks survive the dark theme (docs/16 §2.5)
+# --------------------------------------------------------------------------
+#
+# Brand hues are backend data chosen by each vendor for a white page, so several
+# are unreadable on our dark ground — GitHub #1f2328 scores 1.16 against the
+# dark panel. The UI flags those at render time and CSS lifts them toward the
+# theme ink. These tests pin both halves: the flag threshold and the outcome.
+
+DARK_PANEL = "#12151D"
+DARK_INK = "#E9ECF4"
+MIN_MARK_CONTRAST = 3.0
+
+
+def _srgb(hex_color: str) -> tuple[int, int, int]:
+    h = hex_color.lstrip("#")
+    if len(h) == 3:
+        h = "".join(c * 2 for c in h)
+    return tuple(int(h[i:i + 2], 16) for i in (0, 2, 4))  # type: ignore[return-value]
+
+
+def _relative_luminance(rgb: tuple[int, int, int]) -> float:
+    def chan(v: float) -> float:
+        v /= 255
+        return v / 12.92 if v <= 0.03928 else ((v + 0.055) / 1.055) ** 2.4
+    r, g, b = rgb
+    return 0.2126 * chan(r) + 0.7152 * chan(g) + 0.0722 * chan(b)
+
+
+def _contrast(a: str, b: str) -> float:
+    la, lb = _relative_luminance(_srgb(a)), _relative_luminance(_srgb(b))
+    hi, lo = max(la, lb), min(la, lb)
+    return (hi + 0.05) / (lo + 0.05)
+
+
+def _mix(base: str, toward: str, pct: float) -> str:
+    """CSS `color-mix(in srgb, toward pct%, base)`, in sRGB as the stylesheet does."""
+    a, b = _srgb(base), _srgb(toward)
+    return "#%02X%02X%02X" % tuple(round(a[i] + (b[i] - a[i]) * pct / 100) for i in range(3))
+
+
+def _brand_lift() -> float:
+    """The dark theme's --brand-lift, read from the shipped stylesheet."""
+    css = INDEX.read_text(encoding="utf-8")
+    block = css[css.index("@tokens dark"):css.index("@tokens light")]
+    m = re.search(r"--brand-lift:\s*(\d+)%", block)
+    assert m, "the dark theme no longer defines --brand-lift"
+    return float(m.group(1))
+
+
+def _catalog_brands() -> dict[str, str]:
+    src = CONNECTORS.read_text(encoding="utf-8")
+    return dict(re.findall(r'"name": "([a-z_]+)".*?"brand": "(#[0-9a-fA-F]{6})"', src))
+
+
+def test_light_theme_does_not_alter_brand_hues():
+    """--brand-lift must be 0% in light mode: the vendor's own colour is correct
+    on white, and shifting it would be a needless deviation from their brand."""
+    css = INDEX.read_text(encoding="utf-8")
+    for marker in ("@tokens light", "@tokens light-toggle"):
+        block = css[css.index(marker):css.index("}", css.index(marker))]
+        m = re.search(r"--brand-lift:\s*(\d+)%", block)
+        assert m, f"{marker} block does not define --brand-lift"
+        assert m.group(1) == "0", f"{marker}: light mode must not lift brand hues"
+
+
+@pytest.mark.parametrize("name,brand", sorted(_catalog_brands().items()))
+def test_every_brand_mark_is_legible_on_the_dark_panel(name: str, brand: str):
+    raw = _contrast(brand, DARK_PANEL)
+    if raw >= MIN_MARK_CONTRAST:
+        return  # rendered as-is; the vendor hue already works on our ground
+    lifted = _mix(brand, DARK_INK, _brand_lift())
+    assert _contrast(lifted, DARK_PANEL) >= MIN_MARK_CONTRAST, (
+        f"{name} ({brand}) scores {raw:.2f} raw and only "
+        f"{_contrast(lifted, DARK_PANEL):.2f} after a {_brand_lift():.0f}% lift — "
+        "raise --brand-lift in the dark token block."
+    )
+
+
+def test_the_lift_is_actually_needed_by_something():
+    """Guard the guard: if no catalog brand ever trips the threshold, the test
+    above is vacuous and --brand-lift could silently break."""
+    tripped = [n for n, b in _catalog_brands().items()
+               if _contrast(b, DARK_PANEL) < MIN_MARK_CONTRAST]
+    assert tripped, "no brand trips the dark-panel threshold — is DARK_PANEL still right?"

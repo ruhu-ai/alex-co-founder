@@ -14,6 +14,7 @@ from .config import MODEL, PERSONA_NAME
 from .instructions import ORCHESTRATOR_INSTRUCTION
 from .sub_agents import drafter, form_filler, interviewer, matchmaker, scout
 from .tools import alex_mail as alex_mail_tools
+from .tools import browse as browse_tools
 from .tools import calendar as calendar_tools
 from .tools import feedback as feedback_tools
 from .tools import pipeline
@@ -45,6 +46,10 @@ def build_root_agent(model) -> Agent:
             alex_mail_tools.search_alex_mail,
             alex_mail_tools.read_alex_message,
             alex_mail_tools.send_alex_email,
+            browse_tools.open_page,
+            browse_tools.read_page,
+            browse_tools.browser_action,
+            browse_tools.close_browser,
         ],
         sub_agents=[
             scout.build_agent(),

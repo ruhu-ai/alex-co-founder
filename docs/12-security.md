@@ -38,9 +38,21 @@ walk a judge through every row.
 
 A unit test imports each agent and diffs its tool list against this table.
 
+## Browse policy (18) — enforced in code, not prompts
+
+| Surface | Policy |
+|---|---|
+| Network | Browse contexts allow GET/HEAD only via request interception (covers redirects, JS nav, iframes, subresources); SSRF denial of loopback/private/link-local/reserved/metadata IPs incl. decimal/hex IPv4 forms; fail-closed unless `BROWSE_OPEN_WEB=true`; deny-list wins |
+| Content | Isolated reader/proposer invocations (no tools, no conversation contents, untrusted-content delimiters, strict JSON out); suspected injection **suspends actions** (`injection_suspected` + `needs_human`), never just annotates |
+| Action | Research allowlist only (navigation/disclosure/scroll/back/search/wait — no forms, submit, general typing, downloads, popups); indexed-element + `dom_hash` revalidation before execution; idempotent `action_id`s; bot-challenge detector freezes runs |
+| Secrets | No credentials ever enter browse contexts; portal credentials stay on the form-filler path (above) |
+| Runs | Budget keyed by opaque `run_id` (20 actions / 90 s against durable `deadline_at`); Firestore `browser_runs` is the single source of truth; crash-safe action ledger (PREPARED→…→UNCERTAIN); founder stop audited as `founder:<id>` |
+
 ## Approval tokens (the gate)
 
 1. `request_approval(gate)` creates an `approvals` row: status PENDING, no token.
+   Gates: `submit_application` (09), `create_portal_account` (17),
+   `book_meeting` (§Credential handling, Calendar).
 2. Founder grants in UI → server mints `token=uuid4().hex`, stores it on the row
    (status GRANTED, `expires_at = now + APPROVAL_TTL_MINUTES`). The token is
    **never returned to the browser and never enters the model's context** — it

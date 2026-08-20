@@ -15,6 +15,10 @@ _DEFAULTS = {
     ss.K_CHECKLIST_STATUS: {},
     ss.K_PENDING_SIGNALS: [],
     ss.K_CURRENT_SECTION: "",
+    ss.K_BROWSER_STATUS: {
+        "active": False, "kind": None, "run_id": None, "url": None,
+        "goal": None, "last_action": None,
+    },
     ss.K_USER_PREFS: {},
 }
 
@@ -46,3 +50,23 @@ async def initialize_session_state(callback_context: CallbackContext) -> None:
         from .workflow import get_workflow  # local import: avoid cycles at import time
 
         state[ss.K_APP_WORKFLOW_ID] = get_workflow().workflow_id
+
+    # BrowserRun is durable truth; rewrite the advisory projection before the
+    # instruction template renders on every invocation (docs/18).
+    try:
+        from services import browser_service
+
+        session = getattr(callback_context, "session", None)
+        session_key = {
+            "app_name": getattr(session, "app_name", "") or "co_founder",
+            "user_id": getattr(callback_context, "user_id", "")
+            or getattr(session, "user_id", ""),
+            "session_id": getattr(session, "id", "")
+            or getattr(session, "session_id", ""),
+        }
+        if session_key["user_id"] and session_key["session_id"]:
+            state[ss.K_BROWSER_STATUS] = await browser_service.reconcile_session(session_key)
+    except Exception:
+        # A Firestore outage must not prevent the founder from using chat; the
+        # initialized inactive projection is safer than rendering stale state.
+        state[ss.K_BROWSER_STATUS] = _DEFAULTS[ss.K_BROWSER_STATUS].copy()

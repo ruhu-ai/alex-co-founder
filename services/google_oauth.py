@@ -62,15 +62,25 @@ _creds: dict = {}          # per-account
 _granted: dict = {}        # per-account frozenset of scopes the token carries
 
 
+_sm_missing: set = set()  # accounts whose token Secret Manager does NOT have —
+# cached for the process: without this, every panel status check re-blocks on
+# a slow Secret Manager call (grpc retries can stall the server for minutes).
+# Only negatives are cached, so a token added later via Connect still wins
+# (the env var is checked first, every time).
+
+
 def _refresh_token(account: str = "founder") -> str:
     token = os.environ.get(ACCOUNT_ENV.get(account, ""), "")
     if token:
         return token
+    if account in _sm_missing:
+        return ""
     try:
         from services import secrets
 
         return secrets.get(ACCOUNT_ENV.get(account, ""))
     except Exception:
+        _sm_missing.add(account)
         return ""
 
 
@@ -124,15 +134,14 @@ def get_credentials(account: str = "founder"):
         import google.auth.transport.requests
         import google.oauth2.credentials
 
-        scopes = [s for conn, group in SCOPE_MAP.items()
-                  if CONNECTOR_ACCOUNT.get(conn, "founder") == account for s in group]
         creds = google.oauth2.credentials.Credentials(
             token=None,
             refresh_token=_refresh_token(account),
             token_uri="https://oauth2.googleapis.com/token",
             client_id=os.environ["GOOGLE_OAUTH_CLIENT_ID"],
             client_secret=os.environ["GOOGLE_OAUTH_CLIENT_SECRET"],
-            scopes=scopes,
+            scopes=None,  # the access token inherits the grant's scopes; asking
+            # for MORE than granted fails the refresh with invalid_scope
         )
         creds.refresh(google.auth.transport.requests.Request())
         _creds[account] = creds
@@ -143,6 +152,7 @@ def reset_for_tests() -> None:
     global _account_email
     _creds.clear()
     _granted.clear()
+    _sm_missing.clear()
     _account_email = ""
 
 

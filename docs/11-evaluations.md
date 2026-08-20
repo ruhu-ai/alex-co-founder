@@ -205,6 +205,16 @@ README. Eval configs ship in-repo per the brief — deliberate
 Architecture-criterion evidence. Dev deps: `pytest`, `pytest-asyncio`,
 `nest-asyncio`, `google-adk[eval]`.
 
+**Browse-agent fixture suite (post-core, 18):** synthetic Playwright fixture
+server + deterministic injected action proposer + fake clock. Named cases:
+research-policy refusals (submit/`javascript:`/form-POST/non-search typing/
+download → zero non-GET/HEAD requests), SSRF denial (private/decimal/hex IPs,
+userinfo, redirect-to-private), injection trap (zero `/trap` requests, action
+suspension), bot-challenge freeze (zero actions after detection), budget
+exhaustion (exactly 20 actions, goal-wording cannot reset), action idempotency
+replay, restart reconciliation. Runs as a separate CI job so post-core work
+never blocks core green.
+
 ## Acceptance checks
 
 - [ ] All four eval sets pass locally and in CI.

@@ -36,6 +36,7 @@ agent (drafter/orchestrator)
        └─ save_artifact → {status, artifact_name, download_url}
 
 GET /api/artifacts/{name}/download            # streams with correct OOXML MIME
+                                              # (inline images use /preview — 07/18)
 UI                                            # download chips in chat + review panel
 optional Drive sync                           # drive.file scope, approval-gated
 ```

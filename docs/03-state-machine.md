@@ -101,10 +101,17 @@ state.setdefault("active_program_requirements", [])
 state.setdefault("checklist_status", {})
 state.setdefault("pending_signals", [])
 state.setdefault("current_section", "")
+state.setdefault("browser_status", {"active": False, "kind": None, "run_id": None,
+                                    "url": None, "goal": None, "last_action": None})  # 18
 state.setdefault("user:profile_id", founder_id)  # resolved from auth/env
 state.setdefault("user:prefs", {})
 state.setdefault("app:workflow_id", workflow.workflow_id)
 ```
+
+`browser_status` is the exception to setdefault-only: on **every** invocation
+the callback reconciles it from Firestore `browser_runs` (18) — an `active`
+projection whose run is closed or absent is rewritten before instruction
+rendering, so the orchestrator template never shows a stale browser.
 
 ## Checklist model
 

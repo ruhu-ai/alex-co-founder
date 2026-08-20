@@ -90,7 +90,7 @@ One document per ingested company document (06 §bootstrap).
 | Field | Type | Notes |
 |---|---|---|
 | `application_id` | str | |
-| `gate` | str | `submit_application` (v1: only this) |
+| `gate` | str | `submit_application` (09) \| `create_portal_account` (17) \| `book_meeting` (12) |
 | `token` | str | opaque, `uuid4().hex`; single-use |
 | `status` | str | PENDING \| GRANTED \| CONSUMED \| EXPIRED \| DENIED |
 | `expires_at` | str | now + `APPROVAL_TTL_MINUTES` |
@@ -107,8 +107,24 @@ One document per ingested company document (06 §bootstrap).
 | `idempotency_key` | str\|null | |
 | `target` | str | entity ref, e.g. `applications/abc` |
 | `result` | str | `success` \| `error` \| `refused` |
-| `detail` | str | ≤ 500 chars, no PII beyond refs, **no secrets** |
+| `detail` | str | ≤ 500 chars, no PII beyond refs, **no secrets**. Structured extras are compact JSON (e.g. `{"url": "…", "action_id": "…", "injection_suspected": true}`) within the same budget |
 | `created_at` | str | |
+
+### `browser_runs/{run_id}` — browser run registry (18)
+
+Single source of truth for live browser work; the UI Browser panel reads it.
+Fields per 18 §BrowserRun contract: `run_id`, `app_name`, `user_id`,
+`session_id`, `kind` (`browse`\|`fill`), `goal`, `status`
+(`active`\|`blocked`\|`closed`), `close_reason`, `current_url`, `title`,
+`last_action`, `screenshot_artifact`, `action_count`, `started_at`,
+`deadline_at` (ISO wall-clock — the time-box source of truth),
+`created_at`, `updated_at`. Runs orphaned by a restart are reconciled to
+`closed`/`restart` on startup and session wake — never polled.
+
+Executed actions live in the subcollection
+`browser_runs/{run_id}/actions/{action_id}`: `{seq, proposal, status:
+PREPARED | SUCCEEDED | FAILED | UNCERTAIN, result_ref, created_at}` — the
+crash-safe, at-most-once ledger (18 §Action model).
 
 ## ADK session state keys
 
@@ -123,7 +139,7 @@ Written via `tool_context.state`. Injected into instructions by name (see 04).
 | `checklist_status` | session | compact map `{item_key: status}` for instruction injection |
 | `pending_signals` | list | events the agent is dormant waiting on, e.g. `["founder_reply", "portal_confirmation"]` |
 | `current_section` | session | section key being drafted/reviewed |
-| `browser_status` | session | `{active, url, goal, last_action}` — live browse-session state (18) |
+| `browser_status` | session | advisory projection of the active browser run (18): `{active: bool, kind: "browse"\|"fill"\|null, run_id, url, goal, last_action: {seq, kind, target, at}\|null}` — self-heals from Firestore `browser_runs` |
 | `today` | session | today's date (ISO), refreshed every turn by the callback — the agent's clock |
 | `user:profile_id` | user-scoped | founder profile doc id (survives across sessions) |
 | `user:prefs` | user-scoped | small map of founder interaction prefs |
@@ -152,6 +168,8 @@ Binary or large payloads never enter the prompt; they are saved with
 | Guideline PDF text | `guidelines_{dedup_hash}.txt` | scout PDF parse |
 | Founder deck/attachments | `attachment_{founder_id}_{name}` | upload endpoint |
 | Form-fill screenshot | `fillshot_{application_id}_{ts}.png` | form-filler |
+| Browse page text | `page_{run_id}_{seq}.txt` | browse tools (18) — `excerpt_ref` char ranges point into this |
+| Browse screenshot | `pageshot_{run_id}_{seq}_{before\|after\|nav\|blocked}.png` | browse tools (18) |
 | Vision recon map | `form_map_{application_id}.json` | form-filler (Tier 1 recon, 09) |
 | Application pack PDF | `pack_{application_id}_{version}.pdf` | drafter (`generate_application_pack`, 05) |
 | Founder voice note | `voicenote_{founder_id}_{ts}.webm` | `submit_voice_note` (05) |
@@ -159,6 +177,6 @@ Binary or large payloads never enter the prompt; they are saved with
 
 ## Acceptance checks
 
-- [ ] `services/firestore.py` exposes typed accessors for all 6 collections; creating an opportunity twice with the same `dedup_hash` returns the existing id (no dupes).
+- [ ] `services/firestore.py` exposes typed accessors for all 7 collections; creating an opportunity twice with the same `dedup_hash` returns the existing id (no dupes).
 - [ ] `state_schema.py` defines constants for every state + key above; no string literals for states outside this file.
 - [ ] Saving a 5 KB source page stores an artifact and returns a ≤ 300-char summary (never the full text into the conversation).

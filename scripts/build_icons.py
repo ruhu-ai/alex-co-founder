@@ -67,14 +67,21 @@ ICONS: dict[str, str] = {
     "file-sheet": "file-xls",
     "file-slides": "file-ppt",
     "file-pdf": "file-pdf",
-    # connectors (neutral marks — submission rules forbid third-party logos)
-    "cloud-up": "cloud-arrow-up",
-    "inbox": "envelope-simple",
-    "calendar": "calendar-blank",
-    "globe": "globe-simple",
-    "code": "code",
+    # Connector marks. Neutral by rule ("no third-party logos/ads in any
+    # submission material") and one distinct glyph per connector — two
+    # connectors sharing a mark is the same bug as having no mark, and tint
+    # alone does not survive a compressed video frame or a greyscale display.
+    "cloud-up": "cloud-arrow-up",       # Drive
+    "inbox": "envelope-simple",         # Gmail
+    "at": "at",                         # Email (IMAP) — not a second envelope
+    "calendar": "calendar-blank",       # Calendar
+    "globe": "globe-simple",            # Browser
+    "git-branch": "git-branch",         # GitHub
+    "hash": "hash",                     # Slack (its own channel convention)
+    "paper-plane": "paper-plane-tilt",  # Telegram — `send` is the composer's
     "link": "link-simple",
     "external": "arrow-square-out",
+    "code": "code",
 }
 
 INNER = re.compile(r"<svg[^>]*>(.*)</svg>", re.S)

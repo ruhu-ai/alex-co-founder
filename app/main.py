@@ -12,6 +12,11 @@ someone_is_there(): system sessions never ask questions.
 import os
 import uuid
 
+# oauthlib raises on any scope difference between flow and token response —
+# but per-connector incremental consent legitimately returns a different set
+# (Google merges prior grants). Relax to a logged warning.
+os.environ.setdefault("OAUTHLIB_RELAX_TOKEN_SCOPE", "1")
+
 from fastapi import BackgroundTasks, FastAPI, File, Form, Request, UploadFile
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -26,11 +31,12 @@ from agents.co_founder.agent import app as agent_app
 from agents.co_founder.config import PERSONA_NAME
 from agents.co_founder.state_schema import ApplicationStep as Step
 from agents.co_founder.sub_agents import distiller as distiller_subagent
+from app import browser_routes
 from app.app_utils.telemetry import setup_telemetry
 from app.resume_handler import ResumeHandler
 from services import (approval_service, distill_service, discovery_service,
-                      feedback_service, firestore, pipeline_service, storage,
-                      voice_service)
+                      browser_service, feedback_service, firestore,
+                      pipeline_service, storage, voice_service)
 
 setup_telemetry()
 
@@ -91,6 +97,27 @@ except Exception as _gemini_exc:
 def _verify_portal_token(request: Request) -> bool:
     expected = os.environ.get("PORTAL_WEBHOOK_TOKEN", "dev-portal-token")
     return request.headers.get("X-Portal-Token") == expected
+
+
+async def _verify_oidc(request: Request) -> bool:
+    """Pub/Sub push auth (docs/13 cost control): in Cloud Run, task endpoints
+    require the scheduler service-account OIDC token. Locally (no K_SERVICE),
+    open for dev. Bad/missing token → 401, never a 500."""
+    if not os.environ.get("K_SERVICE"):
+        return True
+    auth = request.headers.get("Authorization", "")
+    if not auth.startswith("Bearer "):
+        return False
+    try:
+        from google.oauth2 import id_token as _id_token
+        from google.auth.transport import requests as _auth_requests
+
+        base = f"https://{request.url.hostname}"
+        _id_token.verify_oauth2_token(
+            auth.removeprefix("Bearer "), _auth_requests.Request(), audience=base)
+        return True
+    except Exception:
+        return False
 
 
 # ---------------------------------------------------------------------------
@@ -203,6 +230,8 @@ async def portal_event(event: PortalEvent, request: Request):
 
 @app.post("/webhooks/deadline")
 async def deadline_webhook(request: Request, background: BackgroundTasks):
+    if not await _verify_oidc(request):
+        return JSONResponse({"error": "bad oidc token"}, status_code=401)
     background.add_task(_deadline_scan_and_nudge)
     return JSONResponse({"status": "accepted"}, status_code=202)
 
@@ -230,7 +259,9 @@ async def _deadline_scan_and_nudge() -> None:
 # ---------------------------------------------------------------------------
 
 @app.post("/tasks/discover")
-async def tasks_discover(background: BackgroundTasks):
+async def tasks_discover(request: Request, background: BackgroundTasks):
+    if not await _verify_oidc(request):
+        return JSONResponse({"error": "bad oidc token"}, status_code=401)
     background.add_task(_discover_and_score)
     return JSONResponse({"status": "accepted"}, status_code=202)
 
@@ -306,6 +337,24 @@ async def api_pipeline():
 @app.get("/api/audit")
 async def api_audit():
     return {"status": "success", "audit": await firestore.list_audit()}
+
+
+async def _founder_session_exists(session_id: str) -> bool:
+    """Resolve identity server-side exactly once; callers never supply user_id."""
+    if not session_id:
+        return False
+    session = await db_session_service.get_session(
+        app_name=agent_app.name, user_id=FOUNDER_ID, session_id=session_id)
+    return session is not None
+
+
+# Browser panel routes live in an import-light module (docs/07, 18).
+browser_routes.configure(
+    app_name=agent_app.name,
+    founder_id=FOUNDER_ID,
+    session_exists=_founder_session_exists,
+)
+app.include_router(browser_routes.router)
 
 
 @app.get("/api/applications/{application_id}")
@@ -415,6 +464,9 @@ def _oauth_flow(scopes: list[str] | None = None):
     )
 
 
+_pending_code_verifier: str | None = None  # single-founder app: one consent in flight
+
+
 @app.get("/api/integrations/google/connect")
 async def api_google_connect(connector: str = ""):
     """Connect button target: redirect the browser to Google consent.
@@ -425,11 +477,14 @@ async def api_google_connect(connector: str = ""):
 
     from services import google_oauth
 
+    global _pending_code_verifier
     account = google_oauth.CONNECTOR_ACCOUNT.get(connector, "founder")
     flow = _oauth_flow(google_oauth.SCOPE_MAP.get(connector))
     url, _ = flow.authorization_url(
-        prompt="consent", access_type="offline", include_granted_scopes=True,
-        state=account)
+        prompt="consent", access_type="offline", include_granted_scopes="true",
+        state=account)  # NB: string "true" — Google rejects the Python bool's "True"
+    _pending_code_verifier = flow.code_verifier  # PKCE: the callback's exchange
+    # must present the SAME verifier a fresh Flow would not have
     return RedirectResponse(url)
 
 
@@ -444,12 +499,19 @@ async def api_google_callback(code: str = "", state: str = "founder"):
     if not code:
         return JSONResponse({"status": "error", "error": True,
                              "message": "no code in callback"}, status_code=400)
+    global _pending_code_verifier
     flow = _oauth_flow(google_oauth.ALL_SCOPES)
+    if _pending_code_verifier:
+        flow.code_verifier = _pending_code_verifier
     try:
         flow.fetch_token(code=code)
     except Exception as exc:
+        import logging
+        logging.getLogger(__name__).error("oauth token exchange failed: %s", exc)
         return JSONResponse({"status": "error", "error": True,
                              "message": f"token exchange failed: {exc}"}, status_code=400)
+    finally:
+        _pending_code_verifier = None
     token = flow.credentials.refresh_token
     if not token:
         return JSONResponse({"status": "error", "error": True,
@@ -463,9 +525,12 @@ async def api_google_callback(code: str = "", state: str = "founder"):
 async def api_connectors():
     """Connector catalog (registry-as-data, services/connectors.py) — the
     Connections panel renders this and never hardcodes a connector."""
+    import asyncio
+
     from services import connectors
 
-    return {"status": "success", "connectors": connectors.catalog()}
+    return {"status": "success",
+            "connectors": await asyncio.to_thread(connectors.catalog)}
 
 
 class GithubTokenRequest(BaseModel):
@@ -490,13 +555,24 @@ async def api_github_disconnect():
 async def api_integrations():
     """Connection panel state: per-connector status (scope-level), account,
     selections, and last seen."""
+    import asyncio
+
     from services import google_oauth
 
-    any_configured = google_oauth.configured()
-    integ = await firestore.get_integrations(FOUNDER_ID)
-    return {"status": "success", "oauth_configured": any_configured,
+    def _status() -> dict:
+        """Blocking Google calls (tokeninfo, profile) — off the event loop."""
+        any_configured = google_oauth.configured()
+        return {
+            "any": any_configured,
             "account_email": google_oauth.account_email() if any_configured else "",
             "connectors": {k: google_oauth.configured(k) for k in google_oauth.SCOPE_MAP},
+        }
+
+    status = await asyncio.to_thread(_status)
+    integ = await firestore.get_integrations(FOUNDER_ID)
+    return {"status": "success", "oauth_configured": status["any"],
+            "account_email": status["account_email"],
+            "connectors": status["connectors"],
             "drive": {"files": integ.get("drive_files", [])},
             "gmail": {"label": integ.get("gmail_label", "grants"),
                       "last_scan": await firestore.get_last_gmail_scan()},
@@ -713,7 +789,7 @@ async def api_download_artifact(name: str):
 
     if not _re.fullmatch(r"[A-Za-z0-9_.-]+", name):
         return JSONResponse({"error": "bad artifact name"}, status_code=400)
-    path = os.path.realpath(storage.artifact_path(name))
+    path = os.path.realpath(storage.download_if_missing(name))
     if not path.startswith(os.path.realpath(storage._root())) or not os.path.exists(path):
         return JSONResponse({"error": "not found"}, status_code=404)
     from fastapi.responses import FileResponse
@@ -762,9 +838,15 @@ async def api_preview_artifact(name: str):
 
     if not _re.fullmatch(r"[A-Za-z0-9_.-]+", name):
         return JSONResponse({"error": "bad artifact name"}, status_code=400)
-    path = os.path.realpath(storage.artifact_path(name))
+    path = os.path.realpath(storage.download_if_missing(name))
     if not path.startswith(os.path.realpath(storage._root())) or not os.path.exists(path):
         return JSONResponse({"error": "not found"}, status_code=404)
+    if name.lower().endswith((".png", ".jpg", ".jpeg", ".webp")):
+        from fastapi.responses import FileResponse
+
+        mime = ("image/png" if name.lower().endswith(".png") else
+                "image/webp" if name.lower().endswith(".webp") else "image/jpeg")
+        return FileResponse(path, media_type=mime)
     if name.endswith(".pdf"):
         from fastapi.responses import FileResponse
         return FileResponse(path, media_type="application/pdf")
@@ -784,6 +866,18 @@ async def api_preview_artifact(name: str):
 def healthz() -> dict:
     return {"status": "ok", "app": agent_app.name,
             "session_store": SESSION_SERVICE_URI.split(":///")[0]}
+
+
+async def _browser_startup() -> None:
+    try:
+        await browser_service.reconcile_all_runs()
+    except Exception as exc:
+        logging.getLogger(__name__).warning("browser run reconciliation unavailable: %s", exc)
+
+
+# FastAPI ≥0.118 removed app.add_event_handler — register on the router.
+app.router.on_startup.append(_browser_startup)
+app.router.on_shutdown.append(browser_service.shutdown)
 
 
 if os.path.isdir("app/static"):

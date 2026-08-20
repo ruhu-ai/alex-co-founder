@@ -79,6 +79,7 @@
   --info:      #B58CFF;
   --info-ink:  #C4A4FF;
   --focus:     #8FB2FF;
+  --brand-lift: 55%;   /* near-black brand marks are unreadable on this ground */
   --file-doc:    #6FA8FF;
   --file-sheet:  #4CC97E;
   --file-slides: #FF9C5A;
@@ -119,6 +120,7 @@
     --info:      #8257E5;
     --info-ink:  #6440BE;
     --focus:     #2F5BD0;
+    --brand-lift: 0%;    /* brand hues are already legible on white */
     --file-doc:    #1F5FC4;
     --file-sheet:  #12794A;
     --file-slides: #A85118;
@@ -162,6 +164,7 @@
   --info:      #8257E5;
   --info-ink:  #6440BE;
   --focus:     #2F5BD0;
+  --brand-lift: 0%;
   --file-doc:    #1F5FC4;
   --file-sheet:  #12794A;
   --file-slides: #A85118;
@@ -506,7 +509,8 @@ h2 .count {
   border: 1px solid var(--divider); border-radius: var(--r-1); padding: 1px 4px;
 }
 .msg.agent hr { border: 0; border-top: 1px solid var(--divider); margin: var(--sp-3) 0; }
-.msg.voice { border-style: dashed; }
+
+
 
 .typing {
   display: inline-flex; gap: 5px; padding: var(--sp-3) var(--sp-4); align-self: flex-start;
@@ -716,6 +720,26 @@ a.cbtn { text-decoration: none; }
 #shotModal .bar .ttl { flex: 1; font: 400 var(--fs-2)/var(--lh-2) var(--font-mono); color: var(--ink-2); }
 #shotModal img { max-width: 100%; max-height: 78vh; display: block; background: var(--surface-2); }
 
+/* Browser panel (docs/18): the latest audited frame, not an interactive VNC. */
+.browser-panel { display: flex; flex-direction: column; gap: var(--sp-2); margin-bottom: var(--sp-4); }
+.browser-panel[hidden] { display: none; }
+.browser-panel .browser-head { display: flex; align-items: center; gap: var(--sp-2); }
+.browser-panel .browser-head .ico { color: var(--accent); }
+.browser-panel .browser-head strong { flex: 1; font-size: var(--fs-3); line-height: var(--lh-3); }
+.browser-panel .browser-goal { color: var(--ink-2); font-size: var(--fs-2); line-height: var(--lh-2); }
+.browser-panel .browser-url {
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  color: var(--ink-2); background: var(--surface-3); border: 1px solid var(--border);
+  border-radius: var(--r-2); padding: var(--sp-1) var(--sp-2);
+  font: 400 var(--fs-1)/var(--lh-2) var(--font-mono);
+}
+.browser-panel .browser-shot {
+  width: 100%; aspect-ratio: 16 / 10; object-fit: cover; object-position: top center;
+  display: block; border: 1px solid var(--border); border-radius: var(--r-2);
+  background: var(--surface-3);
+}
+.browser-panel .browser-last { color: var(--ink-3); font-size: var(--fs-2); line-height: var(--lh-2); }
+
 .approval-banner {
 
   display: flex; flex-direction: column; gap: var(--sp-2);
@@ -842,6 +866,13 @@ body[data-offline="true"] #offline { display: flex; }
   background: var(--brand-soft, var(--surface-3)); color: var(--brand, var(--ink-2));
   display: grid; place-items: center; font: 600 var(--fs-5)/1 var(--font-display);
 }
+/* A brand hue chosen for white (GitHub #1f2328, Slack #611f69, Jira #0052cc)
+   scores 1.16-2.68 against our dark panel — effectively invisible, in the very
+   theme the demo is recorded in. Marks that fail are flagged at render time
+   (the test is theme-independent) and lifted toward the theme ink here, which
+   is a no-op in light mode because --brand-lift is 0% there. Technique mined
+   from andrewyng/openworker's isDarkMark(); no assets taken. */
+.cbadge[data-dim] { color: color-mix(in srgb, var(--ink-1) var(--brand-lift), var(--brand)); }
 .cbadge.big { width: 44px; height: 44px; border-radius: var(--r-3); }
 .cbadge.big .ico { width: 22px; height: 22px; }
 .cbadge.sm { width: 24px; height: 24px; border-radius: var(--r-1); font-size: var(--fs-2); }
@@ -942,11 +973,15 @@ body[data-offline="true"] #offline { display: flex; }
   <symbol id="i-file-pdf" viewBox="0 0 256 256"><path d="M224,152a8,8,0,0,1-8,8H192v16h16a8,8,0,0,1,0,16H192v16a8,8,0,0,1-16,0V152a8,8,0,0,1,8-8h32A8,8,0,0,1,224,152ZM92,172a28,28,0,0,1-28,28H56v8a8,8,0,0,1-16,0V152a8,8,0,0,1,8-8H64A28,28,0,0,1,92,172Zm-16,0a12,12,0,0,0-12-12H56v24h8A12,12,0,0,0,76,172Zm88,8a36,36,0,0,1-36,36H112a8,8,0,0,1-8-8V152a8,8,0,0,1,8-8h16A36,36,0,0,1,164,180Zm-16,0a20,20,0,0,0-20-20h-8v40h8A20,20,0,0,0,148,180ZM40,112V40A16,16,0,0,1,56,24h96a8,8,0,0,1,5.66,2.34l56,56A8,8,0,0,1,216,88v24a8,8,0,0,1-16,0V96H152a8,8,0,0,1-8-8V40H56v72a8,8,0,0,1-16,0ZM160,80h28.69L160,51.31Z"/></symbol>
   <symbol id="i-cloud-up" viewBox="0 0 256 256"><path d="M178.34,165.66,160,147.31V208a8,8,0,0,1-16,0V147.31l-18.34,18.35a8,8,0,0,1-11.32-11.32l32-32a8,8,0,0,1,11.32,0l32,32a8,8,0,0,1-11.32,11.32ZM160,40A88.08,88.08,0,0,0,81.29,88.68,64,64,0,1,0,72,216h40a8,8,0,0,0,0-16H72a48,48,0,0,1,0-96c1.1,0,2.2,0,3.29.12A88,88,0,0,0,72,128a8,8,0,0,0,16,0,72,72,0,1,1,100.8,66,8,8,0,0,0,3.2,15.34,7.9,7.9,0,0,0,3.2-.68A88,88,0,0,0,160,40Z"/></symbol>
   <symbol id="i-inbox" viewBox="0 0 256 256"><path d="M224,48H32a8,8,0,0,0-8,8V192a16,16,0,0,0,16,16H216a16,16,0,0,0,16-16V56A8,8,0,0,0,224,48ZM203.43,64,128,133.15,52.57,64ZM216,192H40V74.19l82.59,75.71a8,8,0,0,0,10.82,0L216,74.19V192Z"/></symbol>
+  <symbol id="i-at" viewBox="0 0 256 256"><path d="M128,24a104,104,0,0,0,0,208c21.51,0,44.1-6.48,60.43-17.33a8,8,0,0,0-8.86-13.33C166,210.38,146.21,216,128,216a88,88,0,1,1,88-88c0,26.45-10.88,32-20,32s-20-5.55-20-32V88a8,8,0,0,0-16,0v4.26a48,48,0,1,0,5.93,65.1c6,12,16.35,18.64,30.07,18.64,22.54,0,36-17.94,36-48A104.11,104.11,0,0,0,128,24Zm0,136a32,32,0,1,1,32-32A32,32,0,0,1,128,160Z"/></symbol>
   <symbol id="i-calendar" viewBox="0 0 256 256"><path d="M208,32H184V24a8,8,0,0,0-16,0v8H88V24a8,8,0,0,0-16,0v8H48A16,16,0,0,0,32,48V208a16,16,0,0,0,16,16H208a16,16,0,0,0,16-16V48A16,16,0,0,0,208,32ZM72,48v8a8,8,0,0,0,16,0V48h80v8a8,8,0,0,0,16,0V48h24V80H48V48ZM208,208H48V96H208V208Z"/></symbol>
   <symbol id="i-globe" viewBox="0 0 256 256"><path d="M128,24h0A104,104,0,1,0,232,128,104.12,104.12,0,0,0,128,24Zm87.62,96H175.79C174,83.49,159.94,57.67,148.41,42.4A88.19,88.19,0,0,1,215.63,120ZM96.23,136h63.54c-2.31,41.61-22.23,67.11-31.77,77C118.45,203.1,98.54,177.6,96.23,136Zm0-16C98.54,78.39,118.46,52.89,128,43c9.55,9.93,29.46,35.43,31.77,77Zm11.36-77.6C96.06,57.67,82,83.49,80.21,120H40.37A88.19,88.19,0,0,1,107.59,42.4ZM40.37,136H80.21c1.82,36.51,15.85,62.33,27.38,77.6A88.19,88.19,0,0,1,40.37,136Zm108,77.6c11.53-15.27,25.56-41.09,27.38-77.6h39.84A88.19,88.19,0,0,1,148.41,213.6Z"/></symbol>
-  <symbol id="i-code" viewBox="0 0 256 256"><path d="M69.12,94.15,28.5,128l40.62,33.85a8,8,0,1,1-10.24,12.29l-48-40a8,8,0,0,1,0-12.29l48-40a8,8,0,0,1,10.24,12.3Zm176,27.7-48-40a8,8,0,1,0-10.24,12.3L227.5,128l-40.62,33.85a8,8,0,1,0,10.24,12.29l48-40a8,8,0,0,0,0-12.29ZM162.73,32.48a8,8,0,0,0-10.25,4.79l-64,176a8,8,0,0,0,4.79,10.26A8.14,8.14,0,0,0,96,224a8,8,0,0,0,7.52-5.27l64-176A8,8,0,0,0,162.73,32.48Z"/></symbol>
+  <symbol id="i-git-branch" viewBox="0 0 256 256"><path d="M232,64a32,32,0,1,0-40,31v17a8,8,0,0,1-8,8H96a23.84,23.84,0,0,0-8,1.38V95a32,32,0,1,0-16,0v66a32,32,0,1,0,16,0V144a8,8,0,0,1,8-8h88a24,24,0,0,0,24-24V95A32.06,32.06,0,0,0,232,64ZM64,64A16,16,0,1,1,80,80,16,16,0,0,1,64,64ZM96,192a16,16,0,1,1-16-16A16,16,0,0,1,96,192ZM200,80a16,16,0,1,1,16-16A16,16,0,0,1,200,80Z"/></symbol>
+  <symbol id="i-hash" viewBox="0 0 256 256"><path d="M224,88H175.4l8.47-46.57a8,8,0,0,0-15.74-2.86l-9,49.43H111.4l8.47-46.57a8,8,0,0,0-15.74-2.86L95.14,88H48a8,8,0,0,0,0,16H92.23L83.5,152H32a8,8,0,0,0,0,16H80.6l-8.47,46.57a8,8,0,0,0,6.44,9.3A7.79,7.79,0,0,0,80,224a8,8,0,0,0,7.86-6.57l9-49.43H144.6l-8.47,46.57a8,8,0,0,0,6.44,9.3A7.79,7.79,0,0,0,144,224a8,8,0,0,0,7.86-6.57l9-49.43H208a8,8,0,0,0,0-16H163.77l8.73-48H224a8,8,0,0,0,0-16Zm-76.5,64H99.77l8.73-48h47.73Z"/></symbol>
+  <symbol id="i-paper-plane" viewBox="0 0 256 256"><path d="M227.32,28.68a16,16,0,0,0-15.66-4.08l-.15,0L19.57,82.84a16,16,0,0,0-2.49,29.8L102,154l41.3,84.87A15.86,15.86,0,0,0,157.74,248q.69,0,1.38-.06a15.88,15.88,0,0,0,14-11.51l58.2-191.94c0-.05,0-.1,0-.15A16,16,0,0,0,227.32,28.68ZM157.83,231.85l-.05.14,0-.07-40.06-82.3,48-48a8,8,0,0,0-11.31-11.31l-48,48L24.08,98.25l-.07,0,.14,0L216,40Z"/></symbol>
   <symbol id="i-link" viewBox="0 0 256 256"><path d="M165.66,90.34a8,8,0,0,1,0,11.32l-64,64a8,8,0,0,1-11.32-11.32l64-64A8,8,0,0,1,165.66,90.34ZM215.6,40.4a56,56,0,0,0-79.2,0L106.34,70.45a8,8,0,0,0,11.32,11.32l30.06-30a40,40,0,0,1,56.57,56.56l-30.07,30.06a8,8,0,0,0,11.31,11.32L215.6,119.6a56,56,0,0,0,0-79.2ZM138.34,174.22l-30.06,30.06a40,40,0,1,1-56.56-56.57l30.05-30.05a8,8,0,0,0-11.32-11.32L40.4,136.4a56,56,0,0,0,79.2,79.2l30.06-30.07a8,8,0,0,0-11.32-11.31Z"/></symbol>
   <symbol id="i-external" viewBox="0 0 256 256"><path d="M224,104a8,8,0,0,1-16,0V59.32l-66.33,66.34a8,8,0,0,1-11.32-11.32L196.68,48H152a8,8,0,0,1,0-16h64a8,8,0,0,1,8,8Zm-40,24a8,8,0,0,0-8,8v72H48V80h72a8,8,0,0,0,0-16H48A16,16,0,0,0,32,80V208a16,16,0,0,0,16,16H176a16,16,0,0,0,16-16V136A8,8,0,0,0,184,128Z"/></symbol>
+  <symbol id="i-code" viewBox="0 0 256 256"><path d="M69.12,94.15,28.5,128l40.62,33.85a8,8,0,1,1-10.24,12.29l-48-40a8,8,0,0,1,0-12.29l48-40a8,8,0,0,1,10.24,12.3Zm176,27.7-48-40a8,8,0,1,0-10.24,12.3L227.5,128l-40.62,33.85a8,8,0,1,0,10.24,12.29l48-40a8,8,0,0,0,0-12.29ZM162.73,32.48a8,8,0,0,0-10.25,4.79l-64,176a8,8,0,0,0,4.79,10.26A8.14,8.14,0,0,0,96,224a8,8,0,0,0,7.52-5.27l64-176A8,8,0,0,0,162.73,32.48Z"/></symbol>
 </svg>
 <!-- @sprite:end -->
 
@@ -1033,6 +1068,7 @@ body[data-offline="true"] #offline { display: flex; }
 
   <section id="review" aria-labelledby="reviewTitle">
     <h2 id="reviewTitle">Review</h2>
+    <div id="browserPanel" class="card browser-panel" hidden aria-live="polite"></div>
     <div id="approvalSlot"></div>
     <div id="stepperSlot"></div>
     <div id="sections" class="stack">
@@ -1099,7 +1135,7 @@ body[data-offline="true"] #offline { display: flex; }
       <div class="foot" id="connListFoot"></div>
     </div>
 
-    <div id="connBrowser" style="display:none" data-brand="browser">
+    <div id="connBrowser" style="display:none">
       <button class="x" style="float:right" onclick="closeConnections()" aria-label="Close"><svg class="ico" aria-hidden="true"><use href="#i-close"/></svg></button>
       <button class="btn" data-variant="quiet" data-size="sm" onclick="showConn('list')"><svg class="ico ico-sm" aria-hidden="true"><use href="#i-chev-left"/></svg>Connectors</button>
       <div style="display:flex;align-items:center;gap:12px;margin:12px 0 4px">
@@ -1121,7 +1157,7 @@ body[data-offline="true"] #offline { display: flex; }
       </div>
     </div>
 
-    <div id="connGithub" style="display:none" data-brand="github">
+    <div id="connGithub" style="display:none">
       <button class="x" style="float:right" onclick="closeConnections()" aria-label="Close"><svg class="ico" aria-hidden="true"><use href="#i-close"/></svg></button>
       <button class="btn" data-variant="quiet" data-size="sm" onclick="showConn('list')"><svg class="ico ico-sm" aria-hidden="true"><use href="#i-chev-left"/></svg>Connectors</button>
       <div style="display:flex;align-items:center;gap:12px;margin:12px 0 4px">
@@ -1155,7 +1191,7 @@ body[data-offline="true"] #offline { display: flex; }
       <div class="foot">The token is stored as a secret, never in session state, prompts, or logs.</div>
     </div>
 
-    <div id="connAlex" style="display:none" data-brand="alex_mail">
+    <div id="connAlex" style="display:none">
       <button class="x" style="float:right" onclick="closeConnections()" aria-label="Close"><svg class="ico" aria-hidden="true"><use href="#i-close"/></svg></button>
       <button class="btn" data-variant="quiet" data-size="sm" onclick="showConn('list')"><svg class="ico ico-sm" aria-hidden="true"><use href="#i-chev-left"/></svg>Connectors</button>
       <div style="display:flex;align-items:center;gap:12px;margin:12px 0 4px">
@@ -1199,7 +1235,7 @@ body[data-offline="true"] #offline { display: flex; }
       <div class="foot" id="soonNote"></div>
     </div>
 
-    <div id="connDrive" style="display:none" data-brand="drive">
+    <div id="connDrive" style="display:none">
       <button class="x" style="float:right" onclick="closeConnections()" aria-label="Close"><svg class="ico" aria-hidden="true"><use href="#i-close"/></svg></button>
       <button class="btn" data-variant="quiet" data-size="sm" onclick="showConn('list')"><svg class="ico ico-sm" aria-hidden="true"><use href="#i-chev-left"/></svg>Connectors</button>
       <div style="display:flex;align-items:center;gap:12px;margin:12px 0 4px">
@@ -1224,7 +1260,7 @@ body[data-offline="true"] #offline { display: flex; }
       </div>
     </div>
 
-    <div id="connGmail" style="display:none" data-brand="gmail">
+    <div id="connGmail" style="display:none">
       <button class="x" style="float:right" onclick="closeConnections()" aria-label="Close"><svg class="ico" aria-hidden="true"><use href="#i-close"/></svg></button>
       <button class="btn" data-variant="quiet" data-size="sm" onclick="showConn('list')"><svg class="ico ico-sm" aria-hidden="true"><use href="#i-chev-left"/></svg>Connectors</button>
       <div style="display:flex;align-items:center;gap:12px;margin:12px 0 4px">
@@ -1255,7 +1291,7 @@ body[data-offline="true"] #offline { display: flex; }
       </div>
     </div>
 
-    <div id="connCalendar" style="display:none" data-brand="calendar">
+    <div id="connCalendar" style="display:none">
       <button class="x" style="float:right" onclick="closeConnections()" aria-label="Close"><svg class="ico" aria-hidden="true"><use href="#i-close"/></svg></button>
       <button class="btn" data-variant="quiet" data-size="sm" onclick="showConn('list')"><svg class="ico ico-sm" aria-hidden="true"><use href="#i-chev-left"/></svg>Connectors</button>
       <div style="display:flex;align-items:center;gap:12px;margin:12px 0 4px">
@@ -1343,6 +1379,7 @@ matchMedia("(prefers-color-scheme: light)").addEventListener("change", () => {
 // ---------- state ----------
 let sessionId = null, activeApp = null, pendingApproval = null, thinking = false;
 let chatCount = 0;
+let browserSnapshot = null, dismissedBrowserRun = "";
 
 // ---------- helpers ----------
 const $ = id => document.getElementById(id);
@@ -1479,6 +1516,12 @@ async function send() {
   if (!sessionId) await newSession();
   addMsg("you", text); input.value = "";
   $("sendBtn").disabled = true;
+  if (voice) {
+    // Mid-call: the typed message goes INTO the live conversation — Alex
+    // hears it and answers in voice; the shared transcript records it.
+    voice.ws.send(JSON.stringify({ text }));
+    return;
+  }
   setThinking(true);
   try {
     const r = await api("/wake", { method: "POST", body: JSON.stringify({ message: text, session_id: sessionId }) });
@@ -1515,6 +1558,7 @@ function setOffline(down) {
 }
 
 async function refresh() {
+  loadBrowserState();
   refreshGateBanner();
   let board;
   try {
@@ -1587,6 +1631,69 @@ async function refresh() {
     </div>`;
   }).join("") || emptyState("shield", "No activity yet",
     "Every action Alex takes — searches, drafts, form fills, submissions — is recorded here.");
+}
+
+// ---------- live browser work (docs/18) ----------
+async function loadBrowserState() {
+  if (!sessionId) return;
+  let state;
+  try { state = await api(`/api/browser/state?session_id=${encodeURIComponent(sessionId)}`); }
+  catch { return; }
+  const run = state.fill && state.fill.active ? { ...state.fill, kind: "fill" }
+            : state.browse && state.browse.active ? { ...state.browse, kind: "browse" }
+            : state.browse ? { ...state.browse, kind: "browse" }
+            : state.fill ? { ...state.fill, kind: "fill" } : null;
+  if (run) {
+    if (!browserSnapshot || browserSnapshot.run_id !== run.run_id) dismissedBrowserRun = "";
+    browserSnapshot = run;
+  }
+  renderBrowserPanel();
+}
+
+function renderBrowserPanel() {
+  const panel = $("browserPanel"), run = browserSnapshot;
+  if (!run || dismissedBrowserRun === run.run_id) { panel.hidden = true; panel.innerHTML = ""; return; }
+  const active = run.active && run.status === "active";
+  const label = run.kind === "fill"
+    ? (active ? `${PERSONA} is filling a form` : "Form work finished")
+    : run.status === "blocked" ? `${PERSONA}'s browser is blocked`
+      : active ? `${PERSONA} is browsing` : "Browsing finished";
+  const tone = run.status === "blocked" ? "danger" : active ? "info" : "neutral";
+  const last = run.last_action
+    ? `Last: ${esc(run.last_action.kind)} “${esc(run.last_action.target || "page")}” · ${timeAgo(run.last_action.at)}`
+    : (active ? "Opening the page…" : "Last frame retained");
+  const shot = run.screenshot_url
+    ? `<img class="browser-shot" src="${esc(run.screenshot_url)}?v=${encodeURIComponent(run.last_action?.at || run.run_id)}"
+         alt="Latest browser screenshot">`
+    : `<div class="browser-shot empty">${ico("eye", "ico-lg")}<span>Waiting for the first frame</span></div>`;
+  panel.innerHTML = `
+    <div class="browser-head">${ico("globe")}<strong>${esc(label)}</strong>
+      <span class="badge" data-tone="${tone}">${esc(run.kind)}</span></div>
+    <div class="browser-goal">“${esc(run.goal || "browser work")}”</div>
+    <div class="browser-url" title="${esc(run.url || "")}">${esc(run.url || "about:blank")}
+      ${run.kind === "browse" ? " · read-only" : ""}</div>
+    ${shot}<div class="browser-last">${last}</div>
+    <div class="row">
+      ${active && run.kind === "browse" ? `<button class="btn" data-variant="danger" data-size="sm"
+        onclick="stopBrowsing()">Stop browsing</button>` : ""}
+      <button class="btn" data-variant="secondary" data-size="sm" onclick="dismissBrowser()">Dismiss</button>
+    </div>`;
+  panel.hidden = false;
+}
+
+async function stopBrowsing() {
+  if (!sessionId) return;
+  const result = await api("/api/browser/stop", {
+    method: "POST", body: JSON.stringify({ session_id: sessionId })
+  });
+  toast(result.status === "success" ? "Browsing stopped." : (result.message || "Couldn't stop browsing."),
+        result.status === "success" ? "ok" : "danger");
+  await loadBrowserState();
+}
+
+function dismissBrowser() {
+  if (browserSnapshot) dismissedBrowserRun = browserSnapshot.run_id;
+  renderBrowserPanel();
 }
 
 // ---------- review ----------
@@ -2042,6 +2149,15 @@ const CONN_PANES = { list: "connList", drive: "connDrive", gmail: "connGmail",
                      github: "connGithub", alex_mail: "connAlex", soon: "connSoon" };
 function showConn(which) {
   const c = connectorCatalog.find(x => x.name === which);
+  // The pane's hero badge takes its hue from the catalog, not a CSS table —
+  // adding a connector server-side must not require a stylesheet edit.
+  const heroPane = $(CONN_PANES[which] || "");
+  const hero = heroPane && heroPane.querySelector(".cbadge.big");
+  if (hero && c) {
+    hero.style.setProperty("--brand", c.brand);
+    hero.style.setProperty("--brand-soft", c.brand + "1f");
+    hero.toggleAttribute("data-dim", markNeedsLift(c.brand));
+  }
   const pane = CONN_PANES[which] && (!c || c.available) ? which : "soon";
   for (const id of Object.values(CONN_PANES)) $(id).style.display = "none";
   $(CONN_PANES[pane]).style.display = "";
@@ -2049,6 +2165,7 @@ function showConn(which) {
     $("soonBadge").innerHTML = connMark(c);
     $("soonBadge").style.setProperty("--brand", c.brand);
     $("soonBadge").style.setProperty("--brand-soft", c.brand + "1f");
+    $("soonBadge").toggleAttribute("data-dim", markNeedsLift(c.brand));
     $("soonTitle").textContent = c.title;
     $("soonBlurb").textContent = c.blurb;
     $("soonNote").textContent = c.soon_note || "On the roadmap.";
@@ -2062,14 +2179,48 @@ const CONN_FOLD = 8;
 
 // Neutral marks, never logotypes (submission rules). Unknown connectors fall
 // back to the glyph the backend sends, so a server-side addition still renders.
-const CONN_ICON = { drive: "cloud-up", gmail: "inbox", calendar: "calendar",
-                    browser: "globe", github: "code", imap: "inbox",
-                    alex_mail: "sparkle",
-                    slack: "chat", telegram: "send", jira: "board" };
+// One distinct mark per connector. Neutral by submission rule, but "neutral"
+// is not a licence to reuse: Gmail and IMAP both reading as an envelope, or
+// Telegram reusing the composer's send arrow, is a real legibility bug.
+const CONN_ICON = {
+  drive: "cloud-up",       // company records
+  gmail: "inbox",          // the watched-label mailbox
+  imap: "at",              // any-account mail — deliberately NOT a 2nd envelope
+  calendar: "calendar",
+  browser: "globe",
+  github: "git-branch",
+  slack: "hash",           // Slack's own channel convention, generically drawn
+  telegram: "paper-plane", // `send` belongs to the composer button
+  alex_mail: "sparkle",    // Alex's own inbox — ours, so the agent mark fits
+  jira: "board",
+};
 const connMark = c => CONN_ICON[c.name] ? ico(CONN_ICON[c.name]) : esc(c.icon || "");
 
+// Relative luminance, then contrast — the same maths scripts/check_contrast.py
+// runs. Brand colours arrive as data, so this cannot be checked at build time.
+const DARK_PANEL = [0x12, 0x15, 0x1D];
+function _lin(c) { c /= 255; return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4; }
+function _lum(rgb) { return 0.2126 * _lin(rgb[0]) + 0.7152 * _lin(rgb[1]) + 0.0722 * _lin(rgb[2]); }
+function _rgb(hex) {
+  let h = String(hex || "").trim().replace(/^#/, "");
+  if (h.length === 3) h = h.split("").map(c => c + c).join("");
+  return /^[0-9a-fA-F]{6}$/.test(h) ? [0, 2, 4].map(i => parseInt(h.slice(i, i + 2), 16)) : null;
+}
+// True when this brand hue would be unreadable on the dark panel. Theme-agnostic
+// on purpose: the answer is a property of the colour, and CSS applies it or not.
+function markNeedsLift(hex) {
+  const rgb = _rgb(hex);
+  if (!rgb) return false;
+  const a = _lum(rgb), b = _lum(DARK_PANEL);
+  return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05) < 3.0;
+}
+function brandStyle(c) {
+  return `style="--brand:${c.brand};--brand-soft:${c.brand}1f"` +
+         (markNeedsLift(c.brand) ? " data-dim" : "");
+}
+
 function connRow(c) {
-  const badge = `<span class="cbadge" style="--brand:${c.brand};--brand-soft:${c.brand}1f">${connMark(c)}</span>`;
+  const badge = `<span class="cbadge" ${brandStyle(c)}>${connMark(c)}</span>`;
   if (c.connected) {
     return `<button class="crow connrow" onclick='showConn("${c.name}")'>
       ${badge}
@@ -2137,13 +2288,15 @@ async function loadConnections() {
     ? `Signed in as <b style="color:var(--ink)">${esc(connState.account_email || "Google account")}</b> · <a href="/api/integrations/google/connect">Reconnect all</a><br>` : "")
     + `Google connectors are read-only by construction — the agent can never send, delete, or modify anything in your Google account.`;
 
-  const notConn = `<span class="dot off"></span><span>Not connected — click its <b>Connect</b> on the Connectors list (one click, no restart)</span>`;
-  $("driveStatusLine").innerHTML = conn.drive ? `<span class="dot"></span> Connected · read-only` : notConn;
-  $("gmailStatusLine").innerHTML = conn.gmail ? `<span class="dot"></span> Connected · read-only` : notConn;
-  $("calendarStatusLine").innerHTML = conn.calendar ? `<span class="dot"></span> Connected · read-only` : notConn;
+  const notConnFor = k => `<span class="dot off"></span><span>Not connected</span>
+    <a class="btn" data-variant="accent" data-size="sm" style="margin-left:8px"
+       href="/api/integrations/google/connect?connector=${k}">Connect</a>`;
+  $("driveStatusLine").innerHTML = conn.drive ? `<span class="dot"></span> Connected · read-only` : notConnFor("drive");
+  $("gmailStatusLine").innerHTML = conn.gmail ? `<span class="dot"></span> Connected · read-only` : notConnFor("gmail");
+  $("calendarStatusLine").innerHTML = conn.calendar ? `<span class="dot"></span> Connected · read-only` : notConnFor("calendar");
 
   $("alexStatusLine").innerHTML = conn.alex_mail
-    ? `<span class="dot"></span> Connected · read + approval-gated send` : notConn;
+    ? `<span class="dot"></span> Connected · read + approval-gated send` : notConnFor("alex_mail");
   const alexLast = (connState.alex_mail || {}).last_scan;
   $("alexLastScan").innerHTML = alexLast && !alexLast.error
     ? (alexLast.events || []).map(e => `

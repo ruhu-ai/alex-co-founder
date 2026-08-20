@@ -68,17 +68,25 @@ async def run_recon(page, goal: str, application_id: str) -> dict:
         if action == "done":
             break
         try:
-            if action == "click":
-                await page.click(proposal["selector"], timeout=5000)
-            elif action == "type":
-                await page.fill(proposal["selector"], proposal.get("text", ""))
-            elif action == "select":
-                await page.select_option(proposal["selector"], label=proposal.get("text", ""))
-            elif action == "scroll":
-                await page.mouse.wheel(0, 600)
-            elif action == "navigate_back":
-                await page.go_back()
-            await page.wait_for_load_state("networkidle", timeout=8000)
+            from services import browser_service
+
+            key = "recon-target"
+            if action in {"click", "type", "select"}:
+                await page.eval_on_selector(
+                    proposal["selector"],
+                    "(e, key) => e.setAttribute('data-cf-browser-key', key)", key,
+                )
+            executed = await browser_service.execute_action(
+                page,
+                {"action": action, "target_key": key if action in {"click", "type", "select"} else "",
+                 "text": proposal.get("text")},
+                "form_fill", application_id, f"recon-{steps}",
+            )
+            if executed.get("error"):
+                await firestore.audit(
+                    "agent:form_filler", "vision_step", f"applications/{application_id}",
+                    "refused", executed.get("message", "action refused")[:300])
+                return executed
         except Exception as exc:
             history.append({"action": action, "error": str(exc)[:200]})
 

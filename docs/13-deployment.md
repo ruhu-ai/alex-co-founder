@@ -78,7 +78,7 @@ python scripts/seed_demo.py   # profile seeded under user / eval_founder / demo 
 | Secret Manager | `mock-portal-creds`, `portal-webhook-token` | |
 | Pub/Sub topics | `discovery-tick`, `deadline-tick` | **no distill topic** — the distiller runs inline on the interactive path (07) by design |
 | Scheduler jobs | `discovery-daily` (`0 7 * * *`), `deadline-scan-6h` (`0 */6 * * *`) | OIDC service account `scheduler-invoker@` |
-| Cloud Run ×2 | `co-founder`, `mock-portal` | `--min-instances 0 --max-instances 2`, 1 GiB / 1 CPU (agent needs 2 GiB for Playwright) |
+| Cloud Run ×2 | `co-founder`, `mock-portal` | `co-founder`: `--min-instances 0 --max-instances 1` (**single browser-owning instance**, 18), 2 GiB for Playwright; `mock-portal`: `--min-instances 0 --max-instances 2`, 1 GiB / 1 CPU |
 
 Reference commands (`scripts/deploy.sh` implements them idempotently):
 
@@ -94,9 +94,12 @@ gcloud run deploy mock-portal --source ./mock_portal --region=$REGION \
   --allow-unauthenticated --min-instances 0
 
 gcloud run deploy co-founder --source . --region=$REGION \
-  --allow-unauthenticated --min-instances 0 --memory 2Gi \
+  --allow-unauthenticated --min-instances 0 --max-instances 1 --memory 2Gi \
   --add-cloudsql-instances <proj>:<region>:co-founder-sessions \
   --set-env-vars-from-file .env.prod   # contains PORTAL_SECRET_NAME=mock-portal-creds
+# .env.prod must NOT set BROWSE_OPEN_WEB (or must set it false) — production
+# browsing is fail-closed to the allowlist (18). scripts/deploy.sh asserts this
+# and --max-instances 1 before deploying.
 
 # secrets are fetched BY NAME via the API at execution time (12), never injected
 # as env values — grant the service account accessor instead:
@@ -175,4 +178,5 @@ redelivery happens; derived idempotency keys are why it is safe.
 
 - [ ] Fresh clone → `./scripts/setup.sh` → local demo works in ≤ 15 min (time it).
 - [ ] `./scripts/deploy.sh` from clean state → both services live, demo sequence passes in cloud.
+- [ ] Production verification: deployed `co-founder` revision has `--max-instances 1` and no `BROWSE_OPEN_WEB=true` (deploy script asserts both; 18).
 - [ ] 48 h idle → next month's projected bill < $10 beyond credits.

@@ -88,8 +88,9 @@ def some_tool(param: str, tool_context: ToolContext) -> dict:
 
 ## `tools/browser.py`
 
-Thin async wrappers over a **single Playwright browser context** (module-level
-singleton; headless from `HEADLESS` env). Full behavioral spec in **09**.
+Thin async wrappers over a **single Playwright browser process** (module-level
+singleton; headless from `HEADLESS` env) with **isolated contexts per run**.
+Full behavioral spec in **09**.
 
 | Function | Signature | Behavior |
 |---|---|---|
@@ -104,16 +105,18 @@ singleton; headless from `HEADLESS` env). Full behavioral spec in **09**.
 
 ## `tools/browse.py`
 
-General-purpose interactive browsing for the **orchestrator** (open a page on
-request, navigate, read/answer) over the same shared Playwright browser.
-Full behavioral spec, guardrails, and the UI Browser panel in **18**.
+**Read-only** interactive browsing for the **orchestrator** (open a page on
+request, navigate, read/answer) over the same shared browser process. Full
+behavioral spec — BrowserRun contract, research action policy, network/SSRF
+policy, content-trust guards, error codes — in **18**. Every error follows the
+18 §Error schema (`{status: "error", error: true, code, message, ...}`).
 
 | Function | Signature | Behavior |
 |---|---|---|
-| `open_page` | `(url: str, purpose: str, tool_context) -> dict` | http/https + domain policy enforced pre-navigation in code. Opens the session's `browse:{session_id}` context; DOM text → artifact; returns `{status, url, title, excerpt, links, screenshot_artifact}`. Sets `browser_status`; audit `browse_open`. |
-| `read_page` | `(question: str, tool_context) -> dict` | Answers a question about the current page from extracted text (re-extracts on URL/DOM-hash change). Pure read. |
-| `browser_action` | `(goal: str, tool_context) -> dict` | One bounded vision action (allowlist `click | type | select | scroll | navigate_back | open_link | wait` — no submit/checkout/payment; password/payment fields refused in code). Budget: 20 actions / 90 s per goal → partial + `needs_human`. Screenshots + audit `browse_action`. |
-| `close_browser` | `(tool_context) -> dict` | Closes the browse context; `browser_status.active=false`; audit `browse_close`. |
+| `open_page` | `(url: str, purpose: str, tool_context) -> dict` | Mints/reuses the session's browse run; URL validated by the network policy **pre-navigation** (SSRF denial included). Returns `{status, run_id, url, title, excerpt, links, screenshot_artifact}`. Sets the `browser_status` projection; audit `browse_open`. |
+| `read_page` | `(question: str, tool_context) -> dict` | Answers from extracted page text via the isolated reader (re-extracts on URL/`dom_hash` change). Returns `{status, answer, excerpt_ref}`. Pure read; never acts. |
+| `browser_action` | `(tool_context) -> dict` | One bounded action per call under the **research policy** (navigation/disclosure/search only — no forms, no submit, no general typing). No goal argument — the run's immutable purpose steers the proposer. Budget 20 actions / 90 s **per run** (keyed by opaque `run_id`). Crash-safe idempotency via server-derived `action_id` records. |
+| `close_browser` | `(tool_context) -> dict` | Closes the run (idempotent — `already_closed: true` when none active); clears the `browser_status` projection; audit `browse_close`. |
 
 ## `tools/followup.py`
 

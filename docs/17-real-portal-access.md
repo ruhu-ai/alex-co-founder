@@ -9,7 +9,10 @@ Gmail connector closing the email-verification loop. Un-cuts 14 §cut-list #1.
 
 1. **Alex acts under its own identity.** Accounts are created as
    alex@ruhu.ai — the agent's own delegated identity, not the founder's.
-   Registration is **ungated** (delegated autonomy), but every account
+   Registration is **approval-gated** (gate `create_portal_account`:
+   GRANTED, unexpired, single-use, server-resolved — the same token flow as
+   12) because account creation is an irreversible external act; sign-in to
+   an existing account is **ungated** (delegated autonomy). Every account
    creation is **audited** — "where does Alex have accounts?" is always
    answerable. The submission gate (docs/09, 12) is unaffected and stays.
 2. **Email+password and SSO both allowed.** SSO ("Continue with Google") runs
@@ -31,23 +34,31 @@ connector (label-scoped, read-only) closes it:
 
 ```
 register_account(portal)
-  → approval gate (founder grants in UI)
+  → approval gate (founder grants in UI; gate create_portal_account)
   → fill signup form (founder identity from profile, generated password)
-  → poll watched Gmail label: wait_for_email(from=portal domain, timeout=120s)
+  → arm verification wait: pending_signals += ["portal_verification"], agent
+    goes dormant (principle 3 — no polling)
+  → Gmail push notification (Pub/Sub watch on the watched label) wakes the
+    session via state_delta; a scheduled verification_timeout event (15 min)
+    is the backstop wake
   → extract verification link/code → open link / enter code
   → store credential in Secret Manager → audit → continue to map_form_requirements
 ```
 
 ## New pieces
 
-- `gmail_adapter.wait_for_email(query, timeout_s)` — polls the watched label
-  until a matching unread message arrives; returns parsed body/link/code or a
-  timeout error-dict. Never reads outside the label.
+- `gmail_adapter.check_verification(query)` — event-driven, never a poll loop
+  (dormancy, principle 3): a Gmail push watch on the watched label (Pub/Sub)
+  wakes the session when mail arrives; the adapter then reads the matching
+  unread message and returns the parsed body/link/code. A scheduled
+  `verification_timeout` event (15 min) is the backstop wake → `needs_human`.
+  Never reads outside the label.
 - `services/portal_accounts.py` — credential lifecycle: generate (secrets
   module), store (Secret Manager), fetch by host. Errors as data.
-- Form-filler tools: `register_account(portal_url)` and `sign_in(portal_url)` —
-  ungated (Alex's own delegated identity), every registration **audited**;
-  both behind the existing staleness fence; every step screenshotted.
+- Form-filler tools: `register_account(portal_url)` — **approval-gated**
+  (`create_portal_account`); and `sign_in(portal_url)` — ungated (Alex's own
+  delegated identity), every sign-in **audited**; both behind the existing
+  staleness fence; every step screenshotted.
 - Mock portal gains a signup + verification-email simulation page so the whole
   flow is testable end-to-end offline.
 
@@ -60,8 +71,9 @@ approval-gated submit. Real portals simply become reachable.
 ## Acceptance checks
 
 - [ ] every registration writes an audit row (actor `agent:form_filler`, target host)
+- [ ] `register_account` without a GRANTED `create_portal_account` approval refuses with an error dict + audit `refused`; `sign_in` needs no approval but is always audited
 - [ ] full loop vs the mock portal's signup page: register → verification email → verified → signed in → form mapped
 - [ ] password never appears in state, logs, chat, or artifacts (grep test)
 - [ ] CAPTCHA/SSO-via-founder-account → clean blocker report, no retry cleverness
-- [ ] `wait_for_email` timeout returns error-as-data; no infinite poll
+- [ ] verification wait creates no polling loop: wake arrives via Gmail push or the scheduled `verification_timeout` event; timeout → `needs_human` error-as-data
 - [ ] unit tests for credential store + email parsing; eval case for the flow
