@@ -1,0 +1,27 @@
+name: CI
+
+on: [push, pull_request]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install uv
+        run: pip install uv
+      - name: Install dependencies
+        run: |
+          uv venv .venv
+          uv pip install --python .venv/bin/python -r requirements.txt
+      - name: Unit + service + integration tests
+        run: .venv/bin/python -m pytest tests/unit tests/integration -q
+      - name: ADK golden evals (needs GCP creds)
+        if: ${{ secrets.GCP_CREDENTIALS != '' }}
+        run: |
+          for set in tests/eval/evalsets/*.json; do
+            PYTHONPATH=. .venv/bin/adk eval agents/co_founder "$set" \
+              --config_file_path tests/eval/eval_config.json || exit 1
+          done

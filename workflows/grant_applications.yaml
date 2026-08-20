@@ -1,0 +1,46 @@
+# Workflow instance #1 — funding & program applications (docs/01 §workflow engine)
+workflow_id: grant_applications
+display_name: "Funding & Program Applications"
+
+entity_schema:                      # what the Scout extracts
+  name: str
+  source_url: str
+  award: str
+  deadline: date|null
+  eligibility: list[str]
+  application_url: str
+  required_materials: list[str]
+  description: str
+
+states: [DISCOVERED, SHORTLISTED, ARCHIVED]
+application_states:
+  - INTERVIEWING
+  - DRAFTING
+  - AWAITING_REVIEW
+  - APPROVED
+  - FORM_FILLING
+  - AWAITING_SUBMIT_APPROVAL
+  - SUBMITTED
+  - FOLLOW_UP
+  - CLOSED
+
+sources:                            # discovery lanes (docs/08)
+  - type: search                    # Lane 1: profile-driven Google Search grounding
+    queries_from_profile: true
+    max_results_per_query: 10
+  - type: web_page                  # Lane 2: real program listings (verified Day 1)
+    url: "https://startup.google.com/programs/"
+  - type: web_page
+    url: "https://www.tonyelumelufoundation.org/entrepreneurship-programme"
+  - type: pdf                       # one real guidelines PDF — picked Day 1, see tests/fixtures
+    url: "TBD-Day-1"
+
+# tests/fixtures/ holds snapshots of every configured source: CI and evals replay
+# fixtures (deterministic); only the live demo fetches real URLs.
+
+fit_criteria:
+  fields: [stage, sector, geography, award_size]
+
+approval_policy:
+  submit_requires: founder_approval_token
+  token_ttl_minutes: 30

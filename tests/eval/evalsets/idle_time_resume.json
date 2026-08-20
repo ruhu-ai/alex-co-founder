@@ -1,0 +1,39 @@
+{
+  "eval_set_id": "idle_time_resume",
+  "name": "Resume after simulated multi-day idle with context intact",
+  "description": "Seeded AWAITING_REVIEW state; a wake notice must re-orient the agent to the exact section without re-asking anything.",
+  "eval_cases": [
+    {
+      "eval_id": "resume_review_after_72h",
+      "conversation": [
+        {
+          "invocation_id": "inv_1",
+          "user_content": {
+            "parts": [{"text": "Resume: founder reviewed a section."}]
+          },
+          "final_response": {
+            "role": "model",
+            "parts": [{"text": "We're in review of the traction section — 5 of 6 checklist items done. Your call on the latest draft: approve, edit, or reject with a reason."}]
+          },
+          "intermediate_data": {
+            "tool_uses": [{"name": "get_checklist", "args": {}}]
+          }
+        }
+      ],
+      "session_input": {
+        "app_name": "co_founder",
+        "user_id": "eval_founder",
+        "state": {
+          "current_step": "AWAITING_REVIEW",
+          "active_application_id": "app1",
+          "checklist_status": {"eligibility_check": "DONE", "interview": "DONE",
+                               "draft_sections": "DONE", "material:deck": "DONE",
+                               "material:traction summary": "DONE",
+                               "review": "IN_PROGRESS"},
+          "current_section": "traction",
+          "pending_signals": ["founder_feedback"]
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,29 @@
+# Co-Founder — agent entry point
+
+All implementation is specified in `docs/` — read `docs/README.md` first, then
+`docs/01-architecture.md`. Build in the order of `docs/14-build-plan.md`; each
+spec doc ends with acceptance checks that define "done" for that work item.
+
+Binding principles (docs/README.md):
+
+1. The state machine grounds everything — session state, never chat history.
+2. Tools return errors as data — never raise to the model.
+3. Dormancy by default — no polling; events wake the agent via `state_delta`.
+4. Every external action is idempotent and audited.
+5. Autonomous by default — escalate only when blocked (conflict, missing fact,
+   ambiguity); human approval still precedes every irreversible action
+   (server-resolved tokens).
+6. Docstrings are load-bearing — ADK builds tool schemas from them.
+7. Guards live in code, not prompts — callbacks and tool-internal checks.
+8. Isolated workers see nothing — `include_contents="none"` for the distiller.
+
+Conventions: generic core naming (`Opportunity`, `Application`, never
+`GrantTracker`); every folder under `agents/` must be a valid agent package;
+secrets fetched by name at execution time; user ids `user` / `eval_founder` /
+demo founder must all be seeded (docs/02).
+
+Reference repos (read-only pattern mining, never import from them):
+`/Users/ijidailassa/projects/solvan/.opensrc/repos/github.com/` — includes
+`google/adk-python` (live/bidi samples under `contributing/samples/live/`),
+`andrewyng/openworker` (connector UI grammar in `ui-mocks/`), `cline/cline`,
+`GoogleCloudPlatform/generative-ai`, `livekit-examples`, `pipecat-ai`.

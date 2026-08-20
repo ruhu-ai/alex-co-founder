@@ -1,0 +1,231 @@
+# 01 — Architecture
+
+## System overview
+
+```
+                        ┌────────────────────────────────────────────────────┐
+                        │                 Cloud Run: co-founder          │
+                        │                                                     │
+   Founder ──HTTPS──►   │  FastAPI (ADK get_fast_api_app + custom routes)     │
+                        │    ├─ /              static demo UI                 │
+                        │    ├─ /wake          chat entry                     │
+                        │    ├─ /webhooks/*    founder_reply, portal_event,   │
+                        │    │                 deadline                       │
+                        │    ├─ /tasks/*       discover, deadline_scan        │
+                        │    └─ /api/*         pipeline, feedback, approvals  │
+                        │                                                     │
+                        │  Runner (ONE, built at startup)                     │
+                        │    └─ App(co_founder)                          │
+                        │        ├─ orchestrator (root agent)                 │
+                        │        ├─ scout_agent                               │
+                        │        ├─ matchmaker_agent                          │
+                        │        ├─ interviewer_agent                         │
+                        │        ├─ drafter_agent                             │
+                        │        ├─ form_filler_agent ──► Playwright          │
+                        │        └─ distiller_agent                           │
+                        └──────┬───────────┬────────────┬───────────┬────────┘
+                               │           │            │           │
+              ┌────────────────▼─┐   ┌─────▼─────┐  ┌───▼────┐  ┌───▼─────────┐
+              │ Cloud SQL (PG)   │   │ Firestore │  │  GCS   │  │ Secret Mgr  │
+              │ ADK sessions     │   │ pipeline  │  │artifacts│  │ portal creds│
+              └──────────────────┘   └───────────┘  └────────┘  └─────────────┘
+                               ▲           ▲
+        Cloud Scheduler ──► Pub/Sub ──────┘  (discovery-tick, deadline-tick)
+
+   Cloud Run: mock-portal (separate service) ──webhook──► /webhooks/portal_event
+```
+
+## Repository layout
+
+Build exactly this tree at repo root:
+
+```
+co-founder/
+├── agents/
+│   └── co_founder/
+│       ├── __init__.py            # exposes root_agent (and app) for adk web / CLI
+│       ├── agent.py               # App wiring: root agent + sub_agents + compaction
+│       ├── instructions.py        # all instruction templates (state-injected)
+│       ├── state_schema.py        # state constants + checklist keys
+│       ├── callbacks.py           # before_agent_callback: initialize state
+│       ├── workflow.py            # WorkflowDefinition loader (YAML → dataclass)
+│       ├── sub_agents/
+│       │   ├── __init__.py
+│       │   ├── scout.py
+│       │   ├── matchmaker.py
+│       │   ├── interviewer.py
+│       │   ├── drafter.py
+│       │   ├── form_filler.py
+│       │   └── distiller.py
+│       └── tools/
+│           ├── __init__.py
+│           ├── discovery.py       # fetch_source, save_opportunity, dedupe_check
+│           ├── pipeline.py        # shortlist, archive, advance, get_pipeline
+│           ├── profile.py         # get_profile, record_answer, apply_profile_update
+│           ├── drafting.py        # save_draft_section, get_section_feedback
+│           ├── feedback.py        # record_feedback (+ triggers distill)
+│           ├── browser.py         # Playwright wrapper: open/inspect/fill/verify/submit
+│           └── followup.py        # schedule_followup, record_status
+├── app/
+│   ├── main.py                    # FastAPI: ADK app + custom routes, single Runner
+│   ├── resume_handler.py          # hydrate session + run_async(state_delta=...)
+│   ├── deps.py                    # shared singletons (firestore, secrets, runner)
+│   └── static/
+│       └── index.html             # demo UI (no framework)
+├── services/
+│   ├── firestore.py               # client + collection accessors
+│   ├── memory.py                  # FirestoreMemoryService(BaseMemoryService)
+│   ├── secrets.py                 # Secret Manager fetch (cached)
+│   └── storage.py                 # GCS artifact helpers
+├── mock_portal/
+│   ├── main.py                    # standalone FastAPI mock application portal
+│   └── templates/form.html
+├── workflows/
+│   └── grant_applications.yaml    # workflow instance #1 (declarative definition)
+├── scripts/
+│   ├── setup.sh                   # idempotent env setup
+│   ├── deploy.sh                  # cloud deploy
+│   └── seed_demo.py               # seed profile (under user / eval_founder / demo
+│                                  # founder_id — see 02), demo opportunities, seeded rejection
+├── tests/
+│   ├── eval/
+│   │   ├── evalsets/*.json
+│   │   └── eval_config.json
+│   └── integration/
+│       └── test_adaptation_loop.py
+├── docs/                          # these specifications
+├── .env.example
+├── requirements.txt
+├── Dockerfile
+└── README.md                      # spin-up instructions (submission requirement)
+```
+
+## Tech pins
+
+| Choice | Value | Notes |
+|---|---|---|
+| Language | Python ≥ 3.11 | enforced in setup.sh |
+| Agent framework | `google-adk` ≥ 2.6 | needs `App`, `EventsCompactionConfig`, `DatabaseSessionService` — we resume via `state_delta`, NOT `ResumabilityConfig` (deliberate, see 03) |
+| Model | env `ADK_MODEL`, default `gemini-3.5-flash` | rules require Gemini 3.5+; one env var, per-agent override allowed |
+| Model access | Vertex AI with Application Default Credentials | never API keys |
+| Server | FastAPI + uvicorn via `google.adk.cli.fast_api.get_fast_api_app` | custom routes added on top |
+| Sessions (local) | SQLite: `sqlite+aiosqlite:///sessions.db` | |
+| Sessions (prod) | Cloud SQL Postgres via `DatabaseSessionService` | same API, swap URI |
+| Pipeline store | Firestore (native mode) | see 02 |
+| Memory service | custom `FirestoreMemoryService` | see 06 |
+| Artifacts | local `file://` dev, `gs://` bucket prod | ADK artifact service URI |
+| Browser automation | Playwright (Chromium, headless via env) | see 09 |
+| Deploy | Cloud Run ×2 (agent, mock-portal), scale-to-zero | see 13 |
+
+## Environment variables (`.env.example` must list all)
+
+| Var | Example | Purpose |
+|---|---|---|
+| `GOOGLE_GENAI_USE_VERTEXAI` | `True` | force Vertex, no API keys |
+| `GOOGLE_CLOUD_PROJECT` | `my-project` | |
+| `GOOGLE_CLOUD_REGION` | `us-central1` | |
+| `GOOGLE_CLOUD_LOCATION` | `global` | Vertex location |
+| `ADK_MODEL` | `gemini-3.5-flash` | default model for all agents |
+| `SESSION_SERVICE_URI` | `sqlite+aiosqlite:///sessions.db` | prod: Cloud SQL asyncpg URI |
+| `ARTIFACT_SERVICE_URI` | `file://./artifacts` | prod: `gs://<bucket>` |
+| `FIRESTORE_DATABASE` | `(default)` | pipeline store |
+| `WORKFLOW_FILE` | `workflows/grant_applications.yaml` | active workflow definition |
+| `PORTAL_SECRET_NAME` | `mock-portal-creds` | Secret Manager secret id |
+| `AGENT_BASE_URL` | `http://127.0.0.1:8090` | used by mock portal to call webhooks |
+| `MOCK_PORTAL_URL` | `http://127.0.0.1:8091` | form-filler target |
+| `HEADLESS` | `true` | Playwright headless; `false` to watch the browser while developing |
+| `APPROVAL_TTL_MINUTES` | `30` | approval token lifetime |
+
+## Workflow engine (build the loader, one instance)
+
+Core code is domain-generic. Domain specifics live in `workflows/grant_applications.yaml`.
+
+**Naming rule (enforce):** core modules use `Opportunity`, `Application`, `PipelineStore`,
+`DraftSection`, `ChecklistItem`, `ApprovalGate`. The strings "grant", "accelerator"
+appear only in the YAML, seed data, and UI copy.
+
+```yaml
+# workflows/grant_applications.yaml
+workflow_id: grant_applications
+display_name: "Funding & Program Applications"
+entity_schema:                      # what the Scout extracts
+  name: str
+  source_url: str
+  award: str
+  deadline: date|null
+  eligibility: list[str]
+  application_url: str
+  required_materials: list[str]
+  description: str
+states: [DISCOVERED, SHORTLISTED, ARCHIVED]
+application_states: [INTERVIEWING, DRAFTING, AWAITING_REVIEW, APPROVED,
+                     FORM_FILLING, AWAITING_SUBMIT_APPROVAL, SUBMITTED,
+                     FOLLOW_UP, CLOSED]
+sources:                            # discovery lanes (see 08)
+  - type: search                    # Lane 1: profile-driven Google Search grounding
+    queries_from_profile: true
+    max_results_per_query: 10
+  - type: web_page                  # Lane 2: REAL program listings (finalize + verify Day 1)
+    url: "https://startup.google.com/programs/"
+  - type: web_page
+    url: "https://www.tonyelumelufoundation.org/entrepreneurship-programme"
+  - type: pdf                       # one REAL guidelines PDF — pick and verify Day 1
+    url: "TBD-Day-1"
+# tests/fixtures/ holds snapshots of every configured source: CI and evals
+# replay fixtures (deterministic); only the live demo fetches real URLs.
+fit_criteria:                       # matchmaker inputs
+  fields: [stage, sector, geography, award_size]
+approval_policy:
+  submit_requires: founder_approval_token
+  token_ttl_minutes: 30
+```
+
+`workflow.py` exposes `load_workflow(path) -> WorkflowDefinition` (frozen dataclass).
+Agents receive workflow values via state/instruction injection; they never read YAML
+directly. Acceptance: swapping the YAML for a second workflow file requires zero code
+changes to load it (only instance #1 is built, but the loader must be real).
+
+## Conventions (binding)
+
+- **Errors as data:** every tool returns `dict`; on failure `{"error": true, "message": ...}`.
+  Never let an exception cross the tool boundary into the model.
+- **State access:** tools read/write session state only via `tool_context.state`.
+  Prefix discipline per ADK: `temp:` (invocation only), plain (session),
+  `user:` (cross-session per user), `app:` (cross-user).
+- **Timestamps:** ISO-8601 UTC strings everywhere.
+- **IDs:** `uuid4().hex` for entities; idempotency keys are separate (see 05).
+- **Logging:** one structured JSON line per tool call: tool name, args hash, result
+  status, latency_ms. No PII, no secrets (see 12).
+- **One Runner per surface:** built once at startup, reused across requests (07). Never per-request.
+- **Agents-dir hygiene:** every folder under `agents/` must be a valid agent
+  package or `adk web` fails to load the entire list (reference-lab warning).
+  Never move `services/`, `app/`, `mock_portal/`, or stray `memory/` /
+  `artifacts/` folders under `agents/`.
+
+## Data flows (narratives — implement these end-to-end)
+
+**Discovery sweep (background):** Cloud Scheduler → Pub/Sub `discovery-tick` →
+`POST /tasks/discover` → scout fetches each configured source → extracts `Opportunity`
+records → dedupe → Firestore `opportunities` (state DISCOVERED) → matchmaker scores →
+SHORTLISTED or ARCHIVED(with reason) → founder sees board next visit.
+
+**Application flow (interactive):** founder picks a SHORTLISTED opportunity in UI →
+session `current_step=INTERVIEWING` → interviewer asks gap questions →
+`DRAFTING` → drafter produces sections → `AWAITING_REVIEW` → founder approves/edits/
+rejects per section (feedback → distiller → profile update) → all approved →
+`APPROVED` → founder clicks "Fill form" → `FORM_FILLING` → form-filler pre-fills
+portal → fill report → `AWAITING_SUBMIT_APPROVAL` → founder approves in UI →
+single-use token → `SUBMITTED` → confirmation → `FOLLOW_UP`.
+
+**Wake-up flow (dormancy):** external event (portal webhook, deadline tick, founder
+reply) → webhook route → `resume_handler` hydrates persisted session →
+`runner.run_async(..., state_delta={...})` → state transition applied before next
+inference → agent continues with full context. No chat-history replay.
+
+## Acceptance checks
+
+- [ ] Repo tree matches this document.
+- [ ] `python -c "from agents.co_founder.agent import app"` succeeds.
+- [ ] `adk web agents --port 8000` shows `co_founder` with 5 sub-agents in the graph view (scout, matchmaker, interviewer, drafter, form_filler; the distiller runs standalone via `/tasks/distill` — see 04/07).
+- [ ] `load_workflow("workflows/grant_applications.yaml")` returns a populated dataclass; malformed YAML fails loudly with the offending key.
+- [ ] `.env.example` contains every var in the table.

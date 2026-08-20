@@ -1,0 +1,34 @@
+{
+  "eval_set_id": "doc_outputs",
+  "name": "Document production tool contract",
+  "description": "In APPROVED state, asking for a document must produce it and offer the download link. (Trajectory is outcome-based: produce_document args are generative, so exact-arg trajectory matching is meaningless.)",
+  "eval_cases": [
+    {
+      "eval_id": "produce_pack_docx",
+      "conversation": [
+        {
+          "invocation_id": "inv_1",
+          "user_content": {
+            "parts": [{"text": "Please produce the application pack as a Word document."}]
+          },
+          "final_response": {
+            "role": "model",
+            "parts": [{"text": "Your application pack is ready — here is the download link."}]
+          },
+          "intermediate_data": {"tool_uses": []}
+        }
+      ],
+      "session_input": {
+        "app_name": "co_founder",
+        "user_id": "eval_founder",
+        "state": {
+          "current_step": "APPROVED",
+          "active_application_id": "app1",
+          "checklist_status": {"interview": "done", "draft_sections": "done", "review": "done"},
+          "pending_signals": [],
+          "today": "2026-08-19"
+        }
+      }
+    }
+  ]
+}

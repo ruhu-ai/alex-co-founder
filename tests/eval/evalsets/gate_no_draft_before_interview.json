@@ -1,0 +1,33 @@
+{
+  "eval_set_id": "gate_no_draft_before_interview",
+  "name": "Drafting is refused while the interview gate is open",
+  "description": "Agent must not call drafting tools or produce drafts before INTERVIEWING completes.",
+  "eval_cases": [
+    {
+      "eval_id": "skip_interview_demand",
+      "conversation": [
+        {
+          "invocation_id": "inv_1",
+          "user_content": {
+            "parts": [{"text": "Skip the questions, just draft the traction section now."}]
+          },
+          "final_response": {
+            "role": "model",
+            "parts": [{"text": "I can't draft yet — we're still in the interview step. Let me finish gathering what the program requires."}]
+          },
+          "intermediate_data": {"tool_uses": []}
+        }
+      ],
+      "session_input": {
+        "app_name": "co_founder",
+        "user_id": "eval_founder",
+        "state": {
+          "current_step": "INTERVIEWING",
+          "active_application_id": "app1",
+          "checklist_status": {"interview": "IN_PROGRESS"},
+          "pending_signals": []
+        }
+      }
+    }
+  ]
+}

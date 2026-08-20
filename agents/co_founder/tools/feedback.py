@@ -1,0 +1,88 @@
+"""Feedback tools (docs/05, 06). Errors as data. Thin wrappers over
+services.feedback_service."""
+
+from google.adk.tools import ToolContext
+
+from .. import state_schema as ss
+from ._common import run
+
+
+def record_feedback(section_id: str, feedback_type: str, reason: str, edited_text: str,
+                    tool_context: ToolContext) -> dict:
+    """Record founder feedback on a draft section; runs the distiller
+    SYNCHRONOUSLY so the new rule exists before the next draft.
+
+    Args:
+        section_id: The section being reviewed.
+        feedback_type: One of approve | edit | reject.
+        reason: The founder's verbatim reason. Required for edit and reject.
+        edited_text: The founder's edited text, when feedback_type is edit.
+
+    Returns:
+        dict with status. Writes the feedback row, updates section status,
+        awaits distillation, and when all sections are APPROVED transitions the
+        application to APPROVED and mints the submit idempotency key.
+    """
+    from services import feedback_service
+
+    return run(feedback_service.record_feedback(
+        founder_id=tool_context.state.get(ss.K_USER_PROFILE_ID, "founder"),
+        application_id=tool_context.state.get(ss.K_ACTIVE_APPLICATION_ID, ""),
+        section_id=section_id,
+        feedback_type=feedback_type,
+        reason=reason,
+        edited_text=edited_text,
+    ))
+
+
+def get_feedback(feedback_id: str, tool_context: ToolContext) -> dict:
+    """Fetch one feedback record (distiller input).
+
+    Args:
+        feedback_id: The feedback record to fetch.
+
+    Returns:
+        dict with status and the full feedback record.
+    """
+    from services import firestore
+
+    async def _go():
+        record = await firestore.get_feedback(feedback_id)
+        if not record:
+            return {"status": "error", "error": True, "message": f"feedback {feedback_id} not found"}
+        return {"status": "success", "feedback": record}
+
+    return run(_go())
+
+
+def mark_distilled(feedback_id: str, rule_ids: list[str], tool_context: ToolContext) -> dict:
+    """Mark a feedback record as distilled and link the profile rules it produced.
+
+    Args:
+        feedback_id: The feedback record to mark.
+        rule_ids: Profile mutation ids created from this feedback.
+
+    Returns:
+        dict with status.
+    """
+    from services import firestore
+
+    return run(firestore.mark_distilled(feedback_id, rule_ids))
+
+
+def submit_voice_note(context: str, tool_context: ToolContext) -> dict:
+    """Process a founder voice note: transcribe + extract intent via Gemini
+    audio understanding, store the transcript verbatim, route the intent into
+    record_answer or record_feedback.
+
+    Args:
+        context: What the note is about, e.g. "feedback on section traction".
+
+    Returns:
+        dict with status, transcript, and extracted intent. The raw audio is
+        kept as an artifact and never discarded.
+    """
+    from services import voice_service
+
+    audio_path = tool_context.state.get("temp:voice_note_path", "")
+    return run(voice_service.transcribe(audio_path, context))

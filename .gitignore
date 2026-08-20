@@ -1,0 +1,21 @@
+# secrets — never commit
+.env
+.env.prod
+*.pem
+*.key
+
+# runtime state
+sessions.db
+artifacts/
+.extracted/
+.pytest_cache/
+.venv/
+__pycache__/
+*.pyc
+
+# ADK local caches
+.adk/
+
+# OS / editor junk
+.DS_Store
+~$*
