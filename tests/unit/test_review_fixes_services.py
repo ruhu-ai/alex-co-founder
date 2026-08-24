@@ -56,6 +56,11 @@ class _SubmitPage:
     async def set_extra_http_headers(self, headers): self.headers = headers
 
     async def query_selector(self, selector):
+        # A receipt page has a confirmation element and NO submit control; a form
+        # page has a submit control and no receipt. submit() relies on that
+        # invariant to know it has actually left the form.
+        if "submit" in selector.lower():
+            return None if self.receipt else _El("submit-btn")
         return _El(self.receipt) if self.receipt else None
 
     async def inner_text(self, selector="body"): return self.body
@@ -274,3 +279,26 @@ class TestLinkExtraction:
     def test_falls_back_to_code(self):
         link, code = alex_mailbox._extract_link_or_code("Your code is 483920.")
         assert link == "" and code == "483920"
+
+
+# --- (code-review #2) log scrubber redacts secrets in tracebacks ------------
+class TestLogScrubberTraceback:
+    async def test_secret_in_exception_traceback_is_redacted(self):
+        import logging
+        import sys
+
+        from services import log_scrub
+
+        secret = "sup3r-s3cret-refresh-token"
+        log_scrub.register_secret(secret)
+        try:
+            raise RuntimeError(f"login blew up with {secret}")
+        except RuntimeError:
+            record = logging.getLogger("test.scrub").makeRecord(
+                "test.scrub", logging.ERROR, __file__, 1, "portal login failed",
+                (), sys.exc_info())
+        log_scrub.SecretScrubber().filter(record)
+        rendered = logging.Formatter().format(record)
+        assert secret not in rendered  # the message line was clean; the traceback
+        assert "***" in rendered       # carried the secret and is now masked
+        log_scrub._secrets.discard(secret)

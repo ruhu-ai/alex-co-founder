@@ -76,7 +76,7 @@ class TestWaitForEmail:
         class _Client:
             async def __aenter__(self): return self
             async def __aexit__(self, *a): pass
-            async def get(self, url): return _Resp()
+            async def get(self, url, headers=None): return _Resp()
 
         monkeypatch.setattr(httpx, "AsyncClient", lambda timeout: _Client())
         result = await alex_mailbox.wait_for_email(
@@ -95,7 +95,7 @@ class TestWaitForEmail:
         class _Client:
             async def __aenter__(self): return self
             async def __aexit__(self, *a): pass
-            async def get(self, url): return _Resp()
+            async def get(self, url, headers=None): return _Resp()
 
         monkeypatch.setattr(httpx, "AsyncClient", lambda timeout: _Client())
         result = await alex_mailbox.wait_for_email(

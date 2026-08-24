@@ -159,10 +159,18 @@ async def wait_for_email(*, from_contains: str = "", subject_contains: str = "",
         body, sender, subject = "", "", ""
         if mailbox_url:
             try:
+                import os as _os
+
                 import httpx as _httpx
 
+                # The mock portal's /_mailbox is token-gated in production
+                # (K_SERVICE); send the shared portal token so the poll is
+                # authorized. In local dev the token is empty and the seam is
+                # open, so the header is simply absent.
+                token = _os.environ.get("PORTAL_WEBHOOK_TOKEN", "")
+                headers = {"X-Portal-Token": token} if token else {}
                 async with _httpx.AsyncClient(timeout=10) as client:
-                    resp = await client.get(mailbox_url)
+                    resp = await client.get(mailbox_url, headers=headers)
                 messages = resp.json().get("messages", [])
             except Exception as exc:
                 return {"status": "error", "error": True,

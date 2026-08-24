@@ -6,7 +6,7 @@ import re
 from google.adk.tools import ToolContext
 
 from .. import state_schema as ss
-from ._common import run
+from ._common import add_pending_signal, run
 
 # Application steps in which a committed application is mid-flight: starting a
 # second application would clobber active_application_id/current_step/checklist
@@ -246,5 +246,5 @@ def request_approval(gate: str, tool_context: ToolContext) -> dict:
     result = run(approval_service.request_approval(
         app_id, gate, founder_id=founder_id, session_id=session_id))
     if result.get("status") == "success":
-        tool_context.state[ss.K_PENDING_SIGNALS] = ["founder_approval"]
+        add_pending_signal(tool_context, "founder_approval")
     return result

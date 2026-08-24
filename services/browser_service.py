@@ -700,28 +700,52 @@ async def submit(page, idempotency_key: str,
         })
     await page.set_extra_http_headers(headers)
     lock = _submit_locks.setdefault(idempotency_key, asyncio.Lock())
-    async with lock:
-        # Already on a receipt (a prior click for this key landed, or a
-        # concurrent caller just submitted): return that confirmation instead of
-        # clicking again. The derived key means this is the SAME submission.
-        prior = await _scoped_confirmation(page)
-        if prior:
-            return {"status": "success", "confirmation_id": prior[:120]}
-        try:
-            await page.click("button[type='submit'], input[type='submit']")
-        except Exception as exc:
-            # The click never fired — nothing was submitted; safe to retry.
-            return {"status": "error", "error": True,
-                    "message": f"submit click failed: {exc}"}
-        # The click fired: the POST may be in flight. A networkidle timeout here
-        # does NOT mean the submission failed — reconcile from the page's own
-        # confirmation signal rather than re-clicking (a blind re-click, and the
-        # old greedy regex, are what caused false success / double-submit).
-        try:
-            await page.wait_for_load_state("networkidle", timeout=15000)
-        except Exception:
-            pass
-        return await _read_submit_confirmation(page)
+    try:
+        async with lock:
+            # Already on a receipt (a prior click for this key landed, or a
+            # concurrent caller just submitted): return that confirmation instead
+            # of clicking again. The derived key means this is the SAME
+            # submission. Guard against a form page that merely carries a
+            # confirmation-shaped element: only trust the short-circuit once the
+            # submit control is gone (i.e. we have actually left the form).
+            submit_selector = "button[type='submit'], input[type='submit']"
+            prior = await _scoped_confirmation(page)
+            if prior and await page.query_selector(submit_selector) is None:
+                return {"status": "success", "confirmation_id": prior[:120]}
+            try:
+                await page.click(submit_selector)
+            except Exception as exc:
+                # The click never fired — nothing was submitted; safe to retry.
+                return {"status": "error", "error": True,
+                        "message": f"submit click failed: {exc}"}
+            # The click fired: the POST may be in flight. A networkidle timeout
+            # here does NOT mean the submission failed — reconcile from the
+            # page's own confirmation signal rather than re-clicking (a blind
+            # re-click, and the old greedy regex, are what caused false success
+            # / double-submit).
+            try:
+                await page.wait_for_load_state("networkidle", timeout=15000)
+            except Exception:
+                pass
+            # Give a slow receipt time to render before concluding failure, so a
+            # successful-but-slow POST is reconciled here rather than reported as
+            # a failure the caller has to retry.
+            try:
+                await page.wait_for_selector(
+                    ".receipt .id, [data-confirmation-id], .confirmation-id",
+                    timeout=10000)
+            except Exception:
+                pass
+            return await _read_submit_confirmation(page)
+    finally:
+        # Drop our lock entry once nothing else holds or awaits it, so the map
+        # can't grow without bound. Only our own instance, and only when free —
+        # a concurrent holder/waiter keeps its reference and a fresh setdefault
+        # would otherwise hand a new caller a different lock (reopening the race).
+        if (_submit_locks.get(idempotency_key) is lock
+                and not lock.locked()
+                and not getattr(lock, "_waiters", None)):
+            _submit_locks.pop(idempotency_key, None)
 
 
 async def _validate_portal_target(url: str) -> dict | None:

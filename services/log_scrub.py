@@ -19,21 +19,41 @@ _secrets: set[str] = set()
 _installed = False
 
 
+def _scrub(text: str) -> str:
+    for value in _secrets:
+        if value and value in text:
+            text = text.replace(value, "***")
+    return text
+
+
 class SecretScrubber(logging.Filter):
-    """Redact any registered secret substring in the formatted message."""
+    """Redact any registered secret value from a record — the formatted message
+    AND the exception traceback / stack text.
+
+    Scrubbing only ``getMessage()`` leaves the biggest leak vector open: a
+    secret passed as an exception argument (``raise RuntimeError(token)``) or
+    captured in a frame is rendered into the traceback by the formatter, not the
+    message. Pre-formatting and scrubbing ``exc_text`` here, before any handler
+    formats the record, closes that path.
+    """
 
     def filter(self, record: logging.LogRecord) -> bool:
         if not _secrets:
             return True
         try:
             message = record.getMessage()
-            redacted = message
-            for value in _secrets:
-                if value and value in redacted:
-                    redacted = redacted.replace(value, "***")
+            redacted = _scrub(message)
             if redacted != message:
                 record.msg = redacted
                 record.args = ()
+            if record.exc_info and not record.exc_text:
+                # Materialize the traceback now so we scrub it once; every
+                # handler's formatter then reuses this cached, redacted text.
+                record.exc_text = logging.Formatter().formatException(record.exc_info)
+            if record.exc_text:
+                record.exc_text = _scrub(record.exc_text)
+            if record.stack_info:
+                record.stack_info = _scrub(record.stack_info)
         except Exception:
             pass  # a scrubber bug must never suppress or crash logging
         return True

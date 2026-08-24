@@ -14,7 +14,7 @@ from urllib.parse import urlparse
 from google.adk.tools import ToolContext
 
 from .. import state_schema as ss
-from ._common import failed, run
+from ._common import add_pending_signal, failed, run
 
 _pages: dict[str, dict] = {}  # application_id -> {"context":..., "page":..., "signature":...}
 
@@ -94,16 +94,6 @@ def _creds() -> tuple[str, str]:
                 os.environ.get("MOCK_PORTAL_PASSWORD", "demo-pass-2026"))
 
 
-def _add_pending_signal(tool_context: ToolContext, signal: str) -> None:
-    """Append a pending signal without clobbering the others already waiting
-    (e.g. a founder_approval the founder still owes). The removal path already
-    filters; the set path must be additive to match it."""
-    signals = list(tool_context.state.get(ss.K_PENDING_SIGNALS, []))
-    if signal not in signals:
-        signals.append(signal)
-    tool_context.state[ss.K_PENDING_SIGNALS] = signals
-
-
 def register_account(portal_url: str, email: str, tool_context: ToolContext) -> dict:
     """Create an account on a program portal as Alex (docs/17).
 
@@ -132,7 +122,7 @@ def register_account(portal_url: str, email: str, tool_context: ToolContext) -> 
             from_contains=host.split(":")[0], timeout_s=0, poll_s=0,
             mailbox_url=_mock_mailbox_url(portal_url, email)))
         if mail.get("status") != "success":
-            _add_pending_signal(tool_context, "portal_verification")
+            add_pending_signal(tool_context, "portal_verification")
             return {"status": "waiting", "verified": False,
                     "pending_signal": "portal_verification",
                     "message": "Still waiting for the portal verification email event."}
@@ -219,7 +209,7 @@ def register_account(portal_url: str, email: str, tool_context: ToolContext) -> 
             run(firestore.save_pending_portal_registration(
                 host, identity["user_id"], identity["session_id"],
                 portal_url, email))
-            _add_pending_signal(tool_context, "portal_verification")
+            add_pending_signal(tool_context, "portal_verification")
             run(firestore.audit(
                 "agent:form_filler", "register_account", target, "waiting",
                 f"account created for {email}; waiting for verification event"))

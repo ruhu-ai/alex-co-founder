@@ -32,3 +32,19 @@ def failed(result) -> bool:
     error dict is truthy, so `if not run(...)` silently treats a failed call
     as success."""
     return isinstance(result, dict) and result.get("error") is True
+
+
+def add_pending_signal(tool_context, signal: str) -> None:
+    """Append a pending signal without clobbering others already waiting.
+
+    The pending-signals list is a set of wake conditions the resume path is
+    watching (e.g. a founder_approval and a portal_verification can be pending
+    at once). Overwriting it wholesale drops signals; every writer must be
+    additive to match the removal paths, which already filter in place.
+    """
+    from .. import state_schema as ss
+
+    signals = list(tool_context.state.get(ss.K_PENDING_SIGNALS, []))
+    if signal not in signals:
+        signals.append(signal)
+    tool_context.state[ss.K_PENDING_SIGNALS] = signals

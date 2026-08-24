@@ -258,9 +258,9 @@ async def test_save_draft_section_refused_outside_drafting(step):
 
 async def test_add_pending_signal_is_additive_and_idempotent():
     ctx = _context({ss.K_PENDING_SIGNALS: ["founder_approval"]})
-    browser._add_pending_signal(ctx, "portal_verification")
+    browser.add_pending_signal(ctx, "portal_verification")
     assert ctx.state[ss.K_PENDING_SIGNALS] == ["founder_approval", "portal_verification"]
-    browser._add_pending_signal(ctx, "portal_verification")  # no duplicate
+    browser.add_pending_signal(ctx, "portal_verification")  # no duplicate
     assert ctx.state[ss.K_PENDING_SIGNALS] == ["founder_approval", "portal_verification"]
 
 
@@ -313,3 +313,29 @@ async def test_inspect_form_persists_signature_under_nontemp_key(
     assert ctx.state[ss.K_PORTAL_SIGNATURE] == "sig-new"
     assert "temp:portal_signature" not in ctx.state
     browser._pages.pop(app_id, None)
+
+
+# --- (code-review #1) submit_voice_note takes a sanitized artifact name ------
+async def test_submit_voice_note_sanitizes_and_requires_name(monkeypatch):
+    from agents.co_founder.tools import feedback
+    from services import storage
+
+    seen = {}
+
+    async def fake_transcribe(path, context):
+        seen["path"] = path
+        return {"status": "success", "transcript": "ok"}
+
+    monkeypatch.setattr("services.voice_service.transcribe", fake_transcribe)
+    ctx = SimpleNamespace(state={})
+
+    # empty or all-dots names are refused before any transcription runs
+    assert feedback.submit_voice_note("", "ctx", ctx)["error"] is True
+    assert feedback.submit_voice_note("..", "ctx", ctx)["error"] is True
+    assert "path" not in seen
+
+    # a path-y name never reaches the filesystem as a path — basename only, so
+    # it can never escape the artifact root
+    feedback.submit_voice_note("../../etc/voicenote_x.webm", "ctx", ctx)
+    assert seen["path"] == storage.artifact_path("voicenote_x.webm")
+    assert "/etc/" not in seen["path"]
