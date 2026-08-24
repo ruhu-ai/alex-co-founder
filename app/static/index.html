@@ -1521,6 +1521,10 @@ matchMedia("(prefers-color-scheme: light)").addEventListener("change", () => {
 let sessionId = null, activeApp = null, pendingApproval = null, thinking = false;
 let chatCount = 0;
 let browserSnapshot = null;
+// Persisted so a tab reload reuses the same session — approvals are strictly
+// session-scoped, so minting a new session on every load would orphan a
+// pending submit approval permanently (finding: newSession-on-every-load).
+const SESSION_KEY = "cofounder-session";
 
 // ---------- helpers ----------
 const $ = id => document.getElementById(id);
@@ -1533,10 +1537,20 @@ applyTheme(localStorage.getItem(THEME_KEY));
 addEventListener("DOMContentLoaded", buildRefTabs);
 async function api(path, opts = {}) {
   const r = await fetch(path, { headers: { "Content-Type": "application/json" }, ...opts });
+  if (!r.ok) {
+    // Surface failures instead of toasting success on a 401/500 body.
+    let detail = "";
+    try { detail = (await r.json()).error || ""; } catch (_) { /* non-JSON */ }
+    throw new Error(detail || `${r.status} ${r.statusText}`);
+  }
   return r.json();
 }
 function esc(s) {
-  return String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  // Quotes included: this escaper feeds ATTRIBUTE values (aria-label, title),
+  // where an unescaped " breaks out of the attribute — and titles are
+  // model-authored, i.e. downstream of untrusted web content.
+  return String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 }
 const TOAST_ICON = { ok: "check", attn: "flag", danger: "alert", neutral: "sparkle" };
 function toast(text, tone = "neutral") {
@@ -1548,6 +1562,12 @@ function toast(text, tone = "neutral") {
   clearTimeout(t._h);
   t._h = setTimeout(() => t.style.opacity = 0, tone === "danger" ? 5000 : 2800);
 }
+// api() throws on !r.ok — handlers without their own catch surface here as a
+// toast instead of silently "succeeding" against a 401/500 body.
+addEventListener("unhandledrejection", (ev) => {
+  toast(`Request failed: ${ev.reason && ev.reason.message || ev.reason}`, "danger");
+  ev.preventDefault();
+});
 function timeAgo(iso) {
   if (!iso) return "";
   const s = Math.max(0, (Date.now() - new Date(iso)) / 1000);
@@ -1584,7 +1604,10 @@ function md(src) {
   t = t.replace(/`([^`\n]+)`/g, "<code>$1</code>");
   t = t.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
   t = t.replace(/(^|\s)\*([^*\n]+)\*/g, "$1<em>$2</em>");
-  t = t.replace(/\[([^\]]+)\]\((https?:[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+  t = t.replace(/\[([^\]]+)\]\((https?:[^)\s]+)\)/g, (_all, label, url) => {
+    const decoded = url.replaceAll("&amp;", "&").replaceAll("&lt;", "<").replaceAll("&gt;", ">");
+    return `<a href="#" data-browser-url="${encodeURIComponent(decoded)}">${label}</a>`;
+  });
   const lines = t.split("\n"); let html = "", list = null;
   const closeList = () => { if (list) { html += `</${list}>`; list = null; } };
   for (let line of lines) {
@@ -1612,10 +1635,50 @@ function addMsg(who, text) {
   if (ph) ph.remove();
   const d = document.createElement("div");
   d.className = "msg " + who;
-  if (who === "agent") d.innerHTML = agentHead() + md(text); else d.textContent = text;
+  if (who === "agent") {
+    d.innerHTML = agentHead() + md(text);
+    const b = document.createElement("button");
+    b.className = "speak-btn";
+    b.title = "Read aloud"; b.setAttribute("aria-label", "Read aloud");
+    b.innerHTML = ico("waveform", "ico-sm");
+    b.onclick = () => speakText(text, b);
+    d.appendChild(b);
+  } else {
+    d.textContent = text;
+  }
   const log = $("chatlog");
   log.appendChild(d); log.scrollTop = log.scrollHeight;
 }
+// Cloud TTS read-aloud (docs/19 §P1.8) — one message at a time; clicking the
+// speaking message again stops it.
+let speakAudio = null;
+async function speakText(text, btn) {
+  if (speakAudio) { speakAudio.pause(); speakAudio = null; return; }
+  btn.disabled = true;
+  try {
+    const r = await fetch("/api/tts", { method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text }) });
+    if (!r.ok) { toast("Read-aloud unavailable right now.", "danger"); return; }
+    const url = URL.createObjectURL(await r.blob());
+    speakAudio = new Audio(url);
+    speakAudio.onended = () => { URL.revokeObjectURL(url); speakAudio = null; };
+    await speakAudio.play();
+  } catch (e) {
+    toast("Read-aloud failed: " + (e.message || e), "danger");
+  } finally {
+    btn.disabled = false;
+  }
+}
+document.addEventListener("click", (event) => {
+  const link = event.target.closest("a[data-browser-url]");
+  if (!link) return;
+  event.preventDefault();
+  let url;
+  try { url = decodeURIComponent(link.dataset.browserUrl || ""); }
+  catch { toast("That link is not a valid URL.", "danger"); return; }
+  browseTo(url);
+});
 function setThinking(on) {
   thinking = on;
   const old = document.querySelector(".typing"); if (old) old.remove();
@@ -1632,9 +1695,28 @@ function chatPlaceholder() {
 async function newSession() {
   const r = await api("/session/new", { method: "POST", body: "{}" });
   sessionId = r.session_id;
+  localStorage.setItem(SESSION_KEY, sessionId);
   $("sessionTag").textContent = "session " + sessionId;
   chatCount = 0;
   chatPlaceholder();
+}
+// Reuse a stored session across reloads; only mint a fresh one when there is
+// none or it no longer exists server-side (e.g. the session store was reset).
+// The "New session" button and the chat/voice autocreate still call
+// newSession() directly for a deliberate fresh start.
+async function restoreSession() {
+  const saved = localStorage.getItem(SESSION_KEY);
+  if (saved) {
+    try {
+      const h = await api("/api/chat/" + saved);   // 404 => stale, mint fresh
+      sessionId = saved;
+      $("sessionTag").textContent = "session " + sessionId;
+      chatCount = 0;
+      if (!(h.messages || []).length) chatPlaceholder();
+      return;
+    } catch { /* stored session gone — fall through to a fresh one */ }
+  }
+  await newSession();
 }
 // Agent-initiated messages (sweep reports, deadline nudges) land in the
 // session without the founder sending anything — sync from history.
@@ -1679,8 +1761,14 @@ async function send() {
 async function runSweep() {
   const b = $("sweepBtn");
   b.disabled = true; b.querySelector("span").textContent = "Sweeping…";
-  await api("/tasks/discover", { method: "POST", body: "{}" });
-  toast("Sweep running. Alex works in the background — new finds appear here as they're scored.", "ok");
+  try {
+    await api("/tasks/discover", { method: "POST", body: "{}" });
+    toast("Sweep running. Alex works in the background — new finds appear here as they're scored.", "ok");
+  } catch (e) {
+    toast(`Sweep didn't start: ${e.message}`, "danger");
+    b.disabled = false; b.querySelector("span").textContent = "Run discovery sweep";
+    return;
+  }
   setTimeout(() => { b.disabled = false; b.querySelector("span").textContent = "Run discovery sweep"; }, 15000);
 }
 let offlineSince = 0, booted = false;
@@ -1749,8 +1837,8 @@ async function refresh() {
   const apps = board.applications || [];
   $("apps").innerHTML = apps.map(a =>
     `<article class="card appcard ${activeApp && activeApp.id === a.id ? "active" : ""}"
-       tabindex="0" role="button" aria-label="Review ${esc(a.opportunity_name || a.id)}"
-       onclick="loadApp('${a.id}')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();loadApp('${a.id}')}">
+       tabindex="0" role="button" data-app-id="${esc(a.id)}"
+       aria-label="Review ${esc(a.opportunity_name || a.id)}">
        <div class="name">${esc(a.opportunity_name || a.id.slice(0, 8))}</div>
        <div class="meta"><span class="badge" data-tone="info">${stateLabel(a.state)}</span>${deadlineChip(a)}</div>
      </article>`).join("")
@@ -1876,12 +1964,13 @@ function renderBrowserPanel() {
 
 // Typing a URL asks Alex to open it — through chat, so the request stays on
 // the agent's policy + audit path; this surface never navigates directly.
-function browseTo(raw) {
+async function browseTo(raw) {
   let url = (raw || "").trim();
   if (!url) return;
   if (!/^https?:\/\//i.test(url)) url = `https://${url}`;
+  if (window.innerWidth < 960) showPane("browser"); else showSurface("browser");
   $("msg").value = `Open ${url} and tell me what it says.`;
-  send();
+  await send();
 }
 
 async function stopBrowsing() {
@@ -1983,7 +2072,7 @@ const STATE_COPY = {
 };
 const stateLabel = st => esc(STATE_COPY[st] || String(st || "").replaceAll("_", " "));
 async function loadApp(id, silent) {
-  try { activeApp = await api("/api/applications/" + id); }
+  try { activeApp = await api(`/api/applications/${id}?session_id=${encodeURIComponent(sessionId)}`); }
   catch { return; }
   if (!activeApp || activeApp.error) return;
 
@@ -2079,8 +2168,8 @@ async function loadRecon(appId) {
   const strip = shots.length
     ? `<div class="filmstrip" role="list" aria-label="Recon screenshots, newest first">
          ${shots.map(name => `<button role="listitem" title="${esc(name)}"
-             onclick="showShot('${esc(name)}')">
-             <img loading="lazy" src="/api/artifacts/${esc(name)}/download" alt=""></button>`).join("")}
+             data-doc-action="shot" data-artifact="${esc(name)}">
+             <img loading="lazy" src="/api/artifacts/${encodeURIComponent(name)}/download" alt=""></button>`).join("")}
        </div>
        ${r.screenshot_total > shots.length
          ? `<div class="hd"><span class="tnum">${r.screenshot_total - shots.length}</span>
@@ -2164,7 +2253,8 @@ let gateItems = {};  // approval_id → record (global inbox: submit + send_emai
 
 async function refreshGateBanner() {
   try {
-    const j = await api("/api/approvals/pending");
+    if (!sessionId) return;
+    const j = await api(`/api/approvals/pending?session_id=${encodeURIComponent(sessionId)}`);
     const pending = (j || {}).pending || [];
     gateItems = Object.fromEntries(pending.map(a => [a.id, a]));
     const shown = pending.filter(a => !activeApp || a.id !== activeApp.pending_approval_id);
@@ -2214,7 +2304,8 @@ async function resolveApproval(decision) {
   const id = pendingApproval;
   const gate = gateItems[id] && gateItems[id].gate;
   closeApproval();
-  await api(`/api/approvals/${id}/resolve`, { method: "POST", body: JSON.stringify({ decision }) });
+  await api(`/api/approvals/${id}/resolve`, { method: "POST",
+    body: JSON.stringify({ decision, session_id: sessionId }) });
   toast(decision === "grant"
       ? (gate === "send_email" ? "Approved — tell Alex to send, and it goes."
          : gate === "book_meeting" ? "Approved — tell Alex to book it, and invites go out."
@@ -2250,9 +2341,33 @@ $("micBtn").onclick = async () => {
     const fd = new FormData();
     fd.append("file", new Blob(chunks, { type: "audio/webm" }), "note.webm");
     fd.append("context", "founder voice note");
-    const r = await fetch("/api/voice-note", { method: "POST", body: fd });
-    const j = await r.json();
-    if (j.transcript) { addMsg("you", j.transcript); toast("Voice note transcribed.", "ok"); }
+    let j;
+    try {
+      const r = await fetch("/api/voice-note", { method: "POST", body: fd });
+      j = await r.json();
+    } catch (e) {
+      toast("Voice note upload failed: " + (e.message || e), "danger");
+      return;
+    }
+    if (!j.transcript) {
+      toast(j.message || "I couldn't hear anything in that note.", "danger");
+      return;
+    }
+    // The transcript must reach the AGENT, not just the chat log — before
+    // this, a spoken "shortlist the Meridian grant" was rendered and dropped.
+    addMsg("you", j.transcript);
+    toast("Voice note transcribed.", "ok");
+    if (!sessionId) await newSession();
+    setThinking(true);
+    try {
+      const r2 = await api("/wake", { method: "POST",
+        body: JSON.stringify({ message: j.transcript, session_id: sessionId }) });
+      (r2.replies || []).forEach(t => addMsg("agent", t));
+    } catch (e) {
+      addMsg("agent", "I transcribed your note but couldn't act on it — try sending it again.");
+    }
+    setThinking(false);
+    refresh();
   };
   recorder.start();
   toast("Recording… tap again to stop (max 30s).");
@@ -2340,23 +2455,58 @@ async function loadDocuments() {
 
 const DOC_ICONS = { docx: "file-doc", xlsx: "file-sheet", pptx: "file-slides", pdf: "file-pdf" };
 
+// Doc metadata (titles, artifact names) is model-authored — it never goes
+// into inline handlers. Actions ride data-* attributes; one delegated
+// listener below dispatches them.
 function docCardHtml(d, showApp) {
   return `<div class="doc-card">
-    <span class="doc-badge ${d.kind}">${ico(DOC_ICONS[d.kind] || DOC_ICONS.docx)}</span>
+    <span class="doc-badge ${esc(d.kind)}">${ico(DOC_ICONS[d.kind] || DOC_ICONS.docx)}</span>
     <div style="min-width:0;flex:1">
       <div class="name" title="${esc(d.title)}">${esc(d.title)}</div>
       <div class="sub">v${d.version} · ${timeAgo(d.created_at)}${showApp && d.opportunity_name ? " · " + esc(d.opportunity_name) : ""}
-        · <span class="doc-tag" onclick="viewSession('${d.session_id}')">${esc(d.session_id || "session")}</span></div>
+        · <span class="doc-tag" data-doc-action="session" data-session="${esc(d.session_id || "")}">${esc(d.session_id || "session")}</span></div>
     </div>
-    <a class="cbtn" title="Download" aria-label="Download" href="/api/artifacts/${d.artifact_name}/download" download>
+    <a class="cbtn" title="Download" aria-label="Download" href="/api/artifacts/${encodeURIComponent(d.artifact_name)}/download" download>
       ${ico("download")}</a>
     <button class="cbtn" title="Preview" aria-label="Preview"
-            onclick="previewDoc('${d.artifact_name}', '${esc(d.title).replace(/'/g, "\\'")}')">
+            data-doc-action="preview" data-artifact="${esc(d.artifact_name)}" data-title="${esc(d.title)}">
       ${ico("eye")}</button>
-    <button class="cbtn" title="Copy to Drive" aria-label="Copy to Drive" onclick="syncDrive('${d.artifact_name}')">
+    <button class="cbtn" title="Copy to Drive" aria-label="Copy to Drive"
+            data-doc-action="drive" data-artifact="${esc(d.artifact_name)}">
       ${ico("cloud-up")}</button>
   </div>`;
 }
+document.addEventListener("click", (e) => {
+  const el = e.target.closest("[data-doc-action]");
+  if (!el) return;
+  const act = el.dataset.docAction;
+  if (act === "preview") previewDoc(el.dataset.artifact, el.dataset.title);
+  else if (act === "drive") syncDrive(el.dataset.artifact);
+  else if (act === "session") viewSession(el.dataset.session);
+  else if (act === "shot") showShot(el.dataset.artifact);
+});
+
+// Server-authored ids ride data-* attributes and are dispatched by delegated
+// listeners — never interpolated into inline handler strings (finding: inline
+// handlers with server data). One set of listeners covers every re-render.
+document.addEventListener("click", (e) => {
+  const card = e.target.closest(".appcard[data-app-id]");
+  if (card) { loadApp(card.dataset.appId); return; }
+  const row = e.target.closest(".connrow[data-conn]");
+  if (row && !e.target.closest("a")) { showConn(row.dataset.conn); return; }
+  const drive = e.target.closest("[data-drive-action]");
+  if (drive) {
+    if (drive.dataset.driveAction === "ingest") ingestDrive(drive.dataset.fileId);
+    else if (drive.dataset.driveAction === "remove") removeDriveFile(drive.dataset.fileId);
+  }
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key !== "Enter" && e.key !== " ") return;
+  const card = e.target.closest(".appcard[data-app-id]");
+  if (!card) return;
+  e.preventDefault();
+  loadApp(card.dataset.appId);
+});
 
 function renderDocuments() {
   setTabState("docs", allDocs.length || null, false);
@@ -2504,7 +2654,7 @@ function brandStyle(c) {
 function connRow(c) {
   const badge = `<span class="cbadge" ${brandStyle(c)}>${connMark(c)}</span>`;
   if (c.connected) {
-    return `<button class="crow connrow" onclick='showConn("${c.name}")'>
+    return `<button class="crow connrow" data-conn="${esc(c.name)}">
       ${badge}
       <span class="grow"><b>${esc(c.title)}</b><div class="conn-sub">${esc(c.status_line || "Connected")}</div></span>
       <span class="chip-ok">Ready</span><span class="chev">${ico("chev-right", "ico-sm")}</span></button>`;
@@ -2512,9 +2662,9 @@ function connRow(c) {
   const action = !c.available
     ? `<span class="tag tag-quiet">Soon</span>`
     : c.auth === "google_oauth"
-      ? `<a class="btn" data-variant="quiet" data-size="sm" href="/api/integrations/google/connect?connector=${c.name}" onclick="event.stopPropagation()">Connect</a>`
+      ? `<a class="btn" data-variant="quiet" data-size="sm" href="/api/integrations/google/connect?connector=${encodeURIComponent(c.name)}">Connect</a>`
       : `<span class="btn" data-variant="quiet" data-size="sm">Connect</span>`;
-  return `<button class="crow connrow" onclick='showConn("${c.name}")'>
+  return `<button class="crow connrow" data-conn="${esc(c.name)}">
     ${badge}
     <span class="grow"><b>${esc(c.title)}</b><div class="conn-sub">${esc(c.blurb)}</div></span>
     ${action}</button>`;
@@ -2620,8 +2770,8 @@ async function loadConnections() {
         <span class="cbadge sm"><svg class="ico" aria-hidden="true"><use href="#i-cloud-up"/></svg></span>
         <span class="grow"><b>${esc(f.name)}</b>
           <span class="conn-sub">${esc(f.id)}</span></span>
-        <button class="btn" data-variant="quiet" data-size="sm" onclick="ingestDrive('${f.id}')">Ingest</button>
-        <button class="x" title="Remove" aria-label="Remove" onclick="removeDriveFile('${f.id}')"><svg class="ico" aria-hidden="true"><use href="#i-close"/></svg></button>
+        <button class="btn" data-variant="quiet" data-size="sm" data-drive-action="ingest" data-file-id="${esc(f.id)}">Ingest</button>
+        <button class="x" title="Remove" aria-label="Remove" data-drive-action="remove" data-file-id="${esc(f.id)}"><svg class="ico" aria-hidden="true"><use href="#i-close"/></svg></button>
       </div>`).join("")
     : `<div class="crow"><span class="grow conn-sub">Nothing selected yet — add a file id below.</span></div>`;
 
@@ -2686,7 +2836,7 @@ async function enableAlexWatch() {
 }
 
 // ---------- real-time voice (Gemini Live bidi via /live/{session}) ----------
-let voice = null;  // {ws, micCtx, playCtx, stream, node, nextPlay}
+let voice = null;  // {ws, micCtx, playCtx, stream, node, nextPlay, sources}
 let liveCaptions = { you: "", agent: "" };
 
 async function toggleVoice() {
@@ -2694,14 +2844,25 @@ async function toggleVoice() {
   if (!sessionId) await newSession();
   const btn = $("talkBtn");
   btn.classList.add("connecting"); btn.disabled = true;
+  let stream = null, ws = null;
   try {
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     const proto = location.protocol === "https:" ? "wss" : "ws";
-    const ws = new WebSocket(`${proto}://${location.host}/live/${sessionId}`);
+    ws = new WebSocket(`${proto}://${location.host}/live/${sessionId}`);
     ws.onmessage = onVoiceFrame;
+    // Until the socket is live, open/close/error all settle the connect
+    // promise. A 4401 (auth) or a down server closes WITHOUT ever firing
+    // onopen — the old code awaited onopen forever, wedging the button in
+    // "connecting" and leaking the mic stream.
+    await new Promise((resolve, reject) => {
+      ws.onopen = resolve;
+      ws.onerror = () => reject(new Error("connection failed"));
+      ws.onclose = (ev) => reject(new Error(
+        "closed before ready" + (ev && ev.code ? ` (${ev.code})` : "")));
+    });
+    // Live now — swap in the steady-state handlers.
     ws.onclose = () => { stopVoice(); };
     ws.onerror = () => { toast("Voice connection failed.", "danger"); stopVoice(); };
-    await new Promise((res, rej) => { ws.onopen = res; });
 
     const micCtx = new AudioContext({ sampleRate: 16000 });
     await micCtx.audioWorklet.addModule("audio-worklet.js");
@@ -2713,12 +2874,18 @@ async function toggleVoice() {
     src.connect(node);
 
     voice = { ws, micCtx, playCtx: new AudioContext({ sampleRate: 24000 }),
-              stream, node, nextPlay: 0 };
+              stream, node, nextPlay: 0, sources: [] };
     btn.classList.remove("connecting");
     btn.classList.add("live");
     toast("Listening — just talk. Tap the red button to hang up.", "ok");
   } catch (e) {
-    toast("Microphone unavailable: " + (e.message || e), "danger");
+    // Anything failed before we're live (mic denied, auth 4401, server down):
+    // release the mic, close the half-open socket, and restore the button —
+    // nothing is left connecting.
+    if (stream) stream.getTracks().forEach(t => t.stop());
+    if (ws && !voice) { try { ws.close(); } catch {} }
+    btn.classList.remove("connecting", "live");
+    toast("Couldn't start voice: " + (e.message || e), "danger");
   }
   btn.disabled = false;
 }
@@ -2762,8 +2929,17 @@ function onVoiceFrame(evt) {
     voice.nextPlay = Math.max(voice.nextPlay, voice.playCtx.currentTime);
     src.start(voice.nextPlay);
     voice.nextPlay += buf.duration;
+    // Track scheduled nodes so a barge-in can stop the audio already queued
+    // ahead of the cursor, not just move the cursor.
+    voice.sources.push(src);
+    src.onended = () => { if (voice) voice.sources = voice.sources.filter(s => s !== src); };
   } else if (frame.interrupted && voice) {
-    voice.nextPlay = 0;  // barge-in: drop queued playback
+    // Barge-in: stop everything already scheduled so Alex goes quiet the
+    // instant the founder speaks — resetting nextPlay alone left queued nodes
+    // playing over them. Guard: stopping an already-ended node throws.
+    for (const s of voice.sources) { try { s.stop(); } catch {} }
+    voice.sources = [];
+    voice.nextPlay = 0;
   } else if (frame.transcript) {
     renderLiveTranscript(frame.transcript);
   } else if (frame.error) {
@@ -2805,7 +2981,7 @@ function renderLiveTranscript({ who, text, finished }) {
 }
 
 // ---------- boot ----------
-newSession().then(refresh);
+restoreSession().then(refresh);
 setInterval(refresh, 5000);
 </script>
 </body>

@@ -13,9 +13,9 @@ import json
 import os
 import re
 import tempfile
+import threading
 import zipfile
 import xml.etree.ElementTree as ET
-from typing import Any
 
 from services import storage
 
@@ -146,28 +146,95 @@ def _soffice() -> str | None:
     return shutil.which("soffice") or shutil.which("libreoffice")
 
 
+# Server-side conversion posture (docs/15 §LibreOffice): bounded concurrency,
+# an input size cap, macro parts stripped from OOXML inputs, a fresh per-job
+# user profile (macro security defaults to High = disabled), per-job temp
+# storage, a hard timeout, and output validation before anything is served.
+_SOFFICE_SEMAPHORE = None  # lazy: created on first use inside any thread
+_SEMAPHORE_LOCK = threading.Lock()
+MAX_CONVERT_BYTES = 25 * 1024 * 1024  # 25 MB input cap
+_CONVERT_TIMEOUT_S = 120
+_MACRO_PART = re.compile(r"vbaProject|macroSheet|activeX|oleObject", re.IGNORECASE)
+
+
+def _semaphore() -> threading.BoundedSemaphore:
+    global _SOFFICE_SEMAPHORE
+    with _SEMAPHORE_LOCK:
+        if _SOFFICE_SEMAPHORE is None:
+            _SOFFICE_SEMAPHORE = threading.BoundedSemaphore(2)
+    return _SOFFICE_SEMAPHORE
+
+
+def _strip_ooxml_macros(src: str, dst: str) -> None:
+    """Copy an OOXML package without macro-bearing parts. Uploaded Office
+    files are semi-untrusted; stripping is the belt to the fresh high-security
+    profile's brace (non-OOXML inputs pass through unchanged)."""
+    import shutil
+
+    if not zipfile.is_zipfile(src):
+        shutil.copyfile(src, dst)
+        return
+    with zipfile.ZipFile(src) as zin, \
+            zipfile.ZipFile(dst, "w", zipfile.ZIP_DEFLATED) as zout:
+        for item in zin.infolist():
+            if _MACRO_PART.search(item.filename):
+                continue
+            zout.writestr(item, zin.read(item.filename))
+
+
 def convert_to_pdf(src_path: str, out_path: str) -> dict:
     """Any Office doc -> PDF via headless LibreOffice (preview path, docs/15).
     Errors as data where soffice is absent."""
+    import shutil
     import subprocess
 
     soffice = _soffice()
     if not soffice:
         return _err("preview needs LibreOffice (soffice) on this machine")
     try:
-        proc = subprocess.run(
-            [soffice, "--headless", "--convert-to", "pdf",
-             "--outdir", os.path.dirname(out_path), src_path],
-            capture_output=True, timeout=120)
-        converted = os.path.join(os.path.dirname(out_path),
-                                 os.path.splitext(os.path.basename(src_path))[0] + ".pdf")
-        if proc.returncode != 0 or not os.path.exists(converted):
-            return _err(f"pdf conversion failed: {proc.stderr.decode()[:200]}")
-        if os.path.realpath(converted) != os.path.realpath(out_path):
-            os.replace(converted, out_path)
+        size = os.path.getsize(src_path)
+    except OSError as exc:
+        return _err(f"source unreadable: {exc}")
+    if size > MAX_CONVERT_BYTES:
+        return _err(
+            f"file too large to preview ({size // (1024 * 1024)} MB > 25 MB)")
+    if not _semaphore().acquire(timeout=30):
+        return _err("preview service is busy — try again in a moment")
+    try:
+        # Per-job profile + work dir: no shared state between conversions, no
+        # lock-check hacks, no attaching to a developer's GUI instance.
+        with tempfile.TemporaryDirectory(prefix="cofounder-soffice-") as job:
+            profile_dir = os.path.join(job, "profile")
+            work_dir = os.path.join(job, "work")
+            os.makedirs(work_dir)
+            staged = os.path.join(work_dir, os.path.basename(src_path))
+            _strip_ooxml_macros(src_path, staged)
+            proc = subprocess.run(
+                [soffice, "--headless", "--invisible", "--nologo", "--norestore",
+                 "--nodefault",
+                 f"-env:UserInstallation=file://{profile_dir}",
+                 "--convert-to", "pdf", "--outdir", work_dir, staged],
+                capture_output=True, timeout=_CONVERT_TIMEOUT_S)
+            converted = os.path.join(
+                work_dir, os.path.splitext(os.path.basename(staged))[0] + ".pdf")
+            if proc.returncode != 0 or not os.path.exists(converted):
+                return _err(f"pdf conversion failed: {proc.stderr.decode()[:200]}")
+            os.makedirs(os.path.dirname(out_path), exist_ok=True)
+            shutil.move(converted, out_path)  # temp may be another filesystem
+        valid = validate_document(out_path, "pdf")
+        if valid["status"] != "success":
+            try:
+                os.unlink(out_path)
+            except OSError:
+                pass
+            return _err(f"converted PDF failed validation: {valid['message']}")
         return {"status": "success"}
+    except subprocess.TimeoutExpired:
+        return _err(f"pdf conversion timed out ({_CONVERT_TIMEOUT_S}s)")
     except Exception as exc:
         return _err(f"pdf conversion failed: {exc}")
+    finally:
+        _semaphore().release()
 
 
 def build_pdf(title: str, spec: dict, path: str) -> dict:

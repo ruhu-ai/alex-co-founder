@@ -22,6 +22,7 @@ async def _seed_application(store):
     app_id = chosen["application_id"]
     await pipeline_service.advance_application(app_id, "DRAFTING", actor="test")
     app = await firestore.get_application(app_id)
+    assert app is not None
     sections = [{"section_id": "sec-1", "section_key": "describe_traction",
                  "content": "Our revolutionary traction is unmatched.",
                  "word_count": 6, "notes": "", "status": "DRAFTED", "version": 1}]
@@ -70,10 +71,11 @@ async def test_adaptation_loop(fake_store, monkeypatch):
 
     # 4. section went back for changes — the next draft must follow the rule
     app = await firestore.get_application(app_id)
+    assert app is not None
     assert app["draft_sections"][0]["status"] == "CHANGES_REQUESTED"
 
 
-async def test_approve_all_mints_submit_key(fake_store, monkeypatch):
+async def test_approve_advances_and_absorbs_canonical_answer(fake_store, monkeypatch):
     app_id = await _seed_application(fake_store)
     async def fake_distill(feedback_id, session_service=None):
         return {"status": "success"}
@@ -86,7 +88,7 @@ async def test_approve_all_mints_submit_key(fake_store, monkeypatch):
 
     assert result["application_step"] == "APPROVED"
     app = await firestore.get_application(app_id)
-    assert app["submit_idempotency_key"]  # minted at APPROVED
-    # and the canonical answer library absorbed the approved text
+    assert app is not None
+    # the canonical answer library absorbed the approved text
     profile = await profile_service.get_profile("founder")
     assert any(a["question_key"] == "describe_traction" for a in profile["canonical_answers"])

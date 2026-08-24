@@ -46,7 +46,8 @@ def record_status(status_note: str, tool_context: ToolContext) -> dict:
         status_note: The status to record, e.g. "confirmation received MP-1042".
 
     Returns:
-        dict with status. Closes the application when the note records a result.
+        dict with status. Append-only — the application is closed by the portal
+        result_posted webhook (FOLLOW_UP -> CLOSED), not by this note.
     """
     from services import firestore
 

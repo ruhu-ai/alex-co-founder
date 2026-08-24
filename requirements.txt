@@ -1,34 +1,48 @@
 # Co-Founder — requirements (see docs/13-deployment.md)
-google-adk[eval]>=2.6
-python-dotenv
-a2a-sdk
-google-genai
-google-cloud-aiplatform[agent-engines,evaluation]
-google-cloud-firestore
-google-cloud-logging
-google-cloud-secret-manager
-google-cloud-storage
-google-cloud-texttospeech
-google-api-python-client
-google-auth-oauthlib
-opentelemetry-instrumentation-google-genai
-gcsfs
-fastapi
-uvicorn
-sqlalchemy[asyncio]
-aiosqlite
-asyncpg
-greenlet
-playwright
-pydantic
-pyyaml
-httpx
+# Pinned to the exact versions in the project venv (`uv pip freeze`) for
+# reproducible builds through the judging period. Bump deliberately, not by drift.
+google-adk[eval]==2.7.1
+python-dotenv==1.2.3
+a2a-sdk==1.1.2
+google-genai==2.18.1
+google-cloud-aiplatform[agent-engines,evaluation]==1.164.0
+google-cloud-firestore==2.28.1
+google-cloud-logging==3.16.2
+google-cloud-secret-manager==2.30.0
+google-cloud-storage==3.13.1
+google-cloud-texttospeech==2.37.0
+google-api-python-client==2.198.0
+google-auth-oauthlib==1.4.0
+opentelemetry-instrumentation-google-genai==0.7b1
+gcsfs==2026.8.0
+fastapi==0.141.1
+uvicorn==0.52.3
+sqlalchemy[asyncio]==2.0.52
+aiosqlite==0.22.1
+asyncpg==0.31.0
+greenlet==3.5.5
+# Must track the Playwright base-image tag in the Dockerfile (docs/13). The
+# base is currently v1.47.0-jammy while this pins 1.62.0 (the installed
+# version) — see the note in the Dockerfile; bump the base to match.
+playwright==1.62.0
+pydantic==2.13.4
+pyyaml==6.0.3
+httpx==0.28.1
+# document builders (services/document_service.py) — python-docx was previously
+# only in the local venv, so document production failed in the deployed image
+python-docx==1.2.0
+openpyxl==3.1.5
+python-pptx==1.0.2
+# Form/File routes (app/main.py, mock_portal) — depend on it explicitly rather
+# than through transitive luck
+python-multipart==0.0.32
 
-# pinned: 50.0.0 builds from source without a Rust toolchain (see docs/verification-notes.md)
-cryptography<50
+# pinned <50 originally because 50.0.0 builds from source without a Rust
+# toolchain (see docs/verification-notes.md); now hard-pinned to the installed 49.0.0
+cryptography==49.0.0
 
 # dev
-pytest
-pytest-asyncio
-nest-asyncio
-ruff
+pytest==9.1.1
+pytest-asyncio==1.4.0
+nest-asyncio==1.6.0
+ruff==0.16.3

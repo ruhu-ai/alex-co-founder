@@ -15,6 +15,58 @@ def artifacts_tmp(tmp_path, monkeypatch):
     return tmp_path
 
 
+class TestLibreOfficePosture:
+    """docs/15 §LibreOffice: conversion hardening contracts."""
+
+    def test_macro_parts_stripped_from_ooxml(self, artifacts_tmp):
+        import zipfile
+
+        src = artifacts_tmp / "evil.docx"
+        with zipfile.ZipFile(src, "w") as z:
+            z.writestr("word/document.xml", "<doc>body</doc>")
+            z.writestr("word/vbaProject.bin", b"MALWARE")
+            z.writestr("word/activeX1.bin", b"X")
+        dst = artifacts_tmp / "clean.docx"
+        ds._strip_ooxml_macros(str(src), str(dst))
+        with zipfile.ZipFile(dst) as z:
+            names = z.namelist()
+        assert "word/document.xml" in names
+        assert not any("vbaProject" in n or "activeX" in n.lower() for n in names)
+
+    def test_size_cap_is_error_data(self, artifacts_tmp, monkeypatch):
+        big = artifacts_tmp / "big.docx"
+        big.write_bytes(b"0" * 1024)
+        monkeypatch.setattr(ds, "MAX_CONVERT_BYTES", 100)
+        result = ds.convert_to_pdf(str(big), str(artifacts_tmp / "big.pdf"))
+        assert result["status"] == "error" and result["error"] is True
+        assert "too large" in result["message"]
+        assert not (artifacts_tmp / "big.pdf").exists()
+
+    def test_missing_source_is_error_data(self, artifacts_tmp):
+        result = ds.convert_to_pdf(
+            str(artifacts_tmp / "nope.docx"), str(artifacts_tmp / "nope.pdf"))
+        assert result["status"] == "error" and result["error"] is True
+
+    @pytest.mark.skipif(not ds._soffice(), reason="soffice not installed")
+    def test_real_conversion_validates_output_and_cleans_up(self, artifacts_tmp):
+        import glob
+        import tempfile
+
+        built = ds.produce("docx", "Posture", {"sections": [
+            {"heading": "A", "paragraphs": ["Hello"]}]}, "posture.docx")
+        assert built["status"] == "success"
+        result = ds.convert_to_pdf(
+            os.path.join(str(artifacts_tmp), "posture.docx"),
+            str(artifacts_tmp / "posture.pdf"))
+        assert result["status"] == "success"
+        assert ds.validate_document(str(artifacts_tmp / "posture.pdf"), "pdf")[
+            "status"] == "success"
+        leftovers = [d for d in glob.glob(
+            os.path.join(tempfile.gettempdir(), "cofounder-soffice-*"))
+            if os.path.basename(d) != "cofounder-soffice-profile"]  # legacy
+        assert leftovers == []
+
+
 class TestBuilders:
     def test_docx_valid(self, artifacts_tmp):
         r = ds.produce("docx", "Test Pack",

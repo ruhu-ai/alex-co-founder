@@ -79,8 +79,15 @@ def _refresh_token(account: str = "founder") -> str:
         from services import secrets
 
         return secrets.get(ACCOUNT_ENV.get(account, ""))
-    except Exception:
-        _sm_missing.add(account)
+    except Exception as exc:
+        # Negative-cache ONLY a definitive "not configured" — no project set
+        # (KeyError) or the secret genuinely does not exist (NotFound). A
+        # transient Secret Manager error must NOT block the account until the
+        # next restart; leave it uncached so the next call retries.
+        from google.api_core import exceptions as gexc
+
+        if isinstance(exc, (KeyError, gexc.NotFound)):
+            _sm_missing.add(account)
         return ""
 
 
@@ -192,17 +199,30 @@ def _account_email_for(account: str) -> str:
 
 
 def save_env_var(key: str, value: str) -> None:
-    """Persist a key to the process env (live immediately) and .env (next
-    process). Empty value removes the key. Prod: Secret Manager (docs/12)."""
+    """Persist a key to the process env (live immediately), then durably.
+
+    On Cloud Run (``K_SERVICE`` set) the durable store is Secret Manager
+    (docs/12) — the local filesystem is ephemeral, so a token written only to
+    .env is lost on the next cold start and sits in plaintext meanwhile. Local
+    dev keeps the .env path. Empty value removes the key from the process env.
+    Token values are never logged."""
     os.environ.pop(key, None)
     if value:
         os.environ[key] = value
+    if os.environ.get("K_SERVICE"):
+        try:
+            from services import secrets
+
+            secrets.put(key, value)  # no-op on empty value
+        except Exception:
+            pass  # env var already live this process; Secret Manager is best-effort
+        return
     env_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".env")
     try:
         lines = []
         if os.path.exists(env_path):
             with open(env_path) as fh:
-                lines = [l for l in fh.read().splitlines() if not l.startswith(f"{key}=")]
+                lines = [ln for ln in fh.read().splitlines() if not ln.startswith(f"{key}=")]
         if value:
             lines.append(f"{key}={value}")
         with open(env_path, "w") as fh:

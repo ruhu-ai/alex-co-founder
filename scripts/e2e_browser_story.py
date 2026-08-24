@@ -139,7 +139,7 @@ async def setup_approved_application() -> tuple[str, str, str]:
 
 
 async def main() -> int:
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(timeout=WAKE_TIMEOUT) as client:
         # ---- Act 0: services up, demo seeded -------------------------------
         print("Act 0 — services and seed data", flush=True)
         check("app serving UI",
@@ -189,7 +189,9 @@ async def main() -> int:
                                  "map_form_requirements to read every question "
                                  "the form asks, then fill_fields from my "
                                  "approved answers.")
-        detail = (await client.get(f"{APP}/api/applications/{app_id}")).json()
+        detail = (await client.get(
+            f"{APP}/api/applications/{app_id}",
+            params={"session_id": sid2})).json()
         report = detail.get("form_fill_report") or {}
         if not report:  # debug aid: dump the transcript on failure
             transcript = (await client.get(f"{APP}/api/chat/{sid2}")).json()
@@ -208,6 +210,11 @@ async def main() -> int:
         check("Browser panel surfaced the fill run",
               fill_run.get("fill") is not None
               or fill_run.get("browse") is not None)
+        recorded = (detail.get("form_questions") or [])
+        check("the form's questions were recorded for the drafter",
+              len(recorded) >= 10,
+              f"{len(recorded)} question(s) persisted — the document can only "
+              "answer what was captured here")
 
         # ---- Act 3: document with responses (docs/15) ----------------------
         print("\nAct 3 — document answering every question (docs/15)",
@@ -234,7 +241,77 @@ async def main() -> int:
             # approved sections or profile facts.
             await check_document_is_grounded(dl.content, app_id)
 
+        # ---- Act 4: adaptation, live (docs/06, docs/11) ---------------------
+        # The category rubric turns on this loop, and the demo has been showing
+        # it from a seeded rule. Here the rule is distilled by the real model
+        # from a real rejection, and the next draft has to honour it.
+        print("\nAct 4 — the founder rejects; the next draft adapts (docs/11)",
+              flush=True)
+        await run_adaptation_act(client)
+
     return _finish()
+
+
+async def run_adaptation_act(client) -> None:
+    from services import firestore, profile_service
+
+    founder = os.environ.get("FOUNDER_ID", "founder")
+    banned = "revolutionary"
+
+    app_id, sid, _opp = await setup_approved_application()
+    section_id = "sec-traction-live"
+    await firestore.update_application(
+        app_id, state="AWAITING_REVIEW",
+        draft_sections=[{
+            "section_id": section_id, "section_key": "traction",
+            "content": ("Ruhu's revolutionary platform is transforming clinics "
+                        "across Africa."),
+            "word_count": 9, "notes": "", "status": "DRAFTED", "version": 1}])
+
+    before = await profile_service.get_voice_rules(founder)
+    before_ids = {r.get("id") for r in before}
+
+    reason = (f"Never say '{banned}' — it sounds like a scam pitch. "
+              "Write plainly and let the numbers carry it.")
+    fb = await client.post(f"{APP}/api/feedback", json={
+        "session_id": sid, "application_id": app_id, "section_id": section_id,
+        "type": "reject", "reason": reason, "edited_text": ""})
+    check("rejection accepted", fb.status_code == 200, f"HTTP {fb.status_code}")
+
+    # The distiller runs synchronously on this path, so the rule must exist now.
+    after = await profile_service.get_voice_rules(founder)
+    fresh = [r for r in after if r.get("id") not in before_ids]
+    made_rule = [r for r in fresh if banned in json.dumps(r).lower()]
+    check("live distiller turned the reason into a voice rule",
+          bool(made_rule),
+          json.dumps(made_rule[0])[:110] if made_rule else
+          f"{len(fresh)} new rule(s), none about {banned!r}")
+
+    # The evidence must survive verbatim — a paraphrase cannot be cited later.
+    # Punctuation gets normalised on the way through (em dashes, curly quotes),
+    # so match on a distinctive run of words rather than a literal slice.
+    def _words(text: str) -> str:
+        return " ".join(re.findall(r"[a-z0-9']+", text.lower()))
+    fingerprint = " ".join(_words(reason).split()[:6])
+    check("the founder's words are kept verbatim as evidence",
+          any(fingerprint in _words(json.dumps(r)) for r in fresh),
+          f"no rule carries {fingerprint!r}")
+
+    await wake(client, sid, f"Redraft the '{banned}' traction section now, "
+                            "applying my feedback. Save it with save_draft_section.")
+
+    app = await firestore.get_application(app_id) or {}
+    redrafted = next((s for s in app.get("draft_sections", [])
+                      if s.get("section_id") == section_id
+                      or s.get("section_key") == "traction"), None)
+    body = str((redrafted or {}).get("content", ""))
+    check("the redraft dropped the rejected word",
+          bool(body) and banned not in body.lower(),
+          (body[:90] or "no redraft was saved"))
+    # This line is the money shot: the agent saying *why* the draft changed.
+    check("the redraft cites the feedback that shaped it",
+          banned in str((redrafted or {}).get("notes", "")).lower(),
+          str((redrafted or {}).get("notes", ""))[:90] or "no notes recorded")
 
 
 async def check_document_is_grounded(blob: bytes, app_id: str) -> None:
@@ -299,10 +376,13 @@ async def check_document_is_grounded(blob: bytes, app_id: str) -> None:
           not as_applicant, f"{programme!r} appears as the company")
 
     # --- grounding: prose traces to approved sections or profile facts ------
-    approved = " ".join(str(sec.get("content", ""))
-                        for sec in (app or {}).get("draft_sections", [])
-                        if sec.get("status") == "APPROVED")
-    source = (approved + " " + json.dumps(facts)).lower()
+    # Judge by exactly the definition the guard enforces, or the two drift and
+    # one of them is silently wrong.
+    from agents.co_founder.callbacks import _grounding_source
+
+    source_text, _company, _programme = await _grounding_source(
+        os.environ.get("FOUNDER_ID", "founder"), app_id)
+    source = source_text.lower()
     # Numbers are the cheapest fabrication to detect and the most damaging to
     # publish: a grant reviewer can check them.
     doc_numbers = set(re.findall(r"\b\d[\d,]{1,}\b", body))

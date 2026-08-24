@@ -3,7 +3,6 @@ service-layer tests run without credentials or an emulator."""
 
 import uuid
 from datetime import datetime, timezone
-from unittest import mock
 
 import pytest
 
@@ -19,6 +18,7 @@ class FakeStore:
         self.ingestions = {}
         self.documents = {}
         self.source_hashes = {}
+        self.portal_registrations = {}
 
     def _now(self):
         return datetime.now(timezone.utc).isoformat()
@@ -93,21 +93,25 @@ def fake_store(monkeypatch):
     async def _update_application(aid, **fields):
         store.applications[aid].update(fields, updated_at=store._now())
 
-    async def _create_approval(application_id, gate, ttl_minutes, details=None):
+    async def _create_approval(application_id, gate, ttl_minutes, details=None,
+                               founder_id="", session_id=""):
         from datetime import timedelta
         aid = uuid.uuid4().hex
         expires = datetime.now(timezone.utc) + timedelta(minutes=ttl_minutes)
         store.approvals[aid] = {"id": aid, "application_id": application_id, "gate": gate,
+                                "founder_id": founder_id, "session_id": session_id,
                                 "details": details or {},
                                 "token": None, "status": "PENDING",
                                 "expires_at": expires.isoformat(), "granted_by": None,
                                 "consumed_at": None, "created_at": store._now()}
         return aid
 
-    async def _list_pending_approvals():
+    async def _list_pending_approvals(founder_id="", session_id=""):
         now = store._now()
         return sorted((a for a in store.approvals.values()
-                       if a["status"] == "PENDING" and a["expires_at"] > now),
+                       if (a["status"] == "PENDING" and a["expires_at"] > now
+                           and (not founder_id or a.get("founder_id") == founder_id)
+                           and (not session_id or a.get("session_id") == session_id))),
                       key=lambda a: a.get("created_at", ""), reverse=True)
 
     async def _get_approval(aid):
@@ -120,22 +124,38 @@ def fake_store(monkeypatch):
     async def _deny_approval(aid):
         store.approvals[aid]["status"] = "DENIED"
 
-    async def _find_valid_approval(application_id):
+    async def _find_valid_approval(application_id, gate="", founder_id="", session_id=""):
         now = store._now()
         for a in store.approvals.values():
             if (a["application_id"] == application_id and a["status"] == "GRANTED"
-                    and a["expires_at"] > now):
+                    and a["expires_at"] > now
+                    and (not gate or a.get("gate") == gate)
+                    and (not founder_id or a.get("founder_id") == founder_id)
+                    and (not session_id or a.get("session_id") == session_id)):
                 return a
         return None
 
-    async def _find_pending_approval(application_id):
+    async def _find_pending_approval(application_id, gate="", session_id="",
+                                     founder_id=""):
         for a in store.approvals.values():
-            if a["application_id"] == application_id and a["status"] == "PENDING":
+            if (a["application_id"] == application_id and a["status"] == "PENDING"
+                    and a["expires_at"] > store._now()
+                    and (not gate or a.get("gate") == gate)
+                    and (not session_id or a.get("session_id") == session_id)
+                    and (not founder_id or a.get("founder_id") == founder_id)):
                 return a
         return None
 
     async def _consume_approval(aid):
         store.approvals[aid].update(status="CONSUMED", consumed_at=store._now())
+
+    async def _claim_approval(aid):
+        approval = store.approvals.get(aid)
+        if not approval or approval["status"] != "GRANTED" \
+                or approval["expires_at"] <= store._now():
+            return False
+        await _consume_approval(aid)
+        return True
 
     async def _find_successful_action(key):
         for row in store.audit:
@@ -214,6 +234,22 @@ def fake_store(monkeypatch):
     async def _set_source_hash(url, content_hash):
         store.source_hashes[url] = content_hash
 
+    async def _save_pending_portal_registration(host, founder_id, session_id,
+                                                portal_url, email):
+        store.portal_registrations[host] = {
+            "host": host, "founder_id": founder_id, "session_id": session_id,
+            "portal_url": portal_url, "email": email, "status": "PENDING",
+        }
+
+    async def _list_pending_portal_registrations(founder_id):
+        return [record for record in store.portal_registrations.values()
+                if record["founder_id"] == founder_id
+                and record["status"] == "PENDING"]
+
+    async def _complete_portal_registration(host):
+        if host in store.portal_registrations:
+            store.portal_registrations[host]["status"] = "COMPLETED"
+
     for name, fn in {
         "get_profile": _get_profile, "apply_profile_update": _apply_profile_update,
         "audit": _audit, "create_feedback": _create_feedback, "get_feedback": _get_feedback,
@@ -222,6 +258,7 @@ def fake_store(monkeypatch):
         "create_approval": _create_approval, "get_approval": _get_approval,
         "grant_approval": _grant_approval, "deny_approval": _deny_approval,
         "find_valid_approval": _find_valid_approval, "consume_approval": _consume_approval,
+        "claim_approval": _claim_approval,
         "find_pending_approval": _find_pending_approval,
         "list_pending_approvals": _list_pending_approvals,
         "find_successful_action": _find_successful_action,
@@ -235,6 +272,9 @@ def fake_store(monkeypatch):
         "list_documents": _list_documents,
         "next_document_version": _next_document_version,
         "get_source_hash": _get_source_hash, "set_source_hash": _set_source_hash,
+        "save_pending_portal_registration": _save_pending_portal_registration,
+        "list_pending_portal_registrations": _list_pending_portal_registrations,
+        "complete_portal_registration": _complete_portal_registration,
     }.items():
         monkeypatch.setattr("services.firestore." + name, fn)
 

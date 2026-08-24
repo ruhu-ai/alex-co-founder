@@ -42,6 +42,11 @@ async def record_feedback(founder_id: str, application_id: str, section_id: str,
         section["status"] = (SectionStatus.APPROVED if feedback_type == "approve"
                              else SectionStatus.CHANGES_REQUESTED)
         if feedback_type == "approve":
+            # An approve-with-edit ships the EDITED text: update the section's own
+            # content too, not just the canonical answer, or the submitted form
+            # would carry the pre-edit draft.
+            if edited_text:
+                section["content"] = edited_text
             # Approved text becomes the canonical answer for its question key (docs/06)
             await firestore.apply_profile_update(
                 founder_id, "canonical_answer_update",
@@ -54,9 +59,15 @@ async def record_feedback(founder_id: str, application_id: str, section_id: str,
     # Synchronous distillation — the rule exists before the next draft
     distill_result = await distill_service.run_distillation(feedback_id, session_service)
 
-    # All sections approved → AWAITING_REVIEW → APPROVED (mints submit key)
+    # A requested change returns the application to DRAFTING. All sections
+    # approved moves AWAITING_REVIEW → APPROVED (and mints the submit key).
     transitioned = None
-    if section is not None and all(s.get("status") == SectionStatus.APPROVED for s in sections):
+    if section is not None and feedback_type in ("edit", "reject"):
+        if app["state"] == Step.AWAITING_REVIEW:
+            result = await pipeline_service.advance_application(
+                application_id, Step.DRAFTING, actor="agent:orchestrator")
+            transitioned = result.get("current_step")
+    elif section is not None and all(s.get("status") == SectionStatus.APPROVED for s in sections):
         if app["state"] == Step.AWAITING_REVIEW:
             result = await pipeline_service.advance_application(
                 application_id, Step.APPROVED, actor="agent:orchestrator")

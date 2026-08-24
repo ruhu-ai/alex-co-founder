@@ -2,6 +2,7 @@
 
 from google.adk.agents import Agent
 
+from ..callbacks import initialize_session_state
 from ..config import MODEL
 from ..instructions import INTERVIEWER_INSTRUCTION
 from ..tools import pipeline, profile
@@ -22,7 +23,6 @@ def build_agent(model=None) -> Agent:
             profile.propose_profile_updates,
             profile.confirm_profile_updates,
         ],
+        # Refresh {today}/{browser_status} on turns ADK routes straight here.
+        before_agent_callback=initialize_session_state,
     )
-
-
-agent = build_agent()

@@ -10,7 +10,7 @@ from ._common import run
 
 def save_draft_section(section_key: str, content: str, word_count: int, notes: str,
                        tool_context: ToolContext) -> dict:
-    """Save one drafted section (guard G1: refuses while current_step=INTERVIEWING).
+    """Save one drafted section (guard G1: only while current_step=DRAFTING).
 
     Args:
         section_key: The section being drafted, e.g. "describe_traction".
@@ -24,9 +24,14 @@ def save_draft_section(section_key: str, content: str, word_count: int, notes: s
         updates checklist_status, sets current_section.
     """
     state = tool_context.state
-    if state.get(ss.K_CURRENT_STEP) == ss.ApplicationStep.INTERVIEWING:
+    # DRAFTING is the only step the state machine drafts in — a reject/edit in
+    # AWAITING_REVIEW returns the application to DRAFTING before re-drafting.
+    # Allowing any non-INTERVIEWING step let drafts be written in SUBMITTED/IDLE
+    # against a stale active_application_id.
+    if state.get(ss.K_CURRENT_STEP) != ss.ApplicationStep.DRAFTING:
         return {"status": "error", "error": True,
-                "message": "Gate G1: cannot draft while the interview is still open."}
+                "message": ("Gate G1: sections can only be drafted in DRAFTING "
+                            f"(current: {state.get(ss.K_CURRENT_STEP)}).")}
 
     from services import firestore
 
@@ -40,19 +45,20 @@ def save_draft_section(section_key: str, content: str, word_count: int, notes: s
         sections = app.get("draft_sections", [])
         existing = next((s for s in sections if s.get("section_key") == section_key), None)
         if existing:
+            version = existing.get("version", 0) + 1
             existing.update({"content": content, "word_count": word_count, "notes": notes,
-                             "status": ss.SectionStatus.DRAFTED,
-                             "version": existing.get("version", 0) + 1})
+                             "status": ss.SectionStatus.DRAFTED, "version": version})
             sid = existing["section_id"]
         else:
+            version = 1
             sections.append({"section_id": section_id, "section_key": section_key,
                              "content": content, "word_count": word_count, "notes": notes,
-                             "status": ss.SectionStatus.DRAFTED, "version": 1})
+                             "status": ss.SectionStatus.DRAFTED, "version": version})
             sid = section_id
         await firestore.update_application(app_id, draft_sections=sections)
         await firestore.audit("agent:drafter", "save_draft_section",
                               f"applications/{app_id}/sections/{sid}", "success",
-                              f"{section_key} v{1 if sid == section_id and not existing else ''}")
+                              f"{section_key} v{version}")
         return {"status": "success", "section_id": sid, "word_count": word_count}
 
     result = run(_go())
@@ -60,6 +66,57 @@ def save_draft_section(section_key: str, content: str, word_count: int, notes: s
         state[ss.K_CURRENT_SECTION] = section_key
         checklist = dict(state.get(ss.K_CHECKLIST_STATUS, {}))
         checklist["draft_sections"] = "IN_PROGRESS"
+        state[ss.K_CHECKLIST_STATUS] = checklist
+    return result
+
+
+def complete_drafting(tool_context: ToolContext) -> dict:
+    """Move a fully drafted application into founder review.
+
+    Returns:
+        dict with status and current_step. Refuses unless the application is in
+        DRAFTING and has at least one section, with every section saved in a
+        reviewable state.
+    """
+    from services import firestore, pipeline_service
+
+    state = tool_context.state
+    app_id = state.get(ss.K_ACTIVE_APPLICATION_ID, "")
+
+    async def _go():
+        app = await firestore.get_application(app_id) if app_id else None
+        if not app:
+            return {"status": "error", "error": True, "message": "no active application"}
+        if app.get("state") != ss.ApplicationStep.DRAFTING:
+            return {
+                "status": "error",
+                "error": True,
+                "message": f"cannot complete drafting from {app.get('state')}",
+            }
+        sections = app.get("draft_sections", [])
+        reviewable = {
+            ss.SectionStatus.DRAFTED,
+            ss.SectionStatus.IN_REVIEW,
+            ss.SectionStatus.CHANGES_REQUESTED,
+            ss.SectionStatus.APPROVED,
+        }
+        if not sections or any(section.get("status") not in reviewable for section in sections):
+            return {
+                "status": "error",
+                "error": True,
+                "message": "drafting is incomplete: every required section must be saved first",
+            }
+        return await pipeline_service.advance_application(
+            app_id, ss.ApplicationStep.AWAITING_REVIEW, actor="agent:drafter"
+        )
+
+    result = run(_go())
+    if result.get("status") == "success":
+        state[ss.K_CURRENT_STEP] = ss.ApplicationStep.AWAITING_REVIEW
+        state[ss.K_PENDING_SIGNALS] = ["founder_feedback"]
+        checklist = dict(state.get(ss.K_CHECKLIST_STATUS, {}))
+        checklist["draft_sections"] = ss.ChecklistStatus.DONE
+        checklist["review"] = ss.ChecklistStatus.IN_PROGRESS
         state[ss.K_CHECKLIST_STATUS] = checklist
     return result
 

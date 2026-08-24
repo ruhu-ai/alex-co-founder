@@ -50,15 +50,27 @@ async def find_opportunity_by_hash(dedup_hash: str) -> Optional[str]:
 
 
 async def create_opportunity(record: dict[str, Any]) -> str:
-    """Create an opportunity in DISCOVERED, deduping on dedup_hash."""
-    existing = await find_opportunity_by_hash(record["dedup_hash"])
-    if existing:
-        return existing
-    doc_id = _new_id()
-    await get_client().collection("opportunities").document(doc_id).set(
-        {**record, "state": "DISCOVERED", "created_at": _now(), "updated_at": _now()}
-    )
-    return doc_id
+    """Create an opportunity in DISCOVERED, deduping on dedup_hash.
+
+    The doc id is derived from dedup_hash and the create runs in a transaction,
+    so two concurrent sweeps that discover the same program can never produce
+    duplicate opportunities (the old query-then-write was racy)."""
+    from google.cloud import firestore as gc_firestore
+
+    doc_id = hashlib.sha256(record["dedup_hash"].encode()).hexdigest()[:24]
+    ref = get_client().collection("opportunities").document(doc_id)
+    transaction = get_client().transaction()
+
+    @gc_firestore.async_transactional
+    async def _create(txn) -> str:
+        snap = await ref.get(transaction=txn)
+        if snap.exists:
+            return doc_id  # already discovered — never a duplicate
+        txn.set(ref, {**record, "state": "DISCOVERED",
+                      "created_at": _now(), "updated_at": _now()})
+        return doc_id
+
+    return await _create(transaction)
 
 
 async def get_opportunity(opportunity_id: str) -> Optional[dict[str, Any]]:
@@ -97,7 +109,6 @@ async def create_application(founder_id: str, opportunity_id: str, checklist: li
             "interview_qa": [],
             "draft_sections": [],
             "form_fill_report": None,
-            "submit_idempotency_key": None,
             "submission": None,
             "followups": [],
             "created_at": _now(),
@@ -136,9 +147,19 @@ async def get_profile(founder_id: str) -> dict[str, Any]:
     }
 
 
+def _default_profile() -> dict[str, Any]:
+    return {"version": 0, "facts": {}, "voice_rules": [], "canonical_answers": [],
+            "rejection_history": [], "decision_patterns": []}
+
+
 async def apply_profile_update(founder_id: str, kind: str, payload: dict, evidence: str) -> int:
-    """Append a profile mutation and bump version. Returns the new version."""
-    profile = await get_profile(founder_id)
+    """Append a profile mutation and bump version, transactionally.
+
+    Read-modify-write inside a Firestore transaction so concurrent distiller /
+    ingestion writers cannot clobber each other's rules/answers or duplicate a
+    version number — the version is assigned inside the transaction."""
+    from google.cloud import firestore as gc_firestore
+
     collection = {
         "voice_rule": "voice_rules",
         "canonical_answer_update": "canonical_answers",
@@ -146,13 +167,29 @@ async def apply_profile_update(founder_id: str, kind: str, payload: dict, eviden
         "decision_pattern": "decision_patterns",
     }[kind]
     entry = {**payload, "evidence": evidence, "created_at": _now()}
-    if collection == "facts":
-        profile["facts"].update(payload)
-    else:
+    if collection != "facts":
         entry["id"] = _new_id()[:12]
-        profile[collection].append(entry)
-    profile["version"] = profile.get("version", 0) + 1
-    await get_client().collection("profiles").document(founder_id).set(profile)
+
+    ref = get_client().collection("profiles").document(founder_id)
+    transaction = get_client().transaction()
+
+    @gc_firestore.async_transactional
+    async def _apply(txn) -> int:
+        snap = await ref.get(transaction=txn)
+        profile = snap.to_dict() if snap.exists else _default_profile()
+        if collection == "facts":
+            facts = dict(profile.get("facts", {}))
+            facts.update(payload)
+            profile["facts"] = facts
+        else:
+            items = list(profile.get(collection, []))
+            items.append(entry)
+            profile[collection] = items
+        profile["version"] = int(profile.get("version", 0)) + 1
+        txn.set(ref, profile)
+        return profile["version"]
+
+    version = await _apply(transaction)
     await audit(
         actor="agent:distiller",
         action="profile_update",
@@ -160,7 +197,7 @@ async def apply_profile_update(founder_id: str, kind: str, payload: dict, eviden
         result="success",
         detail=f"{kind}: {evidence[:200]}",
     )
-    return profile["version"]
+    return version
 
 
 # ---------------------------------------------------------------------------
@@ -223,7 +260,8 @@ async def mark_distilled(feedback_id: str, rule_ids: list[str]) -> None:
 # ---------------------------------------------------------------------------
 
 async def create_approval(application_id: str, gate: str, ttl_minutes: int,
-                          details: Optional[dict[str, Any]] = None) -> str:
+                          details: Optional[dict[str, Any]] = None,
+                          founder_id: str = "", session_id: str = "") -> str:
     from datetime import timedelta
 
     doc_id = _new_id()
@@ -232,6 +270,8 @@ async def create_approval(application_id: str, gate: str, ttl_minutes: int,
         {
             "application_id": application_id,
             "gate": gate,
+            "founder_id": founder_id,
+            "session_id": session_id,
             "details": details or {},  # what the founder is approving (e.g. email to/subject/body)
             "token": None,
             "status": "PENDING",
@@ -244,15 +284,20 @@ async def create_approval(application_id: str, gate: str, ttl_minutes: int,
     return doc_id
 
 
-async def list_pending_approvals() -> list[dict[str, Any]]:
-    """All PENDING, unexpired approvals, newest first — the global approval inbox."""
+async def list_pending_approvals(founder_id: str = "", session_id: str = "") -> list[dict[str, Any]]:
+    """Pending approvals scoped to one founder session, newest first."""
     now = _now()
     query = get_client().collection("approvals").where("status", "==", "PENDING")
     out = []
     async for doc in query.stream():
         record = doc.to_dict()
-        if record.get("expires_at", "") > now:
-            out.append(record | {"id": doc.id})
+        if record.get("expires_at", "") <= now:
+            continue
+        if founder_id and record.get("founder_id") != founder_id:
+            continue
+        if session_id and record.get("session_id") != session_id:
+            continue
+        out.append(record | {"id": doc.id})
     return sorted(out, key=lambda a: a.get("created_at", ""), reverse=True)
 
 
@@ -271,7 +316,8 @@ async def get_approval(approval_id: str) -> Optional[dict[str, Any]]:
     return doc.to_dict() | {"id": doc.id} if doc.exists else None
 
 
-async def find_valid_approval(application_id: str) -> Optional[dict[str, Any]]:
+async def find_valid_approval(application_id: str, gate: str = "",
+                              founder_id: str = "", session_id: str = "") -> Optional[dict[str, Any]]:
     """Server-side lookup for submit: GRANTED, unexpired, unconsumed."""
     now = _now()
     query = (
@@ -282,22 +328,36 @@ async def find_valid_approval(application_id: str) -> Optional[dict[str, Any]]:
     )
     async for doc in query.stream():
         record = doc.to_dict()
-        if record.get("expires_at", "") > now:
+        if (record.get("expires_at", "") > now
+                and (not gate or record.get("gate") == gate)
+                and (not founder_id or record.get("founder_id") == founder_id)
+                and (not session_id or record.get("session_id") == session_id)):
             return record | {"id": doc.id}
     return None
 
 
-async def find_pending_approval(application_id: str) -> Optional[dict[str, Any]]:
+async def find_pending_approval(application_id: str, gate: str = "",
+                                session_id: str = "",
+                                founder_id: str = "") -> Optional[dict[str, Any]]:
     """The open PENDING approval for an application (UI approval gate)."""
+    now = _now()
     query = (
         get_client()
         .collection("approvals")
         .where("application_id", "==", application_id)
         .where("status", "==", "PENDING")
-        .limit(1)
     )
     async for doc in query.stream():
-        return doc.to_dict() | {"id": doc.id}
+        record = doc.to_dict()
+        if record.get("expires_at", "") <= now:
+            continue
+        if gate and record.get("gate") != gate:
+            continue
+        if session_id and record.get("session_id") != session_id:
+            continue
+        if founder_id and record.get("founder_id") != founder_id:
+            continue
+        return record | {"id": doc.id}
     return None
 
 
@@ -305,6 +365,27 @@ async def consume_approval(approval_id: str) -> None:
     await get_client().collection("approvals").document(approval_id).update(
         {"status": "CONSUMED", "consumed_at": _now()}
     )
+
+
+async def claim_approval(approval_id: str) -> bool:
+    """Atomically consume a still-GRANTED approval before an external action."""
+    from google.cloud import firestore as gc_firestore
+
+    ref = get_client().collection("approvals").document(approval_id)
+    transaction = get_client().transaction()
+
+    @gc_firestore.async_transactional
+    async def _claim(txn):
+        snap = await ref.get(transaction=txn)
+        if not snap.exists:
+            return False
+        record = snap.to_dict()
+        if record.get("status") != "GRANTED" or record.get("expires_at", "") <= _now():
+            return False
+        txn.update(ref, {"status": "CONSUMED", "consumed_at": _now()})
+        return True
+
+    return await _claim(transaction)
 
 
 async def find_successful_action(idempotency_key: str) -> Optional[dict[str, Any]]:
@@ -519,11 +600,28 @@ async def get_processed_gmail_ids() -> list[str]:
     return doc.to_dict().get("ids", []) if doc.exists else []
 
 
+async def _append_processed_ids(collection: str, ids: list[str]) -> None:
+    """Atomic, bounded append. A transaction (not a bare read-modify-write) so
+    concurrent scans cannot drop each other's ids and re-emit duplicate
+    follow-ups; the last-2000 bound keeps rescans idempotent yet finite."""
+    from google.cloud import firestore as gc_firestore
+
+    ref = get_client().collection(collection).document("processed")
+    transaction = get_client().transaction()
+
+    @gc_firestore.async_transactional
+    async def _append(txn) -> None:
+        snap = await ref.get(transaction=txn)
+        existing = (snap.to_dict() or {}).get("ids", []) if snap.exists else []
+        seen = set(existing)
+        merged = existing + [i for i in ids if i not in seen]
+        txn.set(ref, {"ids": merged[-2000:]})
+
+    await _append(transaction)
+
+
 async def add_processed_gmail_ids(ids: list[str]) -> None:
-    ref = get_client().collection("gmail_state").document("processed")
-    doc = await ref.get()
-    existing = doc.to_dict().get("ids", []) if doc.exists else []
-    await ref.set({"ids": (existing + ids)[-2000:]})  # bounded, idempotent rescans
+    await _append_processed_ids("gmail_state", ids)
 
 
 async def set_last_gmail_scan(summary: dict[str, Any]) -> None:
@@ -545,10 +643,7 @@ async def get_processed_alex_ids() -> list[str]:
 
 
 async def add_processed_alex_ids(ids: list[str]) -> None:
-    ref = get_client().collection("alex_mail_state").document("processed")
-    doc = await ref.get()
-    existing = doc.to_dict().get("ids", []) if doc.exists else []
-    await ref.set({"ids": (existing + ids)[-2000:]})
+    await _append_processed_ids("alex_mail_state", ids)
 
 
 async def get_alex_history_id() -> Optional[str]:
@@ -569,6 +664,32 @@ async def set_last_alex_scan(summary: dict[str, Any]) -> None:
 async def get_last_alex_scan() -> Optional[dict[str, Any]]:
     doc = await get_client().collection("alex_mail_state").document("last_scan").get()
     return doc.to_dict() if doc.exists else None
+
+
+# Pending portal verification routing is non-secret and must survive Cloud Run
+# scale-to-zero. Passwords remain exclusively in Secret Manager.
+async def save_pending_portal_registration(host: str, founder_id: str,
+                                           session_id: str, portal_url: str,
+                                           email: str) -> None:
+    doc_id = hashlib.sha256(host.lower().encode()).hexdigest()[:24]
+    await get_client().collection("portal_registrations").document(doc_id).set({
+        "host": host, "founder_id": founder_id, "session_id": session_id,
+        "portal_url": portal_url, "email": email, "status": "PENDING",
+        "updated_at": _now(),
+    })
+
+
+async def list_pending_portal_registrations(founder_id: str) -> list[dict[str, Any]]:
+    query = (get_client().collection("portal_registrations")
+             .where("founder_id", "==", founder_id)
+             .where("status", "==", "PENDING"))
+    return [doc.to_dict() | {"id": doc.id} async for doc in query.stream()]
+
+
+async def complete_portal_registration(host: str) -> None:
+    doc_id = hashlib.sha256(host.lower().encode()).hexdigest()[:24]
+    await get_client().collection("portal_registrations").document(doc_id).set(
+        {"status": "COMPLETED", "updated_at": _now()}, merge=True)
 
 
 async def get_source_hash(url: str) -> Optional[str]:
@@ -614,5 +735,24 @@ async def list_documents(founder_id: str, session_id: str | None = None,
 
 
 async def next_document_version(founder_id: str, doc_key: str) -> int:
-    docs = await list_documents(founder_id)
-    return sum(1 for d in docs if d.get("doc_key") == doc_key) + 1
+    """Monotonic per-(founder, doc_key) version from a transactional counter.
+
+    The old client-side count over the whole documents collection duplicated
+    versions under concurrency and read O(all documents); a counter doc bumped
+    inside a transaction is race-free and O(1)."""
+    from google.cloud import firestore as gc_firestore
+
+    counter_id = hashlib.sha256(f"{founder_id}:{doc_key}".encode()).hexdigest()[:24]
+    ref = get_client().collection("document_versions").document(counter_id)
+    transaction = get_client().transaction()
+
+    @gc_firestore.async_transactional
+    async def _next(txn) -> int:
+        snap = await ref.get(transaction=txn)
+        current = int((snap.to_dict() or {}).get("version", 0)) if snap.exists else 0
+        nxt = current + 1
+        txn.set(ref, {"founder_id": founder_id, "doc_key": doc_key,
+                      "version": nxt, "updated_at": _now()})
+        return nxt
+
+    return await _next(transaction)

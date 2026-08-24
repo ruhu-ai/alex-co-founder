@@ -134,8 +134,10 @@ gcloud scheduler jobs create pubsub deadline-scan-6h --schedule="0 */6 * * *" \
 
 Dockerfile notes: Playwright needs system Chromium — use
 `mcr.microsoft.com/playwright/python:v1.47.0-jammy` (or run
-`playwright install --with-deps chromium` in the build). Mock portal image is a
-plain slim Python image.
+`playwright install --with-deps chromium` in the build). The image also
+installs `libreoffice-writer/-calc/-impress` (pinned apt — document previews
+and PDF output, docs/15 §LibreOffice) and runs as the non-root `pwuser`.
+Mock portal image is a plain slim Python image.
 
 ## Telemetry (matches the reference repo's `app_utils/telemetry.py`)
 

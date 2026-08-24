@@ -41,6 +41,13 @@ def register_live(app, session_service, founder_id: str) -> None:
 
     @app.websocket("/live/{session_id}")
     async def live_ws(websocket: WebSocket, session_id: str) -> None:
+        # HTTP middleware never sees websocket handshakes — gate here. The
+        # app_auth cookie from the ?key= bootstrap rides the handshake.
+        from app import auth
+
+        if not auth.websocket_is_founder(websocket):
+            await websocket.close(code=4401)
+            return
         await websocket.accept()
         session = await session_service.get_session(
             app_name=live_app.name, user_id=founder_id, session_id=session_id)
@@ -86,6 +93,7 @@ def register_live(app, session_service, founder_id: str) -> None:
 
         async def downstream() -> None:
             """ADK live events -> browser frames."""
+            nonlocal ot_seen
             try:
                 async for event in runner.run_live(
                         user_id=founder_id, session_id=session_id,

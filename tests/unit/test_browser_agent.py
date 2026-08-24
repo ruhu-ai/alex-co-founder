@@ -190,7 +190,10 @@ async def fixture_site(browser_env):
               <a href='javascript:alert(1)'>Script link</a>
               <input name='email' placeholder='Email'>
               <form method='post'><input type='search' name='q' placeholder='Search'></form>
-              <a href='/unsafe' download>Download report</a></main>""",
+              <a href='/unsafe' download>Download report</a>
+              <button id='reveal' onclick="document.getElementById('more').hidden=false">
+                Show details</button>
+              <p id='more' hidden>Founders retain equity in all rounds.</p></main>""",
             content_type="text/html",
         )
 
@@ -240,7 +243,7 @@ async def test_round_trip_artifacts_audit_and_idempotency(browser_env, fixture_s
     assert storage.read_text(ref["artifact"])[ref["start"] : ref["end"]]
 
     async def open_faq(_goal, _snapshot, _shot):
-        return {"action": "open_link", "target_key": "e0", "text": None}
+        return {"action": "click", "target_key": "e0", "text": None}
 
     browser_service.set_proposer_fn(open_faq)
     acted = await browser_service.propose_and_act(run_id, "tool-call-1")
@@ -347,12 +350,12 @@ async def test_live_research_policy_refusals_never_execute_or_count(
         key for key, item in items.items() if item.get("type") == "search"
     )
     proposals = [
-        {"action": "disclose", "target_key": by_label["Apply"], "text": None},
-        {"action": "open_link", "target_key": by_label["Script link"], "text": None},
+        {"action": "click", "target_key": by_label["Apply"], "text": None},
+        {"action": "click", "target_key": by_label["Script link"], "text": None},
         {"action": "search", "target_key": plain_key, "text": "hello"},
         {"action": "search", "target_key": search_key, "text": "hello"},
         {
-            "action": "open_link",
+            "action": "click",
             "target_key": by_label["Download report"],
             "text": None,
         },
@@ -368,6 +371,33 @@ async def test_live_research_policy_refusals_never_execute_or_count(
     assert browser_env.runs[run_id]["action_count"] == 0
     assert hits["unsafe"] == 0
     assert len([row for row in browser_env.audit if row["result"] == "refused"]) >= 5
+
+
+async def test_button_click_reveals_content(browser_env, fixture_site):
+    """Full click-through: a plain (non-submit) button runs its JS — the
+    revealed text is read back. Commit surfaces stay closed downstream."""
+    base, _hits = fixture_site
+    opened = await browser_service.open_run(
+        _session(), base + "/policy", "inspect policy"
+    )
+    run_id = opened["run_id"]
+    snapshot = await browser_service._interactive_snapshot(
+        browser_service._browse_contexts[run_id]["page"]
+    )
+    reveal_key = next(
+        key
+        for key, item in snapshot["items"].items()
+        if item.get("label") == "Show details"
+    )
+
+    async def propose(_goal, _snapshot, _shot):
+        return {"action": "click", "target_key": reveal_key, "text": None}
+
+    browser_service.set_proposer_fn(propose)
+    result = await browser_service.propose_and_act(run_id, "click-reveal")
+    assert result["status"] == "success"
+    assert result["action"] == {"kind": "click", "target": "Show details"}
+    assert "equity" in result["excerpt"].lower()
 
 
 async def test_ssrf_credential_and_fail_closed_policy(monkeypatch):
@@ -453,9 +483,9 @@ async def test_research_policy_refusals_do_not_reserve_budget():
         }
     }
     proposals = [
-        {"action": "disclose", "target_key": "submit", "text": None},
-        {"action": "open_link", "target_key": "js", "text": None},
-        {"action": "open_link", "target_key": "download", "text": None},
+        {"action": "click", "target_key": "submit", "text": None},
+        {"action": "click", "target_key": "js", "text": None},
+        {"action": "click", "target_key": "download", "text": None},
         {"action": "search", "target_key": "plain", "text": "hello"},
         {"action": "search", "target_key": "post-search", "text": "hello"},
     ]

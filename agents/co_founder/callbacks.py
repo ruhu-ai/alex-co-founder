@@ -118,6 +118,38 @@ def _significant_numbers(text: str) -> set[str]:
     return out
 
 
+# The applicant-name question, however it is worded: the company word before
+# "name" ("Company name"), the company word after "name" ("Name of the
+# organisation"), or a bare column header ("Applicant").
+_ORG_WORD = r"(company|organisation|organization|applicant|business|venture|startup)"
+_COMPANY_HEADING = re.compile(
+    rf"\b{_ORG_WORD}\b.*\bname\b|\bname\b.*\b{_ORG_WORD}\b|^\s*{_ORG_WORD}(\s*name)?\s*$",
+    re.I)
+
+
+def _wrong_applicant(spec: Any, company: str) -> str:
+    """The value given for "company name", when it is not the founder's company.
+
+    Returns "" when the question is absent or answered correctly, so a budget or
+    a deck — which have no applicant field — is never blocked by this.
+    """
+    token = re.split(r"[,\s]+", company.strip())[0].lower()
+    if not token:
+        return ""
+    sections = spec.get("sections", []) if isinstance(spec, dict) else []
+    for section in sections:
+        if not isinstance(section, dict):
+            continue
+        heading = str(section.get("heading", ""))
+        if not _COMPANY_HEADING.search(heading):
+            continue
+        answer = " ".join(_spec_strings(section.get("paragraphs", []))
+                          + _spec_strings(section.get("bullets", []))).strip()
+        if answer and token not in answer.lower():
+            return answer[:60]
+    return ""
+
+
 async def _grounding_source(founder_id: str, app_id: str) -> tuple[str, str, str]:
     """Everything the document is allowed to be built from.
 
@@ -145,8 +177,13 @@ async def _grounding_source(founder_id: str, app_id: str) -> tuple[str, str, str
         if opp_id:
             opp = await firestore.get_opportunity(opp_id) or {}
             programme = str(opp.get("name", ""))
-            # The programme's own facts are quotable — award size, deadline.
-            parts.append(json.dumps(opp, default=str))
+            # Only the quotable fields. Dumping the whole record would let ids,
+            # hashes and timestamps whitelist any digit the model invented —
+            # a guard whose source is noise is not a guard.
+            for key in ("name", "award", "deadline", "description",
+                        "eligibility", "required_materials", "application_url"):
+                if key in opp:
+                    parts.append(json.dumps(opp[key], default=str))
 
     return "\n".join(parts), company, programme
 
@@ -173,12 +210,15 @@ async def enforce_document_grounding(
 
     body = "\n".join(_spec_strings(spec))
     title = str(args.get("title", ""))
-    haystack = _normalise(source + "\n" + title)
+    # Compare number TOKENS, not substrings: a grounded "12,000" must not
+    # whitelist an invented "2,000" just because "2000" sits inside "12000".
+    source_numbers = {_normalise(n)
+                      for n in _significant_numbers(source + "\n" + title)}
 
     problems: list[str] = []
 
     invented = sorted(
-        n for n in _significant_numbers(body) if _normalise(n) not in haystack
+        n for n in _significant_numbers(body) if _normalise(n) not in source_numbers
     )
     if invented:
         problems.append(
@@ -186,15 +226,26 @@ async def enforce_document_grounding(
             f"programme record: {', '.join(invented[:8])}"
         )
 
-    # The programme is who you are applying TO. Seeing its name as the applicant
-    # is the signature of the model reading the document title as the company.
+    # Whoever the document says the applicant is, it must be the founder's
+    # company. Checked against the company-name answer directly rather than via
+    # the opportunity record, which may not resolve — the observed failure was
+    # the model reading the document TITLE as the company, and the title is
+    # always present.
+    if company:
+        wrong = _wrong_applicant(spec, company)
+        if wrong:
+            problems.append(
+                f"the application names {wrong!r} as the company; the founder's "
+                f"company is {company!r}"
+            )
+    # Belt and braces when the programme record is available.
     if programme and company:
         first = programme.split()[0]
         low = body.lower()
         if first.lower() in low and company.split(",")[0].lower() not in low:
             problems.append(
-                f"the applicant reads as {first!r} (the programme) rather than "
-                f"{company!r} (your company)"
+                f"the programme name {first!r} reads as the applicant rather "
+                f"than {company!r}"
             )
 
     if not problems:

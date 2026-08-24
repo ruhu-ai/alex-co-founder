@@ -71,6 +71,16 @@ def read_text(name: str) -> str:
         return fh.read()
 
 
+def read_bytes(name: str) -> bytes:
+    if not os.path.exists(artifact_path(name)):
+        gcs = _gcs()
+        if gcs:
+            fs, prefix = gcs
+            fs.get_file(prefix + name, artifact_path(name))
+    with open(artifact_path(name), "rb") as fh:
+        return fh.read()
+
+
 def save_bytes(name: str, data: bytes) -> str:
     with open(artifact_path(name), "wb") as fh:
         fh.write(data)

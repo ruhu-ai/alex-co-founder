@@ -32,8 +32,8 @@ sources:                            # discovery lanes (docs/08)
     url: "https://startup.google.com/programs/"
   - type: web_page
     url: "https://www.tonyelumelufoundation.org/entrepreneurship-programme"
-  - type: pdf                       # one real guidelines PDF — picked Day 1, see tests/fixtures
-    url: "TBD-Day-1"
+  - type: pdf                       # one real guidelines PDF (verified 200/application/pdf, 180KB)
+    url: "https://launchvic.org/app/uploads/2025/02/University-Pre-Accelerator-Grants-Guidelines_v1.0.pdf"
 
 # tests/fixtures/ holds snapshots of every configured source: CI and evals replay
 # fixtures (deterministic); only the live demo fetches real URLs.

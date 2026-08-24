@@ -1,7 +1,5 @@
 """Portal access tests (docs/17): credential store, email verification loop."""
 
-import json
-
 import pytest
 
 from services import alex_mailbox, portal_accounts
@@ -44,6 +42,19 @@ class TestPortalAccounts:
         portal_accounts._CACHE.clear()  # simulate restart
         cred = portal_accounts.get_credential("persist.example")
         assert cred and cred["password"] == "pw!X1"
+
+    def test_pending_verification_metadata_never_leaks_password(self, secrets_tmp):
+        portal_accounts.store_credential(
+            "portal.example", "alex@ruhu.ai", "pw!X1", verified=False,
+            portal_url="https://portal.example", session_id="session-1")
+        pending = portal_accounts.pending_registrations()
+        assert pending == [{
+            "host": "portal.example", "email": "alex@ruhu.ai",
+            "portal_url": "https://portal.example", "session_id": "session-1",
+        }]
+        assert "password" not in pending[0]
+        assert portal_accounts.mark_verified("portal.example")["status"] == "success"
+        assert portal_accounts.pending_registrations() == []
 
 
 class _MockMailbox:

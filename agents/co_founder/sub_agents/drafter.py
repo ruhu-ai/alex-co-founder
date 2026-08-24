@@ -1,7 +1,7 @@
 """Drafter agent — section drafting in the founder's voice (docs/04)."""
 
 from google.adk.agents import Agent
-from ..callbacks import enforce_document_grounding
+from ..callbacks import enforce_document_grounding, initialize_session_state
 from ..config import MODEL
 from ..instructions import DRAFTER_INSTRUCTION
 from ..tools import documents, drafting, pipeline, profile
@@ -15,6 +15,7 @@ def build_agent(model=None) -> Agent:
         instruction=DRAFTER_INSTRUCTION,
         tools=[
             drafting.save_draft_section,
+            drafting.complete_drafting,
             drafting.get_section_feedback,
             drafting.get_form_questions,
             documents.produce_document,
@@ -22,9 +23,8 @@ def build_agent(model=None) -> Agent:
             profile.get_relevant_answers,
             profile.get_voice_rules,
         ],
+        # Refresh {today}/{browser_status} on turns ADK routes straight here.
+        before_agent_callback=initialize_session_state,
         # Grounding is enforced here, not asked for in a docstring (principle 7).
         before_tool_callback=enforce_document_grounding,
     )
-
-
-agent = build_agent()

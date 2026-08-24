@@ -80,5 +80,9 @@ async def send_alex_email(tool_context: ToolContext, to: str, subject: str,
         {"status": "success", "message_id": ...} after a granted approval, or
         {"status": "needs_approval", ...} while founder approval is pending.
     """
-    return await alex_mailbox.send_email(to=to, subject=subject, body=body,
-                                         application_id=application_id)
+    session = getattr(tool_context, "session", None)
+    return await alex_mailbox.send_email(
+        to=to, subject=subject, body=body, application_id=application_id,
+        founder_id=tool_context.state.get("user:profile_id", "founder"),
+        session_id=(getattr(session, "id", "")
+                    or getattr(session, "session_id", "")))

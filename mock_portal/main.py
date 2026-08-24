@@ -6,6 +6,8 @@ webhook callbacks to the agent, and a ?v=2 mode with renamed fields to exercise
 the staleness fence.
 """
 
+import hmac
+import html
 import os
 import uuid
 from datetime import datetime, timezone
@@ -17,8 +19,21 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 app = FastAPI(title="mock-portal")
 
 CREDS = {"demo-founder": "demo-pass-2026"}
-PORTAL_TOKEN = os.environ.get("PORTAL_WEBHOOK_TOKEN", "dev-portal-token")
+PORTAL_TOKEN = os.environ.get(
+    "PORTAL_WEBHOOK_TOKEN", "" if os.environ.get("K_SERVICE") else "dev-portal-token")
 AGENT_BASE_URL = os.environ.get("AGENT_BASE_URL", "http://127.0.0.1:8090")
+
+
+def _admin_ok(request: Request) -> bool:
+    """Admin / mailbox / save endpoints: open in local dev (the demo runs
+    without a token), but in production (K_SERVICE) require the shared portal
+    token via header — otherwise a publicly-deployed portal leaks verification
+    tokens (/_mailbox) and lets anyone clear the double-submit ledger
+    (/admin/reset). Mirrors the app's fail-closed K_SERVICE posture."""
+    if not os.environ.get("K_SERVICE"):
+        return True
+    presented = request.headers.get("X-Portal-Token", "")
+    return bool(PORTAL_TOKEN) and hmac.compare_digest(presented, PORTAL_TOKEN)
 
 PROGRAMS = {
     "mp-grant": {"name": "Meridian Pre-Seed Grant", "award": "$25,000", "deadline": "2026-09-30"},
@@ -27,7 +42,9 @@ PROGRAMS = {
 
 _sessions: set[str] = set()
 _submissions: dict[str, dict] = {}          # idempotency_key -> submission
-_saves: dict[str, dict] = {}
+_saves: dict[str, dict] = {}                # program_id -> saved form
+_a2a_log: list[dict] = []                   # A2A negotiations (own namespace:
+# never inside _saves, where /apply/a2a_log/save would collide with it)
 
 # v1 -> v2 renamed fields (staleness-fence exercise)
 FIELD_NAMES = {
@@ -355,6 +372,8 @@ def region_options(region: str):
 
 @app.post("/apply/{program_id}/save")
 async def save_progress(program_id: str, request: Request):
+    if not _admin_ok(request):
+        return JSONResponse({"error": "auth required"}, status_code=401)
     form = await request.form()
     _saves[program_id] = dict(form)
     return {"saved": len(form)}
@@ -369,8 +388,13 @@ async def submit(program_id: str, request: Request):
         original = _submissions[idem_key]
         return HTMLResponse(_receipt(original["confirmation_id"], replayed=True))
     form = await request.form()
-    by_label = {f["name"]: f["label"] for f in _fields("v1")}
-    required = [f["name"] for f in _fields("v1") if f["required"]]
+    # Validate against the version the form was rendered with. apply_form's
+    # action carries ?v=v1|v2 (staleness-fence demo); ignoring it meant a
+    # correctly re-filled v2 form (renamed fields) could never validate.
+    raw_v = request.query_params.get("v") or str(form.get("v", ""))
+    version = "v2" if raw_v in ("2", "v2") else "v1"
+    by_label = {f["name"]: f["label"] for f in _fields(version)}
+    required = [f["name"] for f in _fields(version) if f["required"]]
     missing = [name for name in required if name not in form or not str(form.get(name, "")).strip()]
     # file + dynamic select are founder-owned in our demo flow; tolerate them missing here
     missing = [m for m in missing if m not in ("deck_upload", "founder_country")]
@@ -390,13 +414,17 @@ async def submit(program_id: str, request: Request):
         _submissions[idem_key] = submission
 
     agent_url = os.environ.get("AGENT_BASE_URL", AGENT_BASE_URL)
+    session_id = request.headers.get("x-cofounder-session-id", "")
+    application_id = request.headers.get("x-cofounder-application-id", "")
+    user_id = request.headers.get("x-cofounder-user-id", "founder")
     try:
         async with httpx.AsyncClient(timeout=10) as client:
             await client.post(
                 f"{agent_url}/webhooks/portal_event",
                 headers={"X-Portal-Token": PORTAL_TOKEN,
                          "Content-Type": "application/json"},
-                json={"user_id": "founder", "session_id": "", "application_id": "",
+                json={"user_id": user_id or "founder", "session_id": session_id,
+                      "application_id": application_id,
                       "kind": "submission_confirmed",
                       "confirmation_id": confirmation_id,
                       "detail": f"{program_id} submission confirmed"},
@@ -503,7 +531,7 @@ async def a2a_endpoint(request: Request):
         return {"jsonrpc": "2.0", "id": rpc_id,
                 "error": {"code": -32602, "message": "message has no text parts"}}
     answer = _program_office_answer(question)
-    await firestore_audit_a2a(question, answer)
+    await _audit_a2a(question, answer)
     return {"jsonrpc": "2.0", "id": rpc_id,
             "result": {
                 "kind": "message",
@@ -513,9 +541,11 @@ async def a2a_endpoint(request: Request):
             }}
 
 
-async def firestore_audit_a2a(question: str, answer: str) -> None:
-    """Every negotiation logged (mock-local; the agent side audits its own too)."""
-    _saves.setdefault("a2a_log", []).append(
+async def _audit_a2a(question: str, answer: str) -> None:
+    """Every negotiation logged (mock-local; the agent side audits its own too).
+    Stored in its own list, not _saves, so a /apply/a2a_log/save can't clobber
+    it."""
+    _a2a_log.append(
         {"q": question[:200], "a": answer[:200],
          "at": datetime.now(timezone.utc).isoformat()})
 
@@ -562,7 +592,8 @@ async def signup(request: Request):
     })
     return _page("Check your email",
                      f'<div class="card"><p>We sent a verification link to '
-                     f'<b>{email_addr}</b>. Open it to activate the account, then sign in.</p>'
+                     f'<b>{html.escape(email_addr)}</b>. Open it to activate the account, '
+                     f'then sign in.</p>'
                      f'<p class="note">The link expires in 24 hours.</p></div>', nav=False)
 
 
@@ -572,7 +603,8 @@ def verify(token: str):
         if acct["token"] == token:
             acct["verified"] = True
             return _page("Email verified",
-                                 f'<div class="receipt"><b>{email_addr}</b> is verified.</div>'
+                                 f'<div class="receipt"><b>{html.escape(email_addr)}</b> '
+                                 f'is verified.</div>'
                                  f'<p><a class="btn" href="/login">Sign in</a></p>', nav=False)
     return _page("Link not recognised",
                      '<div class="alert"><b>That verification link is not valid.</b> '
@@ -581,21 +613,29 @@ def verify(token: str):
 
 
 @app.get("/_mailbox/{email_addr}")
-def mailbox(email_addr: str):
-    """Test seam: the 'inbox' the agent polls during registration."""
+def mailbox(email_addr: str, request: Request):
+    """Test seam: the 'inbox' the agent polls during registration. Gated in
+    production — this leaks verification tokens if left open publicly."""
+    if not _admin_ok(request):
+        return JSONResponse({"error": "auth required"}, status_code=401)
     return {"messages": _mailbox.get(email_addr.lower(), [])}
 
 
 @app.get("/admin/reset")
-def admin_reset():
+def admin_reset(request: Request):
+    if not _admin_ok(request):
+        return JSONResponse({"error": "auth required"}, status_code=401)
     _submissions.clear()
     _saves.clear()
+    _a2a_log.clear()
     return {"status": "reset"}
 
 
 @app.get("/admin/ping-agent")
-async def ping_agent():
+async def ping_agent(request: Request):
     """Pre-flight: fire a signed test event at the agent webhook; verify 200."""
+    if not _admin_ok(request):
+        return JSONResponse({"error": "auth required"}, status_code=401)
     agent_url = os.environ.get("AGENT_BASE_URL", AGENT_BASE_URL)
     try:
         async with httpx.AsyncClient(timeout=10) as client:

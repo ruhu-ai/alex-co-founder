@@ -5,9 +5,6 @@ lifecycle. State transitions guarded by the docs/03 table (can_transition).
 from __future__ import annotations
 
 import hashlib
-import uuid
-from datetime import datetime, timezone
-from typing import Any
 
 from agents.co_founder.state_schema import ApplicationStep as Step
 from agents.co_founder.state_schema import ChecklistStatus, OpportunityState, can_transition
@@ -17,13 +14,21 @@ _URGENCY_TIERS = ((3, "CRITICAL"), (14, "URGENT"))
 
 
 def compute_urgency(deadline: str | None, required_materials: list[str]) -> dict:
-    """Deadline sentinel tiers (docs/08): OVERDUE | CRITICAL(≤3d) | URGENT(≤14d) | NORMAL | ROLLING."""
+    """Deadline sentinel tiers (docs/08): OVERDUE | CRITICAL(≤3d) | URGENT(≤14d) | NORMAL | ROLLING.
+
+    "Today" is UTC, explicitly — Cloud Run's server-local date IS UTC, but
+    date.today() made that an accident of deployment. Extraction sometimes
+    yields datetime-shaped strings ("2026-11-30T23:59:00Z"); the date prefix
+    parses instead of silently degrading a due-tomorrow grant to NORMAL."""
     if not deadline:
         return {"tier": "ROLLING", "days_left": None, "note": "rolling deadline"}
     try:
         from datetime import date as _date
+        from datetime import datetime as _dt
+        from datetime import timezone as _tz
 
-        days = (_date.fromisoformat(deadline) - _date.today()).days
+        days = (_date.fromisoformat(str(deadline)[:10])
+                - _dt.now(_tz.utc).date()).days
     except ValueError:
         return {"tier": "NORMAL", "days_left": None, "note": f"unparsed deadline {deadline!r}"}
     tier = "OVERDUE" if days < 0 else next((t for lim, t in _URGENCY_TIERS if days <= lim), "NORMAL")
@@ -73,6 +78,9 @@ async def board(founder_id: str, limit: int = 40) -> dict:
 
 
 async def shortlist(opportunity_id: str, rationale: str, urgency_note: str, fit_score: int) -> dict:
+    if not isinstance(fit_score, int) or not 70 <= fit_score <= 100:
+        return {"status": "error", "error": True,
+                "message": "shortlist fit_score must be an integer from 70 to 100"}
     opp = await firestore.get_opportunity(opportunity_id)
     if not opp:
         return {"status": "error", "error": True, "message": f"opportunity {opportunity_id} not found"}
@@ -93,9 +101,15 @@ async def shortlist(opportunity_id: str, rationale: str, urgency_note: str, fit_
 async def archive(opportunity_id: str, reason: str, fit_score: int) -> dict:
     if not reason.strip():
         return {"status": "error", "error": True, "message": "archive reason must be specific and non-empty"}
+    if not isinstance(fit_score, int) or not 0 <= fit_score < 70:
+        return {"status": "error", "error": True,
+                "message": "archive fit_score must be an integer from 0 to 69"}
     opp = await firestore.get_opportunity(opportunity_id)
     if not opp:
         return {"status": "error", "error": True, "message": f"opportunity {opportunity_id} not found"}
+    if opp["state"] != OpportunityState.DISCOVERED:
+        return {"status": "error", "error": True,
+                "message": f"cannot archive from state {opp['state']} (guard: DISCOVERED only)"}
     await firestore.set_opportunity_state(
         opportunity_id, OpportunityState.ARCHIVED, archive_reason=reason, fit_score=fit_score,
     )
@@ -133,8 +147,6 @@ async def advance_application(application_id: str, to_step: str, actor: str, **f
     if not can_transition(app["state"], to_step):
         return {"status": "error", "error": True,
                 "message": f"illegal transition {app['state']} → {to_step}"}
-    if to_step == Step.APPROVED and not app.get("submit_idempotency_key"):
-        fields["submit_idempotency_key"] = uuid.uuid4().hex
     await firestore.update_application(application_id, state=to_step, **fields)
     await firestore.audit(actor, "state_transition", f"applications/{application_id}",
                           "success", f"{app['state']} → {to_step}")

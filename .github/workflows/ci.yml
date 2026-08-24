@@ -16,6 +16,11 @@ jobs:
         run: |
           uv venv .venv
           uv pip install --python .venv/bin/python -r requirements.txt
+      - name: Install Playwright Chromium (browser-agent unit tests launch it)
+        # ~14 unit tests drive a real Chromium; the pip `playwright` package
+        # ships no browser binary, so without this the first CI run goes red.
+        # --with-deps pulls the OS libraries Chromium needs on the runner.
+        run: .venv/bin/python -m playwright install --with-deps chromium
       - name: Design system — contrast, palette drift, portal (docs/16 §2.4, §12)
         run: .venv/bin/python scripts/check_contrast.py
 
@@ -25,11 +30,33 @@ jobs:
           git diff --exit-code app/static/index.html \
             || (echo "sprite is stale — run scripts/build_icons.py and commit"; exit 1)
 
+      - name: Security hygiene — no env files or local secrets tracked (docs/12)
+        run: |
+          if git ls-files | grep -xE '\.env|\.env\.prod|\.portal_secrets\.json|sessions\.db'; then
+            echo "a local secret file is tracked in git"; exit 1
+          fi
+
       - name: Unit + service + integration tests
         run: .venv/bin/python -m pytest tests/unit tests/integration -q
       - name: ADK golden evals (needs GCP creds)
-        if: ${{ secrets.GCP_CREDENTIALS != '' }}
+        env:
+          GCP_CREDENTIALS: ${{ secrets.GCP_CREDENTIALS }}
         run: |
+          # A silent skip reads as green — make it a visible warning, and
+          # actually export the credentials (the old version never did, so
+          # even with the secret set the evals had no ADC).
+          if [ -z "$GCP_CREDENTIALS" ]; then
+            echo "::warning title=ADK eval gate SKIPPED::GCP_CREDENTIALS secret is not set — the ADK golden evals did NOT run. A green check on this job does NOT mean evals passed."
+            {
+              echo "### ⚠️ ADK golden eval gate SKIPPED — not passed"
+              echo ""
+              echo "\`GCP_CREDENTIALS\` is not set, so the ADK golden evals could not run (no ADC in CI)."
+              echo "This step exits 0 so PRs are not blocked, but **a passing check here is NOT evidence the evals passed** — they were skipped entirely."
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          printf '%s' "$GCP_CREDENTIALS" > /tmp/gcp-key.json
+          export GOOGLE_APPLICATION_CREDENTIALS=/tmp/gcp-key.json
           for set in tests/eval/evalsets/*.json; do
             PYTHONPATH=. .venv/bin/adk eval agents/co_founder "$set" \
               --config_file_path tests/eval/eval_config.json || exit 1

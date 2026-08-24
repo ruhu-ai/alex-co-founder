@@ -56,6 +56,10 @@ K_USER_PROFILE_ID = "user:profile_id"
 K_USER_PREFS = "user:prefs"
 K_APP_WORKFLOW_ID = "app:workflow_id"
 K_TODAY = "today"  # refreshed every turn by the callback — the agent's clock
+# The inspected portal field signature (docs/09 staleness fence). A PERSISTED
+# session key on purpose: a `temp:` key is dropped by ADK at event append, so
+# it never survives the cross-turn fill→approve→submit flow.
+K_PORTAL_SIGNATURE = "portal_signature"
 
 
 # Legal application-step transitions (docs/03 §transition table).

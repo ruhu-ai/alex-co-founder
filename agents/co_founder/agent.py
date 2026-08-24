@@ -8,9 +8,8 @@ from google.adk.agents import Agent
 from google.adk.apps import App
 from google.adk.apps.app import ContextCacheConfig, EventsCompactionConfig
 
-from . import state_schema as ss
 from .callbacks import initialize_session_state
-from .config import MODEL, PERSONA_NAME, REASONING_MODEL
+from .config import PERSONA_NAME, REASONING_MODEL
 from .instructions import ORCHESTRATOR_INSTRUCTION
 from .sub_agents import drafter, form_filler, interviewer, matchmaker, scout
 from .tools import alex_mail as alex_mail_tools
@@ -18,6 +17,7 @@ from .tools import a2a_talk as a2a_talk_tools
 from .tools import browse as browse_tools
 from .tools import calendar as calendar_tools
 from .tools import feedback as feedback_tools
+from .tools import followup as followup_tools
 from .tools import pipeline
 from .workflow import get_workflow
 
@@ -40,6 +40,12 @@ def build_root_agent(model) -> Agent:
             pipeline.choose_opportunity,
             pipeline.get_checklist,
             feedback_tools.record_feedback,
+            # SUBMITTED → FOLLOW_UP → CLOSED (orchestrator instruction step 7):
+            # these were defined but registered on no agent, leaving the
+            # follow-up phase unreachable.
+            feedback_tools.submit_voice_note,
+            followup_tools.schedule_followup,
+            followup_tools.record_status,
             calendar_tools.get_upcoming_meetings,
             calendar_tools.check_availability,
             calendar_tools.book_meeting,

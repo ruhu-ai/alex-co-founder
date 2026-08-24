@@ -144,7 +144,7 @@ def main() -> int:
     toggle = parse_theme(css, "@tokens light-toggle")
     drift = {k for k in set(light) | set(toggle) if light.get(k) != toggle.get(k)}
     if drift:
-        print(f"\nlight palette drift between the media block and the toggle block:")
+        print("\nlight palette drift between the media block and the toggle block:")
         for k in sorted(drift):
             print(f"  --{k}: media={light.get(k, 'absent')}  toggle={toggle.get(k, 'absent')}")
         total += len(drift)

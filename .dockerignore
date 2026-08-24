@@ -1,0 +1,46 @@
+# Build-context excludes for `docker build .` / Cloud Build.
+# The Dockerfile does `COPY . .`, so anything not excluded here is baked into
+# the image layers. Keep ONLY runtime source: agents/ app/ services/
+# mock_portal/ workflows/ (+ requirements.txt). Everything below is a secret,
+# local state, cache, VCS artifact, doc, or large binary — never needed at
+# runtime and, for the secret/state files, actively dangerous to ship.
+
+# --- Secrets / credentials (NEVER bake into image layers) ---
+.env
+.env.*
+.portal_secrets.json
+*.pem
+*.key
+
+# --- Local runtime state ---
+sessions.db
+*.db
+artifacts/
+.extracted/
+
+# --- Virtualenv / VCS / editor / symlinks ---
+.venv/
+.git/
+.gitignore
+.github/
+.DS_Store
+~$*
+.opensrc
+
+# --- Build / test / tool caches ---
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+.adk/
+
+# --- Tests (not imported at runtime) ---
+tests/
+
+# --- Docs & large binaries (not imported at runtime) ---
+docs/
+*.pdf
+ssh-lambda.docx
+
+# --- The ignore file itself ---
+.dockerignore

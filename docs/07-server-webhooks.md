@@ -70,7 +70,7 @@ Rules (corrected against the reference implementation):
 | `POST /api/feedback` | UI review controls | `{session_id, section_id, type, reason?, edited_text?}` → runs `record_feedback` path, resumes session |
 | `POST /api/approvals/{approval_id}/resolve` | founder grants/denies at the gate | `{decision: "grant"|"deny"}` → mints/consumes token flow (see 12), resumes session |
 | `POST /api/voice-note` | voice-note upload (multipart) | stores artifact, transcribes via the service-layer function, forwards extracted intent through the normal resume path (tool `submit_voice_note` wraps the same service function) |
-| `GET /api/applications/{id}` | application detail for UI (drafts, fill report, audit) | |
+| `GET /api/applications/{id}?session_id=` | session-bound application detail for UI (drafts, fill report, audit) | unknown session or another founder's application → 404 |
 | `GET /api/artifacts/{name}/preview` | inline artifact for the UI (browser pageshots, fill screenshots — 18) | founder/session-checked; streams with correct MIME |
 | `GET /api/artifacts/{name}/download` | document downloads (15) | `Content-Disposition: attachment`, correct OOXML MIME |
 | `GET /api/browser/state?session_id=` | Browser panel snapshot (18) | → `get_browser_state` dict; unknown/non-founder session → 404 |

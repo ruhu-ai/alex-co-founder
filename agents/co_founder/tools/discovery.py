@@ -5,7 +5,7 @@ import hashlib
 
 from google.adk.tools import ToolContext
 
-from ._common import run
+from ._common import failed, run
 
 
 def search_programs(query: str, tool_context: ToolContext) -> dict:
@@ -42,6 +42,29 @@ def fetch_source(source_url: str, source_type: str, tool_context: ToolContext) -
     return run(discovery_service.fetch_source(source_url, source_type, artifact))
 
 
+def extract_records(artifact_name: str, tool_context: ToolContext) -> dict:
+    """Extract structured opportunity records from a fetched source artifact.
+
+    Call this after fetch_source: it runs model extraction over the FULL
+    stored source (the fetch summary is only 300 chars). PDF sources are
+    extracted from the stored PDF bytes via document understanding.
+
+    Args:
+        artifact_name: The artifact name returned by fetch_source
+            (e.g. "source_ab12cd34ef56.txt").
+
+    Returns:
+        dict with status and records: a list matching the workflow
+        entity_schema, each with a verbatim raw_excerpt citation. Save each
+        keeper with save_opportunity (after dedupe_check).
+    """
+    from agents.co_founder.workflow import get_workflow
+    from services import discovery_service
+
+    return run(discovery_service.extract_records(
+        artifact_name, get_workflow().entity_schema))
+
+
 def dedupe_check(name: str, application_url: str, tool_context: ToolContext) -> dict:
     """Check whether an opportunity already exists before saving it.
 
@@ -56,13 +79,15 @@ def dedupe_check(name: str, application_url: str, tool_context: ToolContext) -> 
     from services import firestore
 
     digest = hashlib.sha256(f"{name.strip().lower()}|{application_url.strip().lower()}".encode()).hexdigest()
-    try:
-        existing_id = run(firestore.find_opportunity_by_hash(digest))
-        return {"status": "success", "dedup_hash": digest,
-                "is_duplicate": existing_id is not None, "existing_id": existing_id}
-    except Exception:
+    existing_id = run(firestore.find_opportunity_by_hash(digest))
+    # run() returns a truthy error dict (never raises) when the lookup fails, so
+    # `existing_id is not None` would wrongly report a duplicate. failed() is the
+    # only correct way to tell a store outage from a genuine hit.
+    if failed(existing_id):
         return {"status": "success", "dedup_hash": digest, "is_duplicate": False,
                 "note": "pipeline store unreachable; returned hash only"}
+    return {"status": "success", "dedup_hash": digest,
+            "is_duplicate": existing_id is not None, "existing_id": existing_id}
 
 
 def save_opportunity(record: dict, tool_context: ToolContext) -> dict:

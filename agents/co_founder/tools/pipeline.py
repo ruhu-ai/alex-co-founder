@@ -1,10 +1,40 @@
 """Pipeline tools (docs/05). Errors as data. Thin wrappers over
 services.pipeline_service + services.approval_service."""
 
+import re
+
 from google.adk.tools import ToolContext
 
 from .. import state_schema as ss
 from ._common import run
+
+# Application steps in which a committed application is mid-flight: starting a
+# second application would clobber active_application_id/current_step/checklist
+# and strand the first. IDLE/TRIAGE/INTERVIEWING/CLOSED are safe to replace.
+_INFLIGHT_STEPS = frozenset({
+    ss.ApplicationStep.DRAFTING, ss.ApplicationStep.AWAITING_REVIEW,
+    ss.ApplicationStep.APPROVED, ss.ApplicationStep.FORM_FILLING,
+    ss.ApplicationStep.AWAITING_SUBMIT_APPROVAL, ss.ApplicationStep.SUBMITTED,
+    ss.ApplicationStep.FOLLOW_UP,
+})
+
+# Requirement words too generic to count as coverage on their own.
+_GAP_STOPWORDS = frozenset({
+    "plan", "letter", "form", "document", "documents", "statement", "statements",
+    "copy", "proof", "report", "details", "detail", "information", "your", "the",
+})
+
+
+def _requirement_addressed(requirement: str, answered: str) -> bool:
+    """True when a recorded interview answer plausibly covers this required
+    material. Heuristic: any distinctive word of the requirement appears in the
+    answered corpus. Requirements with no distinctive word can't be checked, so
+    they never block."""
+    words = [w for w in re.split(r"[^a-z0-9]+", requirement.lower())
+             if len(w) >= 4 and w not in _GAP_STOPWORDS]
+    if not words:
+        return True
+    return any(word in answered for word in words)
 
 
 def get_pipeline(tool_context: ToolContext) -> dict:
@@ -34,21 +64,23 @@ def get_unscored_opportunities(tool_context: ToolContext) -> dict:
     return run(_go())
 
 
-def shortlist(opportunity_id: str, rationale: str, urgency_note: str, tool_context: ToolContext) -> dict:
+def shortlist(opportunity_id: str, rationale: str, urgency_note: str,
+              fit_score: int, tool_context: ToolContext) -> dict:
     """Mark an opportunity SHORTLISTED (guard: current state must be DISCOVERED).
 
     Args:
         opportunity_id: The opportunity to shortlist.
         rationale: Founder-facing fit rationale, max 280 chars.
         urgency_note: Deadline-urgency note, e.g. "closes in 9 days, needs 2 essays".
+        fit_score: The evidence-backed 70-100 fit score that justified shortlisting.
 
     Returns:
         dict with status and the updated state.
     """
     from services import pipeline_service
 
-    return run(pipeline_service.shortlist(opportunity_id, rationale, urgency_note,
-                                          fit_score=tool_context.state.get("temp:fit_score", 75)))
+    return run(pipeline_service.shortlist(
+        opportunity_id, rationale, urgency_note, fit_score=fit_score))
 
 
 def archive_with_reason(opportunity_id: str, reason: str, fit_score: int, tool_context: ToolContext) -> dict:
@@ -79,10 +111,20 @@ def choose_opportunity(opportunity_id: str, tool_context: ToolContext) -> dict:
     """
     from services import pipeline_service
 
-    founder_id = tool_context.state.get(ss.K_USER_PROFILE_ID, "founder")
+    state = tool_context.state
+    # Escalate when blocked (docs/README): refuse to start a second application
+    # while one is mid-flight — clobbering the active ids would strand it.
+    active_id = state.get(ss.K_ACTIVE_APPLICATION_ID, "")
+    current = state.get(ss.K_CURRENT_STEP, "")
+    if active_id and current in _INFLIGHT_STEPS:
+        return {"status": "error", "error": True,
+                "message": (f"Application {active_id} is already in progress at "
+                            f"{current}. Finish or close it before starting a new "
+                            "one — I won't drop work in flight.")}
+
+    founder_id = state.get(ss.K_USER_PROFILE_ID, "founder")
     result = run(pipeline_service.choose_opportunity(founder_id, opportunity_id))
     if result.get("status") == "success":
-        state = tool_context.state
         state[ss.K_CURRENT_STEP] = ss.ApplicationStep.INTERVIEWING
         state[ss.K_ACTIVE_APPLICATION_ID] = result["application_id"]
         state[ss.K_ACTIVE_OPPORTUNITY_ID] = opportunity_id
@@ -148,14 +190,37 @@ def complete_interview(tool_context: ToolContext) -> dict:
     interview answers into profile facts and transitions to DRAFTING.
 
     Returns:
-        dict with status and the new current_step.
+        dict with status and the new current_step. Refuses (error-as-data) while
+        any required program material has no recorded interview answer.
     """
-    from services import pipeline_service
+    from services import firestore, pipeline_service
 
     state = tool_context.state
     app_id = state.get(ss.K_ACTIVE_APPLICATION_ID, "")
-    result = run(pipeline_service.advance_application(app_id, ss.ApplicationStep.DRAFTING,
-                                                      actor="agent:interviewer"))
+    requirements = [str(r) for r in (state.get(ss.K_ACTIVE_PROGRAM_REQUIREMENTS) or [])]
+
+    async def _go():
+        app = await firestore.get_application(app_id) if app_id else None
+        if not app:
+            return {"status": "error", "error": True, "message": "no active application"}
+        # The interviewer's ground truth for what has been answered.
+        answered = " ".join(
+            f"{qa.get('question_key', '')} {qa.get('question', '')} {qa.get('answer', '')}"
+            for qa in app.get("interview_qa", [])
+        ).lower()
+        unresolved = [req for req in requirements
+                      if not _requirement_addressed(req, answered)]
+        if unresolved:
+            return {
+                "status": "error", "error": True, "unresolved_gaps": unresolved,
+                "message": ("Interview incomplete — no recorded answer yet addresses "
+                            f"required item(s): {', '.join(unresolved[:6])}. Ask about "
+                            "these and record_answer before completing the interview."),
+            }
+        return await pipeline_service.advance_application(
+            app_id, ss.ApplicationStep.DRAFTING, actor="agent:interviewer")
+
+    result = run(_go())
     if result.get("status") == "success":
         state[ss.K_CURRENT_STEP] = ss.ApplicationStep.DRAFTING
     return result
@@ -174,7 +239,12 @@ def request_approval(gate: str, tool_context: ToolContext) -> dict:
     from services import approval_service
 
     app_id = tool_context.state.get(ss.K_ACTIVE_APPLICATION_ID, "")
-    result = run(approval_service.request_approval(app_id, gate))
+    session = getattr(tool_context, "session", None)
+    session_id = (getattr(session, "id", "")
+                  or getattr(session, "session_id", ""))
+    founder_id = tool_context.state.get(ss.K_USER_PROFILE_ID, "founder")
+    result = run(approval_service.request_approval(
+        app_id, gate, founder_id=founder_id, session_id=session_id))
     if result.get("status") == "success":
         tool_context.state[ss.K_PENDING_SIGNALS] = ["founder_approval"]
     return result

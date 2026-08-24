@@ -71,7 +71,11 @@ _dialer_fn: DialerFn | None = None
 _browse_contexts: dict[str, dict[str, Any]] = {}
 _browse_locks: dict[str, asyncio.Lock] = {}
 _session_locks: dict[tuple[str, str, str], asyncio.Lock] = {}
+# Serialize submits sharing a derived idempotency key so two concurrent
+# submit_form calls can never interleave clicks on the same page (docs/05, 09).
+_submit_locks: dict[str, asyncio.Lock] = {}
 _proxy = None
+_public_proxy = None
 
 
 def set_reader_fn(fn: ReaderFn | None) -> None:
@@ -307,7 +311,7 @@ def redact_url(url: str) -> str:
 
 
 def _validate_url_detail(
-    url: str, *, resolve: bool = True
+    url: str, *, resolve: bool = True, enforce_domain_policy: bool = True
 ) -> tuple[str | None, str | None, str]:
     parts, message = _url_parts(url)
     if parts is None:
@@ -320,9 +324,10 @@ def _validate_url_detail(
             "credential-bearing query parameters are not allowed",
             canonical,
         )
-    policy = check_domain_policy(canonical)
-    if policy:
-        return "policy_refused", policy, canonical
+    if enforce_domain_policy:
+        policy = check_domain_policy(canonical)
+        if policy:
+            return "policy_refused", policy, canonical
     host = parts.hostname or ""
     literal = _parse_ip(host)
     if literal is not None and _unsafe_ip(literal):
@@ -350,9 +355,10 @@ def validate_url(url: str) -> str | None:
 
 
 async def _validate_url_async(
-    url: str,
+    url: str, *, enforce_domain_policy: bool = True,
 ) -> tuple[str | None, str | None, str, list[str]]:
-    code, message, canonical = _validate_url_detail(url, resolve=False)
+    code, message, canonical = _validate_url_detail(
+        url, resolve=False, enforce_domain_policy=enforce_domain_policy)
     if code:
         return code, message, canonical, []
     parts = urlsplit(canonical)
@@ -372,13 +378,25 @@ async def _validate_url_async(
     return None, None, canonical, ips
 
 
+async def validate_public_url(url: str) -> str | None:
+    """Validate an arbitrary discovery URL without the interactive allowlist.
+
+    Discovery is intentionally open-web, but still rejects credentials, unsafe
+    schemes, and every private/reserved DNS result.
+    """
+    _code, message, _canonical, _ips = await _validate_url_async(
+        url, enforce_domain_policy=False)
+    return message
+
+
 class _ValidatingProxy:
     """Tiny HTTP/CONNECT proxy that validates DNS and dials the validated IP."""
 
-    def __init__(self) -> None:
+    def __init__(self, *, enforce_domain_policy: bool = True) -> None:
         self.server = None
         self.port = 0
         self.connections: set[Any] = set()
+        self.enforce_domain_policy = enforce_domain_policy
 
     async def start(self) -> int:
         if self.server is None:
@@ -425,7 +443,8 @@ class _ValidatingProxy:
                 parsed = urlsplit(url)
                 host = parsed.hostname or ""
                 port = parsed.port or (443 if parsed.scheme == "https" else 80)
-            code, _message, canonical, ips = await _validate_url_async(url)
+            code, _message, canonical, ips = await _validate_url_async(
+                url, enforce_domain_policy=self.enforce_domain_policy)
             if code:
                 raise PermissionError(code)
             upstream_r, upstream_w = await self._dial(host, port, ips[0])
@@ -478,12 +497,23 @@ class _ValidatingProxy:
             self.connections.discard(client_w)
 
 
-async def _get_proxy() -> _ValidatingProxy:
-    global _proxy
+async def _get_proxy(*, public: bool = False) -> _ValidatingProxy:
+    global _proxy, _public_proxy
+    if public:
+        if _public_proxy is None:
+            _public_proxy = _ValidatingProxy(enforce_domain_policy=False)
+        await _public_proxy.start()
+        return _public_proxy
     if _proxy is None:
         _proxy = _ValidatingProxy()
     await _proxy.start()
     return _proxy
+
+
+async def public_proxy_url() -> str:
+    """Return the DNS-pinning SSRF proxy used by open-web discovery fetches."""
+    proxy = await _get_proxy(public=True)
+    return f"http://127.0.0.1:{proxy.port}"
 
 
 async def get_browser():
@@ -512,12 +542,28 @@ def page_signature(field_names: list[str]) -> str:
 
 
 async def render_text(url: str) -> str | None:
-    """JS-shell fallback for the scout (docs/08): render and return body text."""
-    context = await new_context()
+    """SSRF-guarded JS-shell fallback for the scout (docs/08)."""
+    if await validate_public_url(url):
+        return None
+    browser = await get_browser()
+    proxy = await _get_proxy(public=True)
+    context = await browser.new_context(
+        accept_downloads=False,
+        proxy={"server": f"http://127.0.0.1:{proxy.port}"},
+    )
     try:
         page = await context.new_page()
+        runtime = {"run_id": "discovery-render", "policy_error": None}
+
+        async def guard(route, request):
+            await _request_guard(
+                route, request, runtime, enforce_domain_policy=False)
+
+        await context.route("**/*", guard)
         await page.goto(url, timeout=30000, wait_until="networkidle")
-        return await page.inner_text("body")
+        if runtime.get("policy_error"):
+            return None
+        return (await page.inner_text("body"))[:MAX_PAGE_TEXT]
     except Exception:
         return None
     finally:
@@ -589,31 +635,114 @@ async def screenshot(page, path: str) -> str:
     return path
 
 
-async def submit(page, idempotency_key: str) -> dict:
-    """Click submit with the derived Idempotency-Key. The portal dedupes
-    (docs/05, 09) — a retry returns the ORIGINAL confirmation."""
-    await page.set_extra_http_headers({"Idempotency-Key": idempotency_key})
+async def _scoped_confirmation(page) -> str | None:
+    """Read the portal's dedicated confirmation element, if the current page is
+    a receipt. The mock portal renders the reference inside ``.receipt .id``
+    (mock_portal/main.py::_receipt) — anchoring on that element, rather than
+    scanning the whole body, is what keeps an ordinary hyphenated token in the
+    page text ("ISO-8601", "REF-2026") from reading as a false submit success."""
     try:
-        await page.click("button[type='submit'], input[type='submit']")
-        await page.wait_for_load_state("networkidle", timeout=15000)
+        element = await page.query_selector(
+            ".receipt .id, [data-confirmation-id], .confirmation-id")
+        if element is None:
+            return None
+        text = (await element.inner_text()).strip()
+        return text or None
+    except Exception:
+        return None
+
+
+async def _read_submit_confirmation(page) -> dict:
+    """Decide submit success STRICTLY, from an explicit confirmation signal.
+
+    Order: the portal's dedicated confirmation element, then an explicit
+    "Confirmation reference: X" line, then an id token that appears in an
+    explicit confirmation-labeled context. Never a greedy body-wide id match."""
+    cid = await _scoped_confirmation(page)
+    if cid:
+        return {"status": "success", "confirmation_id": cid[:120]}
+    try:
+        body = await page.inner_text("body")
     except Exception as exc:
-        return {
-            "status": "error",
-            "error": True,
-            "message": f"submit click failed: {exc}",
-        }
-    body = await page.inner_text("body")
+        return {"status": "error", "error": True,
+                "message": f"could not read result page: {exc}"[:180]}
     for line in body.splitlines():
-        if "confirmation" in line.lower() and ":" in line:
-            return {
-                "status": "success",
-                "confirmation_id": line.split(":", 1)[1].strip(),
-            }
+        lowered = line.lower()
+        if ("confirmation" in lowered or "reference" in lowered) and ":" in line:
+            value = line.split(":", 1)[1].strip()
+            if value:
+                return {"status": "success", "confirmation_id": value[:120]}
+    # Last resort: an id-shaped token, but ONLY within a confirmation-labeled
+    # context (id must follow the word confirmation/reference within ~40 chars),
+    # so standards tokens elsewhere on the page can never be mistaken for a receipt.
+    match = re.search(
+        r"(?i)(?:confirmation|reference)[^\n]{0,40}?\b([A-Z]{2,4}-[0-9A-Za-z]{4,})\b",
+        body)
+    if match:
+        return {"status": "success", "confirmation_id": match.group(1)}
     return {
         "status": "error",
         "error": True,
         "message": "submitted but no confirmation id found on result page",
     }
+
+
+async def submit(page, idempotency_key: str,
+                 routing: dict[str, str] | None = None) -> dict:
+    """Click submit with the derived Idempotency-Key. The portal dedupes
+    (docs/05, 09) — a retry returns the ORIGINAL confirmation."""
+    headers = {"Idempotency-Key": idempotency_key}
+    if routing:
+        headers.update({
+            "X-CoFounder-Session-Id": routing.get("session_id", ""),
+            "X-CoFounder-Application-Id": routing.get("application_id", ""),
+            "X-CoFounder-User-Id": routing.get("user_id", ""),
+        })
+    await page.set_extra_http_headers(headers)
+    lock = _submit_locks.setdefault(idempotency_key, asyncio.Lock())
+    async with lock:
+        # Already on a receipt (a prior click for this key landed, or a
+        # concurrent caller just submitted): return that confirmation instead of
+        # clicking again. The derived key means this is the SAME submission.
+        prior = await _scoped_confirmation(page)
+        if prior:
+            return {"status": "success", "confirmation_id": prior[:120]}
+        try:
+            await page.click("button[type='submit'], input[type='submit']")
+        except Exception as exc:
+            # The click never fired — nothing was submitted; safe to retry.
+            return {"status": "error", "error": True,
+                    "message": f"submit click failed: {exc}"}
+        # The click fired: the POST may be in flight. A networkidle timeout here
+        # does NOT mean the submission failed — reconcile from the page's own
+        # confirmation signal rather than re-clicking (a blind re-click, and the
+        # old greedy regex, are what caused false success / double-submit).
+        try:
+            await page.wait_for_load_state("networkidle", timeout=15000)
+        except Exception:
+            pass
+        return await _read_submit_confirmation(page)
+
+
+async def _validate_portal_target(url: str) -> dict | None:
+    """SSRF fence for the CREDENTIALED paths (register/open_and_login).
+
+    These contexts type portal passwords into whatever page they land on, and
+    their URLs originate from model-extracted opportunity records — untrusted.
+    The read-only browse stack routes through the validating proxy; these
+    interactive POST-ing contexts validate the target up front instead:
+    scheme/credential checks plus DNS resolution with the private/reserved
+    tables. Loopback is exempt in local dev only (the mock portal)."""
+    parts, message = _url_parts(url)
+    if parts is None:
+        return _error("policy_refused", message)
+    host = (parts.hostname or "").lower()
+    if not os.environ.get("K_SERVICE") and host in ("127.0.0.1", "localhost"):
+        return None
+    refusal = await validate_public_url(url)
+    if refusal:
+        return _error("ssrf_blocked", refusal)
+    return None
 
 
 async def register(portal_url: str, email: str, password: str) -> dict:
@@ -622,6 +751,9 @@ async def register(portal_url: str, email: str, password: str) -> dict:
     Heuristic, email+password only: finds the email + password fields on a
     signup/register page and submits. SSO-only or bot-challenged pages return
     blockers as data — the agent never improvises around them."""
+    refusal = await _validate_portal_target(portal_url)
+    if refusal:
+        return refusal
     context = await new_context()
     try:
         page = await context.new_page()
@@ -659,6 +791,17 @@ async def register(portal_url: str, email: str, password: str) -> dict:
                 "message": "no email+password signup form found (possibly SSO-only) — "
                 "reported as a blocker",
             }
+        # Host pin (mirrors open_and_login): page.goto follows redirects, so an
+        # SSO bounce or open redirect could land the signup form on a different
+        # origin. Never type the generated portal password/email cross-origin.
+        expected_host = (urlsplit(portal_url).hostname or "").lower()
+        landed_host = (urlsplit(page.url).hostname or "").lower()
+        if landed_host != expected_host:
+            await context.close()
+            return {"status": "blocked", "error": True,
+                    "message": f"signup page is on {landed_host!r}, not the portal "
+                               f"{expected_host!r} — credentials withheld; hand this "
+                               "portal to the founder"}
         email_sel = "input[type='email'], [name='email'], [name='username']"
         await page.fill(email_sel, email)
         pw_fields = await page.query_selector_all("input[type='password']")
@@ -678,8 +821,53 @@ async def register(portal_url: str, email: str, password: str) -> dict:
         }
 
 
+async def verify_registration_link(url: str, expected_host: str) -> dict:
+    """Open one emailed verification link, constrained to the approved host."""
+    parts, message = _url_parts(url)
+    if parts is None:
+        return _error("policy_refused", message)
+    if parts.netloc.lower() != expected_host.lower():
+        return _error(
+            "policy_refused",
+            "verification link host does not match the approved portal",
+        )
+    host = parts.hostname or ""
+    ips = await _resolve(
+        host, parts.port or (443 if parts.scheme == "https" else 80))
+    local_dev = not os.environ.get("K_SERVICE") and host in ("127.0.0.1", "localhost")
+    if (not local_dev) and (not ips or any(_unsafe_ip(ip) for ip in ips)):
+        return _error("ssrf_blocked", "verification host resolves to a private address")
+    context = await new_context()
+    try:
+        page = await context.new_page()
+
+        async def same_origin_get_only(route, request):
+            request_parts, _ = _url_parts(request.url)
+            if (request.method.upper() not in ("GET", "HEAD")
+                    or request_parts is None
+                    or request_parts.netloc.lower() != expected_host.lower()):
+                await route.abort("blockedbyclient")
+                return
+            await route.continue_()
+
+        await context.route("**/*", same_origin_get_only)
+        await page.goto(url, timeout=30000, wait_until="networkidle")
+        body = (await page.inner_text("body"))[:800]
+        if any(word in body.lower() for word in ("not valid", "expired", "error")):
+            return _error("verification_failed", "portal rejected the verification link")
+        return {"status": "success", "verified": True}
+    except Exception as exc:
+        return _error("verification_failed", f"verification failed: {exc}"[:300])
+    finally:
+        await context.close()
+
+
 async def open_and_login(portal_url: str, username: str, password: str) -> dict:
     """Open the portal and log in. Returns the live page on success."""
+    refusal = await _validate_portal_target(portal_url)
+    if refusal:
+        return refusal
+    expected_host = (urlsplit(portal_url).hostname or "").lower()
     context = await new_context()
     try:
         page = await context.new_page()
@@ -688,6 +876,15 @@ async def open_and_login(portal_url: str, username: str, password: str) -> dict:
             # landing page isn't the login page — try the conventional path
             await page.goto(portal_url.rstrip("/") + "/login", timeout=15000)
         if await page.query_selector("input[type='password']"):
+            # Host pin: redirects (SSO bounce, open redirect) must never end
+            # with the portal credential typed into a different origin.
+            landed_host = (urlsplit(page.url).hostname or "").lower()
+            if landed_host != expected_host:
+                await context.close()
+                return {"status": "blocked", "error": True,
+                        "message": f"login page is on {landed_host!r}, not the "
+                                   f"portal {expected_host!r} — credentials "
+                                   "withheld; hand this portal to the founder"}
             await page.fill("[name='username'], [name='email']", username)
             await page.fill("[name='password']", password)
             await page.click("button[type='submit']")
@@ -731,7 +928,8 @@ async def _audit_refusal(url: str, code: str, message: str, run_id: str = "") ->
         pass
 
 
-async def _request_guard(route, request, runtime: dict[str, Any]) -> None:
+async def _request_guard(route, request, runtime: dict[str, Any],
+                         *, enforce_domain_policy: bool = True) -> None:
     method = request.method.upper()
     post_data = request.post_data
     if method not in ("GET", "HEAD") or post_data:
@@ -743,7 +941,8 @@ async def _request_guard(route, request, runtime: dict[str, Any]) -> None:
         )
         await route.abort("blockedbyclient")
         return
-    code, message, _canonical, _ips = await _validate_url_async(request.url)
+    code, message, _canonical, _ips = await _validate_url_async(
+        request.url, enforce_domain_policy=enforce_domain_policy)
     if code:
         runtime["policy_error"] = _error(code, message or "request refused")
         await _audit_refusal(
@@ -888,7 +1087,9 @@ async def save_pageshot(run_id: str, seq: int, tag: str) -> str:
     if not runtime:
         raise RuntimeError("browser context is unavailable")
     artifact = f"pageshot_{run_id}_{seq}_{tag}.png"
-    storage.save_bytes(artifact, await runtime["page"].screenshot(full_page=True))
+    shot = await runtime["page"].screenshot(full_page=True)
+    # storage.save_bytes mirrors to GCS synchronously (blocking) — offload it.
+    await asyncio.to_thread(storage.save_bytes, artifact, shot)
     runtime["artifact"] = artifact
     await firestore.update_browser_run(run_id, screenshot_artifact=artifact)
     return artifact
@@ -898,7 +1099,8 @@ async def _extract_and_store(run_id: str, seq: int) -> dict:
     runtime = _browse_contexts[run_id]
     extracted = await extract_page_text(runtime["page"])
     artifact = f"page_{run_id}_{seq}.txt"
-    storage.save_text(artifact, extracted["text"])
+    # storage.save_text mirrors to GCS synchronously (blocking) — offload it.
+    await asyncio.to_thread(storage.save_text, artifact, extracted["text"])
     runtime.update(extracted)
     runtime["text_artifact"] = artifact
     runtime["injection_suspected"] = scan_injection(extracted["text"])
@@ -1161,41 +1363,39 @@ def _validate_research_proposal(
     proposal: dict, snapshot: dict
 ) -> tuple[str | None, dict | None]:
     action = str(proposal.get("action", ""))
-    allowed = {"open_link", "disclose", "scroll", "navigate_back", "search", "wait"}
+    allowed = {"click", "search", "scroll", "navigate_back", "wait"}
     if action not in allowed:
-        return "action is outside the research allowlist", None
+        return "action is outside the browsing allowlist", None
     target_key = str(proposal.get("target_key", ""))
     target = snapshot["items"].get(target_key) if target_key else None
-    if action in {"open_link", "disclose", "search"} and target is None:
+    if action in {"click", "search"} and target is None:
         return "target key is missing or stale", None
-    if action == "open_link":
-        href = target.get("href", "")
-        if target.get("tag") != "a" or not href.startswith(("http://", "https://")):
-            return "open_link requires an http/https anchor", None
+    if action == "click":
+        # Full click-through navigation (links AND buttons). What stays closed
+        # in code: submit-semantics controls, form fields, downloads, popups,
+        # and any URL that fails the network policy. A click that reveals a
+        # form/auth surface freezes further actions (classify_page, below).
+        if target.get("submit"):
+            return (
+                "submit-semantics controls are never clicked while browsing — "
+                "this would commit something; report what it would do instead",
+                None,
+            )
+        if target.get("tag") in {"input", "textarea", "select"}:
+            return (
+                "form fields are not clicked while browsing — search boxes "
+                "take the search action; anything else is the founder's",
+                None,
+            )
         if target.get("download") or target.get("target") == "_blank":
             return "downloads and popup links are not allowed", None
-        code, message, _canonical = _validate_url_detail(href)
-        if code:
-            return message or "link URL refused", None
-    elif action == "disclose":
-        is_disclosure = (
-            target.get("tag") == "summary"
-            or target.get("expanded") is not None
-            or (
-                target.get("role") == "button"
-                and re.search(
-                    r"expand|collapse|show|hide|details|more|accordion",
-                    target.get("label", ""),
-                    re.IGNORECASE,
-                )
-            )
-        )
-        if (
-            not is_disclosure
-            or target.get("submit")
-            or target.get("tag") in {"input", "textarea", "select"}
-        ):
-            return "target is not a disclosure control", None
+        href = target.get("href", "")
+        if href:
+            if not href.startswith(("http://", "https://")):
+                return "link target is not a safe http/https URL", None
+            code, message, _canonical = _validate_url_detail(href)
+            if code:
+                return message or "link URL refused", None
     elif action == "search":
         recognized = (
             target.get("type") == "search"
@@ -1224,14 +1424,10 @@ async def execute_action(
     key = proposal.get("target_key", "")
     selector = f'[data-cf-browser-key="{key}"]' if key else ""
     if policy == "research":
-        if action == "open_link":
-            href = await page.get_attribute(selector, "href")
-            await page.goto(
-                urljoin(page.url, href or ""),
-                wait_until="domcontentloaded",
-                timeout=30_000,
-            )
-        elif action == "disclose":
+        if action == "click":
+            # A real click — links navigate, buttons run their JS. Anything
+            # state-changing is stopped downstream: the request guard aborts
+            # non-GET/HEAD, and submit controls never reach this point.
             await page.click(selector, timeout=5_000)
         elif action == "scroll":
             if key:
@@ -1377,7 +1573,10 @@ async def propose_and_act(run_id: str, invocation_id: str) -> dict:
             snapshot = await _interactive_snapshot(runtime["page"])
             shot = await runtime["page"].screenshot(full_page=True)
             proposal = await _proposer_fn(run["goal"], snapshot["text"], shot)
-            refusal, target = _validate_research_proposal(proposal, snapshot)
+            # _validate_research_proposal runs synchronous DNS (getaddrinfo) for
+            # link targets — offload it so the event loop is never blocked.
+            refusal, target = await asyncio.to_thread(
+                _validate_research_proposal, proposal, snapshot)
             if refusal:
                 await firestore.audit(
                     "agent:co_founder",
@@ -1391,11 +1590,12 @@ async def propose_and_act(run_id: str, invocation_id: str) -> dict:
                 return _error("policy_refused", refusal)
             budget = await record_action_budget(run_id)
             if budget["exceeded"]:
-                if budget.get("reason") in {"count", "time"}:
-                    await close_run(run_id, "budget", "agent:co_founder")
+                # Refuse the action but keep the run open: the founder may
+                # still be reading the page. Only close_run ends a run.
                 return _error(
                     "budget_exceeded",
-                    "browser action budget exceeded",
+                    "browser action budget exceeded; the page stays open for "
+                    "reading — close the browser or start a new run to act more",
                     reason=budget.get("reason"),
                     budget_reason=budget.get("reason"),
                 )
@@ -1463,6 +1663,14 @@ async def propose_and_act(run_id: str, invocation_id: str) -> dict:
                 "at": _now_iso(),
             }
             await firestore.update_browser_run(run_id, last_action=last_action)
+            # Sliding time-box (18): the 90 s budget bounds action *activity*,
+            # not the founder's reading time — every successful action renews it.
+            await firestore.update_browser_run(
+                run_id,
+                deadline_at=(
+                    _now() + timedelta(seconds=BROWSE_TIME_BOX_SECONDS)
+                ).isoformat(),
+            )
             final = {
                 "status": "success",
                 "action": {"kind": proposal["action"], "target": str(label)[:180]},
@@ -1503,6 +1711,7 @@ async def close_run(run_id: str, reason: str, actor: str) -> dict:
     if not run or run.get("status") == "closed":
         return {"status": "success", "already_closed": True}
     runtime = _browse_contexts.pop(run_id, None)
+    _browse_locks.pop(run_id, None)  # bounded: per-run lock dies with the run
     if runtime:
         try:
             await runtime["context"].close()

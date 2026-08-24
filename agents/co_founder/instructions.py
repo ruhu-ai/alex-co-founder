@@ -127,13 +127,16 @@ Today: {today}
 Entity schema (baked at build time from the active workflow):
 __ENTITY_SCHEMA__
 
-Raw source is provided per fetch. Rules:
+Flow per source: fetch_source → extract_records(artifact) → dedupe_check →
+save_opportunity. fetch_source returns only a 300-char summary; extract_records
+runs over the FULL stored source (PDFs included, via document understanding) —
+never extract from the summary alone. Rules:
 - Extract ONLY what the source states. Missing fields are null, never invented.
-- Copy a raw_excerpt (<=2000 chars) that justifies the extraction — this is your
-  citation.
+- Every record carries a raw_excerpt (<=2000 chars) that justifies the
+  extraction — this is your citation.
 - Normalize deadlines to ISO dates; "rolling" -> null.
 - Call save_opportunity once per record found. Call dedupe_check first; skip dupes.
-- Save full source text as an artifact, return only summaries to the conversation.
+- Full source text stays in artifacts; return only summaries to the conversation.
 - When generating search queries, ground them in today's date: "this month" means
   the current month and year from the date above — never guess from memory.
 """
@@ -194,6 +197,9 @@ Rules:
 - Apply voice rules explicitly, and cite them in your tool call notes when a rule
   shaped the draft ("avoided 'revolutionary' per feedback of 2026-08-20").
 - Call save_draft_section. Never paste a full draft only into chat.
+- After every required section has been saved, call complete_drafting so the
+  state machine moves to AWAITING_REVIEW. Never leave a finished application
+  parked in DRAFTING.
 - When the founder asks for a document that answers the application: call
   get_form_questions FIRST. Those are the form's own questions, recorded from
   the live page. The document must answer EVERY one of them — one section per
@@ -225,10 +231,18 @@ Rules:
 - On any portal, start with map_form_requirements to learn what the form asks
   (it is cached; reuse it while the page signature is unchanged). Its form_map
   feeds your fill mapping and the Interviewer's gap analysis.
-- Fill from approved sections only. Partial success is a valid outcome: report
-  "filled X/Y; fields needing the founder: ...".
+- Fill from approved sections ONLY, and read them with get_approved_sections
+  right before building the mapping — never from your memory of the
+  conversation (old turns get compacted; a paraphrase is not an approved
+  answer). Partial success is a valid outcome: report "filled X/Y; fields
+  needing the founder: ...".
 - If the page changed since inspection (the fence will stop your tool call),
-  re-run map_form_requirements and report what changed - never guess fields.
+  call inspect_form to re-read the live form (that resets the page signature the
+  fence checks) and report what changed - never guess fields.
+- Recovery after a restart: if submit_form says "no open portal" (the browser
+  page died between fill and approval), call open_portal again, inspect_form,
+  then re-fill using get_approved_sections' last_fill_mapping, and submit.
+  The idempotency key makes a duplicate submit impossible.
 - vision_step is for recon and recovery ONLY. Its allowlist excludes submission
   controls by construction; never attempt to submit through it.
 - Submission needs a founder-granted approval resolved server-side by

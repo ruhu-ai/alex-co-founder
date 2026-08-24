@@ -36,7 +36,11 @@ def main() -> None:
                        "redirect_uris": ["http://localhost"]}},
         scopes=SCOPES,
     )
-    creds = flow.run_local_server(port=8099, prompt="consent")
+    # Never launch the operating system's browser. The preferred app flow
+    # stays in its embedded webview; this headless fallback prints a URL that
+    # can be pasted into that same in-app browser.
+    creds = flow.run_local_server(
+        port=8099, prompt="consent", open_browser=False)
     print("\nScopes granted:", ", ".join(creds.scopes or SCOPES))
     print("\nGOOGLE_OAUTH_REFRESH_TOKEN=" + (creds.refresh_token or ""))
     print("\nStore it in .env (local) or Secret Manager (prod). "

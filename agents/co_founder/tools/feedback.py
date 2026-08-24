@@ -25,7 +25,7 @@ def record_feedback(section_id: str, feedback_type: str, reason: str, edited_tex
     """
     from services import feedback_service
 
-    return run(feedback_service.record_feedback(
+    result = run(feedback_service.record_feedback(
         founder_id=tool_context.state.get(ss.K_USER_PROFILE_ID, "founder"),
         application_id=tool_context.state.get(ss.K_ACTIVE_APPLICATION_ID, ""),
         section_id=section_id,
@@ -33,6 +33,13 @@ def record_feedback(section_id: str, feedback_type: str, reason: str, edited_tex
         reason=reason,
         edited_text=edited_text,
     ))
+    step = result.get("application_step")
+    if result.get("status") == "success" and step:
+        tool_context.state[ss.K_CURRENT_STEP] = step
+        tool_context.state[ss.K_PENDING_SIGNALS] = (
+            [] if step == ss.ApplicationStep.APPROVED else ["founder_feedback"]
+        )
+    return result
 
 
 def get_feedback(feedback_id: str, tool_context: ToolContext) -> dict:

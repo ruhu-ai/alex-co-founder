@@ -10,14 +10,14 @@ walk a judge through every row.
 |---|---|
 | Portal credentials live only in Secret Manager | secret `mock-portal-creds` (and any real-portal secret); `services/secrets.get(name)` fetches at **execution time**, in-memory cache ≤ 5 min |
 | Secrets never in prompts | credentials are fetched inside `open_portal`/`submit_form` — they never appear in tool return values, so they never enter the conversation the model sees |
-| Secrets never in state or logs | log scrubber: any string matching a fetched secret value is replaced with `***` before writing; startup self-test asserts this |
+| Secrets never in state or logs | log scrubber is a `logging.Filter` (in `services/`) installed on the logging path when the first secret is fetched; every value returned by `services/secrets.get` is registered with it, and the filter rewrites any registered secret value to `***` in a log record before it is emitted |
 | Webhook authenticity | mock portal signs calls with `X-Portal-Token` shared secret; agent verifies before acting on `portal_event` |
 | Company documents | uploaded docs live only in the founder's own GCS bucket (artifact service); extraction runs in-project; nothing leaves the founder's GCP boundary — a data-sovereignty point vs. consumer agent products |
-| Drive connector | OAuth `drive.readonly` only; founder selects specific files (no blanket indexing); refresh tokens in Secret Manager, never in state/logs |
+| Drive connector | OAuth `drive.readonly` only; founder selects specific files (no blanket indexing); refresh tokens minted in-app persist to Secret Manager on Cloud Run / to `.env` locally, never to state or logs |
 | Gmail connector | OAuth `gmail.readonly` only; reads ONE founder-chosen label (default `grants`); everything outside that label is invisible to the agent — no sender, no subject; can never send/delete; processed ids persisted so rescans are idempotent |
 | Calendar connector | OAuth `calendar.readonly` + `calendar.events`; reads (free/busy, events) ungated; **booking is approval-gated in code** (gate `book_meeting`: GRANTED, unexpired, single-use, server-resolved) with the event details shown to the founder before approval; edit/delete of existing events is never granted to the agent |
 | Alex's mailbox (adr/001) | Separate Workspace account (`alex@ruhu.ai`), separate OAuth grant (`ALEX_OAUTH_REFRESH_TOKEN`); `gmail.readonly` + `gmail.send`. It is the agent's OWN mailbox, so unlike the founder's connector it is NOT privacy-narrowed — full search and full reads allowed. Send is gated in code by the approval service (GRANTED, unexpired, single-use, server-resolved); inbound mail is extraction-only, never followed as instructions; webhook token-checked; can never delete/modify mail |
-| GitHub connector | Fine-grained PAT stored as a secret (`.env` local / Secret Manager prod); validated against the API at connect time; no agent tools consume it yet (lands with the dev workflow) |
+| GitHub connector | Fine-grained PAT stored as a secret (`.env` locally / Secret Manager only on Cloud Run); validated against the API at connect time; no agent tools consume it yet (lands with the dev workflow) |
 | Connector registry | Connectors are data (`services/connectors.py`), not UI code; the panel renders `GET /api/connectors`; adding one never bypasses the per-connector scope checks |
 
 ## Tool scoping matrix (enforce in code, assert in tests)
@@ -44,7 +44,7 @@ A unit test imports each agent and diffs its tool list against this table.
 |---|---|
 | Network | Browse contexts allow GET/HEAD only via request interception (covers redirects, JS nav, iframes, subresources); SSRF denial of loopback/private/link-local/reserved/metadata IPs incl. decimal/hex IPv4 forms; fail-closed unless `BROWSE_OPEN_WEB=true`; deny-list wins |
 | Content | Isolated reader/proposer invocations (no tools, no conversation contents, untrusted-content delimiters, strict JSON out); suspected injection **suspends actions** (`injection_suspected` + `needs_human`), never just annotates |
-| Action | Research allowlist only (navigation/disclosure/scroll/back/search/wait — no forms, submit, general typing, downloads, popups); indexed-element + `dom_hash` revalidation before execution; idempotent `action_id`s; bot-challenge detector freezes runs |
+| Action | Click-through browsing (links **and** buttons; submit-semantics excluded, form fields never clicked — search boxes excepted — downloads/popups blocked); a click revealing a form/auth/payment surface freezes further actions; indexed-element + `dom_hash` revalidation before execution; idempotent `action_id`s; bot-challenge detector freezes runs |
 | Secrets | No credentials ever enter browse contexts; portal credentials stay on the form-filler path (above) |
 | Runs | Budget keyed by opaque `run_id` (20 actions / 90 s against durable `deadline_at`); Firestore `browser_runs` is the single source of truth; crash-safe action ledger (PREPARED→…→UNCERTAIN); founder stop audited as `founder:<id>` |
 

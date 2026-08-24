@@ -13,6 +13,16 @@ _cache: dict[str, tuple[float, str]] = {}
 _TTL_SECONDS = 300
 
 
+def _register(value: str) -> None:
+    """Hand a fetched secret to the log scrubber (docs/12). Fail-safe."""
+    try:
+        from services import log_scrub
+
+        log_scrub.register_secret(value)
+    except Exception:
+        pass
+
+
 def get(name: str) -> str:
     """Fetch a secret's value by name (env PORTAL_SECRET_NAME-style ids)."""
     now = time.time()
@@ -26,4 +36,31 @@ def get(name: str) -> str:
         request={"name": path}
     ).payload.data.decode("utf-8")
     _cache[name] = (now, value)
+    _register(value)
     return value
+
+
+def put(name: str, value: str) -> None:
+    """Persist a secret value by name to Secret Manager (prod token storage).
+
+    Creates the secret on first write. No-op when no project is configured.
+    Never logs the value; registers it with the scrubber."""
+    project = os.environ.get("GOOGLE_CLOUD_PROJECT")
+    if not project or not value:
+        return
+    from google.api_core import exceptions as gexc
+    from google.cloud import secretmanager
+
+    client = secretmanager.SecretManagerServiceClient()
+    parent = f"projects/{project}"
+    try:
+        client.create_secret(request={
+            "parent": parent, "secret_id": name,
+            "secret": {"replication": {"automatic": {}}}})
+    except gexc.AlreadyExists:
+        pass
+    client.add_secret_version(request={
+        "parent": f"{parent}/secrets/{name}",
+        "payload": {"data": value.encode("utf-8")}})
+    _cache[name] = (time.time(), value)
+    _register(value)

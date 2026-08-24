@@ -76,13 +76,15 @@ def _body_text(payload: dict) -> str:
 async def scan(label: str = "grants", max_results: int = 20) -> dict:
     """Unread mail under one label → classified events. Idempotent: message ids
     already in gmail_state/processed are skipped."""
-    svc = _service()
+    import asyncio
+
+    svc = await asyncio.to_thread(_service)  # cred refresh is blocking HTTP
     if svc is None:
         return {"status": "error", "error": True,
                 "message": "Google OAuth not configured (run scripts/oauth_setup.py)"}
     try:
-        resp = svc.users().messages().list(
-            userId="me", q=f"label:{label} is:unread", maxResults=max_results).execute()
+        resp = await asyncio.to_thread(lambda: svc.users().messages().list(
+            userId="me", q=f"label:{label} is:unread", maxResults=max_results).execute())
     except Exception as exc:
         return {"status": "error", "error": True, "message": f"gmail list failed: {exc}"}
 
@@ -92,8 +94,8 @@ async def scan(label: str = "grants", max_results: int = 20) -> dict:
         if stub["id"] in processed:
             continue
         try:
-            msg = svc.users().messages().get(
-                userId="me", id=stub["id"], format="full").execute()
+            msg = await asyncio.to_thread(lambda s=stub: svc.users().messages().get(
+                userId="me", id=s["id"], format="full").execute())
         except Exception:
             continue  # one unreadable message never fails the scan
         headers = msg.get("payload", {}).get("headers", [])

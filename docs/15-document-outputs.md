@@ -28,8 +28,7 @@ agent (drafter/orchestrator)
        └─ services/document_service.py
             ├─ build_docx(spec)   python-docx     (application packs, narratives)
             ├─ build_xlsx(spec)   openpyxl        (budgets, projections; formulas
-            │                                       as strings, LibreOffice headless
-            │                                       recalc when soffice is present)
+            │                                       as strings — no forced recalc)
             ├─ build_pptx(spec)   python-pptx     (decks from a slide-spec)
             └─ validate_document(path)            # ZIP + XML well-formedness +
                                                   # required OOXML parts — the gate
@@ -53,8 +52,27 @@ can produce a bad spec, but it cannot produce a corrupt file.
 - `pptx`: `{title, slides: [{title, bullets: [..], notes?}]}`
 - `pdf`: same spec as `docx` — built as docx, converted headlessly via
   LibreOffice (`soffice --convert-to pdf`). Degrades to error-as-data where
-  soffice is absent (slim deploy images): the agent then ships the .docx, which
-  converts in one step.
+  soffice is absent: the agent then ships the .docx, which converts in one step.
+
+## LibreOffice posture (server-side conversion rules)
+
+Headless LibreOffice is the conversion engine for previews and PDF output.
+It runs under these constraints, all in code:
+
+| Rule | Implementation |
+|---|---|
+| Controlled install, never the dev's desktop copy | Prod image installs `libreoffice-writer/-calc/-impress` via pinned apt (Dockerfile); local dev may use the desktop install |
+| Non-root execution | Image runs as `pwuser` (Dockerfile) |
+| Temporary per-job storage | Each conversion gets a fresh `TemporaryDirectory` (profile + work dir), removed after — no shared profile, no lock-check hacks |
+| Macros never execute | Fresh profile (macro security defaults High/disabled) **and** macro-bearing parts (`vbaProject`, `activeX`, `macroSheet`, `oleObject`) stripped from OOXML inputs before conversion |
+| Limits | 25 MB input cap, 120 s hard timeout, bounded concurrency (semaphore of 2); memory bounded by the Cloud Run container limit |
+| Output validation | The converted PDF must pass `validate_document` (header + EOF) before it is cached or served; failures delete the artifact and return error-as-data |
+| Residual (documented) | No antivirus scan of uploads; mitigations are macro stripping, the high-security profile, and structural validation |
+
+Formula note (honesty): xlsx formulas are written as strings; recalc-on-load
+is **not** forced, so a PDF preview shows unevaluated formulas unless the
+consuming app recalculates. Deliberate v1 choice — say values, not formulas,
+in specs meant for PDF.
 
 ## Tool
 

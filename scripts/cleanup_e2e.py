@@ -9,7 +9,6 @@ Run: python scripts/cleanup_e2e.py [--yes]   (without --yes it only lists)
 """
 
 import asyncio
-import glob
 import os
 import sqlite3
 import sys

@@ -68,6 +68,10 @@ async def book_meeting(tool_context: ToolContext, summary: str, start_iso: str,
         {"status": "success", "event_id", "meet_link"} after a granted
         approval, or {"status": "needs_approval", ...} while pending.
     """
+    session = getattr(tool_context, "session", None)
     return await calendar_adapter.create_event(
         summary=summary, start_iso=start_iso, end_iso=end_iso,
-        attendees=attendees, application_id=application_id)
+        attendees=attendees, application_id=application_id,
+        founder_id=tool_context.state.get("user:profile_id", "founder"),
+        session_id=(getattr(session, "id", "")
+                    or getattr(session, "session_id", "")))

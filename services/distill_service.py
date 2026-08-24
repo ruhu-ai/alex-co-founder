@@ -43,10 +43,6 @@ async def run_distillation(feedback_id: str, session_service=None) -> dict[str, 
         return {"status": "success", "skipped": "already distilled"}
 
     session_id = f"distill-{feedback_id[:12]}"
-    await session_service.create_session(
-        app_name="co_founder_distill", user_id="system", session_id=session_id,
-        state={"feedback_id": feedback_id, "founder_id": record["founder_id"]},
-    )
     message = (
         f"Distill feedback {feedback_id}: "
         + json.dumps({
@@ -57,6 +53,17 @@ async def run_distillation(feedback_id: str, session_service=None) -> dict[str, 
         })
     )
     try:
+        try:
+            # Deterministic session id: a retry after a mid-run failure must not
+            # raise "session already exists" — treat an existing session as fine.
+            await session_service.create_session(
+                app_name="co_founder_distill", user_id="system",
+                session_id=session_id,
+                state={"feedback_id": feedback_id,
+                       "founder_id": record["founder_id"]},
+            )
+        except Exception:
+            pass
         async for event in _distill_runner.run_async(
             user_id="system",
             session_id=session_id,

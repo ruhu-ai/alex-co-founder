@@ -8,6 +8,7 @@ import json
 
 from google.adk.agents import Agent
 
+from ..callbacks import initialize_session_state
 from ..config import MODEL
 from ..instructions import SCOUT_INSTRUCTION
 from ..tools import discovery
@@ -26,10 +27,10 @@ def build_agent(model=None) -> Agent:
         tools=[
             discovery.search_programs,
             discovery.fetch_source,
+            discovery.extract_records,
             discovery.dedupe_check,
             discovery.save_opportunity,
         ],
+        # Refresh {today}/{browser_status} on turns ADK routes straight here.
+        before_agent_callback=initialize_session_state,
     )
-
-
-agent = build_agent()

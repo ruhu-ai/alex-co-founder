@@ -6,6 +6,7 @@ tests and offline dev run without credentials.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import re
 from html.parser import HTMLParser
@@ -18,8 +19,10 @@ from services import firestore, pipeline_service, storage
 
 SearchFn = Callable[[str], list[dict[str, str]]]
 ExtractFn = Callable[[str, dict], list[dict[str, Any]]]
+PdfExtractFn = Callable[[bytes, dict], list[dict[str, Any]]]
 _search_fn: SearchFn | None = None
 _extract_fn: ExtractFn | None = None
+_pdf_extract_fn: PdfExtractFn | None = None
 
 
 def set_search_fn(fn: SearchFn) -> None:
@@ -30,6 +33,11 @@ def set_search_fn(fn: SearchFn) -> None:
 def set_extract_fn(fn: ExtractFn) -> None:
     global _extract_fn
     _extract_fn = fn
+
+
+def set_pdf_extract_fn(fn: PdfExtractFn) -> None:
+    global _pdf_extract_fn
+    _pdf_extract_fn = fn
 
 
 class _TextAndLinks(HTMLParser):
@@ -74,27 +82,67 @@ def _parse_html(html: str, base_url: str) -> tuple[str, list[dict[str, str]]]:
     return text, parser.links[:15]
 
 
+async def _safe_fetch(url: str, max_bytes: int) -> tuple[httpx.Response, str]:
+    """Fetch through the DNS-pinning proxy; validate every redirect and cap bytes."""
+    from services import browser_service
+
+    current = url
+    proxy = await browser_service.public_proxy_url()
+    async with httpx.AsyncClient(
+            follow_redirects=False, timeout=30, proxy=proxy, trust_env=False) as client:
+        for _ in range(6):
+            refusal = await browser_service.validate_public_url(current)
+            if refusal:
+                raise ValueError(f"unsafe source URL: {refusal}")
+            async with client.stream("GET", current) as streamed:
+                if streamed.status_code in (301, 302, 303, 307, 308):
+                    location = streamed.headers.get("location")
+                    if not location:
+                        raise ValueError("redirect response had no Location header")
+                    current = urljoin(current, location)
+                    continue
+                streamed.raise_for_status()
+                declared = int(streamed.headers.get("content-length", "0") or 0)
+                if declared > max_bytes:
+                    raise ValueError(f"source exceeds {max_bytes} byte limit")
+                chunks: list[bytes] = []
+                size = 0
+                async for chunk in streamed.aiter_bytes():
+                    size += len(chunk)
+                    if size > max_bytes:
+                        raise ValueError(f"source exceeds {max_bytes} byte limit")
+                    chunks.append(chunk)
+                response = httpx.Response(
+                    streamed.status_code, headers=streamed.headers,
+                    content=b"".join(chunks), request=streamed.request)
+                return response, current
+    raise ValueError("too many redirects")
+
+
 async def fetch_source(source_url: str, source_type: str, artifact_name: str) -> dict:
     """Fetch → text (+ links). JS-shell fallback: <500 chars → Playwright render."""
     try:
-        async with httpx.AsyncClient(follow_redirects=True, timeout=30) as client:
-            resp = await client.get(source_url)
-            resp.raise_for_status()
+        resp, final_url = await _safe_fetch(
+            source_url, 10_000_000 if source_type == "pdf" else 2_000_000)
     except Exception as exc:
         return {"status": "error", "error": True, "message": f"fetch failed: {exc}"}
 
     rendered = False
     if source_type == "pdf":
-        text, links = f"[PDF fetched: {len(resp.content)} bytes — parsed by Gemini document understanding at extraction]", []
-        storage.save_bytes(artifact_name.replace(".txt", ".pdf"), resp.content)
+        # The bytes are the source of truth: extract_records() detects the
+        # .pdf sibling and feeds document understanding the real document.
+        pdf_artifact = artifact_name.replace(".txt", ".pdf")
+        storage.save_bytes(pdf_artifact, resp.content)
+        text, links = (f"[PDF source: {len(resp.content)} bytes stored as "
+                       f"{pdf_artifact}; extract_records reads the PDF itself]"), []
     else:
-        text, links = _parse_html(resp.text, source_url)
+        text, links = _parse_html(resp.text, final_url)
         if len(text) < 500:  # JS shell — render through Playwright (docs/08)
             from services import browser_service
 
-            rendered_text = await browser_service.render_text(source_url)
+            rendered_text = await browser_service.render_text(final_url)
             if rendered_text:
-                text, links, rendered = rendered_text, _parse_html(rendered_text, source_url)[1], True
+                text, links, rendered = rendered_text, _parse_html(rendered_text, final_url)[1], True
 
     storage.save_text(artifact_name, text)
     return {
@@ -114,19 +162,38 @@ async def search_programs(query: str, max_results: int = 10) -> dict:
         return {"status": "error", "error": True,
                 "message": "search backend not configured (needs ADC; see docs/verification-notes.md)"}
     try:
-        results = _search_fn(query)[:max_results]
+        results = (await asyncio.to_thread(_search_fn, query))[:max_results]
     except Exception as exc:
         return {"status": "error", "error": True, "message": f"search failed: {exc}"}
     return {"status": "success", "results": results}
 
 
 async def extract_records(text_artifact: str, entity_schema: dict) -> dict:
-    """Structured extraction from a source artifact into entity_schema records."""
+    """Structured extraction from a source artifact into entity_schema records.
+
+    PDF sources: fetch_source() stores the raw document as a .pdf sibling of
+    the text artifact — when it exists, extraction runs document understanding
+    over the actual PDF bytes, never over the placeholder text."""
+    pdf_artifact = text_artifact.replace(".txt", ".pdf")
+    if text_artifact != pdf_artifact and storage.exists(pdf_artifact):
+        if _pdf_extract_fn is None:
+            return {"status": "error", "error": True,
+                    "message": "PDF extraction backend not configured (needs ADC)"}
+        try:
+            records = await asyncio.to_thread(
+                _pdf_extract_fn, storage.read_bytes(pdf_artifact), entity_schema)
+        except Exception as exc:
+            return {"status": "error", "error": True,
+                    "message": f"pdf extraction failed: {exc}"}
+        for record in records:
+            record.setdefault("source_type", "pdf")
+        return {"status": "success", "records": records, "source": "pdf"}
     if _extract_fn is None:
         return {"status": "error", "error": True,
                 "message": "extraction backend not configured (needs ADC)"}
     try:
-        records = _extract_fn(storage.read_text(text_artifact), entity_schema)
+        records = await asyncio.to_thread(
+            _extract_fn, storage.read_text(text_artifact), entity_schema)
     except Exception as exc:
         return {"status": "error", "error": True, "message": f"extraction failed: {exc}"}
     return {"status": "success", "records": records}
@@ -185,9 +252,13 @@ async def _ingest_url(url: str, source_type: str, workflow, summary: dict) -> No
         summary["errors"].append({"url": url, "error": fetched.get("message", "")[:200]})
         return
     summary["fetched"] += 1
-    if _extract_fn is None:
+    if (_pdf_extract_fn if source_type == "pdf" else _extract_fn) is None:
         return
-    content_hash = hashlib.sha256(storage.read_text(artifact).encode()).hexdigest()[:16]
+    # unchanged-skip hashes what extraction actually consumes: the PDF bytes
+    # for pdf sources (the .txt is just a placeholder), the text otherwise
+    content = (storage.read_bytes(artifact.replace(".txt", ".pdf"))
+               if source_type == "pdf" else storage.read_text(artifact).encode())
+    content_hash = hashlib.sha256(content).hexdigest()[:16]
     if await firestore.get_source_hash(url) == content_hash:
         summary["unchanged"] += 1
         return
@@ -246,8 +317,18 @@ async def run_sweep(workflow, founder_id: str | None = None) -> dict:
                 seen_urls.add(url)
                 await _ingest_url(url, "web_page", workflow, summary)
 
-    await firestore.audit("system:discovery", "sweep", "opportunities", "success",
-                          f"fetched={summary['fetched']} new={summary['new']}")
+    # Audit the real outcome, not an unconditional "success": every lane can
+    # error while the sweep still returns. success = clean; partial = some
+    # progress with errors; error = errors and nothing achieved.
+    if not summary["errors"]:
+        outcome = "success"
+    elif summary["fetched"] or summary["extracted"] or summary["saved"]:
+        outcome = "partial"
+    else:
+        outcome = "error"
+    await firestore.audit("system:discovery", "sweep", "opportunities", outcome,
+                          f"fetched={summary['fetched']} new={summary['new']} "
+                          f"errors={len(summary['errors'])}")
     return {"status": "success", **summary}
 
 

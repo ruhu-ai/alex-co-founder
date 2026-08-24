@@ -52,15 +52,17 @@ def _no_oauth() -> dict:
 
 async def list_upcoming(days_ahead: int = 7, max_results: int = 10) -> dict:
     """Upcoming events on the founder's primary calendar."""
-    svc = _service()
+    import asyncio
+
+    svc = await asyncio.to_thread(_service)  # cred refresh is blocking HTTP
     if svc is None:
         return _no_oauth()
     time_min, time_max = _window(days_ahead)
     try:
-        resp = svc.events().list(
+        resp = await asyncio.to_thread(lambda: svc.events().list(
             calendarId="primary", timeMin=time_min, timeMax=time_max,
             maxResults=max_results, singleEvents=True, orderBy="startTime",
-        ).execute()
+        ).execute())
     except Exception as exc:
         return {"status": "error", "error": True, "message": f"calendar list failed: {exc}"}
     events = [{
@@ -80,15 +82,17 @@ async def check_availability(days_ahead: int = 7) -> dict:
     Free/busy of EXTERNAL contacts is not queryable (their calendars are not
     shared); Alex proposes times from the founder's availability only.
     """
-    svc = _service()
+    import asyncio
+
+    svc = await asyncio.to_thread(_service)
     if svc is None:
         return _no_oauth()
     time_min, time_max = _window(days_ahead)
     try:
-        resp = svc.freebusy().query(body={
+        resp = await asyncio.to_thread(lambda: svc.freebusy().query(body={
             "timeMin": time_min, "timeMax": time_max,
             "items": [{"id": "primary"}],
-        }).execute()
+        }).execute())
     except Exception as exc:
         return {"status": "error", "error": True, "message": f"freebusy failed: {exc}"}
     busy = resp.get("calendars", {}).get("primary", {}).get("busy", [])
@@ -98,7 +102,8 @@ async def check_availability(days_ahead: int = 7) -> dict:
 
 async def create_event(summary: str, start_iso: str, end_iso: str,
                        attendees: list[str], description: str = "",
-                       application_id: str = "") -> dict:
+                       application_id: str = "", founder_id: str = "",
+                       session_id: str = "") -> dict:
     """Create an event on the founder's primary calendar and email invites —
     approval-gated (principle 5).
 
@@ -107,15 +112,18 @@ async def create_event(summary: str, start_iso: str, end_iso: str,
     (Meet link auto-attached, invites sent), consumes the approval
     (single-use idempotency), and audits.
     """
-    svc = _service()
+    import asyncio
+
+    svc = await asyncio.to_thread(_service)
     if svc is None:
         return _no_oauth()
-    if (_service_factory is None  # prod only: pre-check the write scope
-            and "https://www.googleapis.com/auth/calendar.events"
-            not in google_oauth.granted_scopes()):
-        return {"status": "error", "error": True,
-                "message": "Calendar write not granted — reconnect Calendar in the "
-                           "Connectors panel to enable booking."}
+    if _service_factory is None:  # prod only: pre-check the write scope
+        # granted_scopes() makes a blocking tokeninfo HTTP call — offload it.
+        scopes = await asyncio.to_thread(google_oauth.granted_scopes)
+        if "https://www.googleapis.com/auth/calendar.events" not in scopes:
+            return {"status": "error", "error": True,
+                    "message": "Calendar write not granted — reconnect Calendar in the "
+                               "Connectors panel to enable booking."}
     if not summary.strip():
         return {"status": "error", "error": True, "message": "summary is required"}
     try:
@@ -130,18 +138,25 @@ async def create_event(summary: str, start_iso: str, end_iso: str,
     if not guests:
         return {"status": "error", "error": True,
                 "message": "at least one attendee email is required"}
+    if not founder_id or not session_id:
+        return {"status": "error", "error": True,
+                "message": "Booking a meeting requires a founder-bound session."}
     target = f"calendar:{application_id or 'general'}"
 
-    approval = await firestore.find_valid_approval(target)
+    approval = await firestore.find_valid_approval(
+        target, gate="book_meeting", founder_id=founder_id, session_id=session_id)
     if not approval:
-        pending = await firestore.find_pending_approval(target)
+        pending = await firestore.find_pending_approval(
+            target, gate="book_meeting", session_id=session_id,
+            founder_id=founder_id)
         if not pending:
             from services import approval_service
 
             requested = await approval_service.request_approval(
                 target, gate="book_meeting",
                 details={"summary": summary, "start": start_iso, "end": end_iso,
-                         "attendees": guests})
+                         "attendees": guests, "description": description},
+                founder_id=founder_id, session_id=session_id)
             pending = {"id": requested.get("approval_id")}
         await firestore.audit("agent:orchestrator", "book_meeting", target,
                               "refused", "no GRANTED approval — requested founder approval")
@@ -150,6 +165,29 @@ async def create_event(summary: str, start_iso: str, end_iso: str,
                 "message": "Booking a meeting requires your approval — a request is waiting "
                            "in the approval banner. Once granted, ask me to book again."}
 
+    # Content binding: the founder approved a SPECIFIC meeting — book exactly
+    # that. This call's arguments never override the approved details.
+    approved = approval.get("details") or {}
+    if approved:
+        drift = (approved.get("summary", summary) != summary
+                 or approved.get("start", start_iso) != start_iso
+                 or approved.get("end", end_iso) != end_iso
+                 or approved.get("attendees", guests) != guests)
+        summary = approved.get("summary") or summary
+        description = approved.get("description", description)
+        approved_guests = [a.strip() for a in approved.get("attendees", guests)
+                           if "@" in a]
+        guests = approved_guests or guests
+        try:
+            start = dt.datetime.fromisoformat(approved.get("start") or start_iso)
+            end = dt.datetime.fromisoformat(approved.get("end") or end_iso)
+        except ValueError:
+            return {"status": "error", "error": True,
+                    "message": "approved event times are invalid — request a new approval"}
+        if drift:
+            await firestore.audit(
+                "agent:orchestrator", "book_meeting", target, "drift_ignored",
+                "call args differed from approved details; booking the approved version")
     event_body = {
         "summary": summary,
         "description": description,
@@ -160,12 +198,18 @@ async def create_event(summary: str, start_iso: str, end_iso: str,
                                              "conferenceSolutionKey": {"type": "hangoutsMeet"}}},
     }
     try:
-        event = svc.events().insert(
+        event = await asyncio.to_thread(lambda: svc.events().insert(
             calendarId="primary", body=event_body,
-            conferenceDataVersion=1, sendUpdates="all").execute()
+            conferenceDataVersion=1, sendUpdates="all").execute())
     except Exception as exc:
+        # Consume ONLY after a successful insert: a transient API failure must
+        # not burn the founder's single-use approval (matches the submit path).
         return {"status": "error", "error": True, "message": f"event insert failed: {exc}"}
-    await firestore.consume_approval(approval["id"])
+    if not await firestore.claim_approval(approval["id"]):
+        # The event is already booked and invites are out; the approval was
+        # consumed concurrently. Record it rather than double-booking.
+        await firestore.audit("agent:orchestrator", "book_meeting", target,
+                              "warning", "booked; approval already consumed")
     await firestore.audit("agent:orchestrator", "book_meeting", target, "success",
                           f"summary={summary[:80]} attendees={','.join(guests)} "
                           f"event_id={event.get('id')}")

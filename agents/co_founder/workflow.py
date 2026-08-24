@@ -13,7 +13,11 @@ from pathlib import Path
 
 import yaml
 
-DEFAULT_WORKFLOW_FILE = "workflows/grant_applications.yaml"
+# Resolved against the repo root, not the process CWD: importing this package
+# from any working directory (tests, tooling, a task runner) must still find the
+# workflow file. workflow.py lives at <repo>/agents/co_founder/workflow.py.
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+DEFAULT_WORKFLOW_FILE = _REPO_ROOT / "workflows" / "grant_applications.yaml"
 
 
 @dataclass(frozen=True)
