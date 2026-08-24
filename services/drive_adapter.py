@@ -13,10 +13,14 @@ from typing import Any, Callable
 from services import google_oauth, storage
 
 # Google-native formats are exported, binaries downloaded as-is.
+# Presentations MUST export to PDF, not text/plain: Slides' plain-text export is
+# sparse (often just titles / speaker notes) and drops the real content, which
+# left the extractor hallucinating generic proposals. PDF preserves every slide
+# for multimodal document understanding (see gemini_backends.doc_extract_fn).
 _EXPORT_MIME = {
     "application/vnd.google-apps.document": ("text/plain", ".txt"),
     "application/vnd.google-apps.spreadsheet": ("text/csv", ".csv"),
-    "application/vnd.google-apps.presentation": ("text/plain", ".txt"),
+    "application/vnd.google-apps.presentation": ("application/pdf", ".pdf"),
 }
 
 _service_factory: Callable[[], Any] | None = None

@@ -24,20 +24,22 @@ class TestUrgency:
         assert pipeline_service.compute_urgency(None, [])["tier"] == "ROLLING"
 
     def test_critical(self):
-        from datetime import datetime, timedelta
-        d = (datetime.now() + timedelta(days=2)).date().isoformat()
+        # compute_urgency counts days in UTC; use UTC here too or a timezone
+        # boundary flips days_left by one and the test flakes near midnight.
+        from datetime import datetime, timedelta, timezone
+        d = (datetime.now(timezone.utc) + timedelta(days=2)).date().isoformat()
         u = pipeline_service.compute_urgency(d, ["essay", "deck"])
         assert u["tier"] == "CRITICAL" and u["days_left"] == 2 and "start now" in u["note"]
 
     def test_urgent(self):
-        from datetime import datetime, timedelta
-        d = (datetime.now() + timedelta(days=9)).date().isoformat()
+        from datetime import datetime, timedelta, timezone
+        d = (datetime.now(timezone.utc) + timedelta(days=9)).date().isoformat()
         assert pipeline_service.compute_urgency(d, [])["tier"] == "URGENT"
 
     def test_normal_and_overdue(self):
-        from datetime import datetime, timedelta
-        future = (datetime.now() + timedelta(days=60)).date().isoformat()
-        past = (datetime.now() - timedelta(days=1)).date().isoformat()
+        from datetime import datetime, timedelta, timezone
+        future = (datetime.now(timezone.utc) + timedelta(days=60)).date().isoformat()
+        past = (datetime.now(timezone.utc) - timedelta(days=1)).date().isoformat()
         assert pipeline_service.compute_urgency(future, [])["tier"] == "NORMAL"
         assert pipeline_service.compute_urgency(past, [])["tier"] == "OVERDUE"
 

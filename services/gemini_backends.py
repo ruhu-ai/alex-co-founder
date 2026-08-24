@@ -120,16 +120,73 @@ def pdf_extract_fn(pdf_bytes: bytes, entity_schema: dict) -> list[dict]:
 # profile bootstrap (docs/06)
 # ---------------------------------------------------------------------------
 
+_OFFICE_EXTS = (".pptx", ".ppt", ".docx", ".doc", ".xlsx", ".xls",
+                ".odp", ".odt", ".ods")
+
+
+def _office_to_text(path: str, ext: str) -> str:
+    """Fallback text extraction for Office binaries when LibreOffice is absent.
+    Never decode the OOXML zip as UTF-8 (that yields garbage the model then
+    hallucinates over)."""
+    try:
+        if ext in (".pptx",):
+            from pptx import Presentation
+            prs = Presentation(path)
+            out = []
+            for slide in prs.slides:
+                for shape in slide.shapes:
+                    if shape.has_text_frame:
+                        out.append(shape.text_frame.text)
+            return "\n".join(t for t in out if t.strip())
+        if ext in (".docx",):
+            from docx import Document
+            return "\n".join(p.text for p in Document(path).paragraphs if p.text.strip())
+        if ext in (".xlsx",):
+            from openpyxl import load_workbook
+            wb = load_workbook(path, read_only=True, data_only=True)
+            rows = []
+            for ws in wb.worksheets:
+                for row in ws.iter_rows(values_only=True):
+                    cells = [str(c) for c in row if c is not None]
+                    if cells:
+                        rows.append("\t".join(cells))
+            return "\n".join(rows)
+    except Exception:
+        return ""
+    return ""
+
+
 def doc_extract_fn(artifact_name: str, founder_id: str) -> list[dict]:
-    """Document understanding: company doc -> proposed profile mutations."""
-    from services import storage
+    """Document understanding: company doc -> proposed profile mutations.
+
+    Rich documents (PDF, and Office binaries converted to PDF) go through
+    multimodal understanding so the model reads the real slides/pages. Only
+    genuine text files are sent as text — binary OOXML must NEVER be decoded as
+    UTF-8 (garbage in, generic hallucinations out)."""
+    from services import document_service, storage
 
     path = storage.artifact_path(artifact_name)
-    with open(path, "rb") as fh:
-        data = fh.read()
-    mime = "application/pdf" if path.lower().endswith(".pdf") else "text/plain"
-    part = (types.Part.from_bytes(data=data, mime_type=mime) if mime == "application/pdf"
-            else types.Part.from_text(text=data.decode("utf-8", errors="replace")[:80000]))
+    ext = os.path.splitext(path)[1].lower()
+
+    if ext == ".pdf":
+        with open(path, "rb") as fh:
+            part = types.Part.from_bytes(data=fh.read(), mime_type="application/pdf")
+    elif ext in _OFFICE_EXTS:
+        # Convert to PDF so Gemini reads the actual layout/text/images.
+        pdf_path = path + ".pdf"
+        conv = document_service.convert_to_pdf(path, pdf_path)
+        if conv.get("status") == "success":
+            with open(pdf_path, "rb") as fh:
+                part = types.Part.from_bytes(data=fh.read(), mime_type="application/pdf")
+        else:
+            text = _office_to_text(path, ext)
+            if not text:
+                return []  # no real content extracted — refuse to invent proposals
+            part = types.Part.from_text(text=text[:80000])
+    else:
+        with open(path, "rb") as fh:
+            data = fh.read()
+        part = types.Part.from_text(text=data.decode("utf-8", errors="replace")[:80000])
     resp = get_client().models.generate_content(
         model=MODEL_ID,
         contents=[

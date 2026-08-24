@@ -312,3 +312,69 @@ class TestLogScrubberTraceback:
         assert secret not in rendered  # the message line was clean; the traceback
         assert "***" in rendered       # carried the secret and is now masked
         log_scrub._secrets.discard(secret)
+
+
+# --- (ingestion) office binaries convert to PDF, never decoded as UTF-8 text --
+class TestDocExtractRouting:
+    async def test_pptx_goes_through_pdf_not_utf8_garbage(self, tmp_path, monkeypatch):
+        from types import SimpleNamespace
+
+        from services import gemini_backends as gb
+
+        art = "companydoc_deck.pptx"
+        src = tmp_path / art
+        # binary OOXML: decoding this as utf-8 would be mojibake garbage
+        src.write_bytes(b"PK\x03\x04\xff\xfe binary pptx not text \x00\x01")
+        monkeypatch.setattr("services.storage.artifact_path", lambda name: str(src))
+
+        def _fake_convert(src_path, out_path):
+            with open(out_path, "wb") as fh:
+                fh.write(b"%PDF-1.4 converted deck")
+            return {"status": "success"}
+        monkeypatch.setattr("services.document_service.convert_to_pdf", _fake_convert)
+
+        captured = {}
+
+        class _Models:
+            def generate_content(self, model, contents):
+                captured["part"] = contents[0].parts[0]
+                return SimpleNamespace(
+                    text='[{"kind":"fact_update","payload":{"company":"Ruhu"},"confidence":"high"}]')
+        monkeypatch.setattr(gb, "get_client", lambda: SimpleNamespace(models=_Models()))
+
+        out = gb.doc_extract_fn(art, "founder")
+        part = captured["part"]
+        # the document was sent as a converted PDF (multimodal), never as text
+        assert part.inline_data is not None
+        assert part.inline_data.mime_type == "application/pdf"
+        assert getattr(part, "text", None) in (None, "")
+        assert out and out[0]["payload"]["company"] == "Ruhu"
+
+    async def test_pptx_without_libreoffice_extracts_text_not_garbage(self, tmp_path, monkeypatch):
+        from types import SimpleNamespace
+
+        from services import gemini_backends as gb
+
+        art = "companydoc_deck2.pptx"
+        src = tmp_path / art
+        src.write_bytes(b"PK\x03\x04 binary")
+        monkeypatch.setattr("services.storage.artifact_path", lambda name: str(src))
+        # LibreOffice unavailable -> convert fails
+        monkeypatch.setattr("services.document_service.convert_to_pdf",
+                            lambda s, o: {"status": "error", "error": True})
+        # python-pptx fallback yields real slide text
+        monkeypatch.setattr(gb, "_office_to_text", lambda p, e: "Ruhu multilingual voice agents")
+
+        captured = {}
+
+        class _Models:
+            def generate_content(self, model, contents):
+                captured["part"] = contents[0].parts[0]
+                return SimpleNamespace(text='[]')
+        monkeypatch.setattr(gb, "get_client", lambda: SimpleNamespace(models=_Models()))
+
+        gb.doc_extract_fn(art, "founder")
+        part = captured["part"]
+        # fell back to real extracted TEXT, never the raw binary bytes
+        assert "Ruhu" in (getattr(part, "text", "") or "")
+        assert part.inline_data is None
