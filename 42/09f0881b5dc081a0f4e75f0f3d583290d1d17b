@@ -1,0 +1,23 @@
+services/browser_service.py
+  s_36171a28333978::t_7726beb4f30378 1735-1738,1746-1747
+agents/co_founder/tools/browser.py
+  s_36171a28333978::t_d76d7531766a45 60-71
+tests/unit/test_review_fixes_agents.py
+  s_36171a28333978::t_418d69e6662063 318-348
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.23",
+  "base_commit_sha": "4209f0881b5dc081a0f4e75f0f3d583290d1d17b",
+  "prompts": {},
+  "sessions": {
+    "s_36171a28333978": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ee02ac2b-2dc2-4c6c-8f13-7e7ff17d5a93",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ijidai Lassa <ijidai@cued.app>"
+    }
+  }
+}
