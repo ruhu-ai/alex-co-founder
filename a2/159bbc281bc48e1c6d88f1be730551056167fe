@@ -1,0 +1,19 @@
+requirements.txt
+  s_36171a28333978::t_8e9d828d86e77d 41-43
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "a2159bbc281bc48e1c6d88f1be730551056167fe",
+  "prompts": {},
+  "sessions": {
+    "s_36171a28333978": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ee02ac2b-2dc2-4c6c-8f13-7e7ff17d5a93",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ijidai Lassa <ijidai@cued.app>"
+    }
+  }
+}
