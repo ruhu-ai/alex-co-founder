@@ -1,0 +1,30 @@
+app/main.py
+  s_36171a28333978::t_d2c43086338bf0 1136-1139
+mock_portal/Dockerfile
+  s_36171a28333978::t_342f7b1428ece1 4-7
+app/auth.py
+  s_36171a28333978::t_a1d451332b1b34 24
+Dockerfile
+  s_36171a28333978::t_573be00afe2cf0 17-19,21-22
+docs/demo-script.md
+  s_36171a28333978::t_5c24e89dc7f0e5 5-11,13
+tests/unit/test_app_server.py
+  s_36171a28333978::t_065bbe79eb047a 89-92,95-96
+  s_36171a28333978::t_bad038f490ee1a 61
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "876dbd7a904e631d61d5dcb3465258d2213a9c85",
+  "prompts": {},
+  "sessions": {
+    "s_36171a28333978": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ee02ac2b-2dc2-4c6c-8f13-7e7ff17d5a93",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ijidai Lassa <ijidai@cued.app>"
+    }
+  }
+}
