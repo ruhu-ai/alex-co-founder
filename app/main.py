@@ -1133,6 +1133,10 @@ async def api_tts(payload: dict):
     return Response(content=result["audio"], media_type="audio/mpeg")
 
 
+# /healthz (exact) is reserved by Google's serving infrastructure and is answered
+# at the edge — it never reaches a Cloud Run container. /health is the
+# prod-reachable warm-up path; /healthz still works in local dev.
+@app.get("/health")
 @app.get("/healthz")
 def healthz() -> dict:
     return {"status": "ok", "app": agent_app.name,

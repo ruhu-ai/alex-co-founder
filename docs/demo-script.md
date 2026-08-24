@@ -2,10 +2,15 @@
 
 Pre-record checklist (all must be green):
 - [ ] `gcloud auth application-default login` done; `scripts/seed_demo.py` run
-- [ ] Cloud Run: `--min-instances 1` on both services; `/healthz` pre-warmed
-- [ ] Mock portal `/admin/ping-agent` returns `{"ok": true}`
+- [ ] Cloud Run: `--min-instances 1` on both services; **`/health`** pre-warmed
+      (`/healthz` is reserved by Google's edge in prod — use `/health`;
+      `/healthz` still works in local dev)
+- [ ] Mock portal admin endpoints are token-gated in prod (open in local dev).
+      Set `T=$(gcloud secrets versions access latest --secret portal-webhook-token)`
+      then use `-H "X-Portal-Token: $T"` on the two calls below:
+- [ ] `curl -H "X-Portal-Token: $T" "$MOCK/admin/ping-agent"` returns `{"ok": true}`
 - [ ] Board pre-seeded; browser windows arranged: UI | terminal logs | Cloud Console
-- [ ] Mock portal `/admin/reset` hit
+- [ ] `curl -X POST -H "X-Portal-Token: $T" "$MOCK/admin/reset"` hit
 
 ## Beats
 

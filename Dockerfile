@@ -14,8 +14,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
+# Resilient installs: pythonhosted/CDN read-timeouts are common in Cloud Build
+# and would fail the whole deploy. Longer timeout + retries ride them out.
+ENV PIP_DEFAULT_TIMEOUT=120 PIP_RETRIES=5
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt && playwright install chromium
+RUN pip install --no-cache-dir --retries 5 --timeout 120 -r requirements.txt \
+    && playwright install chromium
 COPY . .
 ENV PORT=8080
 

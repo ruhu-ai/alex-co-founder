@@ -21,7 +21,7 @@ QUERY_PARAM = "key"
 
 # Routes that verify their own callers (portal token, OIDC) or must stay
 # reachable for probes. Everything else requires the founder token.
-EXEMPT_PREFIXES = ("/healthz", "/webhooks/", "/tasks/")
+EXEMPT_PREFIXES = ("/health", "/webhooks/", "/tasks/")  # "/health" covers /healthz too
 
 
 def configured_token() -> str:

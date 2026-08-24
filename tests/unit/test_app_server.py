@@ -58,7 +58,7 @@ class TestAdminRoutesStripped:
     def test_custom_surface_survives(self, appmod):
         paths = {getattr(r, "path", "") for r in appmod.app.router.routes}
         for needed in ("/wake", "/session/new", "/api/pipeline", "/healthz",
-                       "/webhooks/portal_event", "/tasks/discover"):
+                       "/health", "/webhooks/portal_event", "/tasks/discover"):
             assert needed in paths
 
 
@@ -86,9 +86,14 @@ class TestFounderGate:
         assert client.get("/api/config",
                           headers={"Authorization": "Bearer t0ken"}).status_code == 200
 
-    def test_healthz_always_open(self, client, monkeypatch):
+    def test_health_always_open(self, client, monkeypatch):
+        # /healthz is reserved by Google's edge in prod (never reaches the
+        # container), so /health is the prod-reachable warm-up path; both must
+        # be exempt from the founder gate.
         monkeypatch.setenv("APP_AUTH_TOKEN", "t0ken")
         assert client.get("/healthz").status_code == 200
+        assert client.get("/health").status_code == 200
+        assert client.get("/health").json()["status"] == "ok"
 
     def test_prod_without_token_fails_closed(self, client, monkeypatch):
         monkeypatch.setenv("K_SERVICE", "co-founder")
