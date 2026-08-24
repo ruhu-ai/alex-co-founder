@@ -1,0 +1,167 @@
+tests/unit/test_issue_regressions.py
+  s_0d88913a591014::t_a9c0572ac9b90c 13-19
+docs/05-tools.md
+  s_0d88913a591014::t_fb1fab1155fe06 92
+services/alex_mailbox.py
+  s_0d88913a591014::t_572ceeeebabf4a 405-414,420-421
+agents/co_founder/sub_agents/matchmaker.py
+  s_0d88913a591014::t_a9c0572ac9b90c 10
+services/gemini_backends.py
+  s_0d88913a591014::t_a9c0572ac9b90c 303-309
+  s_36171a28333978::t_e281c96afd9503 18,21
+tests/unit/test_services.py
+  s_0d88913a591014::t_a9c0572ac9b90c 5-15
+requirements.txt
+  s_0d88913a591014::t_f14bd32e8bff6d 24
+app/live.py
+  s_0d88913a591014::t_fbacbb61cf02be 41-43,69-70,109,118-120,124-125,128-133
+agents/co_founder/tools/browser.py
+  s_0d88913a591014::t_a8c6c2ab5ed8e8 97,108-109,328-332
+  s_0d88913a591014::t_259719f4f9e2b4 88-93
+  s_0d88913a591014::t_a9c0572ac9b90c 129
+services/task_queue.py
+  s_0d88913a591014::t_8855d19df85380 1-50
+docs/08-discovery-pipeline.md
+  s_0d88913a591014::t_e77e35960206e6 99-101
+mock_portal/requirements.txt
+  s_0d88913a591014::t_259719f4f9e2b4 3
+  s_0d88913a591014::t_f14bd32e8bff6d 1-2,4-5
+scripts/deploy.sh
+  s_0d88913a591014::t_fe39ed005e08d4 53-54,58
+  s_0d88913a591014::t_0fd4bc78654248 39-40,52
+  s_0d88913a591014::t_259719f4f9e2b4 89,139
+  s_0d88913a591014::t_a2a5eb6e7b1c73 63-67,121,123
+  s_0d88913a591014::t_fb5a2757b159ce 103-104,115
+  s_0d88913a591014::t_08edd2269b755b 152-154
+services/firestore.py
+  s_0d88913a591014::t_5539e879c3011f 132-197
+  s_0d88913a591014::t_30843157717ba7 13,198-229
+  s_e582ea47c0a214::t_d51b5f4775bd15 230-231
+.github/workflows/ci.yml
+  s_0d88913a591014::t_b0fbb6bd346539 41-42
+  s_0d88913a591014::t_f14bd32e8bff6d 18,47,49,51,53,55
+services/browser_service.py
+  s_0d88913a591014::t_fb1fab1155fe06 524-526,528
+agents/co_founder/agent.py
+  s_0d88913a591014::t_a9c0572ac9b90c 16
+app/static/index.html
+  s_0d88913a591014::t_091063b95b24a5 468-472,474,2987-2992
+services/google_oauth.py
+  s_0d88913a591014::t_a8c6c2ab5ed8e8 216-217,222-224,229-236,247-253,256,259-262
+  s_0d88913a591014::t_0fd4bc78654248 72-86,88
+services/feedback_service.py
+  s_0d88913a591014::t_5539e879c3011f 24-34,44-51,59-60,64-65,74
+README.md
+  s_0d88913a591014::t_f14bd32e8bff6d 18-20,23-24
+  s_0d88913a591014::t_181c8741631fea 25
+agents/co_founder/config.py
+  s_36171a28333978::t_0a19978dee3d61 29-32
+  s_0d88913a591014::t_a9c0572ac9b90c 10
+  s_36171a28333978::t_5472a0d298b377 34,36,38
+  s_36171a28333978::t_8894413fbcb4b3 37,40-45
+scripts/setup.sh
+  s_0d88913a591014::t_f14bd32e8bff6d 21
+agents/co_founder/sub_agents/drafter.py
+  s_0d88913a591014::t_a9c0572ac9b90c 4
+services/connectors.py
+  s_0d88913a591014::t_a8c6c2ab5ed8e8 138-144,149-154
+  s_0d88913a591014::t_0fd4bc78654248 91,108
+scripts/e2e_browser_story.py
+  s_0d88913a591014::t_fb1fab1155fe06 25
+tests/unit/test_app_server.py
+  s_0d88913a591014::t_a9c0572ac9b90c 25-31,171-172,186
+  s_0d88913a591014::t_5f8d0a59825d1c 117
+  s_0d88913a591014::t_072bd62ba1a1c9 130-143
+  s_0d88913a591014::t_f039adc631c52c 187
+app/main.py
+  s_0d88913a591014::t_30843157717ba7 714-717,722,732-738,740,753-757
+  s_0d88913a591014::t_a2a5eb6e7b1c73 457,614-616,631-636,646-660
+  s_0d88913a591014::t_8855d19df85380 8-9,25,303,309,320-321,327-328,346-363,373,376-377,403,406-407,448-456,458-462,465-470,917,920-921,965,976-977,981,984-985
+  s_0d88913a591014::t_a9c0572ac9b90c 41-52,173,1109,1128-1129
+  s_0d88913a591014::t_80e220ced330d0 661-662
+Dockerfile
+  s_0d88913a591014::t_f14bd32e8bff6d 2-3,17
+.env.example
+  s_0d88913a591014::t_fb1fab1155fe06 44
+  s_36171a28333978::t_3b3c411e9e56f2 10
+  s_36171a28333978::t_e18ffd229fcec5 11
+mock_portal/Dockerfile
+  s_0d88913a591014::t_259719f4f9e2b4 7-8,11-12
+docs/09-form-filler.md
+  s_0d88913a591014::t_fb1fab1155fe06 142
+services/secrets.py
+  s_0d88913a591014::t_a8c6c2ab5ed8e8 49-52,69-90
+mock_portal/main.py
+  s_0d88913a591014::t_a54c882e23bafc 9,49-187,213-214,432,440,531,540,567-569,655,712-713,742,747-749,765-769,786
+  s_0d88913a591014::t_631f526ec0052c 541,571-576,583,590-591,593-594,596-598
+  s_0d88913a591014::t_3c0f664a8daa39 188-199,770-773,793
+services/approval_service.py
+  s_0d88913a591014::t_572ceeeebabf4a 76-81
+tests/unit/test_review_fixes_services.py
+  s_0d88913a591014::t_5f8d0a59825d1c 134,141-142,165,168,191
+  s_0d88913a591014::t_a9c0572ac9b90c 14-21
+  s_0d88913a591014::t_a1377475c41f0e 154-156,179-181
+docs/07-server-webhooks.md
+  s_0d88913a591014::t_e77e35960206e6 142-147
+agents/co_founder/sub_agents/interviewer.py
+  s_0d88913a591014::t_a9c0572ac9b90c 10
+tests/unit/test_review_fixes_app.py
+  s_0d88913a591014::t_a9c0572ac9b90c 178,215
+tests/conftest.py
+  s_0d88913a591014::t_5539e879c3011f 96-132,295-296
+services/portal_accounts.py
+  s_0d88913a591014::t_a8c6c2ab5ed8e8 109,116
+ruff.toml
+  s_0d88913a591014::t_b0fbb6bd346539 1-8
+services/calendar_adapter.py
+  s_0d88913a591014::t_572ceeeebabf4a 200-207,214-215
+tests/unit/test_findings_hardening.py
+  s_0d88913a591014::t_71d75ebe967806 13,16-52
+  s_0d88913a591014::t_be537e00c17224 61
+  s_0d88913a591014::t_cdd66119b6ac23 57
+  s_0d88913a591014::t_072bd62ba1a1c9 1-12,14-15,53-56,58-60,62-156
+docs/01-architecture.md
+  s_0d88913a591014::t_fb1fab1155fe06 138
+requirements-dev.txt
+  s_0d88913a591014::t_f14bd32e8bff6d 1-5
+services/pipeline_service.py
+  s_0d88913a591014::t_5539e879c3011f 150-153
+docs/18-browser-agent.md
+  s_0d88913a591014::t_fb1fab1155fe06 72
+tests/eval/eval_config.json
+  s_36171a28333978::t_3b3c411e9e56f2 10
+services/document_service.py
+  s_0d88913a591014::t_a9c0572ac9b90c 18
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "9f242d92196784e252997973cb415860c7a1f76e",
+  "prompts": {},
+  "sessions": {
+    "s_0d88913a591014": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a024b4-0838-7aa2-b12f-fefddbe84fe4",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Ijidai Lassa <ijidai@cued.app>"
+    },
+    "s_36171a28333978": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ee02ac2b-2dc2-4c6c-8f13-7e7ff17d5a93",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ijidai Lassa <ijidai@cued.app>"
+    },
+    "s_e582ea47c0a214": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a030de-40a9-74b3-b5e2-81598508428f",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Ijidai Lassa <ijidai@cued.app>"
+    }
+  }
+}
