@@ -85,13 +85,16 @@ def _register_fill(result: dict, app_id: str, tool_context: ToolContext) -> dict
 def _mock_mailbox_url(portal_url: str, email: str) -> str:
     """Mock portal seam (docs/17): its /_mailbox endpoint stands in for the
     real inbox during offline registration tests."""
-    host = urlparse(portal_url).netloc
-    if host.startswith(("127.0.0.1", "localhost")):
-        return f"http://{host}/_mailbox/{email}"
+    parsed = urlparse(portal_url)
+    host = parsed.netloc
+    configured_mock = urlparse(os.environ.get("MOCK_PORTAL_URL", "")).netloc
+    if host.startswith(("127.0.0.1", "localhost")) or (
+            configured_mock and host == configured_mock):
+        return f"{parsed.scheme or 'http'}://{host}/_mailbox/{email}"
     return ""
 
 
-def _creds() -> tuple[str, str]:
+def _creds() -> tuple[str, str] | None:
     """Portal creds: Secret Manager in prod (docs/12); env fallback for local dev."""
     try:
         import json
@@ -102,6 +105,8 @@ def _creds() -> tuple[str, str]:
         data = json.loads(raw)
         return data["username"], data["password"]
     except Exception:
+        if os.environ.get("K_SERVICE"):
+            return None
         return (os.environ.get("MOCK_PORTAL_USERNAME", "demo-founder"),
                 os.environ.get("MOCK_PORTAL_PASSWORD", "demo-pass-2026"))
 
@@ -121,8 +126,7 @@ def register_account(portal_url: str, email: str, tool_context: ToolContext) -> 
         or SSO-only pages return a clean blocker — never worked around. Every
         registration is audited.
     """
-    from services import (alex_mailbox, approval_service, browser_service,
-                          firestore, portal_accounts)
+    from services import alex_mailbox, approval_service, browser_service, firestore, portal_accounts
 
     host = urlparse(portal_url).netloc
     existing = portal_accounts.get_credential(host)
@@ -321,7 +325,11 @@ def open_portal(application_url: str, tool_context: ToolContext) -> dict:
 
     from services import browser_service
 
-    username, password = _creds()
+    credentials = _creds()
+    if credentials is None:
+        return {"status": "error", "error": True,
+                "message": "Portal credentials are unavailable in Secret Manager."}
+    username, password = credentials
     result = run(browser_service.open_and_login(application_url, username, password))
     if result.get("status") != "success":
         return result

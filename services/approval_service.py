@@ -73,11 +73,12 @@ async def resolve(approval_id: str, decision: str, founder_id: str,
 
 async def claim_for_action(application_id: str, gate: str, founder_id: str = "",
                            session_id: str = "") -> dict:
-    """Find a matching GRANTED, unexpired, unconsumed approval. Consumption
-    happens via ``consume`` AFTER the side effect succeeds — a failed action
-    must not burn the founder's single-use approval. Duplicate side effects
-    are serialized by the derived idempotency key (docs/05), not by early
-    consumption."""
+    """Find a matching GRANTED, unexpired, unconsumed approval.
+
+    The action implementation must atomically claim it before the first
+    irreversible provider call.  Provider timeouts are outcome-ambiguous, so
+    releasing an approval after an error could authorize a duplicate action.
+    """
     if not founder_id or not session_id:
         return {"status": "error", "error": True,
                 "message": "Action blocked: approval requires a founder-bound session."}

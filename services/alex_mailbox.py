@@ -402,18 +402,23 @@ async def send_email(to: str, subject: str, body: str, application_id: str = "",
     mime["to"], mime["subject"] = send_to, send_subject
     mime["from"] = "Alex (Ruhu AI co-founder) <alex@ruhu.ai>"
     raw = base64.urlsafe_b64encode(mime.as_bytes()).decode()
+    # Claim before the irreversible provider call.  A provider timeout is
+    # outcome-ambiguous (Gmail may have accepted the message even when the
+    # client saw an error), so re-arming this approval would make a duplicate
+    # send possible.  The founder can grant a fresh approval after reviewing
+    # the audit trail.
+    if not await firestore.claim_approval(approval["id"]):
+        await firestore.audit("agent:orchestrator", "send_email", target,
+                              "refused", "approval already consumed")
+        return {"status": "error", "error": True,
+                "message": "Action blocked: this email approval was already used."}
     try:
         sent = await asyncio.to_thread(lambda: svc.users().messages().send(
             userId="me", body={"raw": raw}).execute())
     except Exception as exc:
-        # Consume ONLY after a successful send: a transient API failure must not
-        # burn the founder's single-use approval (matches the submit path).
-        return {"status": "error", "error": True, "message": f"send failed: {exc}"}
-    if not await firestore.claim_approval(approval["id"]):
-        # The mail is already out; the approval was consumed concurrently. Record
-        # it rather than double-sending — nothing to undo.
         await firestore.audit("agent:orchestrator", "send_email", target,
-                              "warning", "sent; approval already consumed")
+                              "error", f"provider outcome unknown: {exc}"[:200])
+        return {"status": "error", "error": True, "message": f"send failed: {exc}"}
     await firestore.audit("agent:orchestrator", "send_email", target, "success",
                           f"to={send_to} subject={send_subject[:80]} message_id={sent.get('id')}")
     return {"status": "success", "message_id": sent.get("id"),

@@ -22,8 +22,13 @@ def appmod():
     # machine that wires REAL model backends into the service globals, which
     # leaks into every later test file (e.g. retrieval ranking flips from the
     # deterministic fallback to live embeddings). Unwire them again.
-    from services import (browser_service, discovery_service, profile_service,
-                          recon_service, voice_service)
+    from services import (
+        browser_service,
+        discovery_service,
+        profile_service,
+        recon_service,
+        voice_service,
+    )
     discovery_service.set_search_fn(None)
     discovery_service.set_extract_fn(None)
     discovery_service.set_pdf_extract_fn(None)
@@ -109,7 +114,7 @@ class TestFounderGate:
         monkeypatch.setattr(appmod.discovery_service, "deadline_scan", _noop)
         assert client.post("/tasks/deadline_scan").status_code == 401
         assert client.post("/tasks/deadline_scan",
-                           headers={"X-App-Key": "t0ken"}).status_code == 202
+                           headers={"X-App-Key": "t0ken"}).status_code == 200
 
     def test_prod_webhooks_fail_closed_without_configured_tokens(
             self, client, monkeypatch):
@@ -120,6 +125,20 @@ class TestFounderGate:
         assert client.post("/webhooks/alex_mail").status_code == 401
         assert client.post("/webhooks/portal_event",
                            json={"kind": "ping"}).status_code == 401
+
+
+class TestOAuthState:
+    def test_callback_rejects_unknown_or_replayed_state(
+            self, appmod, client, monkeypatch):
+        async def _missing(_state):
+            return None
+
+        monkeypatch.setattr(appmod.firestore, "consume_oauth_state", _missing)
+        response = client.get(
+            "/api/integrations/google/callback",
+            params={"code": "authorization-code", "state": "unknown"})
+        assert response.status_code == 400
+        assert "unknown, expired, or already used" in response.json()["message"]
 
 
 class TestSafeEmailLines:
@@ -147,8 +166,9 @@ class TestUrgencyBoundaries:
     passed silently."""
 
     def test_exact_boundaries(self):
-        from services.pipeline_service import compute_urgency
         from datetime import datetime, timedelta, timezone
+
+        from services.pipeline_service import compute_urgency
 
         def in_days(n):
             return (datetime.now(timezone.utc).date()
@@ -161,8 +181,9 @@ class TestUrgencyBoundaries:
         assert compute_urgency(in_days(-1), [])["tier"] == "OVERDUE"
 
     def test_datetime_shaped_deadline_parses(self):
-        from services.pipeline_service import compute_urgency
         from datetime import datetime, timedelta, timezone
+
+        from services.pipeline_service import compute_urgency
 
         tomorrow = (datetime.now(timezone.utc) + timedelta(days=1))
         # extraction sometimes yields full timestamps — previously this

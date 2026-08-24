@@ -2,10 +2,17 @@
 
 import pytest
 
-from services import (alex_mailbox, approval_service, calendar_adapter,
-                      discovery_service,
-                      drive_adapter, gmail_adapter, pipeline_service,
-                      profile_service, recon_service)
+from services import (
+    alex_mailbox,
+    approval_service,
+    calendar_adapter,
+    discovery_service,
+    drive_adapter,
+    gmail_adapter,
+    pipeline_service,
+    profile_service,
+    recon_service,
+)
 
 pytestmark = pytest.mark.asyncio
 

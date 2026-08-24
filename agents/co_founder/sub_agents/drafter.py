@@ -1,6 +1,7 @@
 """Drafter agent — section drafting in the founder's voice (docs/04)."""
 
 from google.adk.agents import Agent
+
 from ..callbacks import enforce_document_grounding, initialize_session_state
 from ..config import MODEL
 from ..instructions import DRAFTER_INSTRUCTION

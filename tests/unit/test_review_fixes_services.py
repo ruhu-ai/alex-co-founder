@@ -11,8 +11,14 @@ from types import SimpleNamespace
 import pytest
 
 from agents.co_founder.state_schema import ApplicationStep, SectionStatus
-from services import (a2a_talk, alex_mailbox, browser_service, calendar_adapter,
-                      discovery_service, feedback_service)
+from services import (
+    a2a_talk,
+    alex_mailbox,
+    browser_service,
+    calendar_adapter,
+    discovery_service,
+    feedback_service,
+)
 
 pytestmark = pytest.mark.asyncio
 
@@ -125,15 +131,15 @@ class TestApproveEdit:
         assert section["status"] == SectionStatus.APPROVED
 
 
-# --- #8 approval consumed only AFTER the side effect succeeds ---------------
+# --- approval reserved BEFORE an outcome-ambiguous provider call ------------
 
 class _RaiseExec:
     def __init__(self, exc): self._exc = exc
     def execute(self): raise self._exc
 
 
-class TestApprovalNotBurnedOnFailure:
-    async def test_send_email_keeps_grant_when_send_fails(self, monkeypatch):
+class TestApprovalReservedBeforeAction:
+    async def test_send_email_consumes_before_ambiguous_failure(self, monkeypatch):
         claims = []
 
         class _Svc:
@@ -145,7 +151,9 @@ class TestApprovalNotBurnedOnFailure:
         async def _valid(target, **_k): return {"id": "ap1", "details": {}}
         monkeypatch.setattr("services.alex_mailbox.firestore.find_valid_approval", _valid)
 
-        async def _claim(aid): claims.append(aid); return True
+        async def _claim(aid):
+            claims.append(aid)
+            return True
         monkeypatch.setattr("services.alex_mailbox.firestore.claim_approval", _claim)
 
         async def _audit(*_a, **_k): pass
@@ -154,10 +162,10 @@ class TestApprovalNotBurnedOnFailure:
         result = await alex_mailbox.send_email(
             "p@x.org", "s", "b", founder_id="founder", session_id="s1")
         assert result["status"] == "error"
-        assert claims == []  # single-use approval survives a transient failure
+        assert claims == ["ap1"]  # retry cannot duplicate a possibly-sent email
         alex_mailbox.set_service_factory(None)
 
-    async def test_create_event_keeps_grant_when_insert_fails(self, monkeypatch):
+    async def test_create_event_consumes_before_ambiguous_failure(self, monkeypatch):
         claims = []
 
         class _Svc:
@@ -168,7 +176,9 @@ class TestApprovalNotBurnedOnFailure:
         async def _valid(target, **_k): return {"id": "ap1", "details": {}}
         monkeypatch.setattr("services.calendar_adapter.firestore.find_valid_approval", _valid)
 
-        async def _claim(aid): claims.append(aid); return True
+        async def _claim(aid):
+            claims.append(aid)
+            return True
         monkeypatch.setattr("services.calendar_adapter.firestore.claim_approval", _claim)
 
         async def _audit(*_a, **_k): pass
@@ -178,7 +188,7 @@ class TestApprovalNotBurnedOnFailure:
             "Intro", "2026-08-25T14:00:00+01:00", "2026-08-25T14:30:00+01:00",
             ["a@b.co"], founder_id="founder", session_id="s1")
         assert result["status"] == "error"
-        assert claims == []
+        assert claims == ["ap1"]
         calendar_adapter.set_service_factory(None)
 
 

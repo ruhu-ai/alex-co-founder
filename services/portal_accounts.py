@@ -89,7 +89,6 @@ def store_credential(host: str, email: str, password: str,
              "verified": verified, "portal_url": portal_url,
              "session_id": session_id, "host": host}
     _register_secret(password)
-    _CACHE[host] = entry
     if _sm_project():
         try:
             from google.api_core import exceptions as gexc
@@ -107,12 +106,14 @@ def store_credential(host: str, email: str, password: str,
             client.add_secret_version(request={
                 "parent": f"{parent}/secrets/{secret_id}",
                 "payload": {"data": json.dumps(entry).encode()}})
+            _CACHE[host] = entry
             return {"status": "success", "store": "secret_manager"}
         except Exception as exc:
             return _err(f"secret store failed: {exc}"[:200])
     data = _load_local()
     data[host] = entry
     _save_local(data)
+    _CACHE[host] = entry
     return {"status": "success", "store": "local"}
 
 

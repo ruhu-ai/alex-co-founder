@@ -135,7 +135,7 @@ co-founder/
 | `PORTAL_SECRET_NAME` | `mock-portal-creds` | Secret Manager secret id |
 | `AGENT_BASE_URL` | `http://127.0.0.1:8090` | used by mock portal to call webhooks |
 | `MOCK_PORTAL_URL` | `http://127.0.0.1:8091` | form-filler target |
-| `HEADLESS` | `true` | Playwright headless; `false` to watch the browser while developing |
+| Browser execution | always headless | Portal pages are shown only in the in-app Browser panel |
 | `BROWSE_OPEN_WEB` | _(unset)_ | dev-only: allow non-allowlisted public hosts (18); production must leave unset/false — fail-closed |
 | `BROWSE_ALLOWED_DOMAINS` | _(empty)_ | comma-separated host patterns; with `BROWSE_OPEN_WEB` unset, empty = deny-all (18) |
 | `BROWSE_BLOCKED_DOMAINS` | _(empty)_ | deny wins over the allowlist (18) |

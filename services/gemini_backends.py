@@ -15,9 +15,10 @@ import re
 from google import genai
 from google.genai import types
 
-MODEL_ID = os.environ.get("ADK_MODEL", "gemini-3.5-flash")
+MODEL_ID = os.environ.get("ADK_MODEL", "gemini-3.6-flash")
 # Bulk extraction tier (docs/19 §P1.7): cheap + fast for high-volume,
 # low-complexity record extraction; document understanding stays on flash.
+# (No gemini-3.6-flash-lite is published, so the lite tier stays on 3.5.)
 LITE_MODEL_ID = os.environ.get("LITE_MODEL", "gemini-3.5-flash-lite")
 
 _client = None
@@ -299,8 +300,13 @@ def wire_all() -> None:
     way (verified: server boots and serves UI with no creds present)."""
     get_client()  # constructs the client; auth itself happens on first call
 
-    from services import (browser_service, discovery_service, profile_service,
-                          recon_service, voice_service)
+    from services import (
+        browser_service,
+        discovery_service,
+        profile_service,
+        recon_service,
+        voice_service,
+    )
 
     discovery_service.set_search_fn(search_fn)
     discovery_service.set_extract_fn(extract_fn)

@@ -5,7 +5,8 @@ Surfaces over ONE shared session store:
   2 — webhooks/tasks (dedicated webhook Runner, resume via state_delta)
   3 — distiller (tiny second App; inline, synchronous, from the feedback path)
 
-Fast-ack rule: task routes return 202 immediately and work in BackgroundTasks.
+Push handlers complete work before acknowledging it; long portal wakes are
+first durably enqueued in Cloud Tasks.
 someone_is_there(): system sessions never ask questions.
 """
 
@@ -21,7 +22,7 @@ from typing import Literal
 # (Google merges prior grants). Relax to a logged warning.
 os.environ.setdefault("OAUTHLIB_RELAX_TOKEN_SCOPE", "1")
 
-from fastapi import BackgroundTasks, FastAPI, File, Form, Request, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from google.adk.apps import App
@@ -37,10 +38,18 @@ from agents.co_founder.state_schema import ApplicationStep as Step
 from agents.co_founder.sub_agents import distiller as distiller_subagent
 from app import browser_routes
 from app.app_utils.telemetry import setup_telemetry
-from app.resume_handler import ResumeHandler, SYSTEM_NOTICE_MARKER
-from services import (approval_service, distill_service, discovery_service,
-                      browser_service, feedback_service, firestore,
-                      pipeline_service, storage, voice_service)
+from app.resume_handler import SYSTEM_NOTICE_MARKER, ResumeHandler
+from services import (
+    approval_service,
+    browser_service,
+    discovery_service,
+    distill_service,
+    feedback_service,
+    firestore,
+    pipeline_service,
+    storage,
+    voice_service,
+)
 
 setup_telemetry()
 
@@ -160,8 +169,8 @@ async def _verify_oidc(request: Request) -> bool:
             return False  # cannot pin the caller — fail closed
         expected_sa = f"scheduler-invoker@{project}.iam.gserviceaccount.com"
     try:
-        from google.oauth2 import id_token as _id_token
         from google.auth.transport import requests as _auth_requests
+        from google.oauth2 import id_token as _id_token
 
         base = f"https://{request.url.hostname}"
         claims = await asyncio.to_thread(  # cert fetch is blocking HTTP
@@ -291,14 +300,13 @@ class PortalEvent(BaseModel):
     user_id: str = "founder"
     session_id: str = ""
     application_id: str = ""
-    kind: str
+    kind: Literal["ping", "submission_confirmed", "result_posted"]
     confirmation_id: str = ""
     detail: str = ""
 
 
 @app.post("/webhooks/portal_event")
-async def portal_event(event: PortalEvent, request: Request,
-                       background: BackgroundTasks):
+async def portal_event(event: PortalEvent, request: Request):
     if not _verify_portal_token(request):
         return JSONResponse({"error": "bad portal token"}, status_code=401)
     if event.kind == "ping":
@@ -309,11 +317,15 @@ async def portal_event(event: PortalEvent, request: Request,
                   f"{event.confirmation_id}" if event.confirmation_id else "")
     if dedupe_key and await firestore.find_successful_action(dedupe_key):
         return {"status": "ok", "duplicate": True}
+    if event.session_id and not await _founder_session_exists(event.session_id):
+        return JSONResponse({"error": "unknown founder session"}, status_code=400)
     delta = {"pending_signals": []}
     target_step = (Step.FOLLOW_UP if event.kind == "submission_confirmed"
                    else Step.CLOSED if event.kind == "result_posted" else None)
     if event.application_id and target_step:
         app_doc = await firestore.get_application(event.application_id)
+        if not app_doc or app_doc.get("founder_id") != FOUNDER_ID:
+            return JSONResponse({"error": "unknown founder application"}, status_code=400)
         current = app_doc.get("state") if app_doc else None
         # The mock can confirm while submit_form is still unwinding. Walk the
         # legal chain instead of attempting the invalid gate→follow-up leap.
@@ -331,30 +343,38 @@ async def portal_event(event: PortalEvent, request: Request,
             current = advanced.get("current_step", current)
         if current == target_step:
             delta["current_step"] = target_step
+    if event.session_id:
+        wake_payload = {
+            "session_id": event.session_id,
+            "notice": f"Resume: portal event — {event.kind} {event.confirmation_id}".strip(),
+            "state_delta": delta,
+        }
+        if os.environ.get("K_SERVICE"):
+            from services import task_queue
+
+            queued = await asyncio.to_thread(
+                task_queue.enqueue, "/tasks/portal_wake", wake_payload,
+                dedupe_key or f"portal-wake:{uuid.uuid4().hex}")
+            if queued.get("status") != "success":
+                return JSONResponse(queued, status_code=503)
+        else:
+            await resume_handler.wake(
+                user_id=FOUNDER_ID, session_id=event.session_id,
+                notice=wake_payload["notice"], state_delta=delta)
     if dedupe_key:
         await firestore.audit(
             "system:portal", f"portal_event_{event.kind}",
             f"applications/{event.application_id}", "success",
             event.confirmation_id, idempotency_key=dedupe_key)
-    if event.session_id:
-        # Fast-ack: the wake is a full agent turn (minutes); the portal posts
-        # with a 10s timeout, so running it inline always timed out client-side.
-        background.add_task(
-            resume_handler.wake,
-            user_id=FOUNDER_ID,
-            session_id=event.session_id,
-            notice=f"Resume: portal event — {event.kind} {event.confirmation_id}".strip(),
-            state_delta=delta,
-        )
     return {"status": "ok"}
 
 
 @app.post("/webhooks/deadline")
-async def deadline_webhook(request: Request, background: BackgroundTasks):
+async def deadline_webhook(request: Request):
     if not await _verify_oidc(request):
         return JSONResponse({"error": "bad oidc token"}, status_code=401)
-    background.add_task(_deadline_scan_and_nudge)
-    return JSONResponse({"status": "accepted"}, status_code=202)
+    await _deadline_scan_and_nudge()
+    return {"status": "success"}
 
 
 async def _deadline_scan_and_nudge() -> None:
@@ -380,11 +400,11 @@ async def _deadline_scan_and_nudge() -> None:
 # ---------------------------------------------------------------------------
 
 @app.post("/tasks/discover")
-async def tasks_discover(request: Request, background: BackgroundTasks):
+async def tasks_discover(request: Request):
     if not await _verify_task_caller(request):
         return JSONResponse({"error": "unauthorized"}, status_code=401)
-    background.add_task(_discover_and_score)
-    return JSONResponse({"status": "accepted"}, status_code=202)
+    await _discover_and_score()
+    return {"status": "success"}
 
 
 async def _discover_and_score() -> None:
@@ -425,11 +445,29 @@ async def _discover_and_score() -> None:
 
 
 @app.post("/tasks/deadline_scan")
-async def tasks_deadline_scan(request: Request, background: BackgroundTasks):
+async def tasks_deadline_scan(request: Request):
     if not await _verify_task_caller(request):
         return JSONResponse({"error": "unauthorized"}, status_code=401)
-    background.add_task(discovery_service.deadline_scan)
-    return JSONResponse({"status": "accepted"}, status_code=202)
+    return await discovery_service.deadline_scan()
+
+
+class PortalWakeRequest(BaseModel):
+    session_id: str
+    notice: str
+    state_delta: dict
+
+
+@app.post("/tasks/portal_wake")
+async def tasks_portal_wake(payload: PortalWakeRequest, request: Request):
+    """Cloud Tasks worker: acknowledge only after the agent wake completes."""
+    if not await _verify_task_caller(request):
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    if not await _founder_session_exists(payload.session_id):
+        return JSONResponse({"error": "unknown founder session"}, status_code=404)
+    await resume_handler.wake(
+        user_id=FOUNDER_ID, session_id=payload.session_id,
+        notice=payload.notice, state_delta=payload.state_delta)
+    return {"status": "success"}
 
 
 class DistillRequest(BaseModel):
@@ -573,7 +611,9 @@ async def api_resolve_approval(approval_id: str, payload: ApprovalResolve):
 async def api_voice_note(file: UploadFile = File(...), context: str = Form("")):
     """Voice-note intake (Day 11): store audio artifact, transcribe, forward
     the extracted intent through the normal resume path."""
-    audio = await file.read()
+    audio = await _read_upload(file, max_bytes=25 * 1024 * 1024,
+                               allowed_types={"audio/webm", "audio/ogg", "audio/mp4",
+                                              "audio/wav", "audio/x-wav"})
     name = f"voicenote_{FOUNDER_ID}_{uuid.uuid4().hex[:8]}.webm"
     await asyncio.to_thread(storage.save_bytes, name, audio)  # GCS mirror blocks
     result = await voice_service.transcribe(storage.artifact_path(name), context)
@@ -588,7 +628,12 @@ async def api_ingest(file: UploadFile = File(...)):
     """Company-document upload (docs/06 §bootstrap)."""
     from services import profile_service
 
-    data = await file.read()
+    data = await _read_upload(
+        file, max_bytes=20 * 1024 * 1024,
+        allowed_types={"application/pdf", "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                       "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                       "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+                       "text/plain", "text/csv", "application/octet-stream"})
     # file.filename is attacker-controllable and lands inside an artifact name
     # (→ os.path.join in storage.artifact_path). Sanitize before use so it can
     # never escape the artifact root; the raw name is kept only for display.
@@ -596,6 +641,23 @@ async def api_ingest(file: UploadFile = File(...)):
     name = f"companydoc_{FOUNDER_ID}_{uuid.uuid4().hex[:8]}_{safe}"
     await asyncio.to_thread(storage.save_bytes, name, data)  # GCS mirror blocks
     return await profile_service.ingest_document(FOUNDER_ID, "upload", file.filename or name, name)
+
+
+async def _read_upload(file: UploadFile, max_bytes: int,
+                       allowed_types: set[str]) -> bytes:
+    """Read a bounded upload in chunks and reject unsupported content types."""
+    content_type = (file.content_type or "application/octet-stream").lower()
+    if content_type not in allowed_types:
+        raise HTTPException(status_code=415, detail=f"unsupported upload type: {content_type}")
+    data = bytearray()
+    while chunk := await file.read(1024 * 1024):
+        data.extend(chunk)
+        if len(data) > max_bytes:
+            raise HTTPException(status_code=413,
+                                detail=f"upload exceeds {max_bytes // (1024 * 1024)} MB limit")
+    if not data:
+        raise HTTPException(status_code=400, detail="upload is empty")
+    return bytes(data)
 
 
 # ---------------------------------------------------------------------------
@@ -630,13 +692,6 @@ def _oauth_flow(scopes: list[str] | None = None):
     )
 
 
-# Per-consent PKCE state: OAuth `state` -> {verifier, scopes, account}. Keying
-# by state (not one global slot) keeps concurrent connector consents from
-# overwriting each other's verifier, and lets the callback exchange with the
-# exact scopes that consent requested instead of the full union.
-_pending_oauth: dict[str, dict] = {}
-
-
 @app.get("/api/integrations/google/connect")
 async def api_google_connect(connector: str = ""):
     """Connect button target: redirect the browser to Google consent.
@@ -656,15 +711,15 @@ async def api_google_connect(connector: str = ""):
     url, _ = flow.authorization_url(
         prompt="consent", access_type="offline", include_granted_scopes="true",
         state=state)  # NB: string "true" — Google rejects the Python bool's "True"
-    # PKCE: the callback's exchange must present the SAME verifier a fresh Flow
-    # would not have — stored against this consent's state, with its scopes.
-    _pending_oauth[state] = {"verifier": flow.code_verifier,
-                             "scopes": scopes, "account": account}
+    # PKCE state is durable and single-use: consent can survive a cold start,
+    # while an unknown, expired, or replayed callback is rejected.
+    await firestore.create_oauth_state(
+        state, flow.code_verifier or "", scopes, account)
     return RedirectResponse(url)
 
 
 @app.get("/api/integrations/google/callback")
-async def api_google_callback(code: str = "", state: str = "founder"):
+async def api_google_callback(code: str = "", state: str = ""):
     """Consent redirect: exchange the code, persist the refresh token for the
     account named in `state` (no restart needed), land back on the app."""
     from fastapi.responses import RedirectResponse
@@ -674,13 +729,15 @@ async def api_google_callback(code: str = "", state: str = "founder"):
     if not code:
         return JSONResponse({"status": "error", "error": True,
                              "message": "no code in callback"}, status_code=400)
-    entry = _pending_oauth.pop(state, None)  # consume this consent's state
-    # Exchange with the scopes this consent actually requested (not ALL_SCOPES).
-    # Fallback (entry lost to a restart): the union, so oauthlib's scope check
-    # still tolerates a merged grant.
-    scopes = entry["scopes"] if entry else google_oauth.ALL_SCOPES
+    entry = await firestore.consume_oauth_state(state)
+    if not entry:
+        return JSONResponse({"status": "error", "error": True,
+                             "message": "OAuth state is unknown, expired, or already used"},
+                            status_code=400)
+    # Exchange with the exact scopes this consent requested.
+    scopes = entry["scopes"] or google_oauth.SCOPES
     flow = _oauth_flow(scopes)
-    if entry and entry.get("verifier"):
+    if entry.get("verifier"):
         flow.code_verifier = entry["verifier"]
     try:
         # Blocking HTTPS round-trip to Google's token endpoint — off the loop.
@@ -693,9 +750,11 @@ async def api_google_callback(code: str = "", state: str = "founder"):
     if not token:
         return JSONResponse({"status": "error", "error": True,
                              "message": "no refresh token returned — consent again"}, status_code=400)
-    account = (entry["account"] if entry
-               else state if state in google_oauth.ACCOUNT_ENV else "founder")
-    google_oauth.save_refresh_token(token, account=account)
+    account = entry["account"]
+    saved = await asyncio.to_thread(
+        google_oauth.save_refresh_token, token, account)
+    if saved.get("status") != "success":
+        return JSONResponse(saved, status_code=503)
     return RedirectResponse(f"/?connected={account}")
 
 
@@ -855,11 +914,11 @@ def _safe_email_lines(events: list[dict], limit: int = 5) -> str:
 
 
 @app.post("/tasks/gmail_scan")
-async def tasks_gmail_scan(request: Request, background: BackgroundTasks):
+async def tasks_gmail_scan(request: Request):
     if not await _verify_task_caller(request):
         return JSONResponse({"error": "unauthorized"}, status_code=401)
-    background.add_task(_gmail_scan_and_report)
-    return JSONResponse({"status": "accepted"}, status_code=202)
+    await _gmail_scan_and_report()
+    return {"status": "success"}
 
 
 async def _gmail_scan_and_report() -> None:
@@ -903,7 +962,7 @@ async def _gmail_scan_and_report() -> None:
 # ---------------------------------------------------------------------------
 
 @app.post("/webhooks/alex_mail")
-async def alex_mail_push(request: Request, background: BackgroundTasks):
+async def alex_mail_push(request: Request):
     """Gmail push notification (via Pub/Sub) for alex@ruhu.ai. Fast-ack; the
     history fetch + founder report run in the background. Authenticated the
     same way as the other Pub/Sub-delivered endpoints (/webhooks/deadline,
@@ -914,16 +973,16 @@ async def alex_mail_push(request: Request, background: BackgroundTasks):
     created with --push-auth-service-account (OIDC), like the scheduler subs."""
     if not await _verify_task_caller(request):
         return JSONResponse({"error": "unauthorized"}, status_code=401)
-    background.add_task(_alex_mail_process)
-    return JSONResponse({"status": "accepted"}, status_code=202)
+    await _alex_mail_process()
+    return {"status": "success"}
 
 
 @app.post("/tasks/alex_mail_scan")
-async def tasks_alex_mail_scan(request: Request, background: BackgroundTasks):
+async def tasks_alex_mail_scan(request: Request):
     if not await _verify_task_caller(request):
         return JSONResponse({"error": "unauthorized"}, status_code=401)
-    background.add_task(_alex_mail_process)
-    return JSONResponse({"status": "accepted"}, status_code=202)
+    await _alex_mail_process()
+    return {"status": "success"}
 
 
 async def _alex_mail_process() -> None:
@@ -1047,6 +1106,7 @@ async def api_download_artifact(name: str):
     if not path.startswith(os.path.realpath(storage._root())) or not os.path.exists(path):
         return JSONResponse({"error": "not found"}, status_code=404)
     from fastapi.responses import FileResponse
+
     from services import document_service
 
     ext = name.rsplit(".", 1)[-1].lower()
@@ -1064,9 +1124,9 @@ async def api_download_artifact(name: str):
 async def api_sync_drive(artifact_name: str):
     """Founder-clicked copy of a produced document to Drive — the click IS the
     approval (docs/15 §security)."""
-    from services import document_service, drive_adapter
-
     import re as _re
+
+    from services import document_service, drive_adapter
     if not _re.fullmatch(r"[A-Za-z0-9_.-]+", artifact_name):
         return JSONResponse({"error": "bad artifact name"}, status_code=400)
     path = storage.artifact_path(artifact_name)

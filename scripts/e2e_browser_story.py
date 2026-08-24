@@ -22,7 +22,7 @@ Prereqs:
   terminal 2: uvicorn mock_portal.main:app --port 8091
 
 Run: python scripts/e2e_browser_story.py
-Tip: HEADLESS=false in .env to watch the Chromium window while it works.
+Watch browser progress in the app's Browser panel; automation is always headless.
 """
 
 import asyncio

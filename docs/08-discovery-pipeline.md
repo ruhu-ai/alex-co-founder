@@ -96,9 +96,9 @@ Push subscriptions point at the Cloud Run service `/tasks/*` routes with an OIDC
 service account. Commands in 13-deployment. Local development skips Pub/Sub
 entirely: `curl -X POST localhost:8090/tasks/discover`.
 
-Task routes ack `202` immediately and run the sweep via FastAPI
-`BackgroundTasks` (Pub/Sub push has an ack window; the work must outlive the
-request). Redelivery is at-least-once — sweep idempotency (dedupe_check,
+Task routes return success only after the request-bound sweep completes. A
+worker crash therefore causes Pub/Sub redelivery instead of losing acknowledged
+in-process work. Redelivery is at-least-once — sweep idempotency (dedupe_check,
 already-distilled skips) is mandatory, not optional.
 
 ## Failure behavior

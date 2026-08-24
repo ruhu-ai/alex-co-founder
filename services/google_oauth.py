@@ -69,8 +69,23 @@ _sm_missing: set = set()  # accounts whose token Secret Manager does NOT have �
 # (the env var is checked first, every time).
 
 
+def runtime_value(key: str) -> str:
+    """Read a mutable connector value from env or Secret Manager by name."""
+    value = os.environ.get(key, "")
+    if value:
+        return value
+    if not os.environ.get("K_SERVICE"):
+        return ""
+    try:
+        from services import secrets
+
+        return secrets.get(key)
+    except Exception:
+        return ""
+
+
 def _refresh_token(account: str = "founder") -> str:
-    token = os.environ.get(ACCOUNT_ENV.get(account, ""), "")
+    token = runtime_value(ACCOUNT_ENV.get(account, ""))
     if token:
         return token
     if account in _sm_missing:
@@ -198,25 +213,27 @@ def _account_email_for(account: str) -> str:
             return ""
 
 
-def save_env_var(key: str, value: str) -> None:
-    """Persist a key to the process env (live immediately), then durably.
+def save_env_var(key: str, value: str) -> dict:
+    """Persist a connector value durably, then make it live in this process.
 
     On Cloud Run (``K_SERVICE`` set) the durable store is Secret Manager
     (docs/12) — the local filesystem is ephemeral, so a token written only to
     .env is lost on the next cold start and sits in plaintext meanwhile. Local
-    dev keeps the .env path. Empty value removes the key from the process env.
-    Token values are never logged."""
-    os.environ.pop(key, None)
-    if value:
-        os.environ[key] = value
+    dev keeps the .env path. Empty value durably deletes the connector secret.
+    Token values are never logged. Errors are returned as data and the live
+    process is not changed unless durable persistence succeeds."""
     if os.environ.get("K_SERVICE"):
         try:
             from services import secrets
 
-            secrets.put(key, value)  # no-op on empty value
-        except Exception:
-            pass  # env var already live this process; Secret Manager is best-effort
-        return
+            secrets.put(key, value) if value else secrets.delete(key)
+        except Exception as exc:
+            return {"status": "error", "error": True,
+                    "message": f"secret persistence failed: {exc}"[:200]}
+        os.environ.pop(key, None)
+        if value:
+            os.environ[key] = value
+        return {"status": "success"}
     env_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".env")
     try:
         lines = []
@@ -227,12 +244,19 @@ def save_env_var(key: str, value: str) -> None:
             lines.append(f"{key}={value}")
         with open(env_path, "w") as fh:
             fh.write("\n".join(lines) + "\n")
-    except OSError:
-        pass  # env var is already set for this process; .env write is best-effort
+    except OSError as exc:
+        return {"status": "error", "error": True,
+                "message": f"local connector persistence failed: {exc}"[:200]}
+    os.environ.pop(key, None)
+    if value:
+        os.environ[key] = value
+    return {"status": "success"}
 
 
-def save_refresh_token(token: str, account: str = "founder") -> None:
+def save_refresh_token(token: str, account: str = "founder") -> dict:
     """Persist a newly-consented refresh token — no restart needed (cached
     creds and account identity are reset)."""
-    save_env_var(ACCOUNT_ENV.get(account, "GOOGLE_OAUTH_REFRESH_TOKEN"), token)
-    reset_for_tests()
+    result = save_env_var(ACCOUNT_ENV.get(account, "GOOGLE_OAUTH_REFRESH_TOKEN"), token)
+    if result.get("status") == "success":
+        reset_for_tests()
+    return result

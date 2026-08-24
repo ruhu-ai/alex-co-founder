@@ -465,11 +465,13 @@ h2 .count {
 }
 @media (max-width: 959px) {
   main { grid-template-columns: minmax(0, 1fr); }
-  #leftCell { border-right: 0; }
-  #board { display: none; }
-  body[data-pane="board"] #board { display: flex; }
+  #leftCell { display: none; border-right: 0; }
+  #leftCell > #board, #leftCell > #browserSurface { display: none; }
+  body[data-pane="board"] #leftCell,
+  body[data-pane="browser"] #leftCell { display: flex; }
+  body[data-pane="board"] #leftCell > #board { display: flex; }
   body[data-pane="board"] #chat { display: none; }
-  body[data-pane="browser"] #browserSurface { display: flex; }
+  body[data-pane="browser"] #leftCell > #browserSurface { display: flex; }
   body[data-pane="browser"] #chat { display: none; }
   #splitHandle, #surfaceBtn { display: none; }
   #paneTabs { display: flex !important; }
@@ -2982,7 +2984,12 @@ function renderLiveTranscript({ who, text, finished }) {
 
 // ---------- boot ----------
 restoreSession().then(refresh);
-setInterval(refresh, 5000);
+// Dormant by default: refresh on founder activity and after explicit actions,
+// never by a timer that keeps waking a scale-to-zero backend.
+window.addEventListener("focus", refresh);
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible") refresh();
+});
 </script>
 </body>
 </html>

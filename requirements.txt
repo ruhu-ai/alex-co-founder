@@ -21,9 +21,7 @@ sqlalchemy[asyncio]==2.0.52
 aiosqlite==0.22.1
 asyncpg==0.31.0
 greenlet==3.5.5
-# Must track the Playwright base-image tag in the Dockerfile (docs/13). The
-# base is currently v1.47.0-jammy while this pins 1.62.0 (the installed
-# version) — see the note in the Dockerfile; bump the base to match.
+# Must track the Playwright base-image tag in the Dockerfile (docs/13).
 playwright==1.62.0
 pydantic==2.13.4
 pyyaml==6.0.3
@@ -40,9 +38,3 @@ python-multipart==0.0.32
 # pinned <50 originally because 50.0.0 builds from source without a Rust
 # toolchain (see docs/verification-notes.md); now hard-pinned to the installed 49.0.0
 cryptography==49.0.0
-
-# dev
-pytest==9.1.1
-pytest-asyncio==1.4.0
-nest-asyncio==1.6.0
-ruff==0.16.3

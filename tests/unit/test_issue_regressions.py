@@ -10,9 +10,13 @@ from agents.co_founder.state_schema import ApplicationStep, SectionStatus
 from agents.co_founder.sub_agents.form_filler import verify_before_action
 from agents.co_founder.tools import browser, drafting
 from agents.co_founder.tools._common import run
-from services import (approval_service, browser_service, feedback_service,
-                      pipeline_service, portal_accounts)
-
+from services import (
+    approval_service,
+    browser_service,
+    feedback_service,
+    pipeline_service,
+    portal_accounts,
+)
 
 pytestmark = pytest.mark.asyncio
 

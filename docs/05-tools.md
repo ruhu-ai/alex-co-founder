@@ -89,7 +89,7 @@ def some_tool(param: str, tool_context: ToolContext) -> dict:
 ## `tools/browser.py`
 
 Thin async wrappers over a **single Playwright browser process** (module-level
-singleton; headless from `HEADLESS` env) with **isolated contexts per run**.
+singleton; always headless) with **isolated contexts per run**.
 Full behavioral spec in **09**.
 
 | Function | Signature | Behavior |

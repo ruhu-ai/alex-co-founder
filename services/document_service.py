@@ -14,8 +14,8 @@ import os
 import re
 import tempfile
 import threading
-import zipfile
 import xml.etree.ElementTree as ET
+import zipfile
 
 from services import storage
 

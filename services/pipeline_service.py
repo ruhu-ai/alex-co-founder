@@ -147,7 +147,10 @@ async def advance_application(application_id: str, to_step: str, actor: str, **f
     if not can_transition(app["state"], to_step):
         return {"status": "error", "error": True,
                 "message": f"illegal transition {app['state']} → {to_step}"}
-    await firestore.update_application(application_id, state=to_step, **fields)
+    transition = await firestore.guarded_application_transition(
+        application_id, app["state"], to_step, **fields)
+    if transition.get("status") != "success":
+        return transition
     await firestore.audit(actor, "state_transition", f"applications/{application_id}",
                           "success", f"{app['state']} → {to_step}")
     return {"status": "success", "application_id": application_id, "current_step": to_step}

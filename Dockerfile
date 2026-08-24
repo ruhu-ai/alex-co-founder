@@ -1,10 +1,6 @@
 # Cloud Run image — Day 10 (docs/13). Playwright needs system Chromium.
-# NOTE: keep this tag in lockstep with the pinned `playwright` in
-# requirements.txt. It is currently BEHIND (base v1.47.0 vs pip 1.62.0), so the
-# `playwright install chromium` below downloads a second Chromium and the base
-# image's bundled one goes unused. Bump this to v1.62.0-jammy to match and drop
-# the redundant download / any browser-vs-driver skew.
-FROM mcr.microsoft.com/playwright/python:v1.47.0-jammy
+# Keep this tag in lockstep with the pinned Playwright driver.
+FROM mcr.microsoft.com/playwright/python:v1.62.0-jammy
 
 # Controlled LibreOffice for document previews and PDF output (docs/15
 # §LibreOffice): a pinned apt install — never the developer's desktop copy.
@@ -18,8 +14,7 @@ WORKDIR /app
 # and would fail the whole deploy. Longer timeout + retries ride them out.
 ENV PIP_DEFAULT_TIMEOUT=120 PIP_RETRIES=5
 COPY requirements.txt .
-RUN pip install --no-cache-dir --retries 5 --timeout 120 -r requirements.txt \
-    && playwright install chromium
+RUN pip install --no-cache-dir --retries 5 --timeout 120 -r requirements.txt
 COPY . .
 ENV PORT=8080
 

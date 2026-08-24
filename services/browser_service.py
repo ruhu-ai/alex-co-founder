@@ -13,7 +13,6 @@ import hashlib
 import inspect as pyinspect
 import ipaddress
 import json
-import logging
 import os
 import re
 import socket
@@ -522,20 +521,11 @@ async def get_browser():
     if _browser is None:
         from playwright.async_api import async_playwright
 
-        # Headless is the enforced default: all browser activity is surfaced in
-        # the app's Browser panel (live screenshots), so a headed browser only
-        # spawns separate OS Chrome windows with no added value. ONLY an explicit
-        # HEADLESS=false opts into headed mode (a typo/stray value stays
-        # headless), and it warns so windows are never a silent surprise.
-        headless = os.environ.get("HEADLESS", "true").strip().lower() != "false"
-        if not headless:
-            logging.getLogger(__name__).warning(
-                "HEADLESS=false — Playwright will open separate OS Chrome windows. "
-                "Browser activity is otherwise viewable in the app's Browser panel; "
-                "set HEADLESS=true to keep everything in the app."
-            )
+        # Product invariant: portal automation is rendered only through the
+        # founder-facing in-app Browser panel. There is deliberately no headed
+        # launch option that can escape into an OS browser window.
         _playwright = await async_playwright().start()
-        _browser = await _playwright.chromium.launch(headless=headless)
+        _browser = await _playwright.chromium.launch(headless=True)
     return _browser
 
 

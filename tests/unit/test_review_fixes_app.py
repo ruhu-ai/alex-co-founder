@@ -10,9 +10,7 @@ from types import SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient
-
 from google.adk.errors import StaleSessionError
-
 
 # ---------------------------------------------------------------------------
 # mock portal (findings 3, 4, 17)
@@ -177,7 +175,7 @@ class _ScriptRunner:
 
 class TestResumeHandlerNotice:
     async def test_notice_is_tagged_with_the_invisible_marker(self):
-        from app.resume_handler import ResumeHandler, SYSTEM_NOTICE_MARKER
+        from app.resume_handler import SYSTEM_NOTICE_MARKER, ResumeHandler
         runner = _ScriptRunner(["ok"])
         await ResumeHandler(runner).wake(
             user_id="founder", session_id="s1",
@@ -214,6 +212,7 @@ class TestResumeHandlerNotice:
 
     async def test_notice_body_is_not_logged(self, caplog):
         import logging
+
         from app.resume_handler import ResumeHandler
         secret = "SENSITIVE-SUBJECT-9f3a"
         runner = _ScriptRunner(["ok"])

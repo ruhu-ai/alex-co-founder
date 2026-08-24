@@ -139,13 +139,12 @@ is a **direct-HTTP admin/retry route only** — the interactive distill path is
 synchronous (inline, awaited, from `/api/feedback` via the service layer), so
 the money-shot draft never races a queue. No distill Pub/Sub topic exists.
 
-**Fast-ack rule (from the reference lab):** a Pub/Sub push subscription gives the
-endpoint a limited window to acknowledge (~10 min, and the HTTP response is what
-matters operationally). Task routes must return `202` immediately and run the
-sweep in a `BackgroundTasks` worker — the work has to outlive the request that
-started it. Redelivery is at-least-once (`ADK_TRIGGER_MAX_RETRIES`, default 3):
-every task run must be idempotent (dedupe_check on discovery; distiller skips
-already-`distilled` feedback).
+**Durable acknowledgement rule:** Pub/Sub task routes acknowledge only after the
+request-bound worker completes, so a crash produces a non-2xx response and
+redelivery. Portal events that need a potentially long agent turn first enqueue
+an authenticated Cloud Task and acknowledge only after that durable enqueue.
+Redelivery is at-least-once: every task remains idempotent (dedupe_check on
+discovery; distiller skips already-`distilled` feedback).
 
 **`someone_is_there()` principle:** whether a human is present is a property of
 the REQUEST, not the process. Chat routes (`/wake`) have a person; task/webhook

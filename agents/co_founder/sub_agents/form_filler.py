@@ -12,7 +12,6 @@ from ..config import MODEL
 from ..instructions import FORM_FILLER_INSTRUCTION
 from ..tools import browser, pipeline
 
-
 _G3_STEPS = ("APPROVED", "FORM_FILLING", "AWAITING_SUBMIT_APPROVAL")
 
 # Portal-touching tools gated by pipeline step (G3, docs/09). open_portal and

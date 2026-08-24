@@ -7,6 +7,7 @@ from ..config import MODEL
 from ..instructions import INTERVIEWER_INSTRUCTION
 from ..tools import pipeline, profile
 
+
 def build_agent(model=None) -> Agent:
     """Fresh instance per parent (voice + text surfaces each need their own tree)."""
     return Agent(

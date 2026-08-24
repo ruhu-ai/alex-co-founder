@@ -15,7 +15,7 @@ jobs:
       - name: Install dependencies
         run: |
           uv venv .venv
-          uv pip install --python .venv/bin/python -r requirements.txt
+          uv pip install --python .venv/bin/python -r requirements-dev.txt
       - name: Install Playwright Chromium (browser-agent unit tests launch it)
         # ~14 unit tests drive a real Chromium; the pip `playwright` package
         # ships no browser binary, so without this the first CI run goes red.
@@ -38,22 +38,21 @@ jobs:
 
       - name: Unit + service + integration tests
         run: .venv/bin/python -m pytest tests/unit tests/integration -q
+      - name: Python static checks
+        run: .venv/bin/ruff check .
       - name: ADK golden evals (needs GCP creds)
         env:
           GCP_CREDENTIALS: ${{ secrets.GCP_CREDENTIALS }}
         run: |
-          # A silent skip reads as green — make it a visible warning, and
-          # actually export the credentials (the old version never did, so
-          # even with the secret set the evals had no ADC).
+          # Required acceptance gate: a green CI run means evals actually ran.
           if [ -z "$GCP_CREDENTIALS" ]; then
-            echo "::warning title=ADK eval gate SKIPPED::GCP_CREDENTIALS secret is not set — the ADK golden evals did NOT run. A green check on this job does NOT mean evals passed."
+            echo "::error title=ADK eval gate blocked::GCP_CREDENTIALS must be configured for CI."
             {
-              echo "### ⚠️ ADK golden eval gate SKIPPED — not passed"
+              echo "### ❌ ADK golden eval gate could not run"
               echo ""
-              echo "\`GCP_CREDENTIALS\` is not set, so the ADK golden evals could not run (no ADC in CI)."
-              echo "This step exits 0 so PRs are not blocked, but **a passing check here is NOT evidence the evals passed** — they were skipped entirely."
+              echo "Configure the \`GCP_CREDENTIALS\` repository secret; CI cannot pass without the required golden evaluations."
             } >> "$GITHUB_STEP_SUMMARY"
-            exit 0
+            exit 1
           fi
           printf '%s' "$GCP_CREDENTIALS" > /tmp/gcp-key.json
           export GOOGLE_APPLICATION_CREDENTIALS=/tmp/gcp-key.json

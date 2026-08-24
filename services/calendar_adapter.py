@@ -197,19 +197,22 @@ async def create_event(summary: str, start_iso: str, end_iso: str,
         "conferenceData": {"createRequest": {"requestId": uuid.uuid4().hex,
                                              "conferenceSolutionKey": {"type": "hangoutsMeet"}}},
     }
+    # Reserve the single-use approval before Calendar creates the event and
+    # emails invitations.  A timeout after insert is outcome-ambiguous, so a
+    # retry under the same approval must never be allowed to double-book.
+    if not await firestore.claim_approval(approval["id"]):
+        await firestore.audit("agent:orchestrator", "book_meeting", target,
+                              "refused", "approval already consumed")
+        return {"status": "error", "error": True,
+                "message": "Action blocked: this meeting approval was already used."}
     try:
         event = await asyncio.to_thread(lambda: svc.events().insert(
             calendarId="primary", body=event_body,
             conferenceDataVersion=1, sendUpdates="all").execute())
     except Exception as exc:
-        # Consume ONLY after a successful insert: a transient API failure must
-        # not burn the founder's single-use approval (matches the submit path).
-        return {"status": "error", "error": True, "message": f"event insert failed: {exc}"}
-    if not await firestore.claim_approval(approval["id"]):
-        # The event is already booked and invites are out; the approval was
-        # consumed concurrently. Record it rather than double-booking.
         await firestore.audit("agent:orchestrator", "book_meeting", target,
-                              "warning", "booked; approval already consumed")
+                              "error", f"provider outcome unknown: {exc}"[:200])
+        return {"status": "error", "error": True, "message": f"event insert failed: {exc}"}
     await firestore.audit("agent:orchestrator", "book_meeting", target, "success",
                           f"summary={summary[:80]} attendees={','.join(guests)} "
                           f"event_id={event.get('id')}")

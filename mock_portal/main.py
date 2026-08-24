@@ -6,6 +6,7 @@ webhook callbacks to the agent, and a ?v=2 mode with renamed fields to exercise
 the staleness fence.
 """
 
+import hashlib
 import hmac
 import html
 import os
@@ -45,6 +46,157 @@ _submissions: dict[str, dict] = {}          # idempotency_key -> submission
 _saves: dict[str, dict] = {}                # program_id -> saved form
 _a2a_log: list[dict] = []                   # A2A negotiations (own namespace:
 # never inside _saves, where /apply/a2a_log/save would collide with it)
+_db_client = None
+
+
+def _db():
+    """Shared Cloud Run state; local development keeps the in-memory fixture."""
+    global _db_client
+    if not os.environ.get("K_SERVICE"):
+        return None
+    if _db_client is None:
+        from google.cloud import firestore
+
+        _db_client = firestore.Client(
+            project=os.environ.get("GOOGLE_CLOUD_PROJECT"),
+            database=os.environ.get("FIRESTORE_DATABASE", "(default)"))
+    return _db_client
+
+
+def _doc_id(value: str) -> str:
+    return hashlib.sha256(value.encode()).hexdigest()
+
+
+def _session_exists(token: str) -> bool:
+    db = _db()
+    return (db.collection("mock_portal_sessions").document(_doc_id(token)).get().exists
+            if db else token in _sessions)
+
+
+def _add_session(token: str) -> None:
+    db = _db()
+    if db:
+        db.collection("mock_portal_sessions").document(_doc_id(token)).set({
+            "created_at": datetime.now(timezone.utc).isoformat()})
+    else:
+        _sessions.add(token)
+
+
+def _get_account(email_addr: str) -> dict | None:
+    db = _db()
+    if not db:
+        return _accounts.get(email_addr)
+    snap = db.collection("mock_portal_accounts").document(_doc_id(email_addr)).get()
+    return snap.to_dict() if snap.exists else None
+
+
+def _put_account(email_addr: str, account: dict) -> None:
+    db = _db()
+    if db:
+        db.collection("mock_portal_accounts").document(_doc_id(email_addr)).set(
+            {**account, "email": email_addr})
+    else:
+        _accounts[email_addr] = account
+
+
+def _account_for_token(token: str) -> tuple[str, dict] | None:
+    db = _db()
+    if db:
+        query = db.collection("mock_portal_accounts").where("token", "==", token).limit(1)
+        for snap in query.stream():
+            record = snap.to_dict()
+            return record.get("email", ""), record
+        return None
+    return next(((email_addr, account) for email_addr, account in _accounts.items()
+                 if account.get("token") == token), None)
+
+
+def _get_submission(key: str) -> dict | None:
+    db = _db()
+    if not db:
+        return _submissions.get(key)
+    snap = db.collection("mock_portal_submissions").document(_doc_id(key)).get()
+    return snap.to_dict() if snap.exists else None
+
+
+def _reserve_submission(key: str, submission: dict) -> tuple[bool, dict]:
+    """Atomically reserve one idempotency key across all portal instances."""
+    db = _db()
+    if not db:
+        existing = _submissions.get(key)
+        if existing:
+            return False, existing
+        _submissions[key] = submission
+        return True, submission
+    from google.cloud import firestore
+
+    ref = db.collection("mock_portal_submissions").document(_doc_id(key))
+    transaction = db.transaction()
+
+    @firestore.transactional
+    def reserve(txn):
+        snap = ref.get(transaction=txn)
+        if snap.exists:
+            return False, snap.to_dict()
+        txn.set(ref, submission)
+        return True, submission
+
+    return reserve(transaction)
+
+
+def _list_submissions() -> list[dict]:
+    db = _db()
+    if db:
+        return [snap.to_dict() for snap in db.collection("mock_portal_submissions").stream()]
+    return list(_submissions.values())
+
+
+def _save_progress(program_id: str, form: dict) -> None:
+    db = _db()
+    if db:
+        db.collection("mock_portal_saves").document(_doc_id(program_id)).set(form)
+    else:
+        _saves[program_id] = form
+
+
+def _append_mail(email_addr: str, message: dict) -> None:
+    db = _db()
+    if db:
+        from google.cloud import firestore
+
+        db.collection("mock_portal_mailbox").document(_doc_id(email_addr)).set(
+            {"email": email_addr, "messages": firestore.ArrayUnion([message])}, merge=True)
+    else:
+        _mailbox.setdefault(email_addr, []).append(message)
+
+
+def _mail_for(email_addr: str) -> list[dict]:
+    db = _db()
+    if not db:
+        return _mailbox.get(email_addr, [])
+    snap = db.collection("mock_portal_mailbox").document(_doc_id(email_addr)).get()
+    return (snap.to_dict() or {}).get("messages", []) if snap.exists else []
+
+
+def _append_a2a(record: dict) -> None:
+    db = _db()
+    if db:
+        db.collection("mock_portal_a2a_log").add(record)
+    else:
+        _a2a_log.append(record)
+
+
+def _reset_state() -> None:
+    db = _db()
+    if db:
+        for name in ("mock_portal_submissions", "mock_portal_saves",
+                     "mock_portal_a2a_log"):
+            for snap in db.collection(name).stream():
+                snap.reference.delete()
+        return
+    _submissions.clear()
+    _saves.clear()
+    _a2a_log.clear()
 
 # v1 -> v2 renamed fields (staleness-fence exercise)
 FIELD_NAMES = {
@@ -58,7 +210,8 @@ REGIONS = {"africa": ["Kenya", "Nigeria", "Ghana", "South Africa"],
 
 
 def _authed(request: Request) -> bool:
-    return request.cookies.get("mp_session") in _sessions
+    token = request.cookies.get("mp_session", "")
+    return bool(token) and _session_exists(token)
 
 
 def _fields(version: str) -> list[dict]:
@@ -276,7 +429,7 @@ def login_form():
 def login(username: str = Form(...), password: str = Form(...)):
     ok = CREDS.get(username) == password
     if not ok:
-        acct = _accounts.get(username.strip().lower())
+        acct = _get_account(username.strip().lower())
         ok = bool(acct and acct["password"] == password and acct["verified"])
     if not ok:
         return _page("Sign in",
@@ -284,7 +437,7 @@ def login(username: str = Form(...), password: str = Form(...)):
                      'and password and try again.</div>'
                      '<p><a class="btn" href="/login">Back to sign in</a></p>', nav=False)
     token = uuid.uuid4().hex
-    _sessions.add(token)
+    _add_session(token)
     resp = RedirectResponse("/", status_code=303)
     resp.set_cookie("mp_session", token)
     return resp
@@ -375,7 +528,7 @@ async def save_progress(program_id: str, request: Request):
     if not _admin_ok(request):
         return JSONResponse({"error": "auth required"}, status_code=401)
     form = await request.form()
-    _saves[program_id] = dict(form)
+    _save_progress(program_id, dict(form))
     return {"saved": len(form)}
 
 
@@ -384,8 +537,8 @@ async def submit(program_id: str, request: Request):
     if not _authed(request):
         return JSONResponse({"error": "auth required"}, status_code=401)
     idem_key = request.headers.get("idempotency-key", "")
-    if idem_key and idem_key in _submissions:
-        original = _submissions[idem_key]
+    if idem_key and (original := _get_submission(idem_key)):
+        await _notify_submission(request, original)
         return HTMLResponse(_receipt(original["confirmation_id"], replayed=True))
     form = await request.form()
     # Validate against the version the form was rendered with. apply_form's
@@ -411,27 +564,38 @@ async def submit(program_id: str, request: Request):
     submission = {"confirmation_id": confirmation_id, "program_id": program_id,
                   "fields": len(form), "submitted_at": datetime.now(timezone.utc).isoformat()}
     if idem_key:
-        _submissions[idem_key] = submission
+        created, reserved = _reserve_submission(idem_key, submission)
+        if not created:
+            return HTMLResponse(_receipt(reserved["confirmation_id"], replayed=True))
 
+    await _notify_submission(request, submission)
+    return HTMLResponse(_receipt(confirmation_id))
+
+
+async def _notify_submission(request: Request, submission: dict) -> bool:
+    """Deliver the durable submission event; idempotent replays retry it."""
     agent_url = os.environ.get("AGENT_BASE_URL", AGENT_BASE_URL)
     session_id = request.headers.get("x-cofounder-session-id", "")
     application_id = request.headers.get("x-cofounder-application-id", "")
     user_id = request.headers.get("x-cofounder-user-id", "founder")
     try:
         async with httpx.AsyncClient(timeout=10) as client:
-            await client.post(
+            response = await client.post(
                 f"{agent_url}/webhooks/portal_event",
                 headers={"X-Portal-Token": PORTAL_TOKEN,
                          "Content-Type": "application/json"},
                 json={"user_id": user_id or "founder", "session_id": session_id,
                       "application_id": application_id,
                       "kind": "submission_confirmed",
-                      "confirmation_id": confirmation_id,
-                      "detail": f"{program_id} submission confirmed"},
+                      "confirmation_id": submission["confirmation_id"],
+                      "detail": f"{submission['program_id']} submission confirmed"},
             )
+            response.raise_for_status()
+        return True
     except Exception:
-        pass  # demo: webhook failure must not break the submission page
-    return HTMLResponse(_receipt(confirmation_id))
+        # The submission is already durable. A retry with the same idempotency
+        # key re-enters this helper and retries only the notification.
+        return False
 
 
 # ---------------------------------------------------------------------------
@@ -488,7 +652,7 @@ def _program_office_answer(text: str) -> str:
         m = _re.search(r"MP-[0-9A-F]{4}", text.upper())
         if m:
             cid = m.group(0)
-            for sub in _submissions.values():
+            for sub in _list_submissions():
                 if sub["confirmation_id"] == cid:
                     return (f"Submission {cid} for program {sub['program_id']} is "
                             f"RECEIVED and under review (submitted {sub['submitted_at']}).")
@@ -545,9 +709,8 @@ async def _audit_a2a(question: str, answer: str) -> None:
     """Every negotiation logged (mock-local; the agent side audits its own too).
     Stored in its own list, not _saves, so a /apply/a2a_log/save can't clobber
     it."""
-    _a2a_log.append(
-        {"q": question[:200], "a": answer[:200],
-         "at": datetime.now(timezone.utc).isoformat()})
+    _append_a2a({"q": question[:200], "a": answer[:200],
+                 "at": datetime.now(timezone.utc).isoformat()})
 
 _accounts: dict[str, dict] = {}   # email -> {password, verified, token}
 _mailbox: dict[str, list] = {}    # email -> [messages]
@@ -576,14 +739,14 @@ async def signup(request: Request):
         return _page("Create an account",
                      '<div class="alert"><b>Email and password are both required.</b></div>'
                      '<p><a class="btn" href="/signup">Try again</a></p>', nav=False)
-    if email_addr in _accounts:
+    if _get_account(email_addr):
         return _page("Account already exists",
                      '<div class="alert"><b>That email is already registered.</b></div>'
                      '<p><a class="btn" href="/login">Sign in instead</a></p>', nav=False)
     token = uuid.uuid4().hex
-    _accounts[email_addr] = {"password": password, "verified": False, "token": token}
-    verify_url = f"http://127.0.0.1:8091/verify?token={token}"
-    _mailbox.setdefault(email_addr, []).append({
+    _put_account(email_addr, {"password": password, "verified": False, "token": token})
+    verify_url = f"{_AGENT_URL.rstrip('/')}/verify?token={token}"
+    _append_mail(email_addr, {
         "from": "noreply@mockportal.dev",
         "subject": "Verify your account",
         "body": f"Welcome! Click to verify: {verify_url}",
@@ -599,13 +762,15 @@ async def signup(request: Request):
 
 @app.get("/verify")
 def verify(token: str):
-    for email_addr, acct in _accounts.items():
-        if acct["token"] == token:
-            acct["verified"] = True
-            return _page("Email verified",
-                                 f'<div class="receipt"><b>{html.escape(email_addr)}</b> '
-                                 f'is verified.</div>'
-                                 f'<p><a class="btn" href="/login">Sign in</a></p>', nav=False)
+    matched = _account_for_token(token)
+    if matched:
+        email_addr, acct = matched
+        acct["verified"] = True
+        _put_account(email_addr, acct)
+        return _page("Email verified",
+                     f'<div class="receipt"><b>{html.escape(email_addr)}</b> '
+                     f'is verified.</div>'
+                     f'<p><a class="btn" href="/login">Sign in</a></p>', nav=False)
     return _page("Link not recognised",
                      '<div class="alert"><b>That verification link is not valid.</b> '
                      'It may have already been used, or it may have expired.</div>'
@@ -618,16 +783,14 @@ def mailbox(email_addr: str, request: Request):
     production — this leaks verification tokens if left open publicly."""
     if not _admin_ok(request):
         return JSONResponse({"error": "auth required"}, status_code=401)
-    return {"messages": _mailbox.get(email_addr.lower(), [])}
+    return {"messages": _mail_for(email_addr.lower())}
 
 
 @app.get("/admin/reset")
 def admin_reset(request: Request):
     if not _admin_ok(request):
         return JSONResponse({"error": "auth required"}, status_code=401)
-    _submissions.clear()
-    _saves.clear()
-    _a2a_log.clear()
+    _reset_state()
     return {"status": "reset"}
 
 

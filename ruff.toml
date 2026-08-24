@@ -1,0 +1,8 @@
+target-version = "py311"
+line-length = 100
+
+[lint]
+# CI-gated baseline: syntax/import/name correctness. Broader modernization and
+# exception-style rules are intentionally not release blockers for tool
+# boundaries whose contract is "errors as data".
+select = ["E4", "E7", "E9", "F", "I"]

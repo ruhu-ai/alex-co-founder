@@ -36,8 +36,8 @@ echo "==> Sensitive env → Secret Manager (never plaintext env vars, docs/12)"
 # These keys are stripped from the env-vars file below and bound with
 # --set-secrets instead. SESSION_SERVICE_URI carries the DB password inside
 # the URL, so it is secret-managed too.
-SECRET_ENV_KEYS=(DB_PASSWORD SESSION_SERVICE_URI GOOGLE_OAUTH_CLIENT_SECRET \
-                 GOOGLE_OAUTH_REFRESH_TOKEN ALEX_OAUTH_REFRESH_TOKEN ALEX_MAIL_WEBHOOK_TOKEN)
+SECRET_ENV_KEYS=(DB_PASSWORD SESSION_SERVICE_URI GOOGLE_OAUTH_CLIENT_SECRET ALEX_MAIL_WEBHOOK_TOKEN)
+RUNTIME_SECRET_KEYS=(GOOGLE_OAUTH_REFRESH_TOKEN ALEX_OAUTH_REFRESH_TOKEN GITHUB_TOKEN GITHUB_LOGIN)
 SET_SECRETS="PORTAL_WEBHOOK_TOKEN=portal-webhook-token:latest,APP_AUTH_TOKEN=app-auth-token:latest"
 for KEY in "${SECRET_ENV_KEYS[@]}"; do
   VAL="${!KEY:-}"
@@ -49,13 +49,21 @@ for KEY in "${SECRET_ENV_KEYS[@]}"; do
   [[ "$CURRENT" == "$VAL" ]] || printf '%s' "$VAL" | gcloud secrets versions add "$SNAME" --data-file=-
   SET_SECRETS="$SET_SECRETS,$KEY=$SNAME:latest"
 done
+# Runtime-managed connector values are fetched by their canonical name and are
+# deliberately not Cloud Run env bindings. They are created only by the in-app
+# Connect flow, so a later deployment cannot resurrect a disconnected token.
 
 echo "==> Compute SA roles (idempotent — learned the hard way, docs/13 §gotchas)"
 COMPUTE_SA="$(gcloud projects describe "$GOOGLE_CLOUD_PROJECT" --format='value(projectNumber)')-compute@developer.gserviceaccount.com"
-for ROLE in datastore.user secretmanager.secretAccessor aiplatform.user storage.objectAdmin cloudsql.client cloudbuild.builds.builder; do
+for ROLE in datastore.user secretmanager.admin aiplatform.user storage.objectAdmin cloudsql.client cloudbuild.builds.builder cloudtasks.enqueuer; do
   gcloud projects add-iam-policy-binding "$GOOGLE_CLOUD_PROJECT" \
     --member="serviceAccount:$COMPUTE_SA" --role="roles/$ROLE" --format="none" >/dev/null
 done
+
+echo "==> Cloud Tasks queue"
+gcloud tasks queues describe co-founder-events --location="$REGION" >/dev/null 2>&1 \
+  || gcloud tasks queues create co-founder-events --location="$REGION" \
+       --max-concurrent-dispatches=1 --max-attempts=8
 
 echo "==> Cloud SQL (sessions) — create is slow; runs once"
 gcloud sql instances describe co-founder-sessions >/dev/null 2>&1 \
@@ -78,6 +86,7 @@ done
 echo "==> Deploy mock-portal"
 gcloud run deploy mock-portal --source ./mock_portal --region="$REGION" \
   --allow-unauthenticated --min-instances 0 --max-instances 2 \
+  --set-env-vars="GOOGLE_CLOUD_PROJECT=$GOOGLE_CLOUD_PROJECT" \
   --set-secrets="PORTAL_WEBHOOK_TOKEN=portal-webhook-token:latest"
 MOCK_URL="$(gcloud run services describe mock-portal --region="$REGION" --format='value(status.url)')"
 echo "    mock portal: $MOCK_URL"
@@ -91,7 +100,8 @@ SA="scheduler-invoker@${GOOGLE_CLOUD_PROJECT}.iam.gserviceaccount.com"
 # freshly-deployed mock-portal URL is threaded in via env var (like the
 # invoker SA) rather than rewritten into .env.prod — no in-place mutation of
 # the file, and no BSD-vs-GNU `sed -i` portability trap.
-EXCLUDE_KEYS="${SECRET_ENV_KEYS[*]}" TASKS_INVOKER_SA="$SA" MOCK_PORTAL_URL="$MOCK_URL" \
+EXCLUDE_KEYS="${SECRET_ENV_KEYS[*]} ${RUNTIME_SECRET_KEYS[*]}" TASKS_INVOKER_SA="$SA" \
+  MOCK_PORTAL_URL="$MOCK_URL" GOOGLE_CLOUD_REGION="$REGION" \
   python3 - <<'PY' > /tmp/co_founder_env.yaml
 import json, os, re
 exclude = set(os.environ["EXCLUDE_KEYS"].split())
@@ -102,16 +112,15 @@ for line in open(".env.prod"):
         vals[m.group(1)] = m.group(2)          # duplicate keys: last one wins
 vals["TASKS_INVOKER_SA"] = os.environ["TASKS_INVOKER_SA"]
 vals["MOCK_PORTAL_URL"] = os.environ["MOCK_PORTAL_URL"]  # override with live URL
+vals["GOOGLE_CLOUD_REGION"] = os.environ["GOOGLE_CLOUD_REGION"]
 for key, val in vals.items():
     print(f"{key}: {json.dumps(val)}")
 PY
 # --allow-unauthenticated stays: the mock portal webhook and Pub/Sub push have
 # no platform identity; the app-layer founder gate (app/auth.py) is the fence.
-# --no-cpu-throttling: fast-ack task routes do their work AFTER the response;
-# throttled CPU silently kills acked sweeps. min-instances 1 for demo week.
+# Request-bound workers and durable Cloud Tasks allow true scale-to-zero.
 gcloud run deploy co-founder --source . --region="$REGION" \
-  --allow-unauthenticated --min-instances 1 --max-instances 1 --memory 2Gi \
-  --no-cpu-throttling \
+  --allow-unauthenticated --min-instances 0 --max-instances 1 --memory 2Gi \
   --add-cloudsql-instances "${GOOGLE_CLOUD_PROJECT}:${REGION}:co-founder-sessions" \
   --set-secrets="$SET_SECRETS" \
   --env-vars-file /tmp/co_founder_env.yaml
@@ -127,7 +136,7 @@ echo "==> Wire URLs both ways (mock portal webhooks → app; app → mock portal
 gcloud run services update co-founder --region="$REGION" \
   --update-env-vars "AGENT_BASE_URL=$APP_URL,MOCK_PORTAL_URL=$MOCK_URL"
 gcloud run services update mock-portal --region="$REGION" \
-  --update-env-vars "AGENT_BASE_URL=$APP_URL"
+  --update-env-vars "AGENT_BASE_URL=$APP_URL,MOCK_PORTAL_PUBLIC_URL=$MOCK_URL"
 
 echo "==> Scheduler jobs (idempotent)"
 gcloud scheduler jobs describe discovery-daily --location="$REGION" >/dev/null 2>&1 \
@@ -140,6 +149,9 @@ gcloud scheduler jobs describe deadline-scan-6h --location="$REGION" >/dev/null 
 echo "==> Pub/Sub push subscriptions → app (OIDC, idempotent)"
 gcloud iam service-accounts describe "$SA" >/dev/null 2>&1 \
   || gcloud iam service-accounts create scheduler-invoker --display-name="Scheduler → Cloud Run invoker"
+gcloud iam service-accounts add-iam-policy-binding "$SA" \
+  --member="serviceAccount:$COMPUTE_SA" --role="roles/iam.serviceAccountUser" \
+  --format=none >/dev/null
 gcloud run services add-iam-policy-binding co-founder --region="$REGION" \
   --member="serviceAccount:$SA" --role=roles/run.invoker >/dev/null
 # Pub/Sub's service agent must be able to mint OIDC tokens AS the invoker SA,

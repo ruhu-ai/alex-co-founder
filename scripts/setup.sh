@@ -18,7 +18,7 @@ echo "==> [2/7] Virtualenv + dependencies"
 if [ ! -d .venv ]; then
   uv venv .venv
 fi
-uv pip install --python .venv/bin/python -r requirements.txt
+uv pip install --python .venv/bin/python -r requirements-dev.txt
 
 echo "==> [3/7] Google Cloud project"
 ENV_FILE=.env
@@ -69,7 +69,6 @@ grep -q '^ARTIFACT_SERVICE_URI=' "$ENV_FILE"     || echo "ARTIFACT_SERVICE_URI=f
 grep -q '^WORKFLOW_FILE=' "$ENV_FILE"            || echo "WORKFLOW_FILE=workflows/grant_applications.yaml" >> "$ENV_FILE"
 grep -q '^AGENT_BASE_URL=' "$ENV_FILE"           || echo "AGENT_BASE_URL=http://127.0.0.1:8090" >> "$ENV_FILE"
 grep -q '^MOCK_PORTAL_URL=' "$ENV_FILE"          || echo "MOCK_PORTAL_URL=http://127.0.0.1:8091" >> "$ENV_FILE"
-grep -q '^HEADLESS=' "$ENV_FILE"                 || echo "HEADLESS=true" >> "$ENV_FILE"
 grep -q '^APPROVAL_TTL_MINUTES=' "$ENV_FILE"     || echo "APPROVAL_TTL_MINUTES=30" >> "$ENV_FILE"
 echo "    .env complete"
 

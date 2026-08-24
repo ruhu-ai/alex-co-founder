@@ -139,7 +139,7 @@ Programs accept applications three ways; v1 covers each deliberately:
   the run, and closed (`agent_close` | `error`) when the run ends — this is
   what lets the UI Browser panel (18) watch fills live with the same payload
   shape as browse runs.
-- `HEADLESS=false` for development so you can watch it work; `true` on Cloud Run.
+- Playwright is always headless; development and Cloud Run both mirror progress in the in-app Browser panel.
 - Every fill run: screenshots after fill and after submit → artifacts.
 
 ## Fill report (`applications.form_fill_report`)

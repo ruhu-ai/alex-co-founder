@@ -15,10 +15,13 @@ Cloud SQL, Pub/Sub, Cloud Scheduler, Secret Manager, Cloud Storage).
 ./scripts/setup.sh          # idempotent: venv, deps, project, ADC, APIs, .env
 source .venv/bin/activate
 cp .env.example .env        # if setup.sh didn't already write it
-adk web agents --port 8000 \
-  --session_service_uri="sqlite+aiosqlite:///sessions.db" \
-  --artifact_service_uri="file://./artifacts"
+uvicorn app.main:app --host 127.0.0.1 --port 8090
+# in a second terminal
+uvicorn mock_portal.main:app --host 127.0.0.1 --port 8091
 ```
+
+Open `http://127.0.0.1:8090`. Portal automation is always headless and is
+visible only through the app's built-in Browser panel.
 
 Full local dev (agent server + mock portal), cloud deploy, tests/evals, and
 cost guardrails: see `docs/13-deployment.md`. Implementation specifications:

@@ -93,6 +93,43 @@ def fake_store(monkeypatch):
     async def _update_application(aid, **fields):
         store.applications[aid].update(fields, updated_at=store._now())
 
+    async def _guarded_transition(aid, expected_state, to_state, **fields):
+        app = store.applications.get(aid)
+        if not app:
+            return {"status": "error", "error": True,
+                    "message": f"application {aid} not found"}
+        if app["state"] != expected_state:
+            return {"status": "error", "error": True,
+                    "message": "application changed concurrently",
+                    "current_step": app["state"]}
+        app.update(fields, state=to_state, updated_at=store._now())
+        return {"status": "success", "from_step": expected_state,
+                "current_step": to_state}
+
+    async def _update_draft_section(aid, founder_id, section_id, status,
+                                    edited_text=""):
+        app = store.applications.get(aid)
+        if not app:
+            return {"status": "error", "error": True,
+                    "message": f"application {aid} not found"}
+        if app.get("founder_id") != founder_id:
+            return {"status": "error", "error": True,
+                    "message": "application does not belong to this founder"}
+        sections = [dict(section) for section in app.get("draft_sections", [])]
+        section = next((item for item in sections
+                        if item.get("section_id") == section_id), None)
+        if section is None:
+            return {"status": "error", "error": True,
+                    "message": f"section {section_id} not found in application"}
+        original = section.get("content", "")
+        section["status"] = status
+        if edited_text:
+            section["content"] = edited_text
+        app["draft_sections"] = sections
+        app["updated_at"] = store._now()
+        return {"status": "success", "state": app["state"],
+                "section": section, "original": original, "sections": sections}
+
     async def _create_approval(application_id, gate, ttl_minutes, details=None,
                                founder_id="", session_id=""):
         from datetime import timedelta
@@ -255,6 +292,8 @@ def fake_store(monkeypatch):
         "audit": _audit, "create_feedback": _create_feedback, "get_feedback": _get_feedback,
         "mark_distilled": _mark_distilled, "create_application": _create_application,
         "get_application": _get_application, "update_application": _update_application,
+        "guarded_application_transition": _guarded_transition,
+        "update_draft_section": _update_draft_section,
         "create_approval": _create_approval, "get_approval": _get_approval,
         "grant_approval": _grant_approval, "deny_approval": _deny_approval,
         "find_valid_approval": _find_valid_approval, "consume_approval": _consume_approval,

@@ -12,8 +12,8 @@ from .callbacks import initialize_session_state
 from .config import PERSONA_NAME, REASONING_MODEL
 from .instructions import ORCHESTRATOR_INSTRUCTION
 from .sub_agents import drafter, form_filler, interviewer, matchmaker, scout
-from .tools import alex_mail as alex_mail_tools
 from .tools import a2a_talk as a2a_talk_tools
+from .tools import alex_mail as alex_mail_tools
 from .tools import browse as browse_tools
 from .tools import calendar as calendar_tools
 from .tools import feedback as feedback_tools

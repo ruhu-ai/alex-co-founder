@@ -69,7 +69,7 @@ GET  /api/browser/state            # NEW: read-only snapshot for the UI panel (0
 POST /api/browser/stop             # NEW: founder-initiated run stop (07)
 ```
 
-`HEADLESS` env unchanged. Browse and fill contexts are independent and may
+Browser execution remains always headless. Browse and fill contexts are independent and may
 coexist on the shared Chromium; the panel arbitration rule is in §UI.
 
 ## The BrowserRun contract (single source of truth)

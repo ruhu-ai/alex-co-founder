@@ -16,7 +16,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import os
 import urllib.request
 from typing import Any
 
@@ -89,7 +88,7 @@ DESCRIPTORS: list[dict[str, Any]] = [
 
 
 def _github_identity() -> str:
-    return os.environ.get("GITHUB_LOGIN", "")
+    return google_oauth.runtime_value("GITHUB_LOGIN")
 
 
 def catalog() -> list[dict[str, Any]]:
@@ -106,7 +105,7 @@ def catalog() -> list[dict[str, Any]]:
             c["connected"] = google_oauth.configured(d["name"])
             c["status_line"] = "Connected" if c["connected"] else ""
         elif d["name"] == "github":
-            c["connected"] = bool(os.environ.get("GITHUB_TOKEN"))
+            c["connected"] = bool(google_oauth.runtime_value("GITHUB_TOKEN"))
             c["status_line"] = (_github_identity() or "Connected") if c["connected"] else ""
         else:
             c["connected"], c["status_line"] = False, ""
@@ -136,14 +135,21 @@ async def github_connect(token: str) -> dict:
     result = await asyncio.to_thread(_github_validate, token)
     if not result["ok"]:
         return {"status": "error", "error": True, "message": result["error"]}
-    google_oauth.save_env_var("GITHUB_TOKEN", token)
-    google_oauth.save_env_var("GITHUB_LOGIN", result["identity"])
+    saved = google_oauth.save_env_var("GITHUB_TOKEN", token)
+    if saved.get("status") != "success":
+        return saved
+    saved_login = google_oauth.save_env_var("GITHUB_LOGIN", result["identity"])
+    if saved_login.get("status") != "success":
+        google_oauth.save_env_var("GITHUB_TOKEN", "")
+        return saved_login
     return {"status": "success", "login": result["identity"]}
 
 
 async def github_disconnect() -> dict:
-    os.environ.pop("GITHUB_TOKEN", None)
-    os.environ.pop("GITHUB_LOGIN", None)
-    google_oauth.save_env_var("GITHUB_TOKEN", "")
-    google_oauth.save_env_var("GITHUB_LOGIN", "")
+    token_result = google_oauth.save_env_var("GITHUB_TOKEN", "")
+    login_result = google_oauth.save_env_var("GITHUB_LOGIN", "")
+    if token_result.get("status") != "success":
+        return token_result
+    if login_result.get("status") != "success":
+        return login_result
     return {"status": "success"}

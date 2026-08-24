@@ -46,8 +46,10 @@ def put(name: str, value: str) -> None:
     Creates the secret on first write. No-op when no project is configured.
     Never logs the value; registers it with the scrubber."""
     project = os.environ.get("GOOGLE_CLOUD_PROJECT")
-    if not project or not value:
-        return
+    if not project:
+        raise RuntimeError("GOOGLE_CLOUD_PROJECT is required for secret persistence")
+    if not value:
+        raise ValueError("secret value must be non-empty; use delete() to disconnect")
     from google.api_core import exceptions as gexc
     from google.cloud import secretmanager
 
@@ -64,3 +66,25 @@ def put(name: str, value: str) -> None:
         "payload": {"data": value.encode("utf-8")}})
     _cache[name] = (time.time(), value)
     _register(value)
+
+
+def delete(name: str) -> None:
+    """Delete a runtime-managed secret and evict its cached value.
+
+    Connector tokens are intentionally not Cloud Run environment bindings; the
+    application fetches them by name at execution time.  Removing the Secret
+    Manager resource therefore makes a disconnect survive every cold start.
+    """
+    project = os.environ.get("GOOGLE_CLOUD_PROJECT")
+    if not project:
+        raise RuntimeError("GOOGLE_CLOUD_PROJECT is required for secret deletion")
+    from google.api_core import exceptions as gexc
+    from google.cloud import secretmanager
+
+    client = secretmanager.SecretManagerServiceClient()
+    path = f"projects/{project}/secrets/{name}"
+    try:
+        client.delete_secret(request={"name": path})
+    except gexc.NotFound:
+        pass
+    _cache.pop(name, None)

@@ -10,7 +10,7 @@ from __future__ import annotations
 import hashlib
 import os
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
 _client = None
@@ -127,6 +127,106 @@ async def update_application(application_id: str, **fields: Any) -> None:
     await get_client().collection("applications").document(application_id).update(
         {**fields, "updated_at": _now()}
     )
+
+
+async def guarded_application_transition(application_id: str, expected_state: str,
+                                         to_state: str, **fields: Any) -> dict[str, Any]:
+    """Move application state only if the transaction still sees expected_state."""
+    from google.cloud import firestore as gc_firestore
+
+    ref = get_client().collection("applications").document(application_id)
+    transaction = get_client().transaction()
+
+    @gc_firestore.async_transactional
+    async def _transition(txn):
+        snap = await ref.get(transaction=txn)
+        if not snap.exists:
+            return {"status": "error", "error": True,
+                    "message": f"application {application_id} not found"}
+        record = snap.to_dict()
+        current = record.get("state")
+        if current != expected_state:
+            return {"status": "error", "error": True,
+                    "message": f"application changed concurrently ({expected_state} → {current})",
+                    "current_step": current}
+        txn.update(ref, {"state": to_state, **fields, "updated_at": _now()})
+        return {"status": "success", "from_step": current, "current_step": to_state}
+
+    return await _transition(transaction)
+
+
+async def update_draft_section(application_id: str, founder_id: str,
+                               section_id: str, status: str,
+                               edited_text: str = "") -> dict[str, Any]:
+    """Atomically validate ownership and update one draft section.
+
+    Returning the committed section array lets the caller decide whether every
+    section is approved without using a stale pre-transaction snapshot.
+    """
+    from google.cloud import firestore as gc_firestore
+
+    ref = get_client().collection("applications").document(application_id)
+    transaction = get_client().transaction()
+
+    @gc_firestore.async_transactional
+    async def _update(txn):
+        snap = await ref.get(transaction=txn)
+        if not snap.exists:
+            return {"status": "error", "error": True,
+                    "message": f"application {application_id} not found"}
+        record = snap.to_dict()
+        if record.get("founder_id") != founder_id:
+            return {"status": "error", "error": True,
+                    "message": "application does not belong to this founder"}
+        sections = [dict(section) for section in record.get("draft_sections", [])]
+        section = next((item for item in sections
+                        if item.get("section_id") == section_id), None)
+        if section is None:
+            return {"status": "error", "error": True,
+                    "message": f"section {section_id} not found in application"}
+        original = section.get("content", "")
+        section["status"] = status
+        if edited_text:
+            section["content"] = edited_text
+        txn.update(ref, {"draft_sections": sections, "updated_at": _now()})
+        return {"status": "success", "state": record.get("state"),
+                "section": section, "original": original, "sections": sections}
+
+    return await _update(transaction)
+
+
+async def create_oauth_state(state: str, verifier: str, scopes: list[str] | None,
+                             account: str, ttl_minutes: int = 10) -> None:
+    """Persist one PKCE consent transaction across restarts and instances."""
+    expires = datetime.now(timezone.utc) + timedelta(minutes=ttl_minutes)
+    await get_client().collection("oauth_states").document(state).set({
+        "verifier": verifier,
+        "scopes": scopes,
+        "account": account,
+        "expires_at": expires.isoformat(),
+        "created_at": _now(),
+    })
+
+
+async def consume_oauth_state(state: str) -> Optional[dict[str, Any]]:
+    """Atomically consume a valid OAuth state; unknown/replayed states fail."""
+    from google.cloud import firestore as gc_firestore
+
+    ref = get_client().collection("oauth_states").document(state)
+    transaction = get_client().transaction()
+
+    @gc_firestore.async_transactional
+    async def _consume(txn):
+        snap = await ref.get(transaction=txn)
+        if not snap.exists:
+            return None
+        record = snap.to_dict()
+        txn.delete(ref)
+        if record.get("expires_at", "") <= _now():
+            return None
+        return record
+
+    return await _consume(transaction)
 
 
 # ---------------------------------------------------------------------------

@@ -38,6 +38,9 @@ live_app = App(name="co_founder", root_agent=build_root_agent(Gemini(model=LIVE_
 
 def register_live(app, session_service, founder_id: str) -> None:
     """Mount the bidi voice websocket on the FastAPI app."""
+    # One runner owns this surface for the process lifetime. Sessions remain
+    # isolated by user/session ids passed to run_live.
+    runner = Runner(app=live_app, session_service=session_service)
 
     @app.websocket("/live/{session_id}")
     async def live_ws(websocket: WebSocket, session_id: str) -> None:
@@ -62,9 +65,9 @@ def register_live(app, session_service, founder_id: str) -> None:
             input_audio_transcription=types.AudioTranscriptionConfig(),
             output_audio_transcription=types.AudioTranscriptionConfig(),
         )
-        runner = Runner(app=live_app, session_service=session_service)
         turns: list[tuple[str, str]] = []   # finished spoken turns, for the record
-        ot_seen = False                     # prefer output_transcription over raw text parts
+        pending_model_raw: list[str] = []
+        pending_model_transcript: list[str] = []
 
         async def send(payload: dict) -> None:
             await websocket.send_text(json.dumps(payload))
@@ -93,7 +96,6 @@ def register_live(app, session_service, founder_id: str) -> None:
 
         async def downstream() -> None:
             """ADK live events -> browser frames."""
-            nonlocal ot_seen
             try:
                 async for event in runner.run_live(
                         user_id=founder_id, session_id=session_id,
@@ -104,8 +106,7 @@ def register_live(app, session_service, founder_id: str) -> None:
                                 await send({"audio": base64.b64encode(
                                     part.inline_data.data).decode()})
                             elif part.text:
-                                if not ot_seen:
-                                    turns.append(("model", part.text))
+                                pending_model_raw.append(part.text)
                                 await send({"transcript": {"who": "agent",
                                                            "text": part.text, "finished": True}})
                     for attr, who in (("input_transcription", "you"),
@@ -114,13 +115,22 @@ def register_live(app, session_service, founder_id: str) -> None:
                         if tr is not None and getattr(tr, "text", None):
                             if getattr(tr, "finished", False):
                                 if attr == "output_transcription":
-                                    ot_seen = True
-                                turns.append(("user" if who == "you" else "model", tr.text))
+                                    pending_model_transcript.append(tr.text)
+                                else:
+                                    turns.append(("user", tr.text))
                             await send({"transcript": {"who": who, "text": tr.text,
                                                        "finished": bool(getattr(tr, "finished", False))}})
                     if getattr(event, "interrupted", False):
+                        pending_model_raw.clear()
+                        pending_model_transcript.clear()
                         await send({"interrupted": True})
                     if getattr(event, "turn_complete", False):
+                        model_text = " ".join(
+                            pending_model_transcript or pending_model_raw).strip()
+                        if model_text:
+                            turns.append(("model", model_text))
+                        pending_model_raw.clear()
+                        pending_model_transcript.clear()
                         await send({"turn_complete": True})
             except Exception as exc:
                 logger.warning("live downstream error: %s", exc)

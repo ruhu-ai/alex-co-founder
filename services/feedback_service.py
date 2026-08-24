@@ -21,13 +21,17 @@ async def record_feedback(founder_id: str, application_id: str, section_id: str,
         return {"status": "error", "error": True,
                 "message": "a reason is required for edit/reject — it is the distiller's evidence"}
 
-    app = await firestore.get_application(application_id)
-    if not app:
-        return {"status": "error", "error": True, "message": f"application {application_id} not found"}
-
-    sections = app.get("draft_sections", [])
-    section = next((s for s in sections if s.get("section_id") == section_id), None)
-    original = section.get("content", "") if section else ""
+    section_status = (SectionStatus.APPROVED if feedback_type == "approve"
+                      else SectionStatus.CHANGES_REQUESTED)
+    update = await firestore.update_draft_section(
+        application_id, founder_id, section_id, section_status,
+        edited_text if feedback_type == "approve" else "")
+    if update.get("status") != "success":
+        return update
+    section = update["section"]
+    sections = update["sections"]
+    original = update["original"]
+    app_state = update["state"]
 
     feedback_id = await firestore.create_feedback(
         founder_id=founder_id, application_id=application_id, section_id=section_id,
@@ -37,24 +41,14 @@ async def record_feedback(founder_id: str, application_id: str, section_id: str,
                           f"applications/{application_id}/sections/{section_id}", "success",
                           f"{feedback_type}: {reason[:160]}")
 
-    # Section state
-    if section is not None:
-        section["status"] = (SectionStatus.APPROVED if feedback_type == "approve"
-                             else SectionStatus.CHANGES_REQUESTED)
-        if feedback_type == "approve":
-            # An approve-with-edit ships the EDITED text: update the section's own
-            # content too, not just the canonical answer, or the submitted form
-            # would carry the pre-edit draft.
-            if edited_text:
-                section["content"] = edited_text
-            # Approved text becomes the canonical answer for its question key (docs/06)
-            await firestore.apply_profile_update(
-                founder_id, "canonical_answer_update",
-                {"question_key": section.get("section_key", section_id),
-                 "text": edited_text or original, "tags": [section.get("section_key", section_id)]},
-                evidence="founder approved this section",
-            )
-        await firestore.update_application(application_id, draft_sections=sections)
+    if feedback_type == "approve":
+        # Approved text becomes the canonical answer for its question key (docs/06)
+        await firestore.apply_profile_update(
+            founder_id, "canonical_answer_update",
+            {"question_key": section.get("section_key", section_id),
+             "text": edited_text or original, "tags": [section.get("section_key", section_id)]},
+            evidence="founder approved this section",
+        )
 
     # Synchronous distillation — the rule exists before the next draft
     distill_result = await distill_service.run_distillation(feedback_id, session_service)
@@ -62,13 +56,13 @@ async def record_feedback(founder_id: str, application_id: str, section_id: str,
     # A requested change returns the application to DRAFTING. All sections
     # approved moves AWAITING_REVIEW → APPROVED (and mints the submit key).
     transitioned = None
-    if section is not None and feedback_type in ("edit", "reject"):
-        if app["state"] == Step.AWAITING_REVIEW:
+    if feedback_type in ("edit", "reject"):
+        if app_state == Step.AWAITING_REVIEW:
             result = await pipeline_service.advance_application(
                 application_id, Step.DRAFTING, actor="agent:orchestrator")
             transitioned = result.get("current_step")
-    elif section is not None and all(s.get("status") == SectionStatus.APPROVED for s in sections):
-        if app["state"] == Step.AWAITING_REVIEW:
+    elif all(s.get("status") == SectionStatus.APPROVED for s in sections):
+        if app_state == Step.AWAITING_REVIEW:
             result = await pipeline_service.advance_application(
                 application_id, Step.APPROVED, actor="agent:orchestrator")
             transitioned = result.get("current_step")
@@ -77,5 +71,5 @@ async def record_feedback(founder_id: str, application_id: str, section_id: str,
         "status": "success",
         "feedback_id": feedback_id,
         "distillation": distill_result,
-        "application_step": transitioned or app["state"],
+        "application_step": transitioned or app_state,
     }
