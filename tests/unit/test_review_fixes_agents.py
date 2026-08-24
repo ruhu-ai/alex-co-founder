@@ -315,6 +315,37 @@ async def test_inspect_form_persists_signature_under_nontemp_key(
     browser._pages.pop(app_id, None)
 
 
+# --- (browser-keeps-opening) _register_fill closes the prior portal window ---
+async def test_register_fill_closes_prior_window(monkeypatch):
+    from agents.co_founder.tools import browser as b
+
+    closed = {"n": 0}
+
+    class _Ctx:
+        async def close(self):
+            closed["n"] += 1
+
+    app_id = "app-reg-fill"
+    b._pages[app_id] = {"context": _Ctx(), "page": object(), "run_id": "r1"}
+
+    async def fake_register_fill_run(sk, ctx, page, goal):
+        return {"status": "success", "run_id": "r2"}
+
+    async def fake_projection(sk):
+        return {}
+
+    monkeypatch.setattr(browser_service, "register_fill_run", fake_register_fill_run)
+    monkeypatch.setattr(browser_service, "browser_status_projection", fake_projection)
+
+    new_ctx = _Ctx()
+    tc = SimpleNamespace(state={}, session=SimpleNamespace(id="s1"), user_id="u1")
+    b._register_fill({"context": new_ctx, "page": object()}, app_id, tc)
+
+    assert closed["n"] == 1  # the prior window was closed, not orphaned
+    assert b._pages[app_id]["context"] is new_ctx
+    b._pages.pop(app_id, None)
+
+
 # --- (code-review #1) submit_voice_note takes a sanitized artifact name ------
 async def test_submit_voice_note_sanitizes_and_requires_name(monkeypatch):
     from agents.co_founder.tools import feedback

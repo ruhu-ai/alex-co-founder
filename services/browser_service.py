@@ -1732,8 +1732,10 @@ async def propose_and_act(run_id: str, invocation_id: str) -> dict:
 async def close_run(run_id: str, reason: str, actor: str) -> dict:
     """Idempotently close a browser context and its durable run record."""
     run = await firestore.get_browser_run(run_id)
-    if not run or run.get("status") == "closed":
-        return {"status": "success", "already_closed": True}
+    # Close the live context FIRST, unconditionally — even when the durable
+    # record already reads "closed". Otherwise a run whose Firestore row was
+    # marked closed elsewhere (a reconcile tick, a supersede) but whose context
+    # is still registered here would leak an open browser window forever.
     runtime = _browse_contexts.pop(run_id, None)
     _browse_locks.pop(run_id, None)  # bounded: per-run lock dies with the run
     if runtime:
@@ -1741,6 +1743,8 @@ async def close_run(run_id: str, reason: str, actor: str) -> dict:
             await runtime["context"].close()
         except Exception:
             pass
+    if not run or run.get("status") == "closed":
+        return {"status": "success", "already_closed": True}
     await firestore.update_browser_run(run_id, status="closed", close_reason=reason)
     action = "browse_stop" if reason == "founder_stop" else "browse_close"
     await firestore.audit(

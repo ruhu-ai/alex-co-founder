@@ -57,6 +57,18 @@ def _remember_questions(app_id: str, fields: list[dict]) -> None:
 def _register_fill(result: dict, app_id: str, tool_context: ToolContext) -> dict:
     from services import browser_service
 
+    # A prior portal window may already be open for this application (a repeated
+    # open_portal/sign_in, or a re-login after a staleness fence). Close it
+    # before replacing the registry entry — otherwise each call leaves an
+    # orphaned browser window open and they pile up ("browser keeps opening").
+    # This is belt-and-suspenders with register_fill_run's durable supersede,
+    # which can miss the live context if the session key drifted or the run was
+    # already marked closed.
+    prior = _pages.get(app_id)
+    if (prior is not None and prior.get("context") is not None
+            and prior.get("context") is not result.get("context")):
+        run(prior["context"].close())  # run() swallows any close error to data
+
     registered = run(browser_service.register_fill_run(
         _session_key(tool_context), result["context"], result["page"],
         f"fill application {app_id or 'portal'}",
