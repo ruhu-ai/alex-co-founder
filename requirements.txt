@@ -38,3 +38,6 @@ python-multipart==0.0.32
 # pinned <50 originally because 50.0.0 builds from source without a Rust
 # toolchain (see docs/verification-notes.md); now hard-pinned to the installed 49.0.0
 cryptography==49.0.0
+
+# runtime: tools/_common.py re-enters the event loop for sync ADK tools
+nest-asyncio==1.6.0
