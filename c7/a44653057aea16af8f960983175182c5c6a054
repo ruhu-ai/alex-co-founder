@@ -1,0 +1,45 @@
+services/browser_service.py
+  s_36171a28333978::t_239f9651ecbf24 703-748
+tests/unit/test_review_fixes_services.py
+  s_36171a28333978::t_516ce7701f0114 59-63
+  s_36171a28333978::t_639831bff755cd 282-304
+tests/unit/test_portal_access.py
+  s_36171a28333978::t_188731c3c18f86 79,98
+services/alex_mailbox.py
+  s_36171a28333978::t_244f6324361f11 162-163,166-171,173
+agents/co_founder/tools/feedback.py
+  s_36171a28333978::t_b6a7f66f3ecc2b 101
+  s_36171a28333978::t_3caea616f3f386 4-6,12-13
+  s_36171a28333978::t_dfa2747bb06459 86,92-93,100,102-104,106-110,112-114
+  s_36171a28333978::t_76dee2b6bbd154 105,111
+  s_36171a28333978::t_0f9ee568992cd7 14
+agents/co_founder/tools/_common.py
+  s_36171a28333978::t_96956955c5e8c1 35-50
+agents/co_founder/tools/browser.py
+  s_36171a28333978::t_aefaffb9c08d92 125,212
+  s_36171a28333978::t_e1338f8b968fe9 17
+agents/co_founder/tools/pipeline.py
+  s_36171a28333978::t_e91d953f73119b 249
+  s_36171a28333978::t_ddef2dee2c261d 9
+services/log_scrub.py
+  s_36171a28333978::t_848d6cfe71b3f0 22-28,30-38,45,49-56
+tests/unit/test_review_fixes_agents.py
+  s_36171a28333978::t_c48e7e3e1d3938 261,263
+  s_36171a28333978::t_534b579335ef7a 316-341
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.23",
+  "base_commit_sha": "c7a44653057aea16af8f960983175182c5c6a054",
+  "prompts": {},
+  "sessions": {
+    "s_36171a28333978": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ee02ac2b-2dc2-4c6c-8f13-7e7ff17d5a93",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ijidai Lassa <ijidai@cued.app>"
+    }
+  }
+}
