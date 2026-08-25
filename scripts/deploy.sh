@@ -118,7 +118,10 @@ for key, val in vals.items():
 PY
 # --allow-unauthenticated stays: the mock portal webhook and Pub/Sub push have
 # no platform identity; the app-layer founder gate (app/auth.py) is the fence.
-# Request-bound workers and durable Cloud Tasks allow true scale-to-zero.
+# Request-bound workers and durable Cloud Tasks allow true scale-to-zero — the
+# ack-then-background pattern that would have needed CPU-always-allocated was
+# redesigned away, so that throttling flag is intentionally left off (enforced
+# by tests/unit/test_findings_hardening.py) to keep scale-to-zero economics.
 gcloud run deploy co-founder --source . --region="$REGION" \
   --allow-unauthenticated --min-instances 0 --max-instances 1 --memory 2Gi \
   --add-cloudsql-instances "${GOOGLE_CLOUD_PROJECT}:${REGION}:co-founder-sessions" \

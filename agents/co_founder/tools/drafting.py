@@ -1,5 +1,7 @@
 """Drafting tools (docs/05). Errors as data. G1 enforced in code."""
 
+import logging
+import os
 import uuid
 
 from google.adk.tools import ToolContext
@@ -106,6 +108,15 @@ def complete_drafting(tool_context: ToolContext) -> dict:
                 "error": True,
                 "message": "drafting is incomplete: every required section must be saved first",
             }
+        # Advisory evidence check (docs/20). It runs before the transition so
+        # the founder sees the report beside the draft, but NO model outcome
+        # blocks: unavailable and invalid are honest statuses, not gates. Only
+        # failing to persist the report stops the transition, because a report
+        # the founder cannot see must not be silently dropped.
+        gate = await _attach_evidence_check(app, app_id)
+        if not gate.get("ok"):
+            return gate          # IN_PROGRESS / persistence failure: stay in DRAFTING
+
         return await pipeline_service.advance_application(
             app_id, ss.ApplicationStep.AWAITING_REVIEW, actor="agent:drafter"
         )
@@ -121,12 +132,66 @@ def complete_drafting(tool_context: ToolContext) -> dict:
     return result
 
 
+async def _attach_evidence_check(app: dict, app_id: str) -> dict:
+    """Run the Evidence Checker before founder review.
+
+    Returns {"ok": True} to proceed, or an error dict that must block the
+    transition. Two things block, and neither is a model verdict: another
+    check already holds the lease for this exact draft (retry, do not advance
+    with no report), and failing to persist a report the founder was meant to
+    see. Model outages and invalid output become honest terminal statuses;
+    unreadable source evidence and persistence failures return error data and
+    keep the application in DRAFTING.
+    """
+    from services import firestore, gemma_evidence, profile_service
+
+    founder = app.get("founder_id") or os.environ.get("FOUNDER_ID", "founder")
+    try:
+        profile = await profile_service.get_profile(founder) or {}
+        opportunity = (await firestore.get_opportunity(app.get("opportunity_id") or "")
+                       if app.get("opportunity_id") else None)
+    except Exception as exc:  # noqa: BLE001
+        logging.getLogger(__name__).warning(
+            "evidence unreadable: %s", type(exc).__name__)
+        return {
+            "status": "error", "error": True, "retriable": True,
+            "error_code": "evidence_read_failed",
+            "message": "the saved evidence could not be read; try completing drafting again",
+        }
+
+    try:
+        report = await gemma_evidence.run_evidence_check(
+            founder, {**app, "id": app_id}, profile, opportunity)
+    except Exception as exc:  # defensive boundary: tools return errors as data
+        logging.getLogger(__name__).warning(
+            "evidence check errored: %s", type(exc).__name__)
+        return {
+            "status": "error", "error": True, "retriable": True,
+            "error_code": "evidence_check_failed",
+            "message": "the evidence report could not be saved; try again",
+        }
+
+    if report.get("status") in ("IN_PROGRESS", "ERROR"):
+        code = report.get("error_code") or "evidence_check_failed"
+        return {
+            "status": "error", "error": True,
+            "retriable": bool(report.get("retriable", True)),
+            "error_code": code,
+            "message": ("an evidence check for this exact draft is already running; "
+                        "try again in a moment" if report.get("status") == "IN_PROGRESS"
+                        else "the evidence report could not be completed; try again"),
+        }
+    return {"ok": True}
+
+
 def get_section_feedback(section_id: str, tool_context: ToolContext) -> dict:
     """Prior feedback on this section key across ALL applications — how the
     drafter sees "last time you rejected...".
 
     Args:
-        section_id: The section (or section key) to look up feedback for.
+        section_id: The stable section key (e.g. "describe_traction") or a
+            per-application section id ("sec-1a2b3c4d") — either is resolved to
+            the stable key before the lookup.
 
     Returns:
         dict with status and the feedback history, newest first.
@@ -134,10 +199,22 @@ def get_section_feedback(section_id: str, tool_context: ToolContext) -> dict:
     from services import firestore
 
     async def _go():
+        # History is keyed by the QUESTION ("describe_traction"), never the
+        # per-application UUID — querying by section_id alone always returned
+        # empty across applications. Map a section id back to its key first.
+        section_key = section_id
+        app_id = tool_context.state.get(ss.K_ACTIVE_APPLICATION_ID, "")
+        if section_id.startswith("sec-") and app_id:
+            app = await firestore.get_application(app_id) or {}
+            match = next((s for s in app.get("draft_sections", [])
+                          if s.get("section_id") == section_id), None)
+            if match and match.get("section_key"):
+                section_key = match["section_key"]
+
         client = firestore.get_client()
         rows = []
         try:
-            query = client.collection("feedback").where("section_id", "==", section_id)
+            query = client.collection("feedback").where("section_key", "==", section_key)
             async for doc in query.stream():
                 rows.append(doc.to_dict())
             rows.sort(key=lambda r: r.get("created_at", ""), reverse=True)  # no composite index
@@ -146,7 +223,7 @@ def get_section_feedback(section_id: str, tool_context: ToolContext) -> dict:
             # store offline — degrade, never break drafting
             return {"status": "success", "feedback": [],
                     "note": "feedback history unavailable"}
-        return {"status": "success", "feedback": rows}
+        return {"status": "success", "feedback": rows, "section_key": section_key}
 
     return run(_go())
 

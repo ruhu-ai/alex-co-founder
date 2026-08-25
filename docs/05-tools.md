@@ -74,6 +74,7 @@ def some_tool(param: str, tool_context: ToolContext) -> dict:
 | Function | Signature | Behavior |
 |---|---|---|
 | `save_draft_section` | `(section_key: str, content: str, word_count: int, notes: str, tool_context) -> dict` | Guard G1: refuses while `current_step=INTERVIEWING`. Upserts section on the application (status=DRAFTED, version+1), updates `checklist_status`, sets `current_section`. `notes` carries voice-rule citations (shown in UI as "why this draft looks this way"). |
+| `complete_drafting` | `(tool_context) -> dict` | Refuses unless every section is reviewable. Runs the isolated Evidence Checker service (20), persists `CLEAN`, `ISSUES_FOUND`, `UNAVAILABLE`, or `INVALID_RESPONSE`, then transitions to AWAITING_REVIEW. A model failure is advisory and does not block; source-read or report-persistence failure returns error data and stays in DRAFTING. |
 | `get_section_feedback` | `(section_id: str, tool_context) -> dict` | Prior feedback on this section key across **all** applications — how the drafter sees "last time you rejected...". |
 | `produce_document` | `(kind: str, title: str, spec: dict, tool_context) -> dict` | Produces a validated .docx/.xlsx/.pptx from a JSON spec (15). Build → validate gate → artifact + registry row (session/application provenance) → `{status, artifact_name, download_url, version}`. Malformed spec → error dict, no partial artifact. Covers document-based programs: the agent produces the finished document; the founder sends it (09 §boundaries). |
 

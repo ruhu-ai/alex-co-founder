@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Co-Founder</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <style>
 /* ============================================================================
    Workbench — the Co-Founder design system.  Spec: docs/16-design-system.md
@@ -381,6 +382,71 @@ header {
 }
 header .spacer { flex: 1; }
 
+/* ============================================================================
+   Account menu — the signed-in founder's avatar (top-left) anchors the
+   grounded pages: identity, Connectors, Settings, Log out.
+   ========================================================================= */
+#acctWrap { position: relative; }
+.acct-avatar {
+  width: 26px; height: 26px; border-radius: var(--r-full); flex: none;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: var(--accent); color: var(--accent-on);
+  font: 700 var(--fs-1)/1 var(--font-display); letter-spacing: .02em;
+}
+.acct-avatar.big { width: 36px; height: 36px; font-size: var(--fs-3); }
+.menu {
+  position: absolute; top: calc(100% + 8px); left: 0; min-width: 264px;
+  background: var(--surface-1); border: 1px solid var(--border);
+  border-radius: var(--r-4); box-shadow: var(--e-3); padding: var(--sp-2);
+  display: flex; flex-direction: column; gap: 2px; z-index: 40;
+  animation: lift var(--dur-2) var(--ease-out);
+}
+.menu[hidden] { display: none; }
+.menu hr { border: 0; border-top: 1px solid var(--divider);
+           margin: var(--sp-1) calc(-1 * var(--sp-2)); }
+.menu-id { display: flex; align-items: center; gap: var(--sp-3);
+           padding: var(--sp-2) var(--sp-3); }
+.menu-id .grow { min-width: 0; }
+.menu-id b {
+  display: block; font: 600 var(--fs-3)/var(--lh-3) var(--font-ui);
+  color: var(--ink-1); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.menu-id .conn-sub { display: block; overflow: hidden; text-overflow: ellipsis;
+                     white-space: nowrap; }
+.menu-item {
+  display: flex; align-items: center; gap: var(--sp-3); width: 100%;
+  padding: var(--sp-2) var(--sp-3); border: 0; border-radius: var(--r-2);
+  background: transparent; color: var(--ink-1); cursor: pointer; text-align: left;
+  font: 400 var(--fs-3)/var(--lh-3) var(--font-ui);
+  transition: background var(--dur-1) var(--ease-out);
+}
+.menu-item:hover { background: var(--surface-2); }
+.menu-item .ico { color: var(--ink-2); }
+.menu-item.danger { color: var(--danger-ink); }
+.menu-item.danger .ico { color: var(--danger-ink); }
+
+/* Settings + Sessions sheets — same grouped-inset grammar as Connectors. */
+#settings, #sessions { align-items: flex-start; z-index: 40; }
+#settings .sheet, #sessions .sheet {
+  background: var(--surface-0); width: 560px; max-width: 100%; max-height: 84vh;
+  overflow-y: auto; overscroll-behavior: contain;
+  margin-top: 6vh; padding: var(--sp-6);
+  border-radius: var(--r-5); box-shadow: var(--e-3);
+  animation: lift var(--dur-3) var(--ease-out);
+}
+.seg {
+  display: inline-flex; gap: 2px; padding: 2px; flex: none;
+  background: var(--surface-2); border: 1px solid var(--border);
+  border-radius: var(--r-full);
+}
+.seg button {
+  height: 26px; padding: 0 var(--sp-3); border: 0; border-radius: var(--r-full);
+  background: transparent; color: var(--ink-2); cursor: pointer;
+  font: 500 var(--fs-2)/1 var(--font-ui);
+  transition: background var(--dur-1) var(--ease-out), color var(--dur-1) var(--ease-out);
+}
+.seg button[aria-pressed="true"] { background: var(--accent); color: var(--accent-on); }
+
 /* One workspace, not three cards. Panels run edge to edge and are separated by
    a single hairline — the gap-and-radius treatment implied three independent
    objects and spent ~56px horizontal / 24px vertical on chrome the dense
@@ -388,9 +454,17 @@ header .spacer { flex: 1; }
    its card treatment, because there it genuinely does float. */
 main {
   display: grid;
-  grid-template-columns: var(--left-w, clamp(300px, 24vw, 360px)) minmax(420px, 1fr) clamp(340px, 27vw, 420px);
+  /* Both side panels carry dense, scannable work — the board and the review
+     stack — while the conversation is a single column of prose that reads worse
+     over-wide. So the sides get the extra room and the middle absorbs the
+     difference. Both edges are user-resizable; these are only the defaults. */
+  grid-template-columns:
+    var(--left-w, clamp(320px, 26vw, 400px))
+    minmax(360px, 1fr)
+    var(--right-w, clamp(380px, 30vw, 460px));
   gap: 0; padding: 0;
   height: calc(100dvh - var(--header-h));
+  position: relative;   /* anchors the right split handle */
 }
 main > section, #leftCell > section {
   background: var(--surface-1); border: 0; border-radius: 0;
@@ -408,11 +482,17 @@ main > section, #leftCell > section {
   body[data-surface="browser"] #board { display: none; }
   body[data-surface="browser"] #browserSurface { display: flex; }
 }
-#splitHandle {
-  position: absolute; top: 0; bottom: 0; right: -5px; width: 10px;
+#splitHandle, #splitHandleRight {
+  position: absolute; top: 0; bottom: 0; width: 10px;
   cursor: col-resize; z-index: 6; touch-action: none;
 }
-#splitHandle:hover, #splitHandle:focus-visible { background: var(--surface-3); }
+#splitHandle { right: -5px; }
+/* Anchored from the right edge of `main` rather than the middle column, whose
+   width is `1fr` and therefore unknown to CSS. Sits on the same hairline the
+   review panel already draws. */
+#splitHandleRight { right: calc(var(--right-w, clamp(380px, 30vw, 460px)) - 5px); }
+#splitHandle:hover, #splitHandle:focus-visible,
+#splitHandleRight:hover, #splitHandleRight:focus-visible { background: var(--surface-3); }
 
 /* `.btn`/`.badge` set display, which beats the UA [hidden] rule — restore it. */
 [hidden] { display: none !important; }
@@ -454,6 +534,7 @@ h2 .count {
 @media (max-width: 1279px) {
   main { grid-template-columns: var(--left-w, clamp(280px, 30vw, 340px)) minmax(0, 1fr); }
   #chat { border-right: 0; }
+  #splitHandleRight { display: none; }   /* the review floats here, not tiles */
   #review {
     position: fixed; top: var(--header-h); right: 0; bottom: 0; width: min(420px, 92vw);
     border: 1px solid var(--border); border-right: 0;
@@ -788,6 +869,38 @@ a.cbtn { text-decoration: none; }
 #pane-audit[data-active="true"] { display: flex; flex-direction: column; }
 .pane:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; border-radius: var(--r-2); }
 
+/* ============================================================================
+   Evidence check (docs/20). Advisory, never a gate. CLEAN is deliberately NOT
+   green — green reads as "verified", and this check compares a draft against
+   saved evidence; it does not prove anything is true.
+   ========================================================================= */
+.evcheck {
+  border: 1px solid var(--border); border-radius: var(--r-3);
+  background: var(--surface-2); padding: var(--sp-3); margin-bottom: var(--sp-3);
+  display: flex; flex-direction: column; gap: var(--sp-2);
+}
+.evcheck .hd {
+  display: flex; align-items: center; gap: var(--sp-2);
+  font: 600 var(--fs-3)/var(--lh-3) var(--font-ui); color: var(--ink-1);
+}
+.evcheck .hd .ico { color: var(--ink-3); }
+.evcheck[data-status="ISSUES_FOUND"] .hd .ico { color: var(--attn); }
+.evcheck .caveat { font-size: var(--fs-2); line-height: var(--lh-2); color: var(--ink-3); }
+.evfinding {
+  border-left: 2px solid var(--attn); background: var(--attn-bg);
+  border-radius: 0 var(--r-2) var(--r-2) 0; padding: var(--sp-2) var(--sp-3);
+  display: flex; flex-direction: column; gap: var(--sp-1);
+}
+.evfinding .lbl {
+  font: 600 var(--fs-1)/var(--lh-1) var(--font-ui); letter-spacing: var(--tr-label);
+  text-transform: uppercase; color: var(--attn-ink);
+}
+.evfinding q { font-size: var(--fs-3); line-height: var(--lh-3); color: var(--ink-1); }
+.evfinding .src, .evfinding .act {
+  font-size: var(--fs-2); line-height: var(--lh-2); color: var(--ink-2);
+}
+.evfinding .src b { color: var(--ink-3); font-weight: 500; }
+
 /* Recon evidence — what the vision pass saw before anything was filled.
    Shown above the fill report because it is the "why" for the "what". */
 .evidence { display: flex; flex-direction: column; gap: var(--sp-2); margin-bottom: var(--sp-3); }
@@ -1080,10 +1193,41 @@ body[data-offline="true"] #offline { display: flex; }
   <symbol id="i-link" viewBox="0 0 256 256"><path d="M165.66,90.34a8,8,0,0,1,0,11.32l-64,64a8,8,0,0,1-11.32-11.32l64-64A8,8,0,0,1,165.66,90.34ZM215.6,40.4a56,56,0,0,0-79.2,0L106.34,70.45a8,8,0,0,0,11.32,11.32l30.06-30a40,40,0,0,1,56.57,56.56l-30.07,30.06a8,8,0,0,0,11.31,11.32L215.6,119.6a56,56,0,0,0,0-79.2ZM138.34,174.22l-30.06,30.06a40,40,0,1,1-56.56-56.57l30.05-30.05a8,8,0,0,0-11.32-11.32L40.4,136.4a56,56,0,0,0,79.2,79.2l30.06-30.07a8,8,0,0,0-11.32-11.31Z"/></symbol>
   <symbol id="i-external" viewBox="0 0 256 256"><path d="M224,104a8,8,0,0,1-16,0V59.32l-66.33,66.34a8,8,0,0,1-11.32-11.32L196.68,48H152a8,8,0,0,1,0-16h64a8,8,0,0,1,8,8Zm-40,24a8,8,0,0,0-8,8v72H48V80h72a8,8,0,0,0,0-16H48A16,16,0,0,0,32,80V208a16,16,0,0,0,16,16H176a16,16,0,0,0,16-16V136A8,8,0,0,0,184,128Z"/></symbol>
   <symbol id="i-code" viewBox="0 0 256 256"><path d="M69.12,94.15,28.5,128l40.62,33.85a8,8,0,1,1-10.24,12.29l-48-40a8,8,0,0,1,0-12.29l48-40a8,8,0,0,1,10.24,12.3Zm176,27.7-48-40a8,8,0,1,0-10.24,12.3L227.5,128l-40.62,33.85a8,8,0,1,0,10.24,12.29l48-40a8,8,0,0,0,0-12.29ZM162.73,32.48a8,8,0,0,0-10.25,4.79l-64,176a8,8,0,0,0,4.79,10.26A8.14,8.14,0,0,0,96,224a8,8,0,0,0,7.52-5.27l64-176A8,8,0,0,0,162.73,32.48Z"/></symbol>
+  <symbol id="i-gear" viewBox="0 0 256 256"><path d="M128,80a48,48,0,1,0,48,48A48.05,48.05,0,0,0,128,80Zm0,80a32,32,0,1,1,32-32A32,32,0,0,1,128,160Zm88-29.84q.06-2.16,0-4.32l14.92-18.64a8,8,0,0,0,1.48-7.06,107.21,107.21,0,0,0-10.88-26.25,8,8,0,0,0-6-3.93l-23.72-2.64q-1.48-1.56-3-3L186,40.54a8,8,0,0,0-3.94-6,107.71,107.71,0,0,0-26.25-10.87,8,8,0,0,0-7.06,1.49L130.16,40Q128,40,125.84,40L107.2,25.11a8,8,0,0,0-7.06-1.48A107.6,107.6,0,0,0,73.89,34.51a8,8,0,0,0-3.93,6L67.32,64.27q-1.56,1.49-3,3L40.54,70a8,8,0,0,0-6,3.94,107.71,107.71,0,0,0-10.87,26.25,8,8,0,0,0,1.49,7.06L40,125.84Q40,128,40,130.16L25.11,148.8a8,8,0,0,0-1.48,7.06,107.21,107.21,0,0,0,10.88,26.25,8,8,0,0,0,6,3.93l23.72,2.64q1.49,1.56,3,3L70,215.46a8,8,0,0,0,3.94,6,107.71,107.71,0,0,0,26.25,10.87,8,8,0,0,0,7.06-1.49L125.84,216q2.16.06,4.32,0l18.64,14.92a8,8,0,0,0,7.06,1.48,107.21,107.21,0,0,0,26.25-10.88,8,8,0,0,0,3.93-6l2.64-23.72q1.56-1.48,3-3L215.46,186a8,8,0,0,0,6-3.94,107.71,107.71,0,0,0,10.87-26.25,8,8,0,0,0-1.49-7.06Zm-16.1-6.5a73.93,73.93,0,0,1,0,8.68,8,8,0,0,0,1.74,5.48l14.19,17.73a91.57,91.57,0,0,1-6.23,15L187,173.11a8,8,0,0,0-5.1,2.64,74.11,74.11,0,0,1-6.14,6.14,8,8,0,0,0-2.64,5.1l-2.51,22.58a91.32,91.32,0,0,1-15,6.23l-17.74-14.19a8,8,0,0,0-5-1.75h-.48a73.93,73.93,0,0,1-8.68,0,8,8,0,0,0-5.48,1.74L100.45,215.8a91.57,91.57,0,0,1-15-6.23L82.89,187a8,8,0,0,0-2.64-5.1,74.11,74.11,0,0,1-6.14-6.14,8,8,0,0,0-5.1-2.64L46.43,170.6a91.32,91.32,0,0,1-6.23-15l14.19-17.74a8,8,0,0,0,1.74-5.48,73.93,73.93,0,0,1,0-8.68,8,8,0,0,0-1.74-5.48L40.2,100.45a91.57,91.57,0,0,1,6.23-15L69,82.89a8,8,0,0,0,5.1-2.64,74.11,74.11,0,0,1,6.14-6.14A8,8,0,0,0,82.89,69L85.4,46.43a91.32,91.32,0,0,1,15-6.23l17.74,14.19a8,8,0,0,0,5.48,1.74,73.93,73.93,0,0,1,8.68,0,8,8,0,0,0,5.48-1.74L155.55,40.2a91.57,91.57,0,0,1,15,6.23L173.11,69a8,8,0,0,0,2.64,5.1,74.11,74.11,0,0,1,6.14,6.14,8,8,0,0,0,5.1,2.64l22.58,2.51a91.32,91.32,0,0,1,6.23,15l-14.19,17.74A8,8,0,0,0,199.87,123.66Z"/></symbol>
+  <symbol id="i-sign-out" viewBox="0 0 256 256"><path d="M120,216a8,8,0,0,1-8,8H48a8,8,0,0,1-8-8V40a8,8,0,0,1,8-8h64a8,8,0,0,1,0,16H56V208h56A8,8,0,0,1,120,216Zm109.66-93.66-40-40a8,8,0,0,0-11.32,11.32L204.69,120H112a8,8,0,0,0,0,16h92.69l-26.35,26.34a8,8,0,0,0,11.32,11.32l40-40A8,8,0,0,0,229.66,122.34Z"/></symbol>
 </svg>
 <!-- @sprite:end -->
 
 <header>
+  <div id="acctWrap">
+    <button class="btn" data-variant="ghost" data-shape="icon" id="acctBtn"
+            onclick="toggleAcctMenu()" aria-haspopup="menu" aria-expanded="false"
+            title="Account" aria-label="Account menu">
+      <span class="acct-avatar" id="acctAvatar">·</span>
+    </button>
+    <div id="acctMenu" class="menu" role="menu" aria-label="Account" hidden>
+      <div class="menu-id">
+        <span class="acct-avatar big" id="menuAvatar">·</span>
+        <span class="grow">
+          <b id="acctName">Founder</b>
+          <span class="conn-sub" id="acctEmail"></span>
+        </span>
+      </div>
+      <hr>
+      <button class="menu-item" role="menuitem" onclick="toggleAcctMenu();openConnections()">
+        <svg class="ico" aria-hidden="true"><use href="#i-plug"/></svg>Connectors</button>
+      <button class="menu-item" role="menuitem" onclick="toggleAcctMenu();openSettings()">
+        <svg class="ico" aria-hidden="true"><use href="#i-gear"/></svg>Settings</button>
+      <hr>
+      <button class="menu-item danger" role="menuitem" id="logoutItem" onclick="logout()">
+        <svg class="ico" aria-hidden="true"><use href="#i-sign-out"/></svg>Log out</button>
+    </div>
+  </div>
+  <button class="btn" data-variant="ghost" data-shape="icon" id="sessionsBtn"
+          onclick="openSessions()" aria-haspopup="dialog"
+          title="Search sessions" aria-label="Search sessions">
+    <svg class="ico" aria-hidden="true"><use href="#i-search"/></svg>
+  </button>
   <div class="brand">Co-<span>Founder</span></div>
   <span class="chip">grant_applications</span>
   <span class="chip" id="sessionTag"></span>
@@ -1103,15 +1247,8 @@ body[data-offline="true"] #offline { display: flex; }
       <svg class="ico ico-sm" aria-hidden="true"><use href="#i-globe"/></svg>Browser
     </button>
   </div>
-  <button class="btn" data-variant="ghost" onclick="openConnections()" aria-label="Connections" title="Connections">
-    <svg class="ico" aria-hidden="true"><use href="#i-plug"/></svg><span>Connections</span>
-  </button>
   <button class="btn" data-variant="ghost" id="sweepBtn" onclick="runSweep()" aria-label="Run discovery sweep" title="Run discovery sweep">
     <svg class="ico" aria-hidden="true"><use href="#i-refresh"/></svg><span>Run discovery sweep</span>
-  </button>
-  <button class="btn" data-variant="ghost" data-shape="icon" id="themeBtn"
-          onclick="toggleTheme()" title="Switch to light theme" aria-label="Switch to light theme">
-    <svg class="ico" aria-hidden="true"><use href="#i-moon" id="themeIcon"/></svg>
   </button>
   <button class="btn" data-variant="secondary" data-shape="icon" id="drawerBtn"
           style="display:none" onclick="toggleDrawer()" title="Show review panel" aria-label="Show review panel">
@@ -1196,10 +1333,14 @@ body[data-offline="true"] #offline { display: flex; }
     </div>
   </section>
 
+  <div id="splitHandleRight" role="separator" aria-orientation="vertical" tabindex="0"
+       aria-label="Resize review panel" title="Drag to resize"></div>
+
   <section id="review" aria-labelledby="reviewTitle">
     <h2 id="reviewTitle">Review</h2>
     <div id="approvalSlot"></div>
     <div id="stepperSlot"></div>
+    <div id="evidenceSlot"></div>
     <div id="sections" class="stack">
       <div class="empty">
         <svg class="ico ico-lg" aria-hidden="true"><use href="#i-clipboard"/></svg>
@@ -1460,6 +1601,79 @@ body[data-offline="true"] #offline { display: flex; }
 
   </div>
 </div>
+
+<!-- Settings (grounded from the account menu). Connector setup deliberately
+     stays in Connectors — this sheet is preferences, account, workspace. -->
+<div id="settings" class="dialog" role="dialog" aria-modal="true" aria-label="Settings"
+     onclick="if(event.target===this)closeSettings()">
+  <div class="sheet">
+    <div style="display:flex;align-items:center;margin-bottom:4px;gap:10px">
+      <div>
+        <div class="conn-title">Settings</div>
+        <div class="conn-sub">Preferences for you and this workspace.</div>
+      </div>
+      <span style="flex:1"></span>
+      <button class="x" onclick="closeSettings()" aria-label="Close"><svg class="ico" aria-hidden="true"><use href="#i-close"/></svg></button>
+    </div>
+
+    <div class="grp-h">Appearance</div>
+    <div class="grp">
+      <div class="crow">
+        <span class="grow"><b>Theme</b><div class="conn-sub">System follows your OS setting.</div></span>
+        <div class="seg" id="themeSeg" role="group" aria-label="Theme">
+          <button data-mode="system" aria-pressed="false" onclick="setThemeMode('system')">System</button>
+          <button data-mode="light" aria-pressed="false" onclick="setThemeMode('light')">Light</button>
+          <button data-mode="dark" aria-pressed="false" onclick="setThemeMode('dark')">Dark</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="grp-h">Account</div>
+    <div class="grp">
+      <div class="crow">
+        <span class="acct-avatar big" id="setAvatar">·</span>
+        <span class="grow"><b id="setAcctName">Founder</b><div class="conn-sub" id="setAcctSub"></div></span>
+        <button class="btn" data-variant="danger" data-size="sm" id="setLogout" onclick="logout()">Log out</button>
+      </div>
+    </div>
+
+    <div class="grp-h">Workspace</div>
+    <div class="grp">
+      <div class="crow"><span class="grow"><b>Co-founder</b>
+        <div class="conn-sub">The persona your agent answers as.</div></span>
+        <span class="chip" id="setPersona"></span></div>
+      <div class="crow"><span class="grow"><b>Workflow</b>
+        <div class="conn-sub">Loaded from the server config.</div></span>
+        <span class="chip" id="setWorkflow"></span></div>
+      <div class="crow"><span class="grow"><b>Session</b>
+        <div class="conn-sub" id="setSession"></div></span>
+        <button class="btn" data-variant="secondary" data-size="sm"
+                onclick="closeSettings();newSession()">New session</button></div>
+    </div>
+  </div>
+</div>
+
+<!-- Session history (grounded from the header search icon). Viewing is
+     read-through (provenance path); Resume makes a session active again —
+     approvals and drafts are session-scoped, so resuming is how an old
+     approval stays actionable. -->
+<div id="sessions" class="dialog" role="dialog" aria-modal="true" aria-label="Sessions"
+     onclick="if(event.target===this)closeSessions()">
+  <div class="sheet">
+    <div style="display:flex;align-items:center;margin-bottom:4px;gap:10px">
+      <div>
+        <div class="conn-title">Sessions</div>
+        <div class="conn-sub">Every conversation, newest first. Approvals and drafts stay with their session.</div>
+      </div>
+      <span style="flex:1"></span>
+      <input class="textin" id="sessSearch" placeholder="Search" style="max-width:180px"
+             oninput="renderSessionsList()" aria-label="Search sessions">
+      <button class="x" onclick="closeSessions()" aria-label="Close"><svg class="ico" aria-hidden="true"><use href="#i-close"/></svg></button>
+    </div>
+    <div id="sessGroups"></div>
+  </div>
+</div>
+
 <div id="pdfModal" class="dialog" role="dialog" aria-modal="true" aria-labelledby="pdfTitle"
      onclick="if(event.target===this)closePdf()">
   <div class="box">
@@ -1500,21 +1714,12 @@ body[data-offline="true"] #offline { display: flex; }
 // ---------- theme (docs/16 §1: three resolution states) ----------
 // No stamp = follow the OS. A stamp = the founder chose, and beats the OS.
 const THEME_KEY = "cofounder-theme";
-function resolvedTheme() {
-  return document.documentElement.dataset.theme
-    || (matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark");
-}
 function applyTheme(t) {
   if (t) document.documentElement.dataset.theme = t;
   else delete document.documentElement.dataset.theme;
-  const dark = resolvedTheme() === "dark";
-  const label = dark ? "Switch to light theme" : "Switch to dark theme";
-  $("themeIcon").setAttribute("href", dark ? "#i-moon" : "#i-sun");
-  $("themeBtn").title = label;
-  $("themeBtn").setAttribute("aria-label", label);
   if (t) localStorage.setItem(THEME_KEY, t); else localStorage.removeItem(THEME_KEY);
+  renderThemeSeg();  // Settings → Appearance owns the choice now
 }
-function toggleTheme() { applyTheme(resolvedTheme() === "dark" ? "light" : "dark"); }
 matchMedia("(prefers-color-scheme: light)").addEventListener("change", () => {
   if (!localStorage.getItem(THEME_KEY)) applyTheme(null);
 });
@@ -1539,6 +1744,12 @@ applyTheme(localStorage.getItem(THEME_KEY));
 addEventListener("DOMContentLoaded", buildRefTabs);
 async function api(path, opts = {}) {
   const r = await fetch(path, { headers: { "Content-Type": "application/json" }, ...opts });
+  if (r.status === 401 && !path.startsWith("/auth/")) {
+    // Signed out or session expired — the login page explains the way back in
+    // (and covers the ?key= flow when sign-in isn't configured).
+    location.href = "/login.html";
+    throw new Error("signed out");
+  }
   if (!r.ok) {
     // Surface failures instead of toasting success on a 401/500 body.
     let detail = "";
@@ -1627,8 +1838,10 @@ function md(src) {
 }
 
 // ---------- chat ----------
-let PERSONA = "Alex";  // founder-facing agent name (docs/adr/001); from /api/config
-fetch("/api/config").then(r => r.json()).then(j => { PERSONA = j.persona_name || PERSONA; }).catch(() => {});
+let PERSONA = "Alex", WORKFLOW = "";  // founder-facing agent name (docs/adr/001); from /api/config
+fetch("/api/config").then(r => r.json()).then(j => {
+  PERSONA = j.persona_name || PERSONA; WORKFLOW = j.workflow_id || "";
+}).catch(() => {});
 function agentHead() {
   return `<div class="msg-head"><span class="avatar">${esc(PERSONA[0] || "A")}</span>${esc(PERSONA)}</div>`;
 }
@@ -1879,30 +2092,59 @@ function toggleSurface() {
   showSurface(document.body.dataset.surface === "browser" ? "board" : "browser");
 }
 
-const mainEl = document.querySelector("main"), splitHandle = $("splitHandle");
-const savedLeftW = localStorage.getItem("leftPanelWidth");
-if (savedLeftW) mainEl.style.setProperty("--left-w", savedLeftW);
-splitHandle.addEventListener("pointerdown", (e) => {
-  splitHandle.setPointerCapture(e.pointerId);
-  const move = (ev) => {
-    const w = Math.min(600, Math.max(260, ev.clientX - mainEl.getBoundingClientRect().left));
-    mainEl.style.setProperty("--left-w", `${Math.round(w)}px`);
+const mainEl = document.querySelector("main");
+
+// Both panel edges resize the same way, so they share one implementation:
+// pointer drag, arrow keys for keyboard users, width persisted per edge.
+// `edge` says which side of `main` the width is measured from.
+function wireSplit({ handleId, varName, storageKey, edge, min, max }) {
+  const handle = $(handleId);
+  if (!handle) return;
+
+  const saved = localStorage.getItem(storageKey);
+  if (saved) mainEl.style.setProperty(varName, saved);
+
+  const clamp = (px) => Math.round(Math.min(max, Math.max(min, px)));
+  const apply = (px, persist) => {
+    mainEl.style.setProperty(varName, `${px}px`);
+    if (persist) localStorage.setItem(storageKey, `${px}px`);
   };
-  splitHandle.addEventListener("pointermove", move);
-  splitHandle.addEventListener("pointerup", () => {
-    splitHandle.removeEventListener("pointermove", move);
-    localStorage.setItem("leftPanelWidth", mainEl.style.getPropertyValue("--left-w"));
-  }, { once: true });
-});
-splitHandle.addEventListener("keydown", (e) => {
-  if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
-  const rendered = mainEl.firstElementChild.getBoundingClientRect().width;
-  const cur = parseInt(mainEl.style.getPropertyValue("--left-w"), 10) || rendered;
-  const w = Math.min(600, Math.max(260, cur + (e.key === "ArrowRight" ? 16 : -16)));
-  mainEl.style.setProperty("--left-w", `${Math.round(w)}px`);
-  localStorage.setItem("leftPanelWidth", `${Math.round(w)}px`);
-  e.preventDefault();
-});
+  const widthFrom = (clientX) => {
+    const box = mainEl.getBoundingClientRect();
+    return edge === "left" ? clientX - box.left : box.right - clientX;
+  };
+
+  handle.addEventListener("pointerdown", (e) => {
+    handle.setPointerCapture(e.pointerId);
+    const move = (ev) => apply(clamp(widthFrom(ev.clientX)), false);
+    handle.addEventListener("pointermove", move);
+    handle.addEventListener("pointerup", () => {
+      handle.removeEventListener("pointermove", move);
+      localStorage.setItem(storageKey, mainEl.style.getPropertyValue(varName));
+    }, { once: true });
+  });
+
+  handle.addEventListener("keydown", (e) => {
+    if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+    // Fall back to the rendered width so the first key press starts from what
+    // the founder can actually see, not from an unset variable.
+    const rendered = handle.previousElementSibling
+      ? handle.previousElementSibling.getBoundingClientRect().width
+      : 0;
+    const current = parseInt(mainEl.style.getPropertyValue(varName), 10)
+      || (edge === "left" ? rendered
+          : $("review").getBoundingClientRect().width);
+    // Arrow direction is screen direction: Right always grows the middle.
+    const step = e.key === "ArrowRight" ? 16 : -16;
+    apply(clamp(current + (edge === "left" ? step : -step)), true);
+    e.preventDefault();
+  });
+}
+
+wireSplit({ handleId: "splitHandle", varName: "--left-w",
+            storageKey: "leftPanelWidth", edge: "left", min: 260, max: 600 });
+wireSplit({ handleId: "splitHandleRight", varName: "--right-w",
+            storageKey: "rightPanelWidth", edge: "right", min: 320, max: 640 });
 
 // ---------- live browser work (docs/18) ----------
 async function loadBrowserState() {
@@ -2119,6 +2361,7 @@ async function loadApp(id, silent) {
     </div>`).join("") || emptyState("chat", "Nothing drafted yet",
       "Alex interviews you first, then drafts each section in your voice for you to approve.");
 
+  renderEvidenceCheck(activeApp.evidence_check);
   loadRecon(activeApp.id);
 
   const fr = activeApp.form_fill_report;
@@ -2188,6 +2431,54 @@ function showShot(name) {
   openDialog("shotModal");
 }
 
+// Evidence check (docs/20). Advisory only — it never gates Approve/Reject, and
+// it never claims a draft is true. A stale report is withheld, not shown: a
+// green tick against a draft that has since changed is worse than no tick.
+const EV_LABEL = {
+  CONTRADICTION: "Contradicts your evidence",
+  OVERSTATED_EVIDENCE: "Stronger than your evidence",
+  CROSS_SECTION_CONFLICT: "Conflicts with another section",
+};
+
+function renderEvidenceCheck(check) {
+  const el = $("evidenceSlot");
+  if (!check || check.status === "STALE") { el.innerHTML = ""; return; }
+
+  const shell = (icon, head, body) => `
+    <div class="evcheck" data-status="${esc(check.status)}">
+      <div class="hd">${ico(icon)}<span>${head}</span></div>${body}
+    </div>`;
+
+  if (check.status === "CLEAN") {
+    el.innerHTML = shell("shield", "No evidence inconsistencies found",
+      `<p class="caveat">This is an automated check against your saved evidence.
+       It does not prove anything is true — you still approve the facts.</p>`);
+    return;
+  }
+  if (check.status === "UNAVAILABLE" || check.status === "INVALID_RESPONSE") {
+    // Never imply the draft passed.
+    el.innerHTML = shell("alert",
+      check.status === "UNAVAILABLE" ? "Evidence check unavailable"
+                                     : "Evidence check couldn't be completed",
+      `<p class="caveat">Your draft was not checked. Review the facts yourself.</p>`);
+    return;
+  }
+
+  const findings = check.findings || [];
+  el.innerHTML = shell("flag",
+    `${findings.length} thing${findings.length === 1 ? "" : "s"} worth checking`,
+    `<p class="caveat">An automated comparison against your saved evidence — it
+     can be wrong in both directions. Nothing here blocks you; you decide.</p>` +
+    findings.map(f => `
+      <div class="evfinding">
+        <div class="lbl">${esc(EV_LABEL[f.type] || f.type)}</div>
+        <q>${esc(f.draft_quote)}</q>
+        ${(f.evidence || []).map(e => `<div class="src">
+            <b>Your evidence:</b> ${esc(e.text)}</div>`).join("")}
+        ${f.suggested_action ? `<div class="act">${esc(f.suggested_action)}</div>` : ""}
+      </div>`).join(""));
+}
+
 function toggleEdit(btn) {
   const box = btn.closest(".section");
   const ta = box.querySelector("textarea");
@@ -2238,6 +2529,7 @@ document.addEventListener("keydown", e => {
   if (e.key === "Escape") {
     e.preventDefault();
     ({ modal: closeApproval, pdfModal: closePdf, connections: closeConnections,
+       settings: closeSettings, sessions: closeSessions,
        shotModal: () => closeDialog("shotModal") })[dlg.id]();
     return;
   }
@@ -2496,6 +2788,16 @@ document.addEventListener("click", (e) => {
   if (card) { loadApp(card.dataset.appId); return; }
   const row = e.target.closest(".connrow[data-conn]");
   if (row && !e.target.closest("a")) { showConn(row.dataset.conn); return; }
+  const resume = e.target.closest("[data-session-resume]");
+  if (resume) { resumeSession(resume.dataset.sessionResume); return; }
+  const sess = e.target.closest("[data-session-open]");
+  if (sess) {
+    closeSessions();
+    // The "Current" row goes home; any other row opens read-through.
+    if (sess.dataset.sessionOpen === (viewingSession || sessionId)) backToSession();
+    else viewSession(sess.dataset.sessionOpen);
+    return;
+  }
   const drive = e.target.closest("[data-drive-action]");
   if (drive) {
     if (drive.dataset.driveAction === "ingest") ingestDrive(drive.dataset.fileId);
@@ -2542,7 +2844,7 @@ function renderSessionDocCards() {
 
 // provenance navigation: doc → the conversation that produced it
 async function viewSession(sid) {
-  if (!sid || sid === sessionId) { toast("This document was made in the session you are already viewing."); return; }
+  if (!sid || sid === sessionId) { toast("You're already viewing this session."); return; }
   const h = await api("/api/chat/" + sid);
   if (h.error) { toast("That session no longer exists.", "danger"); return; }
   if (!viewingSession) viewingSession = sessionId;
@@ -2982,7 +3284,131 @@ function renderLiveTranscript({ who, text, finished }) {
   $("chatlog").scrollTop = $("chatlog").scrollHeight;
 }
 
+// ---------- session history (header search icon) ----------
+let sessList = [];
+
+async function openSessions() {
+  openDialog("sessions", "#sessSearch");
+  $("sessGroups").innerHTML =
+    `<div class="grp"><div class="crow"><span class="grow conn-sub">Loading…</span></div></div>`;
+  try {
+    const r = await api("/api/sessions");
+    sessList = r.sessions || [];
+  } catch (e) {
+    $("sessGroups").innerHTML = `<div class="grp"><div class="crow">
+      <span class="grow conn-sub">Couldn't load sessions: ${esc(e.message || e)}</span></div></div>`;
+    return;
+  }
+  renderSessionsList();
+}
+function closeSessions() { closeDialog("sessions"); }
+
+function sessionRow(s) {
+  // While viewing another session, the founder's real session is parked in
+  // viewingSession — that one is "Current", not the one being read.
+  const current = s.id === (viewingSession || sessionId);
+  return `<button class="crow connrow" data-session-open="${esc(s.id)}">
+    <span class="cbadge sm">${ico("chat")}</span>
+    <span class="grow"><b>${esc(s.preview || "New conversation")}</b>
+      <div class="conn-sub"><span class="tnum">${s.messages}</span> message${s.messages === 1 ? "" : "s"}
+        · ${timeAgo(s.updated_at) || "just now"} · ${esc(s.id)}</div></span>
+    ${current ? `<span class="chip-ok">Current</span>`
+              : `<span class="btn" data-variant="quiet" data-size="sm"
+                       data-session-resume="${esc(s.id)}">Resume</span>`}
+  </button>`;
+}
+
+function renderSessionsList() {
+  const q = ($("sessSearch").value || "").trim().toLowerCase();
+  const match = s => !q || s.id.toLowerCase().includes(q)
+    || (s.preview || "").toLowerCase().includes(q);
+  const shown = sessList.filter(match);
+  $("sessGroups").innerHTML = shown.length
+    ? `<div class="grp-h">${shown.length} session${shown.length === 1 ? "" : "s"}</div>
+       <div class="grp">${shown.map(sessionRow).join("")}</div>`
+    : `<div class="grp"><div class="crow"><span class="grow conn-sub">${
+        q ? "Nothing matches. Search covers each conversation's opening line and session id."
+          : "No sessions yet — say something to your co-founder and the first one appears here."}</span></div></div>`;
+}
+
+// Resume = make it the active session again (localStorage + tag + polling),
+// exactly the state a reload restores. Distinct from viewSession(), which is
+// a read-through visit that keeps your real session parked.
+function resumeSession(sid) {
+  closeSessions();
+  if (sid === (viewingSession || sessionId)) { backToSession(); return; }
+  sessionId = sid;
+  viewingSession = null;
+  localStorage.setItem(SESSION_KEY, sid);
+  $("sessionTag").textContent = "session " + sid;
+  chatCount = 0;
+  syncChat();
+  refresh();
+  toast("Session resumed — new messages continue here.", "ok");
+}
+
+// ---------- account menu + settings (identity from /auth/me) ----------
+let acct = null;
+function initialsOf(name, email) {
+  const src = (name || "").trim() || (email || "").trim();
+  if (!src) return "F";
+  const parts = src.replace(/@.*$/, "").split(/[\s._-]+/).filter(Boolean);
+  const two = ((parts[0] || "")[0] || "") + ((parts[1] || "")[0] || "");
+  return (two || src[0]).toUpperCase();
+}
+async function loadIdentity() {
+  try { acct = await api("/auth/me"); } catch { acct = null; }
+  const isSession = !!(acct && acct.mode === "session");
+  const name = isSession ? (acct.name || acct.email) : "Founder";
+  const sub = !acct ? "Not signed in"
+    : isSession ? acct.email
+    : acct.mode === "token" ? "Signed in with the access key"
+    : "Local dev — open access";
+  const ini = initialsOf(isSession ? acct.name : "", isSession ? acct.email : "");
+  for (const id of ["acctAvatar", "menuAvatar", "setAvatar"]) $(id).textContent = ini;
+  $("acctName").textContent = name;
+  $("acctEmail").textContent = sub;
+  $("setAcctName").textContent = name;
+  $("setAcctSub").textContent = sub;
+  // Nothing to log out OF in dev-open mode; token + session modes both can.
+  const canLogout = !!(acct && acct.mode !== "open");
+  $("logoutItem").hidden = !canLogout;
+  $("setLogout").hidden = !canLogout;
+}
+function toggleAcctMenu() {
+  const m = $("acctMenu"), open = m.hidden;
+  m.hidden = !open;
+  $("acctBtn").setAttribute("aria-expanded", String(open));
+  if (open) m.querySelector(".menu-item").focus();
+}
+document.addEventListener("click", (e) => {
+  if (!$("acctMenu").hidden && !e.target.closest("#acctWrap")) toggleAcctMenu();
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && !$("acctMenu").hidden) { toggleAcctMenu(); $("acctBtn").focus(); }
+});
+async function logout() {
+  try { await api("/auth/logout", { method: "POST", body: "{}" }); } catch { /* cookie may already be gone */ }
+  location.href = "/login.html";
+}
+
+function openSettings() {
+  $("setPersona").textContent = PERSONA;
+  $("setWorkflow").textContent = WORKFLOW || "default";
+  $("setSession").textContent = sessionId || "none yet";
+  renderThemeSeg();
+  openDialog("settings");
+}
+function closeSettings() { closeDialog("settings"); }
+function setThemeMode(mode) { applyTheme(mode === "system" ? null : mode); }
+function renderThemeSeg() {
+  const cur = localStorage.getItem(THEME_KEY) || "system";
+  document.querySelectorAll("#themeSeg button").forEach(b =>
+    b.setAttribute("aria-pressed", String(b.dataset.mode === cur)));
+}
+
 // ---------- boot ----------
+loadIdentity();
 restoreSession().then(refresh);
 // Dormant by default: refresh on founder activity and after explicit actions,
 // never by a timer that keeps waking a scale-to-zero backend.

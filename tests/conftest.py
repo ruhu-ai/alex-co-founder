@@ -19,6 +19,7 @@ class FakeStore:
         self.documents = {}
         self.source_hashes = {}
         self.portal_registrations = {}
+        self.evidence_checks = {}
 
     def _now(self):
         return datetime.now(timezone.utc).isoformat()
@@ -60,10 +61,11 @@ def fake_store(monkeypatch):
         return row["id"]
 
     async def _create_feedback(founder_id, application_id, section_id, feedback_type,
-                               original, reason, edited_text):
+                               original, reason, edited_text, section_key=""):
         fid = uuid.uuid4().hex
         store.feedback[fid] = {"id": fid, "founder_id": founder_id,
                                "application_id": application_id, "section_id": section_id,
+                               "section_key": section_key,
                                "type": feedback_type, "original": original, "reason": reason,
                                "edited_text": edited_text, "distilled": False,
                                "distilled_rule_ids": [], "created_at": store._now()}
@@ -217,6 +219,41 @@ def fake_store(monkeypatch):
     async def _get_opportunity(oid):
         return store.opportunities.get(oid)
 
+    async def _get_evidence_check(report_id, founder_id, application_id):
+        row = store.evidence_checks.get(report_id)
+        if not row or row.get("founder_id") != founder_id \
+                or row.get("application_id") != application_id:
+            return None
+        return row
+
+    async def _claim_evidence_check(report_id, row, lease_seconds):
+        now = datetime.now(timezone.utc).timestamp()
+        current = store.evidence_checks.get(report_id)
+        if current:
+            if current.get("execution_status") == "COMPLETE":
+                return {"claimed": False, "existing": current}
+            age = now - float(current.get("lease_started_epoch") or 0)
+            if age <= float(current.get("lease_seconds") or lease_seconds):
+                return {"claimed": False, "existing": None}
+        owner = uuid.uuid4().hex
+        store.evidence_checks[report_id] = {
+            **row, "report_id": report_id, "execution_status": "PREPARED",
+            "lease_owner": owner, "lease_started_epoch": now,
+            "lease_seconds": lease_seconds,
+        }
+        return {"claimed": True, "existing": None, "lease_owner": owner}
+
+    async def _complete_evidence_check(report_id, report, lease_owner, application_id):
+        current = store.evidence_checks.get(report_id)
+        if not current or current.get("execution_status") == "COMPLETE" \
+                or current.get("lease_owner") != lease_owner:
+            return False
+        store.evidence_checks[report_id] = {
+            **report, "report_id": report_id, "execution_status": "COMPLETE"}
+        store.applications[application_id].update(
+            latest_evidence_check_id=report_id, updated_at=store._now())
+        return True
+
     async def _create_opportunity(record):
         for oid, opp in store.opportunities.items():
             if opp.get("dedup_hash") == record.get("dedup_hash"):
@@ -229,8 +266,12 @@ def fake_store(monkeypatch):
     async def _set_opportunity_state(oid, state, **fields):
         store.opportunities[oid].update({"state": state, **fields, "updated_at": store._now()})
 
-    async def _list_opportunities(limit=40):
-        return list(store.opportunities.values())[:limit]
+    async def _list_opportunities(limit=40, start_after=None):
+        rows = sorted(store.opportunities.values(),
+                      key=lambda o: o.get("created_at", ""), reverse=True)
+        if start_after is not None:
+            rows = [o for o in rows if o.get("created_at", "") < start_after]
+        return rows[:limit]
 
     async def _list_unscored(limit=10):
         return [o for o in store.opportunities.values() if o.get("state") == "DISCOVERED"][:limit]
@@ -303,6 +344,9 @@ def fake_store(monkeypatch):
         "find_successful_action": _find_successful_action,
         "create_ingestion": _create_ingestion, "get_ingestion": _get_ingestion,
         "update_ingestion": _update_ingestion, "get_opportunity": _get_opportunity,
+        "get_evidence_check": _get_evidence_check,
+        "claim_evidence_check": _claim_evidence_check,
+        "complete_evidence_check": _complete_evidence_check,
         "create_opportunity": _create_opportunity, "set_opportunity_state": _set_opportunity_state,
         "list_opportunities": _list_opportunities, "list_unscored_opportunities": _list_unscored,
         "find_opportunity_by_hash": _find_by_hash,

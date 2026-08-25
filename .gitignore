@@ -1,21 +1,54 @@
 # secrets — never commit
 .env
-.env.prod
+.env.*
+!.env.example
+*.local
 *.pem
 *.key
+*.p12
+*.pfx
+*.jks
+credentials.json
+credentials-*.json
+client_secret*.json
+service-account*.json
+service_account*.json
+gcp-key*.json
+application_default_credentials.json
+token.json
+oauth-token*.json
 
 # runtime state
 sessions.db
+sessions.db-*
+*.db
+*.db-*
+*.sqlite
+*.sqlite3
 .portal_secrets.json
 artifacts/
 .extracted/
 .pytest_cache/
+.ruff_cache/
 .venv/
 __pycache__/
 *.pyc
+*.log
+*.pid
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+playwright-report/
+test-results/
+build/
+dist/
+*.egg-info/
 
 # ADK local caches
 .adk/
+.codex/
+.opensrc
 
 # reference material / unrelated binaries — keep out of the submission repo
 /*.pdf
@@ -25,3 +58,5 @@ tests/fixtures/launchvic_guidelines.pdf
 # OS / editor junk
 .DS_Store
 ~$*
+.idea/
+.vscode/

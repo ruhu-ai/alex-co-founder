@@ -36,6 +36,7 @@ async def record_feedback(founder_id: str, application_id: str, section_id: str,
     feedback_id = await firestore.create_feedback(
         founder_id=founder_id, application_id=application_id, section_id=section_id,
         feedback_type=feedback_type, original=original, reason=reason, edited_text=edited_text,
+        section_key=section.get("section_key", ""),
     )
     await firestore.audit(f"founder:{founder_id}", "feedback",
                           f"applications/{application_id}/sections/{section_id}", "success",

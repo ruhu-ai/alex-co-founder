@@ -23,7 +23,7 @@ from typing import Literal
 os.environ.setdefault("OAUTHLIB_RELAX_TOKEN_SCOPE", "1")
 
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from google.adk.apps import App
 from google.adk.cli.fast_api import get_fast_api_app
@@ -292,6 +292,53 @@ async def chat_history(session_id: str) -> dict:
     return {"status": "success", "messages": messages}
 
 
+@app.get("/api/sessions")
+async def api_sessions(limit: int = 30):
+    """Session history for the header search popup: newest first, each with a
+    preview line so a conversation is findable by content, not just id. Only
+    this founder's sessions — system sessions (user_id="system") never list.
+    System wake notices are excluded from previews and counts, same rule as
+    chat_history above."""
+    from datetime import datetime, timezone
+
+    listing = await db_session_service.list_sessions(
+        app_name=agent_app.name, user_id=FOUNDER_ID)
+    sessions = sorted(getattr(listing, "sessions", None) or [],
+                      key=lambda s: s.last_update_time or 0,
+                      reverse=True)[:max(1, min(limit, 100))]
+    out = []
+    for s in sessions:
+        # list_sessions returns shells; events need the full read. Founder
+        # scale (tens of sessions) keeps this cheap, and `limit` caps it.
+        full = await db_session_service.get_session(
+            app_name=agent_app.name, user_id=FOUNDER_ID, session_id=s.id)
+        preview, first_agent, count = "", "", 0
+        for event in (full.events if full else None) or []:
+            content = getattr(event, "content", None)
+            if not content or not content.parts:
+                continue
+            text = "".join(p.text for p in content.parts
+                           if getattr(p, "text", None)).strip()
+            if not text or text.startswith(SYSTEM_NOTICE_MARKER):
+                continue
+            count += 1
+            if not preview and event.author == "user":
+                preview = text[:140]
+            elif not first_agent and event.author != "user":
+                first_agent = text[:140]
+        updated = s.last_update_time
+        out.append({
+            "id": s.id,
+            "updated_at": (datetime.fromtimestamp(updated, tz=timezone.utc)
+                           .isoformat() if updated else ""),
+            # A proactive-report session has no founder message — fall back to
+            # the agent's opener rather than listing as empty.
+            "preview": preview or first_agent,
+            "messages": count,
+        })
+    return {"status": "success", "sessions": out}
+
+
 # ---------------------------------------------------------------------------
 # webhooks (external events wake parked sessions — docs/03 §dormancy)
 # ---------------------------------------------------------------------------
@@ -530,7 +577,43 @@ async def api_application(application_id: str, session_id: str):
     pending = await firestore.find_pending_approval(
         application_id, founder_id=FOUNDER_ID, session_id=session_id)
     app_doc["pending_approval_id"] = pending["id"] if pending else None
+    app_doc["evidence_check"] = await _current_evidence_check(app_doc)
     return app_doc
+
+
+async def _current_evidence_check(app_doc: dict) -> dict | None:
+    """The evidence report, only if it still matches the current draft.
+
+    A stale report is withheld rather than shown: telling a founder "no
+    inconsistencies found" against a draft, profile or programme that has since
+    changed is the false assurance this feature exists to prevent (docs/20).
+    """
+    from services import gemma_evidence, profile_service
+
+    report_id = app_doc.get("latest_evidence_check_id")
+    if not report_id:
+        return None
+    try:
+        # Ownership is enforced in the accessor: a corrupted or guessed pointer
+        # must not be able to surface another founder's report.
+        report = await firestore.get_evidence_check(
+            report_id,
+            founder_id=app_doc.get("founder_id") or FOUNDER_ID,
+            application_id=app_doc.get("id") or "")
+        if not report:
+            return None
+        profile = await profile_service.get_profile(app_doc.get("founder_id") or FOUNDER_ID) or {}
+        opportunity = (await firestore.get_opportunity(app_doc.get("opportunity_id") or "")
+                       if app_doc.get("opportunity_id") else None)
+        if gemma_evidence.is_stale(
+                report, app_doc, profile, opportunity,
+                current_model=gemma_evidence.current_input_model()):
+            return {"status": "STALE"}
+    except Exception:  # noqa: BLE001 — the review panel must render regardless
+        return None
+    return {k: report.get(k) for k in
+            ("status", "findings", "invalid_finding_count", "truncated",
+             "model", "input_hash", "latency_ms", "error_code")}
 
 
 class FeedbackRequest(BaseModel):
@@ -1196,6 +1279,12 @@ async def api_tts(payload: dict):
 # /healthz (exact) is reserved by Google's serving infrastructure and is answered
 # at the edge — it never reaches a Cloud Run container. /health is the
 # prod-reachable warm-up path; /healthz still works in local dev.
+@app.get("/favicon.ico", include_in_schema=False)
+def favicon() -> FileResponse:
+    """Serve the brand favicon at the browser's conventional fallback path."""
+    return FileResponse("app/static/favicon.svg", media_type="image/svg+xml")
+
+
 @app.get("/health")
 @app.get("/healthz")
 def healthz() -> dict:

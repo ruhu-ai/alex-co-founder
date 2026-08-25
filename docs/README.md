@@ -45,8 +45,9 @@ founder's voice and thinking through explicit feedback capture.
 | `15-document-outputs.md` | Document production: docx/xlsx/pptx builders, validation gate, downloads, Drive sync | Post-core |
 | `16-design-system.md` | Design tokens, icon sprite, contrast checks | Post-core |
 | `17-real-portal-access.md` | Portal registration + sign-in, mailbox verification loop, audited account creation | Post-core |
-| `19-winning-plan.md` | Gap analysis vs prior winner, prioritized Google-framework coverage, timeline to Aug 31 | Post-core |
 | `18-browser-agent.md` | General-purpose browsing (`browse.*` tools), Browser panel live view | Post-core |
+| `19-winning-plan.md` | Gap analysis vs prior winner, prioritized Google-framework coverage, timeline to Aug 31 | Post-core |
+| `20-gemma-evidence-checker.md` | Isolated semantic evidence check before founder review; Gemma, validation, rollout eval | Post-core |
 
 ## Design principles (binding on all implementation)
 

@@ -334,17 +334,34 @@ async def run_sweep(workflow, founder_id: str | None = None) -> dict:
 
 
 async def deadline_scan() -> dict:
-    """Deadline sentinel (docs/08): recompute urgency on all open items."""
+    """Deadline sentinel (docs/08): recompute urgency on ALL open items.
+
+    Pages through the whole opportunities collection with a created_at cursor —
+    a fixed limit silently skipped every opportunity past the first page, so a
+    grant closing tomorrow could go un-nudged simply because 200 newer records
+    existed. (created_at ties can nudge the page boundary; acceptable at
+    demo-scale and still far better than a hard cap.)
+    """
+    _PAGE = 200
     scanned = 0
     critical = []
-    for opp in await firestore.list_opportunities(limit=200):
-        if opp.get("state") != "SHORTLISTED":
-            continue
-        urgency = pipeline_service.compute_urgency(opp.get("deadline"), opp.get("required_materials", []))
-        previous = (opp.get("urgency") or {}).get("tier")
-        if urgency != opp.get("urgency"):
-            await firestore.set_opportunity_state(opp["id"], opp["state"], urgency=urgency)
-        if urgency["tier"] == "CRITICAL" and previous != "CRITICAL":
-            critical.append(opp["id"])
-        scanned += 1
+    cursor: str | None = None
+    while True:
+        batch = await firestore.list_opportunities(limit=_PAGE, start_after=cursor)
+        if not batch:
+            break
+        for opp in batch:
+            if opp.get("state") != "SHORTLISTED":
+                continue
+            urgency = pipeline_service.compute_urgency(
+                opp.get("deadline"), opp.get("required_materials", []))
+            previous = (opp.get("urgency") or {}).get("tier")
+            if urgency != opp.get("urgency"):
+                await firestore.set_opportunity_state(opp["id"], opp["state"], urgency=urgency)
+            if urgency["tier"] == "CRITICAL" and previous != "CRITICAL":
+                critical.append(opp["id"])
+            scanned += 1
+        if len(batch) < _PAGE:
+            break
+        cursor = batch[-1].get("created_at")
     return {"status": "success", "scanned": scanned, "newly_critical": critical}

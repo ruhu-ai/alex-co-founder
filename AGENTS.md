@@ -27,8 +27,7 @@ Conventions: generic core naming (`Opportunity`, `Application`, never
 secrets fetched by name at execution time; user ids `user` / `eval_founder` /
 demo founder must all be seeded (docs/02).
 
-Reference repos (read-only pattern mining, never import from them):
-`/Users/ijidailassa/projects/solvan/.opensrc/repos/github.com/` — includes
-`google/adk-python` (live/bidi samples under `contributing/samples/live/`),
-`andrewyng/openworker` (connector UI grammar in `ui-mocks/`), `cline/cline`,
-`GoogleCloudPlatform/generative-ai`, `livekit-examples`, `pipecat-ai`.
+Optional reference repos are read-only pattern-mining inputs and are never
+imported or required by this project. When available outside the repository,
+they may include `google/adk-python`, `andrewyng/openworker`, `cline/cline`,
+`GoogleCloudPlatform/generative-ai`, `livekit-examples`, and `pipecat-ai`.

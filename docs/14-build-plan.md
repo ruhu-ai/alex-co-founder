@@ -64,6 +64,10 @@ live (text→audio round-trip + browser mic pipeline, 2026-08-19).
 - **18 — browser agent**: orchestrator `browse.*` tools + Browser panel live
   view. Cheap demo win (founder pastes a link, Alex reads it live on screen);
   build only after the final acceptance criteria below are green.
+- **20 — Gemma Evidence Checker**: isolated, advisory comparison of completed
+  drafts against persisted founder/programme evidence. Build only from its
+  contract and enable only after its labelled rollout eval passes; it adds no
+  agent, state, or approval gate.
 
 ## Final acceptance criteria (mapped to judging)
 
@@ -85,4 +89,6 @@ live (text→audio round-trip + browser mic pipeline, 2026-08-19).
 **Bonus (cheap wins, Day 13 only)**
 - [ ] Public build-log post (states it was created for this hackathon).
 - [ ] Social post with #AllThingsAgenticHackathon.
-- [ ] Only if trivial: one extra Google model (e.g., Gemma for extraction) for +0.2.
+- [ ] Gemma Evidence Checker (20) enabled only if its product contract, live
+      labelled evaluation, and visible review-panel result are green — never a
+      decorative model call for +0.2.

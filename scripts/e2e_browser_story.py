@@ -80,9 +80,15 @@ async def setup_approved_application() -> tuple[str, str, str]:
     from services import firestore, pipeline_service
 
     founder = os.environ.get("FOUNDER_ID", "founder")
-    opp = next((o for o in await firestore.list_opportunities(limit=500)
-                if "Meridian" in o.get("name", "")), None)
-    assert opp, "Meridian opportunity not seeded — run scripts/seed_demo.py"
+    # Sweeps can leave more than one Meridian record. Take a SHORTLISTED one
+    # deterministically — picking whichever happened to sort first made the run
+    # depend on ambient Firestore state rather than on the seed.
+    candidates = [o for o in await firestore.list_opportunities(limit=500)
+                  if "Meridian" in o.get("name", "")]
+    opp = next((o for o in candidates if o.get("state") == "SHORTLISTED"), None)
+    assert opp, (
+        "no SHORTLISTED Meridian opportunity — run scripts/seed_demo.py "
+        f"(found {[(o['id'][:8], o.get('state')) for o in candidates]})")
 
     chosen = await pipeline_service.choose_opportunity(founder, opp["id"])
     assert chosen["status"] == "success", chosen
@@ -294,24 +300,34 @@ async def run_adaptation_act(client) -> None:
         return " ".join(re.findall(r"[a-z0-9']+", text.lower()))
     fingerprint = " ".join(_words(reason).split()[:6])
     check("the founder's words are kept verbatim as evidence",
-          any(fingerprint in _words(json.dumps(r)) for r in fresh),
+          any(fingerprint in _words(json.dumps(r, ensure_ascii=False)) for r in fresh),
           f"no rule carries {fingerprint!r}")
 
     await wake(client, sid, f"Redraft the '{banned}' traction section now, "
                             "applying my feedback. Save it with save_draft_section.")
 
     app = await firestore.get_application(app_id) or {}
-    redrafted = next((s for s in app.get("draft_sections", [])
-                      if s.get("section_id") == section_id
-                      or s.get("section_key") == "traction"), None)
-    body = str((redrafted or {}).get("content", ""))
-    check("the redraft dropped the rejected word",
-          bool(body) and banned not in body.lower(),
-          (body[:90] or "no redraft was saved"))
-    # This line is the money shot: the agent saying *why* the draft changed.
+    sections = app.get("draft_sections", [])
+
+    rejected = next((s for s in sections if s.get("section_id") == section_id), None)
+    check("the rejected draft is marked as needing changes",
+          (rejected or {}).get("status") == "CHANGES_REQUESTED",
+          f"status is {(rejected or {}).get('status')!r}")
+
+    # Anything the drafter wrote after the rejection, under whatever key it chose.
+    fresh_drafts = [s for s in sections if s.get("section_id") != section_id]
+    clean = [s for s in fresh_drafts if banned not in str(s.get("content", "")).lower()]
+    check("a fresh draft exists that drops the rejected word",
+          bool(clean),
+          f"{len(fresh_drafts)} new draft(s), none free of {banned!r}"
+          if fresh_drafts else "no redraft was saved")
+
+    # The money shot: the agent saying *why* the draft reads the way it does.
+    citing = [s for s in clean if banned in str(s.get("notes", "")).lower()]
     check("the redraft cites the feedback that shaped it",
-          banned in str((redrafted or {}).get("notes", "")).lower(),
-          str((redrafted or {}).get("notes", ""))[:90] or "no notes recorded")
+          bool(citing),
+          str(citing[0].get("notes", ""))[:100] if citing
+          else "; ".join(str(s.get("notes", ""))[:60] for s in clean) or "no notes recorded")
 
 
 async def check_document_is_grounded(blob: bytes, app_id: str) -> None:

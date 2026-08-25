@@ -1,27 +1,53 @@
-"""App-layer auth gate (docs/12): one shared founder token.
+"""App-layer auth gate (docs/12): founder token + signed login sessions.
+
+Two independent ways to be "the founder":
+
+1. Founder token (dev/ops path, unchanged): APP_AUTH_TOKEN presented as
+   Bearer/X-App-Key/cookie, bootstrapped once via /?key=<token>. This is what
+   the e2e scripts, curl, and the manual-run task buttons keep using.
+
+2. Login session (founder path): /login.html signs in with email+password or
+   Google via Firebase Auth, then POSTs the Firebase ID token to
+   /auth/session. The server verifies the token with Google's public certs
+   (google-auth — no Firebase Admin SDK), requires a VERIFIED email on the
+   ALLOWED_LOGIN_EMAILS allowlist, and mints its own signed HttpOnly session
+   cookie. /auth/me feeds the account menu; /auth/logout clears the cookie.
 
 Cloud Run stays --allow-unauthenticated at the platform layer because the
 mock portal webhook and Pub/Sub push must reach us without IAM identities —
-so the app enforces its own gate instead: every route requires the founder
-token except /healthz and the routes that carry their own verification
-(portal/alex webhooks, OIDC task routes). The founder bootstraps once by
-opening /?key=<token>; the middleware sets an HttpOnly cookie and the UI
-works unchanged from then on (the cookie also rides the /live websocket
-handshake).
+so the app enforces its own gate instead: every route requires one of the two
+credentials above except /healthz, /login.html, /auth/*, and the routes that
+carry their own verification (portal/alex webhooks, OIDC task routes).
 
 Posture matches the other verifiers in app/main.py: local dev (no K_SERVICE)
-is open when APP_AUTH_TOKEN is unset; production fails closed.
+is open when nothing is configured; production fails closed — an unset
+allowlist rejects every login, an unset signing secret rejects every session.
+
+The email/password path REQUIRES email_verified: without it, anyone could
+register an allowlisted address with their own password and impersonate the
+founder before the real owner ever signs up.
 """
 
+import base64
 import hmac
+import json
 import os
+import time
 
 COOKIE_NAME = "app_auth"
+SESSION_COOKIE = "app_session"
 QUERY_PARAM = "key"
+SESSION_TTL_SECONDS = 60 * 60 * 24 * 14  # matches the token cookie
+
+# Browser chrome requests these before a person can authenticate. Keep the
+# exemption exact so a similarly prefixed application route is still gated.
+PUBLIC_PATHS = frozenset({"/favicon.ico", "/favicon.svg"})
 
 # Routes that verify their own callers (portal token, OIDC) or must stay
-# reachable for probes. Everything else requires the founder token.
-EXEMPT_PREFIXES = ("/health", "/webhooks/", "/tasks/")  # "/health" covers /healthz too
+# reachable for probes and for signing in. Everything else requires a
+# founder credential.
+EXEMPT_PREFIXES = ("/health", "/webhooks/", "/tasks/",  # "/health" covers /healthz
+                   "/auth/", "/login.html")
 
 
 def configured_token() -> str:
@@ -31,6 +57,98 @@ def configured_token() -> str:
 def _in_cloud_run() -> bool:
     return bool(os.environ.get("K_SERVICE"))
 
+
+# ---------------------------------------------------------------------------
+# Login sessions (Firebase Auth → our own signed cookie)
+# ---------------------------------------------------------------------------
+
+def firebase_config() -> dict:
+    """Client config for /login.html. The web API key is a public identifier
+    (it names the project, it grants nothing) — the gate is server-side."""
+    project = (os.environ.get("FIREBASE_PROJECT_ID")
+               or os.environ.get("GOOGLE_CLOUD_PROJECT", ""))
+    api_key = os.environ.get("FIREBASE_WEB_API_KEY", "")
+    return {
+        "enabled": bool(api_key and project),
+        "apiKey": api_key,
+        "authDomain": os.environ.get("FIREBASE_AUTH_DOMAIN",
+                                     f"{project}.firebaseapp.com" if project else ""),
+        "projectId": project,
+    }
+
+
+def _session_secret() -> str:
+    """Cookie-signing secret. Falls back to the founder token so a deploy that
+    already binds APP_AUTH_TOKEN needs no new secret; local dev falls back to
+    a fixed value (same open-by-default posture as the rest of this module)."""
+    secret = os.environ.get("APP_SESSION_SECRET", "") or configured_token()
+    if not secret and not _in_cloud_run():
+        secret = "dev-session-secret"
+    return secret
+
+
+def allowed_login_emails() -> set[str]:
+    raw = os.environ.get("ALLOWED_LOGIN_EMAILS", "")
+    return {e.strip().lower() for e in raw.split(",") if e.strip()}
+
+
+def email_may_log_in(email: str) -> bool:
+    """Allowlist check. Production fails closed on an empty allowlist; local
+    dev accepts any verified account so the flow can be exercised."""
+    allowed = allowed_login_emails()
+    if not allowed:
+        return not _in_cloud_run()
+    return email.lower() in allowed
+
+
+def _b64url(data: bytes) -> str:
+    return base64.urlsafe_b64encode(data).decode().rstrip("=")
+
+
+def _unb64url(text: str) -> bytes:
+    return base64.urlsafe_b64decode(text + "=" * (-len(text) % 4))
+
+
+def _sign(payload: str, secret: str) -> str:
+    return hmac.new(secret.encode(), payload.encode(), "sha256").hexdigest()
+
+
+def mint_session(email: str, name: str = "") -> str:
+    """Signed, self-contained session value: base64url(claims).hmac."""
+    secret = _session_secret()
+    if not secret:
+        raise RuntimeError("no session signing secret configured")
+    payload = _b64url(json.dumps({
+        "email": email, "name": name,
+        "exp": int(time.time()) + SESSION_TTL_SECONDS,
+    }, separators=(",", ":")).encode())
+    return f"{payload}.{_sign(payload, secret)}"
+
+
+def read_session(value: str) -> dict | None:
+    """The verified claims, or None for a missing/tampered/expired cookie."""
+    secret = _session_secret()
+    if not secret or not value or "." not in value:
+        return None
+    payload, sig = value.rsplit(".", 1)
+    if not hmac.compare_digest(_sign(payload, secret), sig):
+        return None
+    try:
+        claims = json.loads(_unb64url(payload))
+    except (ValueError, UnicodeDecodeError):
+        return None
+    if not isinstance(claims, dict) or claims.get("exp", 0) < time.time():
+        return None
+    return claims
+
+
+def _session_claims(cookies) -> dict | None:
+    return read_session(cookies.get(SESSION_COOKIE, ""))
+
+
+# ---------------------------------------------------------------------------
+# Request gating (token OR session)
+# ---------------------------------------------------------------------------
 
 def _presented_token(headers, cookies, query_params) -> str:
     auth = headers.get("Authorization", "")
@@ -50,23 +168,26 @@ def _token_ok(presented: str) -> bool:
 
 
 def request_is_founder(request) -> bool:
-    """True when the HTTP request carries the founder token (or dev-open)."""
+    """True when the HTTP request carries the founder token, a valid login
+    session, or dev-open applies."""
+    if _session_claims(request.cookies):
+        return True
     return _token_ok(_presented_token(
         request.headers, request.cookies, request.query_params))
 
 
 def websocket_is_founder(websocket) -> bool:
-    """The /live handshake: cookie from the ?key= bootstrap, or explicit
-    ?key= on the websocket URL itself."""
+    """The /live handshake: login-session or token cookie from bootstrap, or
+    explicit ?key= on the websocket URL itself."""
+    if _session_claims(websocket.cookies):
+        return True
     return _token_ok(_presented_token(
         websocket.headers, websocket.cookies, websocket.query_params))
 
 
-def _wants_clean_redirect(request) -> bool:
-    """A real browser opening /?key=<token> navigates for an HTML document —
-    that is the documented bootstrap and the one URL the token must be stripped
-    from (address bar, referer, history). Programmatic ?key= callers (Accept:
-    */*) keep the set-cookie-only path and are not bounced through a redirect."""
+def _wants_html(request) -> bool:
+    """A real browser navigating for an HTML document (vs programmatic API
+    calls with Accept: */*)."""
     return (request.method == "GET"
             and "text/html" in request.headers.get("accept", ""))
 
@@ -81,28 +202,121 @@ def _strip_key_query(url) -> str:
     return url.path + (f"?{remaining}" if remaining else "")
 
 
+async def _verify_firebase_id_token(id_token: str) -> dict:
+    """Verify a Firebase ID token against Google's public certs. Returns the
+    claims; raises ValueError on any failure. The cert fetch is blocking HTTP
+    — kept off the event loop (docs/07)."""
+    import asyncio
+
+    from google.auth.transport import requests as _auth_requests
+    from google.oauth2 import id_token as _id_token
+
+    project = firebase_config()["projectId"]
+    if not project:
+        raise ValueError("FIREBASE_PROJECT_ID is not configured")
+    claims = await asyncio.to_thread(
+        _id_token.verify_firebase_token, id_token,
+        _auth_requests.Request(), audience=project)
+    if claims.get("iss") != f"https://securetoken.google.com/{project}":
+        raise ValueError("wrong token issuer")
+    return claims
+
+
 def install(app) -> None:
-    """Gate every non-exempt route behind the founder token."""
+    """Gate every non-exempt route; register the /auth/* routes."""
     from fastapi import Request
     from fastapi.responses import JSONResponse, RedirectResponse
+    from pydantic import BaseModel
+
+    def _cookie_kwargs() -> dict:
+        # HttpOnly so JS can't read it; it rides the SPA's fetches and the
+        # /live handshake. secure only in Cloud Run (localhost dev is http).
+        return dict(httponly=True, samesite="lax", secure=_in_cloud_run(),
+                    max_age=SESSION_TTL_SECONDS)
 
     def _set_bootstrap_cookie(response) -> None:
-        # HttpOnly so JS can't read it; it rides the SPA's fetches and the /live
-        # handshake. secure only in Cloud Run (localhost dev is plain http).
-        response.set_cookie(
-            COOKIE_NAME, configured_token(), httponly=True,
-            samesite="lax", secure=_in_cloud_run(), max_age=60 * 60 * 24 * 14)
+        response.set_cookie(COOKIE_NAME, configured_token(), **_cookie_kwargs())
+
+    # ---- login/session routes (all under the exempt /auth/ prefix) --------
+
+    class SessionRequest(BaseModel):
+        id_token: str
+
+    @app.get("/auth/config")
+    async def auth_config():
+        return firebase_config()
+
+    @app.post("/auth/session")
+    async def auth_session(payload: SessionRequest):
+        if not firebase_config()["enabled"]:
+            return JSONResponse({"error": "sign-in is not configured"}, status_code=503)
+        if not _session_secret():
+            return JSONResponse(
+                {"error": "APP_SESSION_SECRET not configured — deploy.sh binds "
+                          "it (or APP_AUTH_TOKEN) from Secret Manager"},
+                status_code=503)
+        try:
+            claims = await _verify_firebase_id_token(payload.id_token)
+        except Exception:
+            return JSONResponse({"error": "invalid sign-in token"}, status_code=401)
+        email = (claims.get("email") or "").lower()
+        # email_verified is the takeover guard — see module docstring.
+        if not email or not claims.get("email_verified"):
+            return JSONResponse(
+                {"error": "verify your email address first — check your inbox "
+                          "for the verification link"}, status_code=403)
+        if not email_may_log_in(email):
+            return JSONResponse(
+                {"error": f"{email} is not authorized for this workspace"},
+                status_code=403)
+        resp = JSONResponse({"status": "success", "email": email})
+        resp.set_cookie(SESSION_COOKIE,
+                        mint_session(email, claims.get("name", "")),
+                        **_cookie_kwargs())
+        return resp
+
+    @app.post("/auth/logout")
+    async def auth_logout():
+        resp = JSONResponse({"status": "success"})
+        resp.delete_cookie(SESSION_COOKIE)
+        resp.delete_cookie(COOKIE_NAME)
+        return resp
+
+    @app.get("/auth/me")
+    async def auth_me(request: Request):
+        claims = _session_claims(request.cookies)
+        if claims:
+            return {"status": "success", "mode": "session",
+                    "email": claims.get("email", ""),
+                    "name": claims.get("name", ""),
+                    "sign_in_enabled": firebase_config()["enabled"]}
+        if _token_ok(_presented_token(request.headers, request.cookies,
+                                      request.query_params)):
+            return {"status": "success",
+                    "mode": "token" if configured_token() else "open",
+                    "email": "", "name": "",
+                    "sign_in_enabled": firebase_config()["enabled"]}
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+
+    # ---- the gate ----------------------------------------------------------
 
     @app.middleware("http")
     async def _founder_gate(request: Request, call_next):
         path = request.url.path
-        if any(path.startswith(p) for p in EXEMPT_PREFIXES):
+        if path in PUBLIC_PATHS or any(path.startswith(p) for p in EXEMPT_PREFIXES):
             return await call_next(request)
-        if not configured_token() and _in_cloud_run():
+        if (not configured_token() and not firebase_config()["enabled"]
+                and _in_cloud_run()):
             return JSONResponse(
-                {"error": "APP_AUTH_TOKEN not configured — deploy.sh binds it "
-                          "from Secret Manager"}, status_code=503)
+                {"error": "no auth configured — deploy.sh binds APP_AUTH_TOKEN "
+                          "from Secret Manager, or set FIREBASE_WEB_API_KEY + "
+                          "ALLOWED_LOGIN_EMAILS for sign-in"}, status_code=503)
         if not request_is_founder(request):
+            # A person navigating gets the sign-in page (which explains the
+            # ?key= flow when sign-in isn't configured); programmatic callers
+            # always get the bare 401.
+            if _wants_html(request):
+                return RedirectResponse("/login.html", status_code=303)
             return JSONResponse({"error": "unauthorized"}, status_code=401)
 
         # ?key= bootstrap: a valid token in the query and no cookie yet. Set the
@@ -115,7 +329,7 @@ def install(app) -> None:
         # For a top-level page navigation, redirect to the same URL WITHOUT the
         # key so the token stops lingering in the address bar / referer /
         # history; the cookie carries the grant from here on.
-        if is_bootstrap and _wants_clean_redirect(request):
+        if is_bootstrap and _wants_html(request):
             resp = RedirectResponse(_strip_key_query(request.url), status_code=303)
             _set_bootstrap_cookie(resp)
             return resp

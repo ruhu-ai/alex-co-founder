@@ -42,7 +42,7 @@ Backward edges (all legal, all logged):
 | 2 | DISCOVERED → ARCHIVED | matchmaker | `fit_score < 70` | `archive_reason` mandatory |
 | 3 | TRIAGE → INTERVIEWING | orchestrator | founder confirmed choice | application doc created; checklist initialized from `required_materials` |
 | 4 | INTERVIEWING → DRAFTING | interviewer | zero unresolved gaps for required sections | all `interview_qa` persisted to profile |
-| 5 | DRAFTING → AWAITING_REVIEW | drafter | every section has status ≥ DRAFTED | sections presented one at a time |
+| 5 | DRAFTING → AWAITING_REVIEW | drafter | every section has status ≥ DRAFTED; evidence-check report persisted. No model outcome blocks this edge — only failing to read the application or persist the report does, both pre-existing `complete_drafting` failures (20) | latest evidence-check pointer written; sections presented one at a time |
 | 6 | AWAITING_REVIEW → APPROVED | orchestrator | all sections status=APPROVED | `submit_idempotency_key` generated |
 | 7 | APPROVED → FORM_FILLING | founder (UI) | — | portal creds fetched at execution time only |
 | 8 | FORM_FILLING → AWAITING_SUBMIT_APPROVAL | form-filler | fill report written (partial OK) | approval PENDING record created; UI prompts founder |

@@ -32,8 +32,12 @@ from agents.co_founder.config import LIVE_MODEL_ID
 logger = logging.getLogger(__name__)
 
 # Same app name as the text pipeline -> voice turns share the founder's chat
-# session and its state. Only the root agent's model is the live native-audio one.
-live_app = App(name="co_founder", root_agent=build_root_agent(Gemini(model=LIVE_MODEL_ID)))
+# session and its state. live=True builds the root AND the sub-agents on the
+# Live native-audio model, so a transfer mid-conversation (scout, drafter,
+# form_filler, ...) continues the bidi session on a model that supports it
+# instead of erroring on a text-only tier.
+live_app = App(name="co_founder",
+               root_agent=build_root_agent(Gemini(model=LIVE_MODEL_ID), live=True))
 
 
 def register_live(app, session_service, founder_id: str) -> None:

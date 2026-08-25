@@ -99,9 +99,19 @@ def _normalise(text: str) -> str:
 
 
 def _spec_strings(node: Any) -> list[str]:
-    """Every string anywhere in the model-authored spec."""
+    """Every string anywhere in the model-authored spec.
+
+    Numeric leaves are stringified too: a spec can carry a fabricated figure as
+    a JSON number ({"active_users": 2000}) rather than inside prose, and the
+    invented-number check only sees what this returns — a str-only walk let
+    numeric-typed fabrications through.
+    """
+    if isinstance(node, bool):  # bool is an int subclass — never a figure
+        return []
     if isinstance(node, str):
         return [node]
+    if isinstance(node, (int, float)):
+        return [str(node)]
     if isinstance(node, dict):
         return [s for v in node.values() for s in _spec_strings(v)]
     if isinstance(node, (list, tuple)):

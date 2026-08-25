@@ -108,8 +108,8 @@ co-founder/
 |---|---|---|
 | Language | Python ≥ 3.11 | enforced in setup.sh |
 | Agent framework | `google-adk` ≥ 2.6 | needs `App`, `EventsCompactionConfig`, `DatabaseSessionService` — we resume via `state_delta`, NOT `ResumabilityConfig` (deliberate, see 03) |
-| Model | env `ADK_MODEL`, default `gemini-3.5-flash` | rules require Gemini 3.5+; one env var, per-agent override allowed |
-| Model access | Vertex AI with Application Default Credentials | never API keys |
+| Model | env `ADK_MODEL`, default `gemini-3.6-flash` | rules require Gemini 3.5+; one env var, per-agent override allowed. `REASONING_MODEL` (orchestrator + drafter) also defaults to `gemini-3.6-flash` |
+| Model access | Vertex AI with Application Default Credentials | never API keys — the Gemma Evidence Checker (20) calls managed Vertex MaaS under the project's Google Cloud credentials and data-governance controls |
 | Server | FastAPI + uvicorn via `google.adk.cli.fast_api.get_fast_api_app` | custom routes added on top |
 | Sessions (local) | SQLite: `sqlite+aiosqlite:///sessions.db` | |
 | Sessions (prod) | Cloud SQL Postgres via `DatabaseSessionService` | same API, swap URI |
@@ -140,6 +140,10 @@ co-founder/
 | `BROWSE_ALLOWED_DOMAINS` | _(empty)_ | comma-separated host patterns; with `BROWSE_OPEN_WEB` unset, empty = deny-all (18) |
 | `BROWSE_BLOCKED_DOMAINS` | _(empty)_ | deny wins over the allowlist (18) |
 | `APPROVAL_TTL_MINUTES` | `30` | approval token lifetime |
+| `GEMMA_EVIDENCE_CHECK_ENABLED` | `false` | enable 20 only after its rollout eval passes |
+| `GEMMA_EVIDENCE_BACKEND` | `vertex` | only `vertex` is accepted; any other value is refused (20) |
+| `GEMMA_EVIDENCE_VERTEX_MODEL` | `gemma-4-26b-a4b-it-maas` | Vertex MaaS id — distinct from the Gemini API's (20) |
+| `GEMMA_EVIDENCE_LEASE_SECONDS` | `90` | execution-lease bound; a `PREPARED` row older than this is reclaimable (20) |
 
 ## Workflow engine (build the loader, one instance)
 

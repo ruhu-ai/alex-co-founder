@@ -137,6 +137,93 @@ async def update_application(application_id: str, **fields: Any) -> None:
     )
 
 
+# ---------------------------------------------------------------------------
+# evidence_checks (20) — one immutable report per deterministic input hash
+# ---------------------------------------------------------------------------
+
+async def get_evidence_check(report_id: str, founder_id: str,
+                             application_id: str) -> Optional[dict[str, Any]]:
+    """Fetch a report, enforcing ownership.
+
+    Ownership is a parameter rather than a caller-side check: a corrupted or
+    guessed pointer must not be able to surface another founder's report.
+    """
+    snap = await get_client().collection("evidence_checks").document(report_id).get()
+    if not snap.exists:
+        return None
+    row = snap.to_dict()
+    if row.get("founder_id") != founder_id or row.get("application_id") != application_id:
+        return None
+    return {**row, "report_id": report_id}
+
+
+async def claim_evidence_check(report_id: str, row: dict[str, Any],
+                               lease_seconds: int) -> dict[str, Any]:
+    """Take the execution lease transactionally.
+
+    Read-then-set is not enough: two concurrent completions for the same hash
+    both saw "no row" and both called the provider. The transaction makes the
+    claim conditional on the row being absent, COMPLETE, or lease-expired.
+    Returns {claimed: bool, existing: report|None}.
+    """
+    import time as _time
+
+    from google.cloud import firestore as gc_firestore
+
+    ref = get_client().collection("evidence_checks").document(report_id)
+    transaction = get_client().transaction()
+    owner = uuid.uuid4().hex
+
+    @gc_firestore.async_transactional
+    async def _claim(txn):
+        snap = await ref.get(transaction=txn)
+        if snap.exists:
+            current = snap.to_dict()
+            if current.get("execution_status") == "COMPLETE":
+                return {"claimed": False, "existing": {**current, "report_id": report_id}}
+            started = float(current.get("lease_started_epoch") or 0)
+            if (_time.time() - started) <= float(current.get("lease_seconds") or lease_seconds):
+                return {"claimed": False, "existing": None}   # someone else holds it
+        txn.set(ref, {**row, "execution_status": "PREPARED", "lease_owner": owner,
+                      "lease_started_epoch": _time.time(), "lease_seconds": lease_seconds,
+                      "created_at": _now()})
+        return {"claimed": True, "existing": None, "lease_owner": owner}
+
+    return await _claim(transaction)
+
+
+async def complete_evidence_check(report_id: str, report: dict[str, Any],
+                                  lease_owner: str, application_id: str) -> bool:
+    """PREPARED -> COMPLETE and move the application's pointer, in ONE transaction.
+
+    Conditional on still holding the lease, so a slow loser cannot overwrite a
+    terminal report or replace a newer pointer with its own. Terminal contents
+    are immutable once COMPLETE.
+    """
+    from google.cloud import firestore as gc_firestore
+
+    ref = get_client().collection("evidence_checks").document(report_id)
+    app_ref = get_client().collection("applications").document(application_id)
+    transaction = get_client().transaction()
+    payload = {k: v for k, v in report.items() if k != "report_id"}
+
+    @gc_firestore.async_transactional
+    async def _complete(txn):
+        snap = await ref.get(transaction=txn)
+        if not snap.exists:
+            return False
+        current = snap.to_dict()
+        if current.get("execution_status") == "COMPLETE":
+            return False                       # immutable
+        if current.get("lease_owner") != lease_owner:
+            return False                       # lease lost to a reclaimer
+        txn.update(ref, {**payload, "execution_status": "COMPLETE", "completed_at": _now()})
+        txn.update(app_ref, {"latest_evidence_check_id": report_id, "updated_at": _now()})
+        return True
+
+    return await _complete(transaction)
+
+
 async def guarded_application_transition(application_id: str, expected_state: str,
                                          to_state: str, **fields: Any) -> dict[str, Any]:
     """Move application state only if the transaction still sees expected_state."""
@@ -312,8 +399,16 @@ async def apply_profile_update(founder_id: str, kind: str, payload: dict, eviden
 # board / pipeline views
 # ---------------------------------------------------------------------------
 
-async def list_opportunities(limit: int = 40) -> list[dict[str, Any]]:
-    query = get_client().collection("opportunities").order_by("created_at", direction="DESCENDING").limit(limit)
+async def list_opportunities(limit: int = 40,
+                             start_after: str | None = None) -> list[dict[str, Any]]:
+    """Newest-first opportunities. `start_after` (a created_at cursor) pages
+    through the whole collection so a full scan is not capped at one page —
+    deadline_scan pages until the collection is exhausted."""
+    query = get_client().collection("opportunities").order_by(
+        "created_at", direction="DESCENDING")
+    if start_after is not None:
+        query = query.start_after({"created_at": start_after})
+    query = query.limit(limit)
     return [doc.to_dict() | {"id": doc.id} async for doc in query.stream()]
 
 
@@ -333,13 +428,17 @@ async def list_inflight_applications(founder_id: str) -> list[dict[str, Any]]:
 
 async def create_feedback(founder_id: str, application_id: str, section_id: str,
                           feedback_type: str, original: str, reason: str,
-                          edited_text: str) -> str:
+                          edited_text: str, section_key: str = "") -> str:
     doc_id = _new_id()
     await get_client().collection("feedback").document(doc_id).set(
         {
             "founder_id": founder_id,
             "application_id": application_id,
             "section_id": section_id,
+            # The stable, cross-application key ("describe_traction"). section_id
+            # is a per-application UUID, so feedback history keyed on it alone
+            # was always empty across applications (get_section_feedback).
+            "section_key": section_key,
             "type": feedback_type,
             "original": original,
             "edited_text": edited_text,

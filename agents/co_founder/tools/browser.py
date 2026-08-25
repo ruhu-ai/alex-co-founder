@@ -584,6 +584,74 @@ def capture_screenshot(label: str, tool_context: ToolContext) -> dict:
     return {"status": "success", "artifact": name}
 
 
+def _reopen_for_submit(app_id: str, tool_context: ToolContext) -> tuple[dict | None, dict | None]:
+    """Recover the filled portal page after an instance restart.
+
+    The founder already approved the filled form, but the live page lived only
+    in the in-memory `_pages` registry, which an instance restart / scale-to-zero
+    empties. Rebuild it deterministically from durable truth: reopen the portal
+    and re-fill the APPROVED `last_fill_mapping`. Returns (session, None) on
+    success or (None, error_dict) — errors are data, never raised. If recovery
+    is not possible the error is actionable rather than a bare "no open portal".
+    """
+    from services import browser_service, firestore, portal_accounts
+
+    app_doc = run(firestore.get_application(app_id))
+    if failed(app_doc):
+        return None, app_doc
+    if not app_doc:
+        return None, {"status": "error", "error": True,
+                      "message": f"application {app_id} not found"}
+    mapping = app_doc.get("last_fill_mapping") or {}
+    opp = None
+    opp_id = app_doc.get("opportunity_id", "")
+    if opp_id:
+        fetched = run(firestore.get_opportunity(opp_id))
+        opp = fetched if not failed(fetched) else None
+    application_url = ((app_doc.get("submission") or {}).get("portal_url")
+                       or (opp or {}).get("application_url", ""))
+    recovery_hint = {
+        "status": "error", "error": True, "error_code": "portal_session_lost",
+        "retriable": True,
+        "message": ("The filled portal page was lost (the server restarted). "
+                    "Re-open it and re-fill before submitting: call "
+                    "get_approved_sections, then open_portal, then fill_fields "
+                    "with the approved mapping, then submit_form again."),
+    }
+    if not mapping or not application_url:
+        return None, recovery_hint
+
+    host = urlparse(application_url).netloc
+    cred = portal_accounts.get_credential(host)
+    if cred and cred.get("email"):  # a registered-account portal (sign_in path)
+        email, password = cred.get("email"), cred.get("password")
+    else:  # the demo / mock portal path (open_portal creds)
+        creds = _creds()
+        if creds is None:
+            return None, recovery_hint
+        email, password = creds
+
+    opened = run(browser_service.open_and_login(application_url, email, password))
+    if opened.get("status") != "success":
+        return None, opened
+    _register_fill(opened, app_id, tool_context)
+    session = _pages.get(app_id)
+    inspect = run(browser_service.inspect(opened["page"]))
+    if inspect.get("status") == "success":
+        session["signature"] = inspect["signature"]
+        tool_context.state[ss.K_PORTAL_SIGNATURE] = inspect["signature"]
+    filled = run(browser_service.fill(session["page"], mapping, {}))
+    if failed(filled) or filled.get("status") != "success":
+        return None, (filled if failed(filled) else
+                      {"status": "error", "error": True,
+                       "message": "re-fill after portal recovery failed"})
+    run(firestore.audit(
+        "agent:form_filler", "submit_recover", f"applications/{app_id}", "success",
+        f"reopened portal and re-filled {filled.get('filled', 0)}/{len(mapping)} "
+        "approved fields after session loss"))
+    return session, None
+
+
 def submit_form(tool_context: ToolContext) -> dict:
     """Submit the filled form (guard G2).
 
@@ -619,7 +687,11 @@ def submit_form(tool_context: ToolContext) -> dict:
 
     session = _pages.get(app_id)
     if not session:
-        return {"status": "error", "error": True, "message": "no open portal"}
+        # The page lived only in memory and was lost to a restart — rebuild it
+        # from the APPROVED mapping rather than dead-ending the granted submit.
+        session, recovery_error = _reopen_for_submit(app_id, tool_context)
+        if recovery_error:
+            return recovery_error
 
     identity = _session_key(tool_context)
     approval = run(approval_service.resolve_for_submit(

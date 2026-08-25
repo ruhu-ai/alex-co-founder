@@ -1,0 +1,22 @@
+{
+  "criteria": {
+    "artifact_delivery_score": {
+      "threshold": 1.0
+    },
+    "final_response_match_v2": {
+      "threshold": 0.8,
+      "judgeModelOptions": {
+        "judgeModel": "gemini-3.6-flash",
+        "numSamples": 3
+      }
+    }
+  },
+  "custom_metrics": {
+    "artifact_delivery_score": {
+      "code_config": {
+        "name": "tests.eval.custom_metrics.artifact_delivery_score"
+      },
+      "description": "Requires a successful produce_document result containing an artifact name and download URL."
+    }
+  }
+}

@@ -143,6 +143,38 @@ async def test_approval_is_session_bound_and_single_use(fake_store):
     assert after["status"] == "error"  # CONSUMED is final
 
 
+async def test_expired_grant_no_longer_satisfies_the_gate(fake_store):
+    """TTL is a real fence: a GRANTED approval that has passed its expiry must
+    not resolve at the submit gate. Only single-use and session-binding were
+    covered before — the expires_at path had no test."""
+    from datetime import datetime, timedelta, timezone
+
+    requested = await approval_service.request_approval(
+        "app-ttl", founder_id="founder", session_id="session-1")
+    aid = requested["approval_id"]
+    await approval_service.resolve(aid, "grant", "founder", "session-1")
+    # fast-forward past the TTL
+    fake_store.approvals[aid]["expires_at"] = (
+        datetime.now(timezone.utc) - timedelta(minutes=1)).isoformat()
+    refused = await approval_service.resolve_for_submit(
+        "app-ttl", founder_id="founder", session_id="session-1")
+    assert refused["status"] == "error"  # expired grant is not valid
+
+
+async def test_resolve_refuses_expired_pending_request(fake_store):
+    """Granting a request that already expired is refused with a clear reason."""
+    from datetime import datetime, timedelta, timezone
+
+    requested = await approval_service.request_approval(
+        "app-ttl2", founder_id="founder", session_id="session-1")
+    aid = requested["approval_id"]
+    fake_store.approvals[aid]["expires_at"] = (
+        datetime.now(timezone.utc) - timedelta(minutes=1)).isoformat()
+    result = await approval_service.resolve(aid, "grant", "founder", "session-1")
+    assert result["status"] == "error"
+    assert "expired" in result["message"]
+
+
 async def test_registration_requests_approval_before_browser_side_effect(
         fake_store, monkeypatch, tmp_path):
     monkeypatch.setenv("PORTAL_SECRETS_FILE", str(tmp_path / "portal.json"))

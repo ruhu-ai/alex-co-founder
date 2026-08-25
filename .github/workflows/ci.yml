@@ -55,8 +55,31 @@ jobs:
             exit 1
           fi
           printf '%s' "$GCP_CREDENTIALS" > /tmp/gcp-key.json
+          trap 'rm -f /tmp/gcp-key.json' EXIT
           export GOOGLE_APPLICATION_CREDENTIALS=/tmp/gcp-key.json
           for set in tests/eval/evalsets/*.json; do
+            case "$(basename "$set")" in
+              gate_*.json) config=tests/eval/eval_config_strict.json ;;
+              doc_outputs.json) config=tests/eval/eval_config_artifact.json ;;
+              *) config=tests/eval/eval_config.json ;;
+            esac
             PYTHONPATH=. .venv/bin/adk eval agents/co_founder "$set" \
-              --config_file_path tests/eval/eval_config.json || exit 1
+              --config_file_path "$config" || exit 1
+            set_id=$(basename "$set" .json)
+            result=$(ls -t agents/co_founder/.adk/eval_history/co_founder_"${set_id}"_*.evalset_result.json 2>/dev/null | head -1)
+            if [ -z "$result" ]; then
+              echo "::error title=ADK eval result missing::No result JSON was written for ${set_id}."
+              exit 1
+            fi
+            # ADK currently exits zero even when one or more eval cases fail.
+            # Enforce the persisted per-case statuses as the actual CI gate.
+            .venv/bin/python scripts/check_adk_eval_result.py "$result" || exit 1
           done
+      - name: Preserve ADK evaluation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: adk-eval-history
+          path: agents/co_founder/.adk/eval_history/*.json
+          if-no-files-found: warn
+          retention-days: 14

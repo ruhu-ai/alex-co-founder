@@ -534,6 +534,29 @@ async def new_context():
     return await browser.new_context()
 
 
+async def _credentialed_context(target_url: str):
+    """Browser context for the CREDENTIALED paths (register / open_and_login /
+    verify link).
+
+    These type portal passwords into whatever page they land on, so the
+    connection must reach the IP that was validated — not one a second DNS
+    lookup returns. `_validate_portal_target` checks the URL up front, but a
+    direct context re-resolves at navigation time, leaving a DNS-rebind / TOCTOU
+    window. Route public targets through the DNS-validating proxy, which
+    resolves once and dials the validated IP (over HTTPS the CONNECT tunnel
+    carries the login POST). The loopback mock portal in local dev keeps a
+    direct context — the proxy's private/reserved-IP fence would refuse it."""
+    host = (urlsplit(target_url).hostname or "").lower()
+    if not os.environ.get("K_SERVICE") and host in ("127.0.0.1", "localhost"):
+        return await new_context()
+    browser = await get_browser()
+    proxy = await _get_proxy(public=True)
+    return await browser.new_context(
+        accept_downloads=False,
+        proxy={"server": f"http://127.0.0.1:{proxy.port}"},
+    )
+
+
 def page_signature(field_names: list[str]) -> str:
     """The staleness signature: a hash of the form's field names (docs/09)."""
     return (
@@ -779,7 +802,7 @@ async def register(portal_url: str, email: str, password: str) -> dict:
     refusal = await _validate_portal_target(portal_url)
     if refusal:
         return refusal
-    context = await new_context()
+    context = await _credentialed_context(portal_url)
     try:
         page = await context.new_page()
         base = portal_url.rstrip("/")
@@ -862,7 +885,7 @@ async def verify_registration_link(url: str, expected_host: str) -> dict:
     local_dev = not os.environ.get("K_SERVICE") and host in ("127.0.0.1", "localhost")
     if (not local_dev) and (not ips or any(_unsafe_ip(ip) for ip in ips)):
         return _error("ssrf_blocked", "verification host resolves to a private address")
-    context = await new_context()
+    context = await _credentialed_context(url)
     try:
         page = await context.new_page()
 
@@ -893,7 +916,7 @@ async def open_and_login(portal_url: str, username: str, password: str) -> dict:
     if refusal:
         return refusal
     expected_host = (urlsplit(portal_url).hostname or "").lower()
-    context = await new_context()
+    context = await _credentialed_context(portal_url)
     try:
         page = await context.new_page()
         await page.goto(portal_url, timeout=30000)

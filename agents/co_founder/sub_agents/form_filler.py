@@ -45,6 +45,12 @@ async def verify_before_action(tool, args, tool_context):
         return None
     app_id = tool_context.state.get("active_application_id", "")
     session = browser._pages.get(app_id)
+    if name == "submit_form" and not session:
+        # After an instance restart / scale-to-zero the in-memory portal page is
+        # gone. Don't dead-end the founder's already-granted submission at the
+        # fence — let submit_form run: it self-recovers by reopening the portal
+        # and re-filling the APPROVED mapping, then re-inspecting the live page.
+        return None
     # The expected signature lives on a persisted key (a temp: key is dropped
     # cross-turn, which used to trip this fence on every fill→approve→submit).
     # Fall back to the in-process copy the browser tools keep in lock-step.

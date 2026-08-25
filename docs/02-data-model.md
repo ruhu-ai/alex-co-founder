@@ -43,6 +43,7 @@ Created when the founder chooses to apply to a SHORTLISTED opportunity.
 | `checklist` | list[map] | `[{key, label, status, section_id?}]`; status ∈ PENDING \| IN_PROGRESS \| DONE \| BLOCKED |
 | `interview_qa` | list[map] | `[{question_key, question, answer, asked_at, answered_at}]` |
 | `draft_sections` | list[map] | `[{section_id, section_key, content, word_count, status, version}]`; status ∈ DRAFTED \| IN_REVIEW \| CHANGES_REQUESTED \| APPROVED |
+| `latest_evidence_check_id` | str\|null | newest report matching current draft/profile versions; see 20 |
 | `form_fill_report` | map\|null | `{filled, total, needs_human: [field], portal_state_hash, screenshot_artifact, ran_at}` |
 | `submit_idempotency_key` | str | generated on entering APPROVED; see 05 |
 | `submission` | map\|null | `{confirmation_id, submitted_at, portal_url}` |
@@ -109,6 +110,14 @@ One document per ingested company document (06 §bootstrap).
 | `result` | str | `success` \| `error` \| `refused` |
 | `detail` | str | ≤ 500 chars, no PII beyond refs, **no secrets**. Structured extras are compact JSON (e.g. `{"url": "…", "action_id": "…", "injection_suspected": true}`) within the same budget |
 | `created_at` | str | |
+
+### `evidence_checks/{report_id}` — semantic draft evidence reports (20)
+
+One report per deterministic input hash. Rows move only `PREPARED → COMPLETE`;
+terminal contents are immutable. The complete schema, ownership rules, bounded
+findings, and failure statuses are binding in **20-gemma-evidence-checker.md**.
+Applications store only `latest_evidence_check_id`; stale reports remain as
+auditable history and are never displayed against a newer draft.
 
 ### `browser_runs/{run_id}` — browser run registry (18)
 
@@ -177,6 +186,6 @@ Binary or large payloads never enter the prompt; they are saved with
 
 ## Acceptance checks
 
-- [ ] `services/firestore.py` exposes typed accessors for all 7 collections; creating an opportunity twice with the same `dedup_hash` returns the existing id (no dupes).
+- [ ] `services/firestore.py` exposes typed accessors for all 9 collections; creating an opportunity twice with the same `dedup_hash` returns the existing id (no dupes).
 - [ ] `state_schema.py` defines constants for every state + key above; no string literals for states outside this file.
 - [ ] Saving a 5 KB source page stores an artifact and returns a ≤ 300-char summary (never the full text into the conversation).

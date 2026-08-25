@@ -100,6 +100,15 @@ class TestFounderGate:
         assert client.get("/health").status_code == 200
         assert client.get("/health").json()["status"] == "ok"
 
+    def test_favicon_is_public_only_at_exact_paths(self, client, monkeypatch):
+        monkeypatch.setenv("APP_AUTH_TOKEN", "t0ken")
+        for path in ("/favicon.ico", "/favicon.svg"):
+            response = client.get(path)
+            assert response.status_code == 200
+            assert response.headers["content-type"].startswith("image/svg+xml")
+
+        assert client.get("/favicon.ico/private").status_code == 401
+
     def test_prod_without_token_fails_closed(self, client, monkeypatch):
         monkeypatch.setenv("K_SERVICE", "co-founder")
         assert client.get("/api/config").status_code == 503
@@ -217,3 +226,52 @@ class TestLifespanHooks:
                 "startup hook did not run — the lifespan wrapper regressed to "
                 "the dead router.on_startup registration")
         assert "shutdown" in calls
+
+
+class TestPortalEventChainWalk:
+    """/webhooks/portal_event walks the legal multi-step chain
+    (AWAITING_SUBMIT_APPROVAL → SUBMITTED → FOLLOW_UP → CLOSED) when the mock
+    portal confirms before submit_form has finished unwinding — and replays are
+    idempotent. Only the transition table and the fail-closed token were tested
+    before; the endpoint's own chain-walk was not."""
+
+    def test_confirmed_then_result_walks_chain_idempotently(
+            self, appmod, client, fake_store, monkeypatch):
+        monkeypatch.delenv("PORTAL_WEBHOOK_TOKEN", raising=False)
+        hdr = {"X-Portal-Token": "dev-portal-token"}
+        aid = "app-chain"
+        fake_store.applications[aid] = {
+            "id": aid, "founder_id": appmod.FOUNDER_ID,
+            "state": "AWAITING_SUBMIT_APPROVAL",
+            "created_at": "", "updated_at": ""}
+
+        # submission_confirmed while still armed: walk AWAITING → SUBMITTED → FOLLOW_UP
+        r1 = client.post("/webhooks/portal_event", headers=hdr, json={
+            "kind": "submission_confirmed", "application_id": aid,
+            "confirmation_id": "CONF-1"})
+        assert r1.status_code == 200
+        assert fake_store.applications[aid]["state"] == "FOLLOW_UP"
+
+        # exact replay must not re-advance or re-wake
+        dup = client.post("/webhooks/portal_event", headers=hdr, json={
+            "kind": "submission_confirmed", "application_id": aid,
+            "confirmation_id": "CONF-1"})
+        assert dup.status_code == 200 and dup.json().get("duplicate") is True
+        assert fake_store.applications[aid]["state"] == "FOLLOW_UP"
+
+        # result_posted: FOLLOW_UP → CLOSED
+        r2 = client.post("/webhooks/portal_event", headers=hdr, json={
+            "kind": "result_posted", "application_id": aid,
+            "confirmation_id": "RESULT-1"})
+        assert r2.status_code == 200
+        assert fake_store.applications[aid]["state"] == "CLOSED"
+
+    def test_unknown_application_is_rejected(
+            self, appmod, client, fake_store, monkeypatch):
+        monkeypatch.delenv("PORTAL_WEBHOOK_TOKEN", raising=False)
+        r = client.post(
+            "/webhooks/portal_event",
+            headers={"X-Portal-Token": "dev-portal-token"},
+            json={"kind": "submission_confirmed", "application_id": "nope",
+                  "confirmation_id": "C"})
+        assert r.status_code == 400

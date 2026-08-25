@@ -34,7 +34,7 @@ packaging, A2A, embeddings, model breadth**.
    *Criteria: Production Readiness.*
 2. **Vertex Agent Engine deploy** (hybrid, `adk deploy agent_engine`).
    **Status (Aug 20): DEPLOYED inside the 45-min box —
-   reasoningEngines/3585069262793867264 (us-central1), console playground
+   a managed reasoning engine in `us-central1`, with the console playground
    live.** Cloud Run keeps the app; Agent Engine gives Registry + managed
    runtime + observability. Trap fixed: payload limit (8 MB) — deploy from a
    clean staging copy excluding `.adk/` history + `__pycache__`.
@@ -73,13 +73,19 @@ packaging, A2A, embeddings, model breadth**.
    - Orchestrator + drafter (final reasoning): **Gemini Pro-class**
    - Interview, matchmaker, scout chat: **Flash** (current)
    - Extraction/classification (doc_extract, gmail classify upgrade):
-     **Flash-Lite or Gemma** — cheap, and it's another model on the list
+     **Flash-Lite** — cheap, schema-constrained, and already verified
    - Voice: **gemini-live-2.5-flash** (existing)
    Result: 4–5 models with a written rationale per assignment.
    *Criteria: bonus model count, cost-discipline narrative.*
    **Status (Aug 20): BUILT — 5 tiers live-verified: 2.5-pro (orchestrator +
    drafter), 3.5-flash (dialogue), 3.5-flash-lite (extraction),
    live-2.5-flash (voice), embedding-001 (retrieval).**
+7b. **Gemma Evidence Checker** (20) — a sixth, genuinely distinct model role:
+   Gemma compares completed drafts with persisted evidence and surfaces semantic
+   overstatements before founder review. It does not replace Flash-Lite, the
+   deterministic grounding guard, or human approval. Ship/claim it only after
+   the labelled rollout gate passes and the finding is visible in the UI.
+   *Criteria: optional model integration, product safety, demo evidence.*
 8. **Cloud TTS (Chirp HD)** for voice-note playback / assistant replies in
    the UI — VitaCare lists it; ours would match. Optional if Live voices
    suffice; cheap to add via the TTS API for the async voice-note path.

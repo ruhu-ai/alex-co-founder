@@ -82,6 +82,9 @@ ICONS: dict[str, str] = {
     "link": "link-simple",
     "external": "arrow-square-out",
     "code": "code",
+    # account menu (Connectors reuses "plug")
+    "gear": "gear",
+    "sign-out": "sign-out",
 }
 
 INNER = re.compile(r"<svg[^>]*>(.*)</svg>", re.S)

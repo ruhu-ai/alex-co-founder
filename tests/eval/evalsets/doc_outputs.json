@@ -1,7 +1,7 @@
 {
   "eval_set_id": "doc_outputs",
   "name": "Document production tool contract",
-  "description": "In APPROVED state, asking for a document must produce it and offer the download link. (Trajectory is outcome-based: produce_document args are generative, so exact-arg trajectory matching is meaningless.)",
+  "description": "In APPROVED state, asking for a document must call produce_document successfully and return a real artifact name plus download URL. The artifact_delivery_score custom metric checks the tool result because document-spec arguments are generative.",
   "eval_cases": [
     {
       "eval_id": "produce_pack_docx",
@@ -15,7 +15,7 @@
             "role": "model",
             "parts": [{"text": "Your application pack is ready — here is the download link."}]
           },
-          "intermediate_data": {"tool_uses": []}
+          "intermediate_data": {}
         }
       ],
       "session_input": {

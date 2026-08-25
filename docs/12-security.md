@@ -12,13 +12,46 @@ walk a judge through every row.
 | Secrets never in prompts | credentials are fetched inside `open_portal`/`submit_form` — they never appear in tool return values, so they never enter the conversation the model sees |
 | Secrets never in state or logs | log scrubber is a `logging.Filter` (in `services/`) installed on the logging path when the first secret is fetched; every value returned by `services/secrets.get` is registered with it, and the filter rewrites any registered secret value to `***` in a log record before it is emitted |
 | Webhook authenticity | mock portal signs calls with `X-Portal-Token` shared secret; agent verifies before acting on `portal_event` |
-| Company documents | uploaded docs live only in the founder's own GCS bucket (artifact service); extraction runs in-project; nothing leaves the founder's GCP boundary — a data-sovereignty point vs. consumer agent products |
+| Company documents | uploaded docs live only in the founder's own GCS bucket (artifact service); extraction runs in-project; document contents are not sent to the Evidence Checker |
 | Drive connector | OAuth `drive.readonly` only; founder selects specific files (no blanket indexing); refresh tokens minted in-app persist to Secret Manager on Cloud Run / to `.env` locally, never to state or logs |
 | Gmail connector | OAuth `gmail.readonly` only; reads ONE founder-chosen label (default `grants`); everything outside that label is invisible to the agent — no sender, no subject; can never send/delete; processed ids persisted so rescans are idempotent |
 | Calendar connector | OAuth `calendar.readonly` + `calendar.events`; reads (free/busy, events) ungated; **booking is approval-gated in code** (gate `book_meeting`: GRANTED, unexpired, single-use, server-resolved) with the event details shown to the founder before approval; edit/delete of existing events is never granted to the agent |
 | Alex's mailbox (adr/001) | Separate Workspace account (`alex@ruhu.ai`), separate OAuth grant (`ALEX_OAUTH_REFRESH_TOKEN`); `gmail.readonly` + `gmail.send`. It is the agent's OWN mailbox, so unlike the founder's connector it is NOT privacy-narrowed — full search and full reads allowed. Send is gated in code by the approval service (GRANTED, unexpired, single-use, server-resolved); inbound mail is extraction-only, never followed as instructions; webhook token-checked; can never delete/modify mail |
 | GitHub connector | Fine-grained PAT stored as a secret (`.env` locally / Secret Manager only on Cloud Run); validated against the API at connect time; no agent tools consume it yet (lands with the dev workflow) |
+| Gemma Evidence Checker (20) | Calls managed Vertex MaaS using project ADC. Google Cloud does not use customer data for model training without permission, but abuse-monitoring retention and project-level in-memory caching can apply; zero retention requires the documented Google Cloud controls. This model processes in the `us` multi-region. Pack contents are allowlisted and bounded (draft text, relevant profile facts and canonical answers, interview answers, allowlisted programme fields); raw documents, connector payloads, browser content, chat history and secrets are never included. |
 | Connector registry | Connectors are data (`services/connectors.py`), not UI code; the panel renders `GET /api/connectors`; adding one never bypasses the per-connector scope checks |
+
+The Evidence Checker statements above follow Google's official
+[Vertex MaaS model card](https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/maas/google/gemma-4-26b-a4b-it)
+and [Google Cloud data-governance guidance](https://docs.cloud.google.com/gemini-enterprise-agent-platform/resources/zero-data-retention).
+
+## Founder sign-in (app-layer auth)
+
+Cloud Run stays `--allow-unauthenticated` (webhooks/Pub/Sub need in), so the
+app gates itself (`app/auth.py`). Two credentials are accepted; either makes
+the request "the founder":
+
+| Path | Mechanism | Notes |
+|---|---|---|
+| Access key (ops/e2e) | `APP_AUTH_TOKEN` via `/?key=` bootstrap → HttpOnly cookie, or Bearer/`X-App-Key` | unchanged; what scripts and curl use |
+| Sign-in (founder) | `/login.html` → Firebase Auth (email+password or Google) → ID token POSTed to `/auth/session` → server verifies against Google certs (`google-auth`, no Admin SDK), then mints its own signed HttpOnly cookie (HMAC, 14 d) | client never becomes trusted: the server re-verifies the ID token and re-checks policy |
+
+Policy enforced in `/auth/session`, all server-side:
+
+- **`email_verified` required** — otherwise anyone could register an
+  allowlisted address with their own password and impersonate the founder
+  before the real owner signs up.
+- **`ALLOWED_LOGIN_EMAILS` allowlist** — the set of people allowed to act as
+  the founder (single-tenant: every login maps to `FOUNDER_ID`). Empty
+  allowlist: production rejects all logins (fail closed), local dev accepts
+  any verified account.
+- **Cookie is signed, not a lookup** — `APP_SESSION_SECRET` (falls back to
+  `APP_AUTH_TOKEN`) HMACs `{email, name, exp}`; tamper or expiry ⇒ 401. No
+  server-side session table to leak or scale.
+- Unauthorized **browser navigations** redirect to `/login.html`; API calls
+  get a bare 401. `/auth/*` and `/login.html` are the only new exempt routes.
+- The Firebase **web API key is a public identifier**, not a secret; the gate
+  is the server-side verification + allowlist.
 
 ## Tool scoping matrix (enforce in code, assert in tests)
 

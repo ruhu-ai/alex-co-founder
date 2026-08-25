@@ -42,6 +42,16 @@ async def run_distillation(feedback_id: str, session_service=None) -> dict[str, 
     if record.get("distilled"):
         return {"status": "success", "skipped": "already distilled"}
 
+    founder_id = record["founder_id"]
+    # Snapshot the founder's existing voice-rule ids so we can attribute exactly
+    # which rules THIS feedback produced — the distiller applies the rule via
+    # apply_profile_update but is not relied on to also call mark_distilled
+    # (the model frequently applies the rule and forgets the bookkeeping, which
+    # left every feedback row distilled=false and distilled_rule_ids empty).
+    before_profile = await firestore.get_profile(founder_id) or {}
+    before_rule_ids = {r.get("id") for r in before_profile.get("voice_rules", [])
+                       if r.get("id")}
+
     session_id = f"distill-{feedback_id[:12]}"
     message = (
         f"Distill feedback {feedback_id}: "
@@ -74,4 +84,19 @@ async def run_distillation(feedback_id: str, session_service=None) -> dict[str, 
     except Exception as exc:  # surfaced as data; feedback row stays distilled=false
         logger.warning("distillation failed for %s: %s", feedback_id, exc)
         return {"status": "error", "error": True, "message": f"distillation failed: {exc}"}
-    return {"status": "success", "feedback_id": feedback_id}
+
+    # The run succeeded — record which rules it learned and flip the row so it is
+    # never re-distilled. Deterministic (a diff of the profile), not model-driven.
+    # Bookkeeping failure must not fail an otherwise-successful distillation.
+    new_rule_ids: list[str] = []
+    try:
+        after_profile = await firestore.get_profile(founder_id) or {}
+        new_rule_ids = sorted(
+            r["id"] for r in after_profile.get("voice_rules", [])
+            if r.get("id") and r["id"] not in before_rule_ids)
+        fresh = await firestore.get_feedback(feedback_id)
+        if fresh and not fresh.get("distilled"):
+            await firestore.mark_distilled(feedback_id, new_rule_ids)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("mark_distilled bookkeeping failed for %s: %s", feedback_id, exc)
+    return {"status": "success", "feedback_id": feedback_id, "rule_ids": new_rule_ids}
