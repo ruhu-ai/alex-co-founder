@@ -1,0 +1,19 @@
+services/firestore.py
+  s_36171a28333978::t_b80c937c0ff05b 25-32,35
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "1fc0bcbd4ce4d8c52eedce1a805209d0f286121a",
+  "prompts": {},
+  "sessions": {
+    "s_36171a28333978": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ee02ac2b-2dc2-4c6c-8f13-7e7ff17d5a93",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ijidai Lassa <ijidai@cued.app>"
+    }
+  }
+}
