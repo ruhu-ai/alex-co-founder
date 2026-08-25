@@ -22,9 +22,17 @@ def get_client():
     if _client is None:
         from google.cloud import firestore
 
+        # The default database is addressed by passing database=None, NOT the
+        # literal "(default)": some transports URL-encode the parens into the
+        # request routing and Firestore rejects it ("Invalid database id
+        # %28default%29"). Treat unset/empty/"(default)" all as the real default;
+        # a real named database is passed through unchanged.
+        _db = os.environ.get("FIRESTORE_DATABASE") or None
+        if _db == "(default)":
+            _db = None
         _client = firestore.AsyncClient(
             project=os.environ.get("GOOGLE_CLOUD_PROJECT"),
-            database=os.environ.get("FIRESTORE_DATABASE", "(default)"),
+            database=_db,
         )
     return _client
 
