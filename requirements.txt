@@ -41,3 +41,11 @@ cryptography==49.0.0
 
 # runtime: tools/_common.py re-enters the event loop for sync ADK tools
 nest-asyncio==1.6.0
+
+# gRPC/api-core stack pinned to the versions that work locally. Left transitive,
+# a clean build resolved newer grpcio/api-core that URL-encode the Firestore
+# routing header ("Invalid database id %28default%29") — reproducible-build bug.
+grpcio==1.83.0
+grpcio-status==1.83.0
+google-api-core==2.34.0
+googleapis-common-protos==1.75.1
