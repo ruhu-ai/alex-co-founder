@@ -890,6 +890,24 @@ class TestLifespanHooks:
                 "the dead router.on_startup registration")
         assert "shutdown" in calls
 
+    def test_browser_reconcile_timeout_does_not_block_server_startup(
+            self, appmod, monkeypatch, caplog):
+        async def never_finishes():
+            await asyncio.Event().wait()
+
+        async def fast_wait_for(awaitable, *, timeout):
+            del timeout
+            awaitable.close()
+            raise TimeoutError
+
+        monkeypatch.setattr(appmod.browser_service, "reconcile_all_runs",
+                            never_finishes)
+        monkeypatch.setattr(appmod.asyncio, "wait_for", fast_wait_for)
+
+        asyncio.run(appmod._browser_startup())
+
+        assert "reconciliation timed out" in caplog.text
+
 
 class TestPortalEventChainWalk:
     """/webhooks/portal_event walks the legal multi-step chain

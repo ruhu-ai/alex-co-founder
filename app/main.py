@@ -2555,8 +2555,22 @@ async def _browser_startup() -> None:
                 "max_instances": os.environ.get("CLOUD_RUN_MAX_INSTANCES"),
             })
         )
+    # Reconciliation repairs durable browser-run state, but it must never hold
+    # the entire HTTP server hostage. In particular, expired local ADC can
+    # leave Firestore RPCs retrying indefinitely. The UI and health endpoints
+    # must still come up so the founder can reauthenticate or use offline-safe
+    # surfaces.
+    reconcile_timeout_seconds = 10.0
     try:
-        await browser_service.reconcile_all_runs()
+        await asyncio.wait_for(
+            browser_service.reconcile_all_runs(),
+            timeout=reconcile_timeout_seconds,
+        )
+    except TimeoutError:
+        logging.getLogger(__name__).warning(
+            "browser run reconciliation timed out after %.1fs; continuing startup",
+            reconcile_timeout_seconds,
+        )
     except Exception as exc:
         logging.getLogger(__name__).warning("browser run reconciliation unavailable: %s", exc)
 
