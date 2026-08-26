@@ -752,18 +752,19 @@ class TestDiscoverCommandAdapter:
 
 
 class TestDiscoveryUIBoundary:
-    """docs/23 §6.2: the UI must not call internal task endpoints."""
+    """Discovery is founder-invoked from chat, not duplicated in the chrome."""
 
-    def test_ui_uses_the_public_request_endpoint_not_the_task_route(self):
+    def test_ui_exposes_only_the_discover_command(self):
         import pathlib
 
         ui = (pathlib.Path(__file__).resolve().parents[2]
               / "app/static/index.html").read_text()
         assert '"/tasks/discover"' not in ui
         assert "/tasks/discover" not in ui
-        assert "/api/discovery-requests" in ui
-        # Every submission carries its own opaque request id and its session.
-        assert "client_request_id" in ui
+        assert "/api/discovery-requests" not in ui
+        assert "Run discovery sweep" not in ui
+        assert "Run a sweep" not in ui
+        assert "Type /discover in chat" in ui
 
     def test_public_endpoint_is_registered(self, appmod):
         paths = {getattr(r, "path", "") for r in appmod.app.router.routes}

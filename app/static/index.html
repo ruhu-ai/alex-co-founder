@@ -1423,9 +1423,6 @@ body[data-offline="true"] #offline { display: flex; }
       <svg class="ico ico-sm" aria-hidden="true"><use href="#i-globe"/></svg>Browser
     </button>
   </div>
-  <button class="btn" data-variant="ghost" id="sweepBtn" onclick="runSweep()" aria-label="Run discovery sweep" title="Run discovery sweep">
-    <svg class="ico" aria-hidden="true"><use href="#i-refresh"/></svg><span>Run discovery sweep</span>
-  </button>
   <button class="btn" data-variant="secondary" data-shape="icon" id="drawerBtn"
           style="display:none" onclick="toggleDrawer()" title="Show review panel" aria-label="Show review panel">
     <svg class="ico" aria-hidden="true"><use href="#i-clipboard"/></svg>
@@ -1941,14 +1938,10 @@ function setReadThroughControls() {
   if (locked) {
     $("talkBtn").disabled = true;
     $("sendBtn").disabled = true;
-    $("sweepBtn").disabled = true;
     $("msg").placeholder = "Resume this session to continue working here";
   } else {
     $("talkBtn").disabled = $("talkBtn").classList.contains("connecting");
     $("sendBtn").disabled = thinking || pendingUploads || !$("msg").value.trim();
-    if ($("sweepBtn").querySelector("span").textContent !== "Sweeping…") {
-      $("sweepBtn").disabled = false;
-    }
     $("msg").placeholder = "Ask your co-founder…";
   }
 }
@@ -2390,27 +2383,6 @@ async function send() {
 }
 
 // ---------- board ----------
-async function runSweep() {
-  if (!requireActiveContext("run discovery")) return;
-  const b = $("sweepBtn");
-  b.disabled = true; b.querySelector("span").textContent = "Sweeping…";
-  try {
-    // Founder-facing discovery boundary (docs/23 §6.2): the UI calls the
-    // public request endpoint, never an internal task worker. One opaque
-    // request id per click; the report returns to THIS conversation through
-    // the durable receipt's origin session.
-    const reqId = "req_" + [...crypto.getRandomValues(new Uint8Array(16))]
-      .map(x => x.toString(16).padStart(2, "0")).join("");
-    await api("/api/discovery-requests", { method: "POST", body: JSON.stringify({
-      session_id: sessionId, client_request_id: reqId, context: "" }) });
-    toast("Sweep running. Alex works in the background — new finds appear here as they're scored.", "ok");
-  } catch (e) {
-    toast(`Sweep didn't start: ${e.message}`, "danger");
-    b.disabled = false; b.querySelector("span").textContent = "Run discovery sweep";
-    return;
-  }
-  setTimeout(() => { b.disabled = false; b.querySelector("span").textContent = "Run discovery sweep"; }, 15000);
-}
 let offlineSince = 0, booted = false;
 
 // Skeletons are markup, so the first successful render destroys them by
@@ -2538,9 +2510,8 @@ async function refresh() {
   }
   $("boardCols").innerHTML = html || emptyState("compass", "Nothing found yet",
     readThrough()
-      ? "No opportunities were linked to this conversation."
-      : "Alex sweeps your sources for grants, accelerators and programmes that fit your profile.",
-    readThrough() ? "" : `<button class="btn" data-size="sm" onclick="runSweep()">${ico("refresh")}Run a sweep</button>`);
+      ? "No opportunities were linked to this session."
+      : "Type /discover in chat to find grants, accelerators and programmes that fit your profile.");
 
   const apps = board.applications || [];
   pipelineApps = apps;

@@ -192,7 +192,7 @@ does not perform rollback deletion.
 - [ ] `GET https://co-founder-<hash>.run.app/healthz` → 200
 - [ ] UI loads at the `.run.app` URL; chat round-trip works
 - [ ] Mock portal reachable; full demo sequence runs in the cloud
-- [ ] Founder clicks **Run discovery sweep** → Cloud Task runs once and opportunities appear in Firestore
+- [ ] Founder sends `/discover` → Cloud Task runs once and opportunities appear in Firestore
 - [ ] Kill/restart proof: Cloud Run revision swap mid-workflow → session resumes
 - [ ] Vertex AI: model calls visible in console (video proof source)
 - [ ] Cloud Trace shows end-to-end runs (screenshot for README)

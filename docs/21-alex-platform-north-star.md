@@ -1757,8 +1757,8 @@ actually share.
 - Add intent envelopes, structured reference resolution, attachment IDs/scopes,
   `client_request_id`, run cards, and deterministic slash commands.
 - Natural language and `/discover` must create identical validated requests.
-- Make `/discover` and the existing discovery UI action enter the same funding
-  journey, wait at `AWAITING_SELECTION`, and create one linked
+- Make `/discover` enter the funding journey, wait at `AWAITING_SELECTION`,
+  and create one linked
   `grant_application:v1` run after a valid selection.
 - Add `/apply <opportunity>` and its natural-language equivalent as direct,
   idempotent application entry points without weakening existing gates.
@@ -1878,8 +1878,8 @@ Every check has a first owning phase. Later phases keep all earlier checks green
       creates one typed intent envelope.
 - [ ] **[Phase 2]** `/discover ...` and an equivalent natural request compile to equivalent
       validated inputs.
-- [ ] **[Phase 2]** `/discover ...` and the discovery UI action create the same journey/run
-      request and reach `AWAITING_SELECTION` after ranked results are ready.
+- [ ] **[Phase 2]** `/discover ...` creates one journey/run request and reaches
+      `AWAITING_SELECTION` after ranked results are ready.
 - [ ] **[Phase 2]** Within a `/discover` journey, no linked application run exists before
       the founder resolves the named opportunity-selection wait; direct `/apply`
       remains the explicit skip-discovery path.

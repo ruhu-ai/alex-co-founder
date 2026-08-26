@@ -159,9 +159,9 @@ chat Runner, then dispatches `/tasks/discover` durably on Cloud Run (inline and
 awaited in local development). Unknown slash commands are static refusals.
 Context is normalized and capped at 500 characters; `@attachment` references
 are refused because task-scoped attachment authority is a Phase-2 capability.
-The browser mints an opaque `client_request_id` per submission and reuses it
+The chat client mints an opaque `client_request_id` per submission and reuses it
 only for transport retry. Both the conversational `/discover` adapter and the
-discovery UI button converge on the same durable request service
+public compatibility endpoint converge on the same durable request service
 (`_accept_discovery_request` → `_dispatch_discovery`); the completion notice
 targets the receipt's `origin_session_id`, never the most recently touched
 session (23 §6.2). Worker receipts enforce retry idempotency; message

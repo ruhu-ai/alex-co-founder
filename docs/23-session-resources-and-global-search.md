@@ -489,7 +489,7 @@ with that split but is not a substitute for it.
 | Producer | Canonical write | Required session relationship |
 |---|---|---|
 | New session / chat turn / proactive reply | ADK event | update `session_catalog`; no resource for ordinary prose |
-| `/discover` or discovery UI action | discovery receipt | `created` discovery request; executed queries update that resource's bounded search projection |
+| `/discover` | discovery receipt | `created` discovery request; executed queries update that resource's bounded search projection |
 | Discovery extraction | deduped opportunity | `discovered`, occurrence keyed by request + opportunity |
 | Matchmaker | opportunity update | updates resource current projection; does not invent a new link |
 | Founder selects opportunity | application | `selected` opportunity and `created`/`continued` application |
@@ -518,7 +518,8 @@ registering it is a failing test.
 
 ### 6.2 Founder-facing discovery boundary
 
-The UI MUST NOT call `/tasks/discover` directly. Add:
+The UI invokes discovery only through `/discover` in chat and MUST NOT call
+`/tasks/discover` directly. Compatible clients may use the public boundary:
 
 ```text
 POST /api/discovery-requests
@@ -1091,8 +1092,8 @@ projection and dual writes first, backfill, switch reads, then remove the old
       its API/tool reports success.
 - [ ] One opportunity or future lead can appear in two sessions without entity
       duplication, overwritten origin, or an unbounded session-ID array.
-- [ ] The discovery button and conversational `/discover` use the same public
-      request service; the UI never calls `/tasks/discover` directly.
+- [ ] Conversational `/discover` uses the durable request service; the UI has
+      no duplicate discovery button and never calls `/tasks/discover` directly.
 - [ ] A discovery receipt records origin session, display query, executed
       bounded searches, result IDs, and its resource ID.
 - [ ] Documents, uploads, voice notes, applications, browser reports, and

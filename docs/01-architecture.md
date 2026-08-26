@@ -224,7 +224,7 @@ changes to load it (only instance #1 is built, but the loader must be real).
 
 ## Data flows (narratives — implement these end-to-end)
 
-**Discovery sweep (founder-invoked):** UI button or `/discover` command → durable
+**Discovery sweep (founder-invoked):** `/discover` command → durable
 Cloud Task → `POST /tasks/discover` → scout fetches each configured source → extracts `Opportunity`
 records → dedupe → Firestore `opportunities` (state DISCOVERED) → matchmaker scores →
 SHORTLISTED or ARCHIVED(with reason) → founder sees board next visit. There is no

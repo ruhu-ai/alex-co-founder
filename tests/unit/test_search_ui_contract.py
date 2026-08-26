@@ -159,7 +159,7 @@ class TestSessionWorkbenchContext:
         assert "focusResource(row);" in UI
 
     def test_read_through_blocks_mutating_actions(self):
-        for fn in ("send", "runSweep", "browseTo", "stopBrowsing", "feedback",
+        for fn in ("send", "browseTo", "stopBrowsing", "feedback",
                    "uploadDoc", "syncDrive", "ingestDrive", "toggleVoice",
                    "showApproval", "resolveApproval"):
             block = UI.split(f"function {fn}(")[1].split("\n}")[0]

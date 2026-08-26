@@ -7,7 +7,7 @@ is no daily discovery job or polling loop.
 ## Discovery sweep flow
 
 ```
-Founder UI or `/discover` command ──► durable Cloud Task
+Founder `/discover` command ──► durable Cloud Task
    └─► POST /tasks/discover (OIDC in Cloud Run; inline in local development)
         └─ system session (user_id="system", fresh session_id)
              ├─ LANE 1 (search): generate queries from Founder Profile
