@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Install and verify every composite index in the reviewed manifest.
 
-This is a deploy-time command, not an application worker.  It intentionally
-waits for ``gcloud`` to finish each create operation and then fails closed if
-any declared index is absent or not READY.
+This is a deploy-time command, not an application worker. It submits missing
+indexes without serializing independent builds, then performs one bounded,
+fail-closed poll until every declared index is READY.
 """
 
 from __future__ import annotations
@@ -11,6 +11,8 @@ from __future__ import annotations
 import argparse
 import json
 import subprocess
+import sys
+import time
 from pathlib import Path
 from typing import Any
 
@@ -85,6 +87,7 @@ def create_command(index: dict[str, Any], project: str,
     scope = str(index.get("queryScope", "COLLECTION")).lower().replace("_", "-")
     command = [
         "gcloud", "firestore", "indexes", "composite", "create", "--quiet",
+        "--async",
         f"--project={project}", f"--database={database}",
         f"--collection-group={index['collectionGroup']}",
         f"--query-scope={scope}",
@@ -101,7 +104,9 @@ def create_command(index: dict[str, Any], project: str,
 
 
 def ensure_indexes(project: str, database: str = "(default)",
-                   manifest_path: Path = DEFAULT_MANIFEST) -> dict[str, int]:
+                   manifest_path: Path = DEFAULT_MANIFEST, *,
+                   timeout_seconds: float = 1800,
+                   poll_interval: float = 10) -> dict[str, int]:
     """Create missing indexes and verify all manifest rows are installed READY."""
     declared = load_manifest(manifest_path)
     installed = list_indexes(project, database)
@@ -111,21 +116,37 @@ def ensure_indexes(project: str, database: str = "(default)",
     for index in missing:
         subprocess.run(create_command(index, project, database), check=True)
 
-    verified = list_indexes(project, database)
-    verified_by_signature = {
-        index_signature(index): index for index in verified
-    }
-    absent = [index_signature(index) for index in declared
-              if index_signature(index) not in verified_by_signature]
-    if absent:
-        raise RuntimeError(f"Firestore indexes still absent after deploy: {absent}")
-    not_ready = [signature for signature, index in verified_by_signature.items()
-                 if signature in {index_signature(row) for row in declared}
-                 and str(index.get("state", "")).upper() != "READY"]
-    if not_ready:
-        raise RuntimeError(f"Firestore indexes are not READY: {not_ready}")
-    return {"declared": len(declared), "created": len(missing),
-            "ready": len(declared)}
+    declared_signatures = {index_signature(row) for row in declared}
+    deadline = time.monotonic() + timeout_seconds
+    while True:
+        verified_by_signature = {
+            index_signature(index): index
+            for index in list_indexes(project, database)
+        }
+        absent = declared_signatures - verified_by_signature.keys()
+        pending = {
+            signature for signature in declared_signatures - absent
+            if str(verified_by_signature[signature].get("state", "")).upper()
+            != "READY"
+        }
+        failed = {
+            signature for signature in pending
+            if str(verified_by_signature[signature].get("state", "")).upper()
+            not in {"CREATING", "READY"}
+        }
+        if failed:
+            raise RuntimeError(f"Firestore index build failed: {failed}")
+        if not absent and not pending:
+            return {"declared": len(declared), "created": len(missing),
+                    "ready": len(declared)}
+        if time.monotonic() >= deadline:
+            raise RuntimeError(
+                "Timed out waiting for Firestore indexes; "
+                f"absent={absent}, not_ready={pending}")
+        ready = len(declared_signatures) - len(absent) - len(pending)
+        print(f"Firestore indexes READY {ready}/{len(declared)}; waiting...",
+              file=sys.stderr, flush=True)
+        time.sleep(poll_interval)
 
 
 def main() -> None:

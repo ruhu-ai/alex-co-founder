@@ -29,10 +29,11 @@ def _index(state: str = "READY") -> dict:
     }
 
 
-def test_create_command_preserves_manifest_order_and_waits():
+def test_create_command_preserves_manifest_order_and_is_async():
     command = deploy_indexes.create_command(_index(), "project-1", "(default)")
     assert command == [
         "gcloud", "firestore", "indexes", "composite", "create", "--quiet",
+        "--async",
         "--project=project-1", "--database=(default)",
         "--collection-group=founder_inbox", "--query-scope=collection",
         "--field-config=field-path=founder_id,order=ascending",
@@ -40,7 +41,7 @@ def test_create_command_preserves_manifest_order_and_waits():
         "--field-config=field-path=created_at,order=descending",
         "--field-config=field-path=__name__,order=descending",
     ]
-    assert "--async" not in command
+    assert command.count("--async") == 1
 
 
 def test_ensure_indexes_creates_missing_then_verifies_ready(
@@ -76,8 +77,10 @@ def test_ensure_indexes_rejects_present_but_building(monkeypatch, tmp_path):
     monkeypatch.setattr(
         deploy_indexes, "list_indexes",
         lambda _project, _database: [_index(state="CREATING")])
-    with pytest.raises(RuntimeError, match="not READY"):
-        deploy_indexes.ensure_indexes("project-1", manifest_path=manifest)
+    with pytest.raises(RuntimeError, match="not_ready"):
+        deploy_indexes.ensure_indexes(
+            "project-1", manifest_path=manifest,
+            timeout_seconds=0, poll_interval=0)
 
 
 def test_deploy_script_runs_index_gate_before_migration():
