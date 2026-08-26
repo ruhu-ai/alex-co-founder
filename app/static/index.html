@@ -1241,6 +1241,27 @@ body[data-offline="true"] #offline { display: flex; }
   transition: background var(--dur-1) var(--ease-out);
 }
 .connrow:hover { background: var(--surface-2); }
+.session-result { display: flex; align-items: stretch; position: relative; }
+.session-result .connrow { flex: 1; width: auto; min-width: 0; }
+.session-delete {
+  width: 44px; min-height: 44px; flex: none; display: grid; place-items: center;
+  border: 0; background: transparent; color: var(--ink-3); cursor: pointer;
+  opacity: 0; pointer-events: none;
+  transition: opacity var(--dur-1) var(--ease-out),
+              background var(--dur-1) var(--ease-out), color var(--dur-1) var(--ease-out);
+}
+.session-result:hover .session-delete,
+.session-result:focus-within .session-delete {
+  opacity: 1; pointer-events: auto;
+}
+.session-delete:hover, .session-delete:focus-visible {
+  color: var(--danger-ink); background: var(--danger-bg); outline: none;
+}
+.session-delete:focus-visible { box-shadow: inset 0 0 0 2px var(--danger); }
+.session-delete:disabled { opacity: .45; cursor: wait; }
+@media (hover: none) {
+  .session-delete { opacity: 1; pointer-events: auto; }
+}
 .foot { font-size: var(--fs-2); line-height: var(--lh-2); color: var(--ink-3); padding: var(--sp-2) var(--sp-4) 0; }
 .cbadge {
   width: 34px; height: 34px; border-radius: var(--r-2); flex: none;
@@ -3572,6 +3593,11 @@ document.addEventListener("click", (e) => {
   }
   const more = e.target.closest("[data-search-more]");
   if (more) { runSearch({ reset: false }); return; }
+  const sessionDelete = e.target.closest("[data-session-delete]");
+  if (sessionDelete) {
+    deleteSessionFromPicker(Number(sessionDelete.dataset.sessionDelete), sessionDelete);
+    return;
+  }
   const resume = e.target.closest("[data-session-resume]");
   if (resume) { resumeSession(resume.dataset.sessionResume); return; }
   const hit = e.target.closest("[data-search-open]");
@@ -4296,18 +4322,25 @@ function resultRow(row, index) {
   const active = row.session_id === sessionId;
   const viewed = row.session_id === viewingSession;
   const count = Number(row.occurrence_count || 0);
-  return `<button class="crow connrow" role="option" id="sres-${index}"
-    aria-selected="${index === searchActive}" data-search-open="${index}">
-    <span class="cbadge sm">${ico("chat")}</span>
-    <span class="grow"><b>${esc(row.title || "New session")}</b>
-      <div class="conn-sub res-meta"><span>${esc(row.subtitle || "")}</span></div>
-      <div class="conn-sub">${count} linked item${count === 1 ? "" : "s"}${
-        row.occurred_at ? ` · ${timeAgo(row.occurred_at) || "just now"}` : ""}</div></span>
-    ${active ? `<span class="chip-ok">Active</span>`
-              : viewed ? `<span class="badge" data-tone="info">Viewing</span>`
-              : `<span class="btn" data-variant="quiet" data-size="sm"
-                       data-session-resume="${esc(row.session_id)}">Resume</span>`}
-  </button>`;
+  const title = row.title || "New session";
+  return `<div class="session-result">
+    <button class="crow connrow" role="option" id="sres-${index}"
+      aria-selected="${index === searchActive}" data-search-open="${index}">
+      <span class="cbadge sm">${ico("chat")}</span>
+      <span class="grow"><b>${esc(title)}</b>
+        <div class="conn-sub res-meta"><span>${esc(row.subtitle || "")}</span></div>
+        <div class="conn-sub">${count} linked item${count === 1 ? "" : "s"}${
+          row.occurred_at ? ` · ${timeAgo(row.occurred_at) || "just now"}` : ""}</div></span>
+      ${active ? `<span class="chip-ok">Active</span>`
+                : viewed ? `<span class="badge" data-tone="info">Viewing</span>`
+                : `<span class="btn" data-variant="quiet" data-size="sm"
+                         data-session-resume="${esc(row.session_id)}">Resume</span>`}
+    </button>
+    <button class="session-delete" data-session-delete="${index}"
+            aria-label="Delete ${esc(title)}" title="Delete session">
+      ${ico("close")}
+    </button>
+  </div>`;
 }
 
 function renderSessionsList() {
@@ -4341,6 +4374,63 @@ async function openSearchResult(index) {
   const here = contextSessionId();
   closeSessions();
   if (row.session_id && row.session_id !== here) await viewSession(row.session_id);
+}
+
+async function deleteSessionFromPicker(index, button) {
+  const row = searchRows[index];
+  if (!row || !row.session_id) return;
+  if (voice && row.session_id === sessionId) {
+    toast("Hang up the live call before deleting its session.", "attn");
+    return;
+  }
+  const count = Number(row.occurrence_count || 0);
+  const title = row.title || "New session";
+  const confirmed = confirm(
+    `Delete “${title}”?\n\n` +
+    `This removes the conversation and its ${count} linked item${count === 1 ? "" : "s"}. ` +
+    "Unshared session-only files are deleted. Shared work, profile material, " +
+    "audit records and external copies are kept.\n\nThis cannot be undone."
+  );
+  if (!confirmed) return;
+
+  button.disabled = true;
+  const deletingActive = row.session_id === sessionId;
+  const deletingViewed = row.session_id === viewingSession;
+  let result;
+  try {
+    result = await api(`/api/sessions/${encodeURIComponent(row.session_id)}`, {
+      method: "DELETE", body: JSON.stringify({ confirm: true })
+    });
+  } catch (error) {
+    button.disabled = false;
+    toast(error.message || "The session could not be deleted.", "danger");
+    return;
+  }
+
+  searchRows = searchRows.filter(item => item.session_id !== row.session_id);
+  searchActive = Math.min(searchActive, searchRows.length - 1);
+  let contextFailed = false;
+  try {
+    if (deletingActive) {
+      closeSessions();
+      localStorage.removeItem(SESSION_KEY);
+      await newSession();
+    } else if (deletingViewed) {
+      await backToSession();
+      renderSessionsList();
+    } else {
+      renderSessionsList();
+    }
+  } catch {
+    contextFailed = true;
+  }
+  const failures = (result.cleanup_errors || []).length;
+  toast(contextFailed
+    ? "Session deleted. Refresh to start a replacement session."
+    : failures
+      ? `Session deleted, but ${failures} file cleanup${failures === 1 ? "" : "s"} failed.`
+      : `Session deleted${result.deleted_files ? ` with ${result.deleted_files} session-only file${result.deleted_files === 1 ? "" : "s"}` : ""}.`,
+    (contextFailed || failures) ? "attn" : "ok");
 }
 
 // The server returns a closed focus enum, never a URL or JavaScript.

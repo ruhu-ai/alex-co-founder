@@ -67,6 +67,7 @@ Rules (corrected against the reference implementation):
 | `POST /tasks/discover` | **internal** discovery worker (Cloud Tasks delivery); never scheduled, never a UI shortcut | `{discovery_request_id, founder_id}`; the worker loads context/authority from the receipt. Legacy `{context?, client_request_id?, session_id?}` remains accepted for in-flight tasks |
 | `GET /api/search` | typed global search over conversations and resources (23 §7) | `?q&types&session_id&cursor&limit` → grouped-by-resource results |
 | `GET /api/sessions/{session_id}/resources` | one conversation's resource occurrences (23) | → bounded occurrence list |
+| `DELETE /api/sessions/{session_id}` | explicitly confirmed session deletion (23 §9) | `{confirm:true}` → deletes the transcript, tombstones its links, purges exclusive session-retained files, and reports retained/shared items plus cleanup errors |
 | `POST /tasks/deadline_scan` | Cloud Tasks worker: recompute urgency on all open items and nudge for newly critical items | `{message_id?}` or empty for an authenticated manual run |
 | `POST /tasks/distill` | run the distiller on one feedback record | `{feedback_id}` → runs `distill_runner` (below) |
 | `POST /tasks/browser_expire` | generation-safe browser inactivity expiry (22), Cloud Tasks/OIDC only | `{run_id, lease_generation}` → close only when owner/generation/deadline still match; stale delivery is a success no-op |

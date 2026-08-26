@@ -1672,6 +1672,38 @@ async def get_artifact(artifact_id: str) -> Optional[dict[str, Any]]:
     return doc.to_dict() | {"id": doc.id} if doc.exists else None
 
 
+async def delete_session_artifact_records(founder_id: str, session_id: str,
+                                          artifact_id: str) -> bool:
+    """Delete artifact metadata/chunks and its paired ingestion if owned.
+
+    Blob deletion is deliberately handled by ``session_deletion`` before this
+    metadata boundary so a missing blob cannot be hidden behind a deleted row.
+    """
+    client = get_client()
+    artifact_ref = client.collection("artifacts").document(artifact_id)
+    snap = await artifact_ref.get()
+    if not snap.exists:
+        return False
+    row = snap.to_dict() or {}
+    if (
+        row.get("founder_id") != founder_id
+        or row.get("session_id") != session_id
+        or row.get("retention_policy") != "session"
+    ):
+        return False
+    await client.recursive_delete(artifact_ref)
+    ingestion_ref = client.collection("ingestions").document(artifact_id)
+    ingestion = await ingestion_ref.get()
+    if ingestion.exists:
+        ingestion_row = ingestion.to_dict() or {}
+        if (
+            ingestion_row.get("founder_id") == founder_id
+            and ingestion_row.get("session_id") == session_id
+        ):
+            await client.recursive_delete(ingestion_ref)
+    return True
+
+
 async def update_artifact(artifact_id: str, **fields: Any) -> None:
     await get_client().collection("artifacts").document(artifact_id).update(
         {**fields, "updated_at": _now()})
@@ -2140,6 +2172,26 @@ async def get_document_by_artifact(founder_id: str,
     return None
 
 
+async def get_document(document_id: str) -> Optional[dict[str, Any]]:
+    """Return one produced-document row by its opaque canonical id."""
+    doc = await get_client().collection("documents").document(document_id).get()
+    return doc.to_dict() | {"id": doc.id} if doc.exists else None
+
+
+async def delete_session_document_record(founder_id: str, session_id: str,
+                                         document_id: str) -> bool:
+    """Delete an exact document row only when the named session owns it."""
+    ref = get_client().collection("documents").document(document_id)
+    snap = await ref.get()
+    if not snap.exists:
+        return False
+    row = snap.to_dict() or {}
+    if row.get("founder_id") != founder_id or row.get("session_id") != session_id:
+        return False
+    await ref.delete()
+    return True
+
+
 async def next_document_version(founder_id: str, doc_key: str) -> int:
     """Monotonic per-(founder, doc_key) version from a transactional counter.
 
@@ -2273,6 +2325,29 @@ async def get_resource(resource_id: str) -> Optional[dict[str, Any]]:
     return (snap.to_dict() | {"id": snap.id}) if snap.exists else None
 
 
+async def resource_has_other_session_link(founder_id: str, resource_id: str,
+                                          *, excluding_session_id: str) -> bool:
+    """Return true when a live occurrence belongs to another session."""
+    query = (get_client().collection("session_resource_links")
+             .where("founder_id", "==", founder_id)
+             .where("resource_id", "==", resource_id))
+    async for doc in query.stream():
+        row = doc.to_dict() or {}
+        if not row.get("deleted_at") and row.get("session_id") != excluding_session_id:
+            return True
+    return False
+
+
+async def delete_resource_projection(founder_id: str, resource_id: str) -> bool:
+    """Delete one founder-owned index projection after its canonical file."""
+    ref = get_client().collection("resource_index").document(resource_id)
+    snap = await ref.get()
+    if not snap.exists or (snap.to_dict() or {}).get("founder_id") != founder_id:
+        return False
+    await ref.delete()
+    return True
+
+
 async def tombstone_session_links(founder_id: str, session_id: str) -> int:
     """Tombstone-in-place every link of one session (docs/23 §5.2). Returns
     the number newly tombstoned. Rows are never physically deleted here."""
@@ -2287,6 +2362,11 @@ async def tombstone_session_links(founder_id: str, session_id: str) -> int:
                                         "updated_at": _now()})
             count += 1
     return count
+
+
+def now_iso() -> str:
+    """Public UTC timestamp helper for cross-store lifecycle services."""
+    return _now()
 
 
 async def upsert_session_catalog(session_id: str,

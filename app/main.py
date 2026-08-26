@@ -53,6 +53,7 @@ from services import (
     feedback_service,
     firestore,
     pipeline_service,
+    session_deletion,
     session_resources,
     storage,
     voice_service,
@@ -750,6 +751,38 @@ async def api_sessions(limit: int = 30):
             "messages": count,
         })
     return {"status": "success", "sessions": out}
+
+
+class SessionDeleteRequest(BaseModel):
+    """Explicit confirmation for an irreversible founder action."""
+
+    confirm: bool = False
+
+
+@app.delete("/api/sessions/{session_id}")
+async def api_delete_session(session_id: str, payload: SessionDeleteRequest):
+    """Delete one founder-owned session and its exclusive session files.
+
+    Shared/profile resources, external copies, and append-only audit records
+    are retained. Identity is resolved server-side; foreign and missing
+    sessions collapse to the same 404 response.
+    """
+    if not payload.confirm:
+        return JSONResponse(
+            {"status": "error", "error": True,
+             "message": "explicit confirmation is required"},
+            status_code=400,
+        )
+    result = await session_deletion.delete_session(
+        founder_id=FOUNDER_ID,
+        session_id=session_id,
+        app_name=agent_app.name,
+        session_service=db_session_service,
+    )
+    if result.get("error"):
+        status = 404 if result.get("message") == "not found" else 409
+        return JSONResponse(result, status_code=status)
+    return result
 
 
 # ---------------------------------------------------------------------------

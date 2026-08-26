@@ -771,6 +771,34 @@ class TestDiscoveryUIBoundary:
         assert "/api/discovery-requests" in paths
 
 
+class TestSessionDeleteAPI:
+    def test_requires_explicit_confirmation(self, client):
+        response = client.request(
+            "DELETE", "/api/sessions/s-1", json={"confirm": False})
+        assert response.status_code == 400
+        assert response.json()["message"] == "explicit confirmation is required"
+
+    def test_delegates_with_server_resolved_identity(
+            self, client, appmod, monkeypatch):
+        captured = {}
+
+        async def _delete(**kwargs):
+            captured.update(kwargs)
+            return {"status": "success", "session_id": kwargs["session_id"],
+                    "deleted_files": 1, "retained_items": 2,
+                    "cleanup_errors": []}
+
+        monkeypatch.setattr(appmod.session_deletion, "delete_session", _delete)
+        response = client.request(
+            "DELETE", "/api/sessions/s-1", json={"confirm": True})
+
+        assert response.status_code == 200
+        assert response.json()["deleted_files"] == 1
+        assert captured["founder_id"] == appmod.FOUNDER_ID
+        assert captured["session_id"] == "s-1"
+        assert captured["session_service"] is appmod.db_session_service
+
+
 class TestOAuthState:
     def test_callback_rejects_unknown_or_replayed_state(
             self, appmod, client, monkeypatch):

@@ -74,6 +74,20 @@ class TestBehaviour:
         assert "No sessions yet — start one" in UI
         assert "No session matches that search." in UI
 
+    def test_session_delete_is_easy_but_explicit(self):
+        assert 'data-session-delete="${index}"' in UI
+        assert ".session-result:hover .session-delete" in UI
+        assert ".session-result:focus-within .session-delete" in UI
+        assert 'method: "DELETE"' in UI
+        assert "This cannot be undone." in UI
+        assert "Shared work, profile material" in UI
+
+    def test_deleting_the_active_session_mints_a_replacement(self):
+        block = UI.split("async function deleteSessionFromPicker")[1].split(
+            "\nfunction ")[0]
+        assert "localStorage.removeItem(SESSION_KEY)" in block
+        assert "await newSession()" in block
+
 
 class TestVoiceGuards:
     """All three switch paths, not just resume (docs/23 §8.2)."""

@@ -304,7 +304,7 @@ and models never choose them):
 | `message_count` | int | Founder-visible messages only; system notices excluded. |
 | `resource_count` | int | **Advisory** projection count, updated best-effort after link commits (never inside the link transaction — see §6); repaired from links if drift is detected. |
 | `resource_types` | list[str] | Bounded distinct visible types. |
-| `status` | str | `active`, `archived`, or `deleted`. `archived`/`deleted` are **dormant values**: the product has no session archive/delete/rename operation today (`delete_session` is never called and ADK sessions live in SQL). The field exists so those future operations have a projection target; nothing in this slice sets them. |
+| `status` | str | `active`, `deleting`, `deleted`, or reserved `archived`. `deleting` hides an in-progress cross-store deletion from search; `deleted` is its idempotent terminal projection. |
 | `search_terms`, `search_prefixes` | list[str] | Title/preview plus a bounded rolling set of founder-visible terms. |
 | `created_at`, `updated_at` | str | From session lifecycle/events. |
 
@@ -771,6 +771,10 @@ and its linked work is previewed after the session is selected.
   polling;
 - no opportunity, application, document, artifact, browser report, evidence
   report, migration tombstone, or type-filter chip appears in this picker;
+- hovering a session row reveals a 44px delete control; keyboard focus and
+  touch surfaces expose the same control without relying on hover;
+- deletion requires explicit confirmation explaining that shared/profile
+  work, audit history, and external copies are retained;
 - no third-party logos or remote content render in results.
 
 ### 8.2 Navigation
@@ -842,30 +846,28 @@ The dialog copy says: “Choose a session to preview everything linked to it.”
    are not a resource type (§5.4), and a test MUST assert that no approval
    field ever reaches an index row or search response.
 6. Audit detail contains resource/link/session/run IDs, never indexed text.
-7. **Deletion/export reality check (binding rescope).** The product currently
-   has **no** founder-export route, **no** founder-deletion route, **no**
-   session archive/delete/rename operation, and **no** collection-accessor
-   registry or coverage test — the docs/02 registry is an unchecked checkbox
-   and the code has drifted to 19+ collections including the accessor-less
-   `founder_state`. This spec therefore does **not** claim incremental
-   inclusion into existing coverage. It requires instead:
-   - Work item 1 creates a **code-level collection registry** in
-     `services/firestore.py` and an introspection coverage test that fails
-     when any `collection("…")` literal in `services/` or `app/` is absent
-     from the registry;
-   - the three new collections register there on creation;
-   - link deletion semantics are defined **now** via `deleted_at` tombstones
-     (§5.2) so a future deletion implementation cannot be resurrected by
-     idempotent repair/backfill;
-   - the future export/deletion implementation enumerates from the registry;
-     until it exists, the §13 acceptance for this area asserts registry
-     membership and tombstone behavior only.
-8. When founder export exists, it includes session catalog, links, resource
+7. The code-level collection registry in `services/firestore.py` and its
+   introspection test fail when a literal collection is omitted.
+8. Session deletion is founder-authenticated and explicitly confirmed. It
+   stops active in-app browser work, deletes the ADK/SQL transcript, tombstones
+   every session link, clears searchable catalog text, and finishes with a
+   `deleted` catalog status. Repeating a completed deletion is a safe success.
+9. File cleanup is reference-aware: only an `artifact` or produced `document`
+   owned by that session, retained at session scope, and carrying no live link
+   from another session is purged with its local/GCS bytes, canonical metadata,
+   derived chunks/ingestion, and resource projection. Shared resources,
+   profile-retained uploads, opportunities, applications, evidence, and other
+   business records are unlinked from the deleted session but retained.
+10. Append-only audit rows and external copies such as Drive exports are never
+    silently erased by session deletion. Cleanup failures are returned to the
+    founder and recorded in the deletion audit rather than reported as full
+    success.
+11. When founder export exists, it includes session catalog, links, resource
    index rows, and the referenced canonical records the founder is authorized
    to export — enumerated from the registry, never a hand-written list.
-9. When founder deletion exists, it removes projections and canonical records
+12. When wholesale founder deletion exists, it removes projections and canonical records
    so no orphaned search row remains discoverable.
-10. A future workspace/auth expansion replaces the current demo `FOUNDER_ID`
+13. A future workspace/auth expansion replaces the current demo `FOUNDER_ID`
     constant without changing these record boundaries.
 
 ---
@@ -1103,6 +1105,13 @@ projection and dual writes first, backfill, switch reads, then remove the old
 - [ ] Search is server-side, founder-scoped, indexed, paginated, candidate-
       bounded, model-free, and does not scan ADK histories per query.
 - [ ] Opening a result is read-through; resuming a session remains explicit.
+- [ ] Hover, keyboard focus, and touch expose session deletion; confirmation
+      states the retention boundary; deleting the active session immediately
+      creates a fresh replacement session.
+- [ ] Session deletion removes the SQL transcript, tombstones every link, and
+      purges only exclusive session-retained artifacts/documents. Shared,
+      profile-retained, audit, and external records remain, and a repeated
+      delete is idempotent.
 - [ ] Pipeline, Browser, Review, Documents, Activity, and the transcript all
       resolve from the viewed session; read-through never changes the active
       write/voice binding and exposes no mutating controls until Resume.
