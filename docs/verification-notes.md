@@ -144,12 +144,20 @@ proof) → `deploy.sh` → video → submission.
   checks green. In-app QA passed at 1280×800 and 390×844: no page-level
   horizontal overflow, reduced inbox is an accessible dialog, Escape restores
   trigger focus, and the mobile drawer stays within 390 px.
-- In-app QA also exposed that project `co-founder-506001` currently has zero
-  installed composite indexes even though the manifest is complete. Source is
-  remediated: `scripts/deploy.sh` now runs a fail-closed index installer before
-  migrations or Cloud Run and requires every declared index to be READY. This
-  implementation task did **not** mutate the live project; the next reviewed
-  deploy must run that gate before cutover.
+- Production cutover completed on 2026-08-26. All 14 declared Firestore
+  composite indexes reached READY before migration or Cloud Run deployment.
+  The additive migration dry-run and apply shared plan hash
+  `44cdc7cf32b49a3e21f85cc8a9f2d397727267da3afa1aaa037840d4614f2987`,
+  read no credential values, created no synthetic events, and reported
+  `dual_read_parity=true`; the existing dataset required no canonical-row
+  creation.
+- Cloud Run revision `co-founder-00025-z8f` receives 100% of traffic with
+  min-instances 0, max-instances 1, CPU throttling, and in-app-only browsing.
+  Both task queues are bounded and the only Scheduler job in any enabled region
+  is `deadline-scan-6h`; no discovery schedule, topic, or subscription remains.
+  Public health, login, unauthenticated redirect, access-key session, founder
+  inbox, pipeline, Firebase email/Google provider configuration, OAuth redirect
+  domains, artifact lifecycle, and latest-revision error logs were verified.
 
 ## Fixtures
 

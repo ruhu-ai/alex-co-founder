@@ -71,6 +71,19 @@ for ROLE in datastore.user secretmanager.secretAccessor aiplatform.user storage.
   gcloud projects add-iam-policy-binding "$GOOGLE_CLOUD_PROJECT" \
     --member="serviceAccount:$COMPUTE_SA" --role="roles/$ROLE" --format="none" >/dev/null
 done
+# Reconcile the legacy broad grant as well as adding the intended role. Merely
+# adding secretAccessor leaves an existing secretmanager.admin binding intact,
+# which gives the application permission to change or delete every secret in
+# the project. The runtime only reads named secret values.
+if gcloud projects get-iam-policy "$GOOGLE_CLOUD_PROJECT" \
+    --flatten='bindings[].members' \
+    --filter="bindings.role=roles/secretmanager.admin AND bindings.members=serviceAccount:$COMPUTE_SA" \
+    --format='value(bindings.role)' | grep -qx 'roles/secretmanager.admin'; then
+  gcloud projects remove-iam-policy-binding "$GOOGLE_CLOUD_PROJECT" \
+    --member="serviceAccount:$COMPUTE_SA" \
+    --role='roles/secretmanager.admin' \
+    --all --quiet --format='none' >/dev/null
+fi
 
 echo "==> Cloud Tasks queue"
 gcloud tasks queues describe co-founder-events --location="$REGION" >/dev/null 2>&1 \

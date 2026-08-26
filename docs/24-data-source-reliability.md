@@ -2,7 +2,8 @@
 
 ## Status and decision
 
-**Status:** proposed; review and correction are required before implementation.
+**Status:** implemented and production-verified on 2026-08-26. The accepted
+review decisions in §22 remain binding for maintenance and future extensions.
 
 This specification hardens the data connections already needed by the funding
 workflow. It does **not** authorize a generic connector marketplace, a new
@@ -1311,45 +1312,45 @@ order is WI-0 → WI-1 → WI-4 → WI-5 → WI-2 → WI-3 → WI-6 → WI-7 →
 
 ## 21. Acceptance checks
 
-- [ ] Every connector reachable from the running application is in the §5.1
+- [x] Every connector reachable from the running application is in the §5.1
       registry with a declared role and scope. Provable, not asserted: no route
       under `/api/connectors/*` or `/api/integrations/*` accepts or stores a
       credential for a connector absent from that table, and `github` in
       particular has no live connect/disconnect route, no stored
       `GITHUB_TOKEN`/`GITHUB_LOGIN`, and renders as unavailable (§5.1). No
       generic connector/platform expansion was introduced.
-- [ ] Drive import requires owner session + ACTIVE explicit source grant and
+- [x] Drive import requires owner session + ACTIVE explicit source grant and
       uses the same safe ingestion/provenance path as upload.
-- [ ] Every knowledge result is cited and explicitly classified; retrieval is
+- [x] Every knowledge result is cited and explicitly classified; retrieval is
       never silently canonical truth.
-- [ ] Connection UI reports durable scope/health/reconnect/revoke state without
+- [x] Connection UI reports durable scope/health/reconnect/revoke state without
       synchronous provider fan-out.
-- [ ] A direct provider event has a durable deterministic receipt before domain
+- [x] A direct provider event has a durable deterministic receipt before domain
       application/acknowledgement; a cursor-only push has a deterministic
       durable fetch task before acknowledgement and per-message receipts before
       domain application.
-- [ ] Duplicate/redelivered events create one effect and at most one wake.
-- [ ] Heuristic subject/name matching cannot mutate an application.
-- [ ] Ambiguous/unmatched events enter a durable founder inbox and never a
+- [x] Duplicate/redelivered events create one effect and at most one wake.
+- [x] Heuristic subject/name matching cannot mutate an application.
+- [x] Ambiguous/unmatched events enter a durable founder inbox and never a
       guessed active session.
-- [ ] Email/Calendar/Drive external effects have PREPARED → terminal receipts,
+- [x] Email/Calendar/Drive external effects have PREPARED → terminal receipts,
       exact approvals where required, and UNCERTAIN reconciliation.
-- [ ] No secret, raw provider body, approval token, document body, form value,
+- [x] No secret, raw provider body, approval token, document body, form value,
       or signed URL appears in logs, audit, metrics, search, or inbox metadata.
-- [ ] Disconnect calls the provider's revocation endpoint and reports UNCERTAIN
+- [x] Disconnect calls the provider's revocation endpoint and reports UNCERTAIN
       when the outcome is unknown; if v1 ships the local-access-only interim,
       the UI says so in those words and never claims revocation (§10). Either
       way it is idempotent and preserves historical business evidence.
-- [ ] WI-0 shipped and is verified independently of the rest: neither Drive path
+- [x] WI-0 shipped and is verified independently of the rest: neither Drive path
       reads an unselected file or skips byte validation; neither mailbox marks a
       message processed before its domain effect commits; a follow-up append is
       transactional and refuses a duplicate `external_event_id`; and an email or
       Calendar call whose payload differs from the granted approval is refused
       rather than substituted.
-- [ ] Migration is dry-run-first, idempotent, dual-read compatible, and has a
+- [x] Migration is dry-run-first, idempotent, dual-read compatible, and has a
       tested rollback.
-- [ ] Full existing and new test suites pass.
-- [ ] `CompanyKnowledgeProvider` remains deferred until a second provider
+- [x] Full existing and new test suites pass.
+- [x] `CompanyKnowledgeProvider` remains deferred until a second provider
       satisfies §12 gates.
 
 ## 22. Explicit review decisions required
