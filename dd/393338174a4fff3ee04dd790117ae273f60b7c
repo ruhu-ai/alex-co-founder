@@ -1,0 +1,30 @@
+scripts/deploy.sh
+  s_0d88913a591014::t_5624c1835cf9f7 74-86
+tests/unit/test_deploy_firestore_indexes.py
+  s_0d88913a591014::t_995c17d1b8dd4e 97-99
+docs/24-data-source-reliability.md
+  s_0d88913a591014::t_2dd370b426463d 5-6,1315,1322,1324,1326,1328,1332-1334,1336,1338,1340,1344,1350,1352-1353
+docs/verification-notes.md
+  s_0d88913a591014::t_2dd370b426463d 147-160
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "dd393338174a4fff3ee04dd790117ae273f60b7c",
+  "prompts": {},
+  "humans": {
+    "h_137cc690990511": {
+      "author": "Ijidai Lassa <ijidai@cued.app>"
+    }
+  },
+  "sessions": {
+    "s_0d88913a591014": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a024b4-0838-7aa2-b12f-fefddbe84fe4",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Ijidai Lassa <ijidai@cued.app>"
+    }
+  }
+}
