@@ -1,0 +1,136 @@
+{
+  "__comment": "docs/23 §5.6 — composite indexes for session-resource search. Deploy: gcloud firestore indexes composite create per entry, or `firebase deploy --only firestore:indexes` with this file (see docs/13). Search scans order on immutable fields (occurred_at / created_at); recency listings order on updated_at and are single-page.",
+  "indexes": [
+    {
+      "collectionGroup": "session_catalog",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {"fieldPath": "founder_id", "order": "ASCENDING"},
+        {"fieldPath": "status", "order": "ASCENDING"},
+        {"fieldPath": "updated_at", "order": "DESCENDING"}
+      ]
+    },
+    {
+      "collectionGroup": "session_catalog",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {"fieldPath": "founder_id", "order": "ASCENDING"},
+        {"fieldPath": "search_prefixes", "arrayConfig": "CONTAINS"},
+        {"fieldPath": "created_at", "order": "DESCENDING"}
+      ]
+    },
+    {
+      "collectionGroup": "session_resource_links",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {"fieldPath": "founder_id", "order": "ASCENDING"},
+        {"fieldPath": "session_id", "order": "ASCENDING"},
+        {"fieldPath": "occurred_at", "order": "DESCENDING"}
+      ]
+    },
+    {
+      "collectionGroup": "session_resource_links",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {"fieldPath": "founder_id", "order": "ASCENDING"},
+        {"fieldPath": "search_prefixes", "arrayConfig": "CONTAINS"},
+        {"fieldPath": "occurred_at", "order": "DESCENDING"}
+      ]
+    },
+    {
+      "collectionGroup": "session_resource_links",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {"fieldPath": "founder_id", "order": "ASCENDING"},
+        {"fieldPath": "resource_type", "order": "ASCENDING"},
+        {"fieldPath": "search_prefixes", "arrayConfig": "CONTAINS"},
+        {"fieldPath": "occurred_at", "order": "DESCENDING"}
+      ]
+    },
+    {
+      "collectionGroup": "session_resource_links",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {"fieldPath": "founder_id", "order": "ASCENDING"},
+        {"fieldPath": "resource_id", "order": "ASCENDING"},
+        {"fieldPath": "occurred_at", "order": "DESCENDING"}
+      ]
+    },
+    {
+      "collectionGroup": "resource_index",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {"fieldPath": "founder_id", "order": "ASCENDING"},
+        {"fieldPath": "visibility", "order": "ASCENDING"},
+        {"fieldPath": "updated_at", "order": "DESCENDING"}
+      ]
+    },
+    {
+      "collectionGroup": "resource_index",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {"fieldPath": "founder_id", "order": "ASCENDING"},
+        {"fieldPath": "visibility", "order": "ASCENDING"},
+        {"fieldPath": "search_prefixes", "arrayConfig": "CONTAINS"},
+        {"fieldPath": "created_at", "order": "DESCENDING"}
+      ]
+    },
+    {
+      "collectionGroup": "data_connections",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {"fieldPath": "founder_id", "order": "ASCENDING"},
+        {"fieldPath": "connector_id", "order": "ASCENDING"},
+        {"fieldPath": "status", "order": "ASCENDING"},
+        {"fieldPath": "updated_at", "order": "DESCENDING"}
+      ]
+    },
+    {
+      "collectionGroup": "source_grants",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {"fieldPath": "founder_id", "order": "ASCENDING"},
+        {"fieldPath": "connection_id", "order": "ASCENDING"},
+        {"fieldPath": "status", "order": "ASCENDING"},
+        {"fieldPath": "updated_at", "order": "DESCENDING"}
+      ]
+    },
+    {
+      "collectionGroup": "external_events",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {"fieldPath": "founder_id", "order": "ASCENDING"},
+        {"fieldPath": "processing_status", "order": "ASCENDING"},
+        {"fieldPath": "received_at", "order": "ASCENDING"}
+      ]
+    },
+    {
+      "collectionGroup": "external_events",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {"fieldPath": "founder_id", "order": "ASCENDING"},
+        {"fieldPath": "correlation_status", "order": "ASCENDING"},
+        {"fieldPath": "updated_at", "order": "DESCENDING"}
+      ]
+    },
+    {
+      "collectionGroup": "founder_inbox",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {"fieldPath": "founder_id", "order": "ASCENDING"},
+        {"fieldPath": "status", "order": "ASCENDING"},
+        {"fieldPath": "created_at", "order": "DESCENDING"}
+      ]
+    },
+    {
+      "collectionGroup": "external_actions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {"fieldPath": "founder_id", "order": "ASCENDING"},
+        {"fieldPath": "status", "order": "ASCENDING"},
+        {"fieldPath": "updated_at", "order": "DESCENDING"}
+      ]
+    }
+  ],
+  "fieldOverrides": []
+}

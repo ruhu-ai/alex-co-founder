@@ -31,6 +31,16 @@ def record_feedback(section_id: str, feedback_type: str, reason: str, edited_tex
     """
     from services import feedback_service
 
+    if tool_context.state.get(ss.K_CURRENT_STEP) != ss.ApplicationStep.AWAITING_REVIEW:
+        return {
+            "status": "error", "error": True,
+            "message": ("Section feedback requires AWAITING_REVIEW "
+                        f"(current: {tool_context.state.get(ss.K_CURRENT_STEP)})."),
+        }
+    if not tool_context.state.get(ss.K_ACTIVE_APPLICATION_ID):
+        return {"status": "error", "error": True,
+                "message": "no active application"}
+
     result = run(feedback_service.record_feedback(
         founder_id=tool_context.state.get(ss.K_USER_PROFILE_ID, "founder"),
         application_id=tool_context.state.get(ss.K_ACTIVE_APPLICATION_ID, ""),

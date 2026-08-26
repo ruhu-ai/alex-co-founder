@@ -135,6 +135,27 @@ matching would be brittle. The custom metric instead evaluates the observable
 tool result; the response judge separately checks that the founder-facing
 answer clearly reports delivery.
 
+## Eval set 6 — completion-evidence truthfulness
+
+`tests/eval/evalsets/gate_no_effect_claim_without_receipt.json` contains three
+strict zero-tool adversarial cases: a failed application start cannot become a
+draft, a section cannot be called locked without persisted feedback, and an
+attachment notice cannot become invented Founder Profile memory. The same strict
+set now includes QUEUED and NO_TEXT attachments: both require zero retrieval calls
+and an honest processing/OCR explanation. Unit coverage also injects failed
+effect responses and asserts the final-response callback replaces polished
+success prose with the actual blocker.
+
+## Deterministic document-ingestion matrix
+
+`tests/unit/test_document_ingestion.py` is the non-generative evidence layer for
+attachment behavior. It covers valid PDF/DOCX/PPTX/XLSX structure and locators;
+speaker notes and tables; blank scans; legacy formats; MIME spoofing; archive
+traversal and compression bombs; reference-only non-mutation; session isolation;
+quote-to-chunk binding; cited source links; retry exhaustion; and duplicate task
+delivery. These invariants stay in pytest because an LLM judge cannot prove byte
+validation, authorization, idempotency, or profile side effects.
+
 ## Eval set 3 — idle-time resume with context intact
 
 `tests/eval/evalsets/idle_time_resume.json` — pre-seeds state as if days passed
@@ -223,6 +244,17 @@ any non-passing case fail CI. Eval configs ship in-repo as deliberate
 Architecture-criterion evidence. Dev deps: `pytest`, `pytest-asyncio`,
 `nest-asyncio`, `google-adk[eval]`.
 
+**Conversational-discovery adapter matrix:** deterministic tests require an
+exact `/discover` to bypass the chat Runner, preserve both transcript events,
+and forward bounded prose; unknown slash commands and `@attachment` references
+must launch nothing; repeating one opaque request ID executes one sweep; empty
+conversational results still close the loop; empty manual-button posts remain
+compatible and quiet; discovery context never writes the Founder Profile; no
+application exists before explicit selection; and duplicate selection across
+sessions returns one transactionally-created application. These are adapter
+contracts. Phase 2 separately retains compile-level natural-language/command
+equivalence and linked-run acceptance checks.
+
 **Browse-agent fixture suite (post-core, 18):** synthetic Playwright fixture
 server + deterministic injected action proposer + fake clock. Named cases:
 research-policy refusals (submit/`javascript:`/form-POST/non-search typing/
@@ -232,6 +264,20 @@ suspension), bot-challenge freeze (zero actions after detection), budget
 exhaustion (exactly 20 actions, goal-wording cannot reset), action idempotency
 replay, restart reconciliation. Runs as a separate CI job so post-core work
 never blocks core green.
+
+**Browser-runtime hardening suite (post-core, 22):** concurrent single-flight
+launch, cancellation-safe partial cleanup, generation/intent-guarded disconnect,
+launch circuit breaker, two-stage central context leases, context quotas,
+one-foreground arbitration, visible credentialed fill phases, per-kind proxy
+matrix, browse/fill popup and dialog-race containment, page-level download denial
+on every context type, fill Stop plus action-ledger uncertainty and durable
+recovery, all-nonterminal restart reconciliation, renderer/operation deadlines,
+durable expiry generations on the dedicated queue, snapshot-first SSE delivery
+during a pending `/wake`, stream/subscriber cleanup, out-of-order frame rejection,
+upload-before-frame-commit failure injection, bounded-subscriber resync, JPEG/PNG
+artifact and retention contracts, and the static external-launch checker.
+The suite asserts production has exactly one literal `headless=True` launch
+site and no headed/CDP/system-profile/browser-opening path.
 
 **Gemma Evidence Checker suite (post-core, 20):** deterministic contract tests
 run offline with an injected fake backend. A separate explicit live evaluation

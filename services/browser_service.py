@@ -9,10 +9,12 @@ context per fill run. All failures return error dicts.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import hashlib
 import inspect as pyinspect
 import ipaddress
 import json
+import logging
 import os
 import re
 import socket
@@ -23,10 +25,18 @@ from fnmatch import fnmatch
 from typing import Any, TypedDict
 from urllib.parse import parse_qsl, urlencode, urljoin, urlsplit, urlunsplit
 
-from services import firestore, storage
-
-_playwright = None
-_browser = None
+from services import browser_expiry, browser_metrics, firestore, storage
+from services.browser_events import hub as browser_event_hub
+from services.browser_runtime import (
+    BrowserCapacityExceeded,
+    BrowserForegroundBusy,
+    BrowserRuntimeUnavailable,
+    ContextLease,
+    PolicyEventContext,
+)
+from services.browser_runtime import (
+    runtime as browser_runtime,
+)
 
 
 class ActionProposal(TypedDict):
@@ -37,15 +47,88 @@ class ActionProposal(TypedDict):
 
 MAX_BROWSE_ACTIONS = 20
 BROWSE_TIME_BOX_SECONDS = 90
+BROWSE_EXPIRY_SECONDS = 5 * 60
+FILL_EXPIRY_SECONDS = 30 * 60
+
+# Identity of THIS process's browser ownership. Stamped on every run it opens
+# so startup reconciliation can only terminalize runs it actually owned.
+# `browser_generation` cannot serve this role: it is a per-process counter that
+# starts at 0 in every instance. During a rolling deploy two revisions overlap
+# (--max-instances is per revision), and an unfenced sweep would close the other
+# live instance's runs while their credentialed contexts keep executing.
+INSTANCE_ID = f"{os.environ.get('K_REVISION', 'local')}:{uuid.uuid4().hex[:12]}"
 MAX_PAGE_TEXT = 100_000
 _CREDENTIAL_QUERY = re.compile(
-    r"(?:^|[_-])(token|code|key|signature|session|auth|password)(?:$|[_-])",
+    # `otp`/`sessionid` carry the same authority as the delimited spellings, and
+    # `email` is PII that should not sit in a persisted/displayed URL.
+    r"(?:^|[_-])(token|code|key|signature|session|auth|password|otp|email)(?:$|[_-])"
+    r"|^(?:otp|sessionid|apikey)$",
     re.IGNORECASE,
 )
 _SECRET_TEXT = re.compile(
     r"(?:api[_-]?key|access[_-]?token|password|bearer\s+[A-Za-z0-9._~-]{12,})",
     re.IGNORECASE,
 )
+# Every field class whose rendered value would be a credential, a one-time
+# secret, or founder PII. Screenshots are durable evidence, so this errs wide:
+# masking a harmless field costs nothing, exposing an OTP costs everything.
+# Extend via PORTAL_SENSITIVE_SELECTORS for adapter-declared portal fields.
+_SENSITIVE_SELECTORS = (
+    "input[type=password]",
+    "input[type=email]",
+    "input[autocomplete*=one-time-code]",
+    "input[autocomplete*=current-password]",
+    "input[autocomplete*=new-password]",
+    "input[autocomplete*=username]",
+    "input[name*=token i]",
+    "input[name*=code i]",
+    "input[name*=otp i]",
+    "input[name*=passcode i]",
+    "input[name*=secret i]",
+    "input[name*=password i]",
+    "input[name*=email i]",
+    "input[name*=username i]",
+    "input[id*=otp i]",
+    "input[id*=password i]",
+    "textarea[name*=token i]",
+    "textarea[name*=code i]",
+    "textarea[name*=otp i]",
+    "textarea[name*=passcode i]",
+    "textarea[name*=secret i]",
+    "textarea[name*=password i]",
+    "textarea[name*=email i]",
+    "textarea[name*=username i]",
+    "textarea[autocomplete*=one-time-code]",
+    "textarea[autocomplete*=current-password]",
+    "textarea[autocomplete*=new-password]",
+    "textarea[autocomplete*=username]",
+    "[contenteditable][data-sensitive]",
+    "[contenteditable][autocomplete*=one-time-code]",
+    "[contenteditable][autocomplete*=current-password]",
+    "[contenteditable][autocomplete*=new-password]",
+    "[contenteditable][autocomplete*=username]",
+    "[contenteditable][aria-label*=token i]",
+    "[contenteditable][aria-label*=code i]",
+    "[contenteditable][aria-label*=otp i]",
+    "[contenteditable][aria-label*=secret i]",
+    "[contenteditable][aria-label*=password i]",
+    "[contenteditable][aria-label*=email i]",
+    "[contenteditable][aria-label*=username i]",
+)
+
+
+def _sensitive_screenshot_style() -> str:
+    """Build the masking stylesheet, including adapter-declared selectors."""
+    extra = [s.strip() for s in
+             os.environ.get("PORTAL_SENSITIVE_SELECTORS", "").split(",") if s.strip()]
+    selectors = ",".join((*_SENSITIVE_SELECTORS, *extra))
+    return (f"{selectors}{{color:transparent!important;"
+            "background:#777!important;text-shadow:none!important;"
+            "caret-color:transparent!important}")
+
+
+# Import-time snapshot kept for callers/tests that reference the constant.
+_SENSITIVE_SCREENSHOT_STYLE = _sensitive_screenshot_style()
 _INJECTION_PATTERNS = (
     re.compile(r"ignore\s+(all\s+|any\s+)?previous\s+instructions?", re.IGNORECASE),
     re.compile(r"(?:^|\n)\s*(?:system|assistant|developer)\s*:\s*", re.IGNORECASE),
@@ -68,8 +151,33 @@ _reader_fn: ReaderFn | None = None
 _proposer_fn: ProposerFn | None = None
 _resolver_fn: ResolverFn | None = None
 _dialer_fn: DialerFn | None = None
-_browse_contexts: dict[str, dict[str, Any]] = {}
+
+class _RunState(dict[str, Any]):
+    """Policy/extraction state; page/context ownership stays in the supervisor."""
+
+    def __init__(self, run_id: str, **values: Any) -> None:
+        super().__init__(run_id=run_id, **values)
+        self.run_id = run_id
+
+    def __getitem__(self, key: str) -> Any:
+        if key in {"page", "context"}:
+            lease = browser_runtime.lease_for_run(self.run_id)
+            if lease is None:
+                raise KeyError(key)
+            return getattr(lease, key)
+        return super().__getitem__(key)
+
+    def get(self, key: str, default: Any = None) -> Any:
+        if key in {"page", "context"}:
+            lease = browser_runtime.lease_for_run(self.run_id)
+            return getattr(lease, key, default) if lease is not None else default
+        return super().get(key, default)
+
+
+_browse_contexts: dict[str, _RunState] = {}
 _browse_locks: dict[str, asyncio.Lock] = {}
+_close_locks: dict[str, asyncio.Lock] = {}
+_frame_locks: dict[str, asyncio.Lock] = {}
 _session_locks: dict[tuple[str, str, str], asyncio.Lock] = {}
 # Serialize submits sharing a derived idempotency key so two concurrent
 # submit_form calls can never interleave clicks on the same page (docs/05, 09).
@@ -126,6 +234,7 @@ def _error(
         "message": message,
     }
     if reason:
+        result["reason"] = reason
         item = {"reason": reason}
         if route:
             item["route"] = route
@@ -517,24 +626,221 @@ async def public_proxy_url() -> str:
 
 
 async def get_browser():
-    global _playwright, _browser
-    if _browser is None:
-        from playwright.async_api import async_playwright
-
-        # Product invariant: portal automation is rendered only through the
-        # founder-facing in-app Browser panel. There is deliberately no headed
-        # launch option that can escape into an OS browser window.
-        _playwright = await async_playwright().start()
-        _browser = await _playwright.chromium.launch(headless=True)
-    return _browser
+    """Compatibility accessor; process ownership lives in BrowserRuntime."""
+    return await browser_runtime.get_browser()
 
 
-async def new_context():
-    browser = await get_browser()
-    return await browser.new_context()
+async def _popup_blocked(lease: ContextLease, page: Any) -> None:
+    if not lease.run_id:
+        return
+    await firestore.audit(
+        "system:browser_runtime",
+        "browser_popup",
+        f"browser_runs/{lease.run_id}",
+        "refused",
+        json.dumps({"url": redact_url(getattr(page, "url", ""))}),
+    )
+    state = _browse_contexts.get(lease.run_id)
+    if state is not None and browser_runtime.is_current_lease(lease):
+        state["policy_error"] = _error(
+            "popup_blocked" if lease.kind == "browse" else "policy_refused",
+            "a popup or SSO handoff was blocked",
+            reason="popup_or_sso_required",
+        )
+    await _freeze_lease_for_policy(lease, "popup_or_sso_required")
 
 
-async def _credentialed_context(target_url: str):
+async def _freeze_lease_for_policy(
+    lease: ContextLease, reason: str, *, mark_actions: bool = True
+) -> None:
+    """Move a consequential watchdog refusal through the legal state graph."""
+    if not lease.run_id or not browser_runtime.is_current_lease(lease):
+        return
+    run = await firestore.get_browser_run(lease.run_id)
+    if not run or run.get("status") in {"blocked", "stopping", "closed"}:
+        return
+    if run.get("status") == "opening":
+        await capture_frame(lease.run_id, "blocked")
+        await _transition_run(
+            lease.run_id,
+            "active",
+            current_url=redact_url(getattr(lease.page, "url", "")),
+            title=await lease.page.title() if lease.page else "",
+        )
+    if mark_actions:
+        await firestore.mark_prepared_browser_actions_uncertain(lease.run_id, reason)
+    await _transition_run(
+        lease.run_id, "blocked", blocked_reason=reason
+    )
+
+
+async def _dialog_blocked(
+    lease: ContextLease,
+    dialog: Any,
+    event: PolicyEventContext | None = None,
+) -> None:
+    dialog_type = str(getattr(dialog, "type", "unknown"))
+    message = str(getattr(dialog, "message", ""))
+    with contextlib.suppress(Exception):
+        await dialog.dismiss()
+    if not lease.run_id:
+        return
+    await firestore.audit(
+        "system:browser_runtime",
+        "browser_dialog",
+        f"browser_runs/{lease.run_id}",
+        "refused" if dialog_type != "alert" else "success",
+        json.dumps(
+            {
+                "type": dialog_type,
+                "message_length": len(message),
+                "message_sha256": hashlib.sha256(message.encode()).hexdigest(),
+            }
+        ),
+    )
+    if dialog_type != "alert":
+        state = _browse_contexts.get(lease.run_id)
+        if state is not None and browser_runtime.is_current_lease(lease):
+            state["policy_error"] = _error(
+                "dialog_blocked",
+                f"{dialog_type} dialog was dismissed; action outcome is uncertain",
+                reason="A consequential browser dialog requires the founder",
+            )
+        # If SUCCEEDED already won the in-memory once-gate, this is a late
+        # dialog: still freeze the page for the next action, but never rewrite
+        # the completed action's ledger result. Otherwise the dialog won and
+        # PREPARED is terminalized UNCERTAIN exactly once.
+        mark_actions = event is None or event.action_id is None or event.claimed
+        await _freeze_lease_for_policy(
+            lease, f"dialog:{dialog_type}", mark_actions=mark_actions)
+
+
+async def _download_blocked(
+    lease: ContextLease,
+    _download: Any,
+    event: PolicyEventContext | None = None,
+) -> None:
+    if not lease.run_id:
+        return
+    state = _browse_contexts.get(lease.run_id)
+    if state is not None and browser_runtime.is_current_lease(lease):
+        state["policy_error"] = _error(
+            "policy_refused", "downloads are disabled by browser policy"
+        )
+    await firestore.audit(
+        "system:browser_runtime",
+        "browser_download",
+        f"browser_runs/{lease.run_id}",
+        "refused",
+        "download disabled",
+    )
+
+
+def _normalize_host(host: str) -> str:
+    """Lower-case, strip the root-zone trailing dot, and punycode IDNs.
+
+    Without this, `Portal.example.` and the unicode spelling of an IDN both
+    miss an ASCII allowlist entry that should have matched (or, worse, a
+    lookalike passes a naive comparison).
+    """
+    value = (host or "").strip().lower().rstrip(".")
+    if not value:
+        return ""
+    try:
+        return value.encode("idna").decode("ascii")
+    except (UnicodeError, ValueError):
+        return value
+
+
+class _HostAllowlist:
+    """Exact hosts and explicit `*.suffix` wildcards, kept distinct.
+
+    Treating every entry as a suffix wildcard (the earlier bug) silently
+    authorized every subdomain: allowing `portal.example` also allowed
+    `collector.portal.example`, which is exactly the dangling/attacker-owned
+    host a hostile portal page would beacon a typed credential to.
+    """
+
+    __slots__ = ("exact", "wildcards")
+
+    def __init__(self, exact: set[str] | None = None,
+                 wildcards: set[str] | None = None) -> None:
+        self.exact = {_normalize_host(h) for h in (exact or set()) if h}
+        self.wildcards = {_normalize_host(h) for h in (wildcards or set()) if h}
+
+    def allows(self, host: str) -> bool:
+        value = _normalize_host(host)
+        if not value:
+            return False
+        if value in self.exact:
+            return True
+        # A wildcard authorizes strict subdomains AND its own apex.
+        return any(value == item or value.endswith("." + item)
+                   for item in self.wildcards)
+
+    def __bool__(self) -> bool:
+        return bool(self.exact or self.wildcards)
+
+
+def _host_allowed(host: str, allowed: "_HostAllowlist") -> bool:
+    return allowed.allows(host)
+
+
+def _credentialed_allowed_hosts(expected_host: str) -> _HostAllowlist:
+    """Origins a credential-typing context may reach (docs/22 per-kind matrix).
+
+    The portal itself (EXACT — a portal host never implicitly authorizes its
+    subdomains), plus adapter-declared identity-provider/verification origins
+    from PORTAL_ALLOWED_HOSTS. An entry is exact unless it is written with a
+    leading `*.`, which declares a subdomain wildcard. Config-declared, never
+    page-derived: letting the page nominate its own allowed origins would
+    defeat the fence.
+    """
+    exact = {expected_host} if expected_host else set()
+    wildcards: set[str] = set()
+    for item in os.environ.get("PORTAL_ALLOWED_HOSTS", "").split(","):
+        entry = item.strip().lower()
+        if not entry:
+            continue
+        if entry.startswith("*."):
+            wildcards.add(entry[2:])
+        else:
+            exact.add(entry)
+    if not os.environ.get("K_SERVICE"):
+        exact.update({"127.0.0.1", "localhost"})
+    return _HostAllowlist(exact, wildcards)
+
+
+def _credentialed_request_refused(
+    method: str,
+    request_host: str,
+    expected_host: str,
+    allowed_hosts: _HostAllowlist,
+) -> bool:
+    """Return whether interception must deny one credentialed-context request.
+
+    Configured identity/verification origins may receive read-only requests and
+    top-level GET/HEAD redirects. Cross-origin writes remain forbidden: portal
+    credentials are never posted to an IdP merely because its hostname was
+    allowlisted. The explicit host allowlist still governs every subresource,
+    beacon, and navigation.
+    """
+    verb = method.upper()
+    host = _normalize_host(request_host)
+    portal = _normalize_host(expected_host)
+    unsafe_method = verb not in {"GET", "HEAD", "POST", "OPTIONS"}
+    cross_origin_write = verb in {"POST", "OPTIONS"} and host != portal
+    return unsafe_method or cross_origin_write or not allowed_hosts.allows(host)
+
+
+async def _credentialed_context(
+    target_url: str,
+    *,
+    run_id: str,
+    session_key: dict[str, str],
+    application_id: str,
+    phase: str,
+) -> ContextLease:
     """Browser context for the CREDENTIALED paths (register / open_and_login /
     verify link).
 
@@ -547,51 +853,138 @@ async def _credentialed_context(target_url: str):
     carries the login POST). The loopback mock portal in local dev keeps a
     direct context — the proxy's private/reserved-IP fence would refuse it."""
     host = (urlsplit(target_url).hostname or "").lower()
-    if not os.environ.get("K_SERVICE") and host in ("127.0.0.1", "localhost"):
-        return await new_context()
-    browser = await get_browser()
-    proxy = await _get_proxy(public=True)
-    return await browser.new_context(
-        accept_downloads=False,
-        proxy={"server": f"http://127.0.0.1:{proxy.port}"},
+    options: dict[str, Any] = {}
+    if os.environ.get("K_SERVICE") or host not in ("127.0.0.1", "localhost"):
+        proxy = await _get_proxy(public=True)
+        options["proxy"] = {"server": f"http://127.0.0.1:{proxy.port}"}
+    identity = (
+        str(session_key.get("app_name") or "co_founder"),
+        str(session_key.get("user_id") or ""),
+        str(session_key.get("session_id") or ""),
+    )
+    expected_host = (urlsplit(target_url).hostname or "").lower()
+
+    allowed_hosts = _credentialed_allowed_hosts(expected_host)
+
+    async def portal_guard(route, request):
+        parts, _message = _url_parts(request.url)
+        method = request.method.upper()
+        request_host = (parts.hostname or "").lower() if parts else ""
+        unsafe = parts is None or _credentialed_request_refused(
+            method, request_host, expected_host, allowed_hosts)
+        # docs/22 per-kind matrix: credentialed contexts reach only the portal
+        # and adapter-declared identity/verification origins. Without this, a
+        # hostile portal page could read the password Alex just typed and
+        # exfiltrate it with a plain cross-origin GET beacon (<img src=...>),
+        # which the method/navigation checks above all permit.
+        if unsafe:
+            await route.abort("blockedbyclient")
+            return
+        if not (
+            not os.environ.get("K_SERVICE")
+            and request_host in {"127.0.0.1", "localhost"}
+        ):
+            refusal = await validate_public_url(request.url)
+            if refusal:
+                await route.abort("blockedbyclient")
+                return
+        await route.continue_()
+
+    return await browser_runtime.acquire_context(
+        kind="fill",
+        run_id=run_id,
+        session_key=identity,
+        application_id=application_id,
+        phase=phase,
+        context_options=options,
+        route_handler=portal_guard,
+        on_popup=_popup_blocked,
+        on_dialog=_dialog_blocked,
+        on_download=_download_blocked,
     )
 
 
-def page_signature(field_names: list[str]) -> str:
-    """The staleness signature: a hash of the form's field names (docs/09)."""
+def page_signature(fields: list[dict[str, Any]] | list[str]) -> str:
+    """The staleness/portal-state signature (docs/09, 22).
+
+    Covers name AND type, label, and required-state. Hashing names alone let a
+    portal change a field's MEANING — a text box becoming a file upload, an
+    optional field becoming mandatory, a relabelled question — without moving
+    the signature, so the staleness fence passed and, worse, a founder's submit
+    approval bound to that signature still matched a materially different form.
+
+    Accepts a plain name list for legacy callers; those keep the weaker,
+    name-only signature by construction.
+    """
+    parts: list[str] = []
+    for field in fields:
+        if isinstance(field, str):
+            parts.append(field)
+            continue
+        parts.append("\x1f".join((
+            str(field.get("name", "")),
+            str(field.get("type", "")),
+            " ".join(str(field.get("label", "")).split()).lower(),
+            "req" if field.get("required") else "opt",
+        )))
     return (
         "sha256:"
-        + hashlib.sha256("|".join(sorted(field_names)).encode()).hexdigest()[:16]
+        + hashlib.sha256("|".join(sorted(parts)).encode()).hexdigest()[:16]
     )
+
+
+def _page_policy_error(page: Any) -> dict[str, Any] | None:
+    for state in _browse_contexts.values():
+        if state.get("page") is page and state.get("policy_error"):
+            return state["policy_error"]
+    return None
 
 
 async def render_text(url: str) -> str | None:
     """SSRF-guarded JS-shell fallback for the scout (docs/08)."""
     if await validate_public_url(url):
         return None
-    browser = await get_browser()
     proxy = await _get_proxy(public=True)
-    context = await browser.new_context(
-        accept_downloads=False,
-        proxy={"server": f"http://127.0.0.1:{proxy.port}"},
-    )
+    lease: ContextLease | None = None
+    policy_state = {"run_id": "discovery-render", "policy_error": None}
+    # docs/22 per-kind matrix: render is public-read but scoped to the source
+    # being rendered. Subresources may load from that host (and its subdomains);
+    # anything else is refused, so a hostile discovery page cannot use the
+    # renderer as a general-purpose fetcher.
+    render_host = (urlsplit(url).hostname or "").lower()
+    # Wildcard on the source's own domain: a read-only render legitimately
+    # pulls scripts/styles from sibling subdomains, and this context types no
+    # credentials, so the risk profile differs from the credentialed fence.
+    # Everything off that domain is still refused.
+    render_hosts = _HostAllowlist(wildcards={render_host} if render_host else set())
+
+    async def guard(route, request):
+        request_parts, _message = _url_parts(request.url)
+        request_host = (request_parts.hostname or "").lower() if request_parts else ""
+        if not _host_allowed(request_host, render_hosts):
+            await route.abort("blockedbyclient")
+            return
+        await _request_guard(
+            route, request, policy_state, enforce_domain_policy=False
+        )
+
     try:
-        page = await context.new_page()
-        runtime = {"run_id": "discovery-render", "policy_error": None}
-
-        async def guard(route, request):
-            await _request_guard(
-                route, request, runtime, enforce_domain_policy=False)
-
-        await context.route("**/*", guard)
-        await page.goto(url, timeout=30000, wait_until="networkidle")
-        if runtime.get("policy_error"):
+        lease = await browser_runtime.acquire_context(
+            kind="render",
+            run_id=None,
+            session_key=None,
+            context_options={"proxy": {"server": f"http://127.0.0.1:{proxy.port}"}},
+            route_handler=guard,
+        )
+        await lease.page.goto(url, timeout=30000, wait_until="networkidle")
+        if policy_state.get("policy_error"):
             return None
-        return (await page.inner_text("body"))[:MAX_PAGE_TEXT]
+        return (await lease.page.inner_text("body"))[:MAX_PAGE_TEXT]
     except Exception:
         return None
     finally:
-        await context.close()
+        if lease is not None:
+            await browser_runtime.close_context_lease(lease)
 
 
 async def inspect(page) -> dict:
@@ -613,7 +1006,7 @@ async def inspect(page) -> dict:
     return {
         "status": "success",
         "fields": fields,
-        "signature": page_signature([f["name"] for f in fields]),
+        "signature": page_signature(fields),
     }
 
 
@@ -628,24 +1021,31 @@ async def fill(page, mapping: dict[str, str], attachments: dict[str, str]) -> di
             )
             if field_type == "file":
                 if name in attachments:
-                    await page.set_input_files(f"[name='{name}']", attachments[name])
+                    await page.set_input_files(
+                        f"[name='{name}']", attachments[name], timeout=10_000
+                    )
                     filled.append(name)
                 else:
                     needs_human.append(
                         {"field": name, "reason": "file upload — choose the file"}
                     )
             elif field_type == "select":
-                await page.select_option(f"[name='{name}']", label=value)
+                await page.select_option(
+                    f"[name='{name}']", label=value, timeout=10_000
+                )
                 filled.append(name)
             elif field_type in ("checkbox", "radio"):
                 needs_human.append(
                     {"field": name, "reason": f"{field_type} needs founder judgment"}
                 )
             else:
-                await page.fill(f"[name='{name}']", value)
+                await page.fill(f"[name='{name}']", value, timeout=10_000)
                 filled.append(name)
         except Exception:
             needs_human.append({"field": name, "reason": "not found or not fillable"})
+        policy_error = _page_policy_error(page)
+        if policy_error:
+            return policy_error
     return {
         "status": "success",
         "filled": len(filled),
@@ -655,7 +1055,23 @@ async def fill(page, mapping: dict[str, str], attachments: dict[str, str]) -> di
 
 
 async def screenshot(page, path: str) -> str:
-    await page.screenshot(path=path, full_page=True)
+    """Full-page evidence capture with sensitive fields masked, mirrored durably.
+
+    Fill/recon shots land on the application-artifact lifecycle (not the 7-day
+    frame expiry) and become the RunView preview, so they must carry the same
+    redaction as live frames — an adapter-declared sensitive field on a portal
+    form would otherwise be captured in the clear.
+
+    The bytes go through `storage.save_bytes`, which mirrors to GCS. Writing
+    Playwright's output straight to a local path left the durable fill report
+    referencing an artifact that vanished with the instance's filesystem.
+    """
+    shot = await asyncio.wait_for(
+        page.screenshot(full_page=True, style=_sensitive_screenshot_style()),
+        timeout=5,
+    )
+    name = os.path.basename(path)
+    await asyncio.to_thread(storage.save_bytes, name, shot)
     return path
 
 
@@ -737,7 +1153,7 @@ async def submit(page, idempotency_key: str,
             if prior and await page.query_selector(submit_selector) is None:
                 return {"status": "success", "confirmation_id": prior[:120]}
             try:
-                await page.click(submit_selector)
+                await page.click(submit_selector, timeout=10_000)
             except Exception as exc:
                 # The click never fired — nothing was submitted; safe to retry.
                 return {"status": "error", "error": True,
@@ -751,6 +1167,9 @@ async def submit(page, idempotency_key: str,
                 await page.wait_for_load_state("networkidle", timeout=15000)
             except Exception:
                 pass
+            policy_error = _page_policy_error(page)
+            if policy_error:
+                return policy_error
             # Give a slow receipt time to render before concluding failure, so a
             # successful-but-slow POST is reconciled here rather than reported as
             # a failure the caller has to retry.
@@ -760,6 +1179,9 @@ async def submit(page, idempotency_key: str,
                     timeout=10000)
             except Exception:
                 pass
+            policy_error = _page_policy_error(page)
+            if policy_error:
+                return policy_error
             return await _read_submit_confirmation(page)
     finally:
         # Drop our lock entry once nothing else holds or awaits it, so the map
@@ -793,7 +1215,141 @@ async def _validate_portal_target(url: str) -> dict | None:
     return None
 
 
-async def register(portal_url: str, email: str, password: str) -> dict:
+async def _start_fill_context(
+    portal_url: str,
+    *,
+    session_key: dict[str, str],
+    application_id: str,
+    goal: str,
+    phase: str,
+) -> tuple[str, _RunState, ContextLease]:
+    """Create/project a durable fill run before credentialed page creation."""
+    app_name = str(session_key.get("app_name") or "co_founder")
+    user_id = str(session_key.get("user_id") or "")
+    session_id = str(session_key.get("session_id") or "")
+    if not user_id or not session_id or not application_id:
+        raise ValueError("fill browser work requires session and application identity")
+    identity = {"app_name": app_name, "user_id": user_id, "session_id": session_id}
+    browse = await current_run_for_session(identity, "browse")
+    if browse:
+        await close_run(
+            browse["run_id"], "superseded_by_fill", "agent:form_filler"
+        )
+    prior_fill = await current_run_for_session(identity, "fill")
+    if prior_fill:
+        await close_run(prior_fill["run_id"], "superseded", "agent:form_filler")
+
+    run_id = uuid.uuid4().hex
+    now = _now()
+    await firestore.create_browser_run(
+        {
+            "run_id": run_id,
+            "app_name": app_name,
+            "user_id": user_id,
+            "session_id": session_id,
+            "kind": "fill",
+            "application_id": application_id,
+            "phase": phase,
+            "goal": " ".join(goal.split())[:200],
+            "status": "opening",
+            "close_reason": None,
+            "current_url": redact_url(portal_url),
+            "title": None,
+            "last_action": None,
+            "screenshot_artifact": None,
+            "action_count": 0,
+            "started_at": now.isoformat(),
+            "deadline_at": (now + timedelta(minutes=30)).isoformat(),
+            "version": 1,
+            "frame_seq": 0,
+            "browser_generation": browser_runtime.generation,
+            "owner_instance": INSTANCE_ID,
+            "lease_generation": 1,
+            "expires_at": (now + timedelta(minutes=30)).isoformat(),
+            "blocked_reason": None,
+            "created_at": now.isoformat(),
+            "updated_at": now.isoformat(),
+        }
+    )
+    await _register_browser_resource(
+        founder_id=user_id, session_id=session_id, run_id=run_id, kind="fill",
+        goal=goal, application_id=application_id)
+    created = await firestore.get_browser_run(run_id)
+    if created:
+        await _publish_browser_event(
+            created, "browser.started", run=_run_view(created), version=1
+        )
+        scheduled = await _schedule_run_expiry(created)
+        if scheduled.get("status") != "success":
+            # Fail closed: a fill context that no durable task can reclaim would
+            # hold credentialed browser ownership until this instance restarts.
+            await close_run(run_id, "error", "system:browser")
+            raise BrowserRuntimeUnavailable(
+                "durable browser expiry could not be scheduled",
+                reason="expiry_unscheduled",
+            )
+    state = _RunState(
+        run_id,
+        dom_hash="",
+        text="",
+        links=[],
+        artifact=None,
+        injection_suspected=False,
+        policy_error=None,
+        bot_captured=False,
+        signature=None,
+    )
+    _browse_contexts[run_id] = state
+    try:
+        lease = await _credentialed_context(
+            portal_url,
+            run_id=run_id,
+            session_key=identity,
+            application_id=application_id,
+            phase=phase,
+        )
+        await firestore.update_browser_run(
+            run_id, browser_generation=lease.browser_generation
+        )
+        return run_id, state, lease
+    except BaseException:
+        _browse_contexts.pop(run_id, None)
+        await _transition_run(
+            run_id, "closed", "browser.closed", owner_loss=True,
+            close_reason="error"
+        )
+        raise
+
+
+async def _activate_fill_run(run_id: str, phase: str) -> str | None:
+    state = _browse_contexts.get(run_id)
+    if state is None:
+        return None
+    artifact = await save_pageshot(run_id, 0, "nav")
+    await browser_runtime.set_phase(run_id, phase)
+    promoted = await _transition_run(
+        run_id, "active",
+        phase=phase,
+        current_url=redact_url(state["page"].url),
+        title=await state["page"].title(),
+    )
+    if not promoted.get("ok"):
+        # Closed underneath the bootstrap: release the context rather than
+        # returning a live portal page attached to a terminal run.
+        await close_run(run_id, "superseded", "system:browser")
+        return None
+    await renew_run_expiry(run_id)
+    return artifact
+
+
+async def register(
+    portal_url: str,
+    email: str,
+    password: str,
+    *,
+    session_key: dict[str, str],
+    application_id: str,
+) -> dict:
     """Open a portal's signup page and create an account (docs/17).
 
     Heuristic, email+password only: finds the email + password fields on a
@@ -802,9 +1358,31 @@ async def register(portal_url: str, email: str, password: str) -> dict:
     refusal = await _validate_portal_target(portal_url)
     if refusal:
         return refusal
-    context = await _credentialed_context(portal_url)
     try:
-        page = await context.new_page()
+        run_id, _state, lease = await _start_fill_context(
+            portal_url,
+            session_key=session_key,
+            application_id=application_id,
+            goal=f"register portal account for application {application_id}",
+            phase="authenticating",
+        )
+    except BrowserCapacityExceeded as exc:
+        return _error("capacity_exceeded", str(exc))
+    except BrowserForegroundBusy as exc:
+        return _error("browser_busy", str(exc))
+    except BrowserRuntimeUnavailable as exc:
+        return _error(
+            "browser_unavailable",
+            "browser runtime unavailable",
+            reason=exc.reason,
+        )
+    except Exception as exc:
+        return _error(
+            "browser_unavailable", f"browser setup failed: {exc}"[:300],
+            reason="launch_failed"
+        )
+    context, page = lease.context, lease.page
+    try:
         base = portal_url.rstrip("/")
         found = False
         for candidate in (
@@ -824,7 +1402,7 @@ async def register(portal_url: str, email: str, password: str) -> dict:
         body = (await page.inner_text("body"))[:800] if page.url else ""
         lowered = body.lower()
         if any(s in lowered for s in ("captcha", "verify you are human", "cloudflare")):
-            await context.close()
+            await close_run(run_id, "bot_challenge", "agent:form_filler")
             return {
                 "status": "blocked",
                 "error": True,
@@ -832,7 +1410,7 @@ async def register(portal_url: str, email: str, password: str) -> dict:
                 "to the founder; Alex never solves CAPTCHAs (docs/17)",
             }
         if not found:
-            await context.close()
+            await close_run(run_id, "error", "agent:form_filler")
             return {
                 "status": "blocked",
                 "error": True,
@@ -845,23 +1423,36 @@ async def register(portal_url: str, email: str, password: str) -> dict:
         expected_host = (urlsplit(portal_url).hostname or "").lower()
         landed_host = (urlsplit(page.url).hostname or "").lower()
         if landed_host != expected_host:
-            await context.close()
+            await close_run(run_id, "error", "agent:form_filler")
             return {"status": "blocked", "error": True,
                     "message": f"signup page is on {landed_host!r}, not the portal "
                                f"{expected_host!r} — credentials withheld; hand this "
                                "portal to the founder"}
         email_sel = "input[type='email'], [name='email'], [name='username']"
-        await page.fill(email_sel, email)
+        await page.fill(email_sel, email, timeout=10_000)
         pw_fields = await page.query_selector_all("input[type='password']")
-        await pw_fields[0].fill(password)
+        await pw_fields[0].fill(password, timeout=10_000)
         if len(pw_fields) > 1:  # confirm-password field
-            await pw_fields[1].fill(password)
-        await page.click("button[type='submit'], input[type='submit']")
+            await pw_fields[1].fill(password, timeout=10_000)
+        await page.click(
+            "button[type='submit'], input[type='submit']", timeout=10_000
+        )
         await page.wait_for_load_state("networkidle", timeout=15000)
+        policy_error = _page_policy_error(page)
+        if policy_error:
+            return policy_error
         body = (await page.inner_text("body"))[:800]
-        return {"status": "success", "context": context, "page": page, "body": body}
+        artifact = await _activate_fill_run(run_id, "verifying")
+        return {
+            "status": "success",
+            "run_id": run_id,
+            "context": context,
+            "page": page,
+            "body": body,
+            "screenshot_artifact": artifact,
+        }
     except Exception as exc:
-        await context.close()
+        await close_run(run_id, "error", "agent:form_filler")
         return {
             "status": "error",
             "error": True,
@@ -869,7 +1460,13 @@ async def register(portal_url: str, email: str, password: str) -> dict:
         }
 
 
-async def verify_registration_link(url: str, expected_host: str) -> dict:
+async def verify_registration_link(
+    url: str,
+    expected_host: str,
+    *,
+    session_key: dict[str, str],
+    application_id: str,
+) -> dict:
     """Open one emailed verification link, constrained to the approved host."""
     parts, message = _url_parts(url)
     if parts is None:
@@ -885,10 +1482,25 @@ async def verify_registration_link(url: str, expected_host: str) -> dict:
     local_dev = not os.environ.get("K_SERVICE") and host in ("127.0.0.1", "localhost")
     if (not local_dev) and (not ips or any(_unsafe_ip(ip) for ip in ips)):
         return _error("ssrf_blocked", "verification host resolves to a private address")
-    context = await _credentialed_context(url)
     try:
-        page = await context.new_page()
-
+        run_id, _state, lease = await _start_fill_context(
+            url,
+            session_key=session_key,
+            application_id=application_id,
+            goal=f"verify portal account for application {application_id}",
+            phase="verifying",
+        )
+    except BrowserCapacityExceeded as exc:
+        return _error("capacity_exceeded", str(exc))
+    except BrowserForegroundBusy as exc:
+        return _error("browser_busy", str(exc))
+    except BrowserRuntimeUnavailable as exc:
+        return _error(
+            "browser_unavailable", "browser runtime unavailable",
+            reason=exc.reason,
+        )
+    context, page = lease.context, lease.page
+    try:
         async def same_origin_get_only(route, request):
             request_parts, _ = _url_parts(request.url)
             if (request.method.upper() not in ("GET", "HEAD")
@@ -900,6 +1512,7 @@ async def verify_registration_link(url: str, expected_host: str) -> dict:
 
         await context.route("**/*", same_origin_get_only)
         await page.goto(url, timeout=30000, wait_until="networkidle")
+        await _activate_fill_run(run_id, "verifying")
         body = (await page.inner_text("body"))[:800]
         if any(word in body.lower() for word in ("not valid", "expired", "error")):
             return _error("verification_failed", "portal rejected the verification link")
@@ -907,18 +1520,46 @@ async def verify_registration_link(url: str, expected_host: str) -> dict:
     except Exception as exc:
         return _error("verification_failed", f"verification failed: {exc}"[:300])
     finally:
-        await context.close()
+        await close_run(run_id, "agent_close", "agent:form_filler")
 
 
-async def open_and_login(portal_url: str, username: str, password: str) -> dict:
+async def open_and_login(
+    portal_url: str,
+    username: str,
+    password: str,
+    *,
+    session_key: dict[str, str],
+    application_id: str,
+) -> dict:
     """Open the portal and log in. Returns the live page on success."""
     refusal = await _validate_portal_target(portal_url)
     if refusal:
         return refusal
     expected_host = (urlsplit(portal_url).hostname or "").lower()
-    context = await _credentialed_context(portal_url)
     try:
-        page = await context.new_page()
+        run_id, _state, lease = await _start_fill_context(
+            portal_url,
+            session_key=session_key,
+            application_id=application_id,
+            goal=f"fill application {application_id}",
+            phase="authenticating",
+        )
+    except BrowserCapacityExceeded as exc:
+        return _error("capacity_exceeded", str(exc))
+    except BrowserForegroundBusy as exc:
+        return _error("browser_busy", str(exc))
+    except BrowserRuntimeUnavailable as exc:
+        return _error(
+            "browser_unavailable", "browser runtime unavailable",
+            reason=exc.reason,
+        )
+    except Exception as exc:
+        return _error(
+            "browser_unavailable", f"browser setup failed: {exc}"[:300],
+            reason="launch_failed"
+        )
+    context, page = lease.context, lease.page
+    try:
         await page.goto(portal_url, timeout=30000)
         if not await page.query_selector("input[type='password']"):
             # landing page isn't the login page — try the conventional path
@@ -928,27 +1569,35 @@ async def open_and_login(portal_url: str, username: str, password: str) -> dict:
             # with the portal credential typed into a different origin.
             landed_host = (urlsplit(page.url).hostname or "").lower()
             if landed_host != expected_host:
-                await context.close()
+                await close_run(run_id, "error", "agent:form_filler")
                 return {"status": "blocked", "error": True,
                         "message": f"login page is on {landed_host!r}, not the "
                                    f"portal {expected_host!r} — credentials "
                                    "withheld; hand this portal to the founder"}
-            await page.fill("[name='username'], [name='email']", username)
-            await page.fill("[name='password']", password)
-            await page.click("button[type='submit']")
+            await page.fill(
+                "[name='username'], [name='email']", username, timeout=10_000
+            )
+            await page.fill("[name='password']", password, timeout=10_000)
+            await page.click("button[type='submit']", timeout=10_000)
             await page.wait_for_load_state("networkidle", timeout=15000)
             await page.goto(
                 portal_url, timeout=30000
             )  # login redirects home; go to the form
             await page.wait_for_load_state("networkidle", timeout=15000)
+        policy_error = _page_policy_error(page)
+        if policy_error:
+            return policy_error
+        artifact = await _activate_fill_run(run_id, "filling")
         return {
             "status": "success",
+            "run_id": run_id,
             "context": context,
             "page": page,
             "title": await page.title(),
+            "screenshot_artifact": artifact,
         }
     except Exception as exc:
-        await context.close()
+        await close_run(run_id, "error", "agent:form_filler")
         return {
             "status": "error",
             "error": True,
@@ -1001,45 +1650,45 @@ async def _request_guard(route, request, runtime: dict[str, Any],
     await route.continue_()
 
 
-async def _new_browse_context(run_id: str) -> dict[str, Any]:
-    browser = await get_browser()
+async def _new_browse_context(
+    run_id: str, session_key: dict[str, str]
+) -> dict[str, Any]:
     proxy = await _get_proxy()
-    context = await browser.new_context(
-        accept_downloads=False,
-        proxy={"server": f"http://127.0.0.1:{proxy.port}"},
+    runtime = _RunState(
+        run_id,
+        dom_hash="",
+        text="",
+        links=[],
+        artifact=None,
+        injection_suspected=False,
+        policy_error=None,
+        bot_captured=False,
     )
-    runtime: dict[str, Any] = {
-        "run_id": run_id,
-        "context": context,
-        "page": None,
-        "dom_hash": "",
-        "text": "",
-        "links": [],
-        "artifact": None,
-        "injection_suspected": False,
-        "policy_error": None,
-        "bot_captured": False,
-    }
+    _browse_contexts[run_id] = runtime
 
     async def guard(route, request):
         await _request_guard(route, request, runtime)
 
-    await context.route("**/*", guard)
-
-    async def close_popup(page):
-        if runtime.get("page") is not None and page is not runtime.get("page"):
-            await page.close()
-
-    context.on("page", close_popup)
-    page = await context.new_page()
-    runtime["page"] = page
-
-    async def cancel_download(download):
-        await download.cancel()
-
-    page.on("download", cancel_download)
-    _browse_contexts[run_id] = runtime
-    return runtime
+    identity = (
+        str(session_key.get("app_name") or "co_founder"),
+        str(session_key.get("user_id") or ""),
+        str(session_key.get("session_id") or ""),
+    )
+    try:
+        await browser_runtime.acquire_context(
+            kind="browse",
+            run_id=run_id,
+            session_key=identity,
+            context_options={"proxy": {"server": f"http://127.0.0.1:{proxy.port}"}},
+            route_handler=guard,
+            on_popup=_popup_blocked,
+            on_dialog=_dialog_blocked,
+            on_download=_download_blocked,
+        )
+        return runtime
+    except BaseException:
+        _browse_contexts.pop(run_id, None)
+        raise
 
 
 async def extract_page_text(page) -> dict:
@@ -1128,19 +1777,282 @@ async def detect_bot_challenge(page) -> dict | None:
     return evidence if evidence.get("captcha") or evidence.get("wording") else None
 
 
-async def save_pageshot(run_id: str, seq: int, tag: str) -> str:
-    if tag not in {"before", "after", "nav", "blocked"}:
-        raise ValueError("invalid pageshot tag")
-    runtime = _browse_contexts.get(run_id)
-    if not runtime:
+def _event_session_key(run: dict[str, Any]) -> tuple[str, str, str]:
+    return (
+        str(run.get("app_name") or "co_founder"),
+        str(run.get("user_id") or ""),
+        str(run.get("session_id") or ""),
+    )
+
+
+async def _publish_browser_event(
+    record: dict[str, Any], event_type: str, **payload: Any
+) -> None:
+    await browser_event_hub.publish(
+        _event_session_key(record),
+        {
+            "type": event_type,
+            "run_id": record.get("run_id"),
+            "version": int(payload.get("version", record.get("version", 0))),
+            **payload,
+        },
+    )
+
+
+async def _mutate_run_view(run_id: str, **fields: Any) -> dict[str, Any]:
+    """Commit a UI-visible field change (version++) and publish the new view.
+
+    docs/22 requires `version` to increment on every UI-visible mutation. These
+    fields previously used the non-bumping accessor, so the durable row could
+    stay permanently newer than the last published version — the final
+    `last_action` of a run was never delivered live at all.
+    """
+    result = await firestore.mutate_browser_run_view(run_id, **fields)
+    if result.get("ok"):
+        await _publish_browser_event(
+            result,
+            "browser.status",
+            run=_run_view(result),
+            status=result.get("status"),
+            version=int(result.get("version", 0)),
+        )
+    return result
+
+
+async def _transition_run(
+    run_id: str,
+    status: str,
+    event_type: str = "browser.status",
+    *,
+    owner_loss: bool = False,
+    **fields: Any,
+) -> dict[str, Any]:
+    """Commit a legal lifecycle edge before emitting its ephemeral hint."""
+    result = await firestore.transition_browser_run(
+        run_id, status, owner_loss=owner_loss, **fields
+    )
+    if result.get("ok") and not result.get("idempotent"):
+        await _publish_browser_event(
+            result,
+            event_type,
+            run=_run_view(result),
+            status=result.get("status"),
+            version=int(result.get("version", 0)),
+        )
+    elif not result.get("ok"):
+        # Only genuinely ILLEGAL edges are audited as refused. An idempotent
+        # no-op (active→active on a reused run) is normal and was polluting the
+        # exact signal this row exists to make searchable.
+        await firestore.audit(
+            "system:browser",
+            "browser_transition",
+            f"browser_runs/{run_id}",
+            "refused",
+            json.dumps({"from": result.get("from"), "to": status}),
+        )
+    return result
+
+
+async def _schedule_run_expiry(run: dict[str, Any]) -> dict[str, Any]:
+    """Schedule durable expiry; the caller MUST honour a failure.
+
+    Ignoring an enqueue error let a run go live with no durable expiry task.
+    Startup reconciliation is not periodic and skips foreign runs whose lease
+    has not lapsed, so such a run could hold a credentialed context until the
+    next restart of its own instance — effectively forever on a warm service.
+    """
+    expires_at = str(run.get("expires_at") or "")
+    if not expires_at:
+        return {"status": "error", "error": True, "message": "run has no expiry"}
+    result = await browser_expiry.schedule(
+        str(run["run_id"]),
+        int(run.get("lease_generation", 1)),
+        expires_at,
+        expire_run,
+    )
+    if isinstance(result, dict) and (
+            result.get("error") or result.get("status") == "error"):
+        browser_metrics.record("browser_expiry_schedule_failure")
+        return result
+    return {"status": "success"}
+
+
+async def renew_run_expiry(run_id: str) -> dict[str, Any] | None:
+    """Renew retention only after successful browser use; old tasks no-op."""
+    run = await firestore.get_browser_run(run_id)
+    if not run or run.get("status") not in {"opening", "active", "blocked"}:
+        return None
+    seconds = FILL_EXPIRY_SECONDS if run.get("kind") == "fill" else BROWSE_EXPIRY_SECONDS
+    expires_at = (_now() + timedelta(seconds=seconds)).isoformat()
+    # Enqueue BEFORE publishing the new generation. If enqueue fails, durable
+    # state remains on the old generation and its existing Cloud Task remains
+    # effective. Publishing first and rolling back creates an ABA hazard: an
+    # ambiguously-created generation N+1 task could later match a reused N+1.
+    prior_generation = int(run.get("lease_generation", 0))
+    generation = prior_generation + 1
+    refreshed = {**run, "lease_generation": generation, "expires_at": expires_at}
+    scheduled = await _schedule_run_expiry(refreshed)
+    if scheduled.get("status") != "success":
+        await firestore.audit(
+            "system:browser",
+            "browser_expiry_renew",
+            f"browser_runs/{run_id}",
+            "error",
+            "new expiry task enqueue failed; previous durable lease remains current",
+        )
+        return {**run, "expiry_renewed": False, "expiry_schedule_error": True}
+    # CAS after enqueue. A concurrent winner makes this task stale (or shares
+    # the same generation); expire_run also checks durable expires_at before
+    # closing, so an earlier duplicate cannot shorten a newer lease.
+    renewed = await firestore.renew_browser_lease(
+        run_id,
+        expires_at,
+        expected_generation=prior_generation,
+        lease_generation=generation,
+    )
+    if not renewed.get("ok"):
+        return await firestore.get_browser_run(run_id)
+    return {**refreshed, "expiry_renewed": True}
+
+
+async def expire_run(run_id: str, lease_generation: int) -> dict:
+    """Cloud Task/local timer handler; body identity is never trusted."""
+    run = await firestore.get_browser_run(run_id)
+    if not run or run.get("status") == "closed":
+        return {"status": "success", "already_closed": True}
+    if int(run.get("lease_generation", 0)) != int(lease_generation):
+        return {"status": "success", "already_renewed": True}
+    try:
+        expires = datetime.fromisoformat(
+            str(run.get("expires_at")).replace("Z", "+00:00"))
+    except ValueError:  # unparseable/absent expiry is not a licence to close
+        return {"status": "success", "not_due": True, "unparsed_expiry": True}
+    if expires.tzinfo is None:
+        expires = expires.replace(tzinfo=timezone.utc)
+    if expires > _now():
+        return {"status": "success", "not_due": True}
+    # Re-verify the generation INSIDE the close lock: an action that renewed
+    # between the checks above and the close would otherwise have its live,
+    # just-renewed run closed as expired.
+    result = await close_run(
+        run_id, "expired", "system:browser_expiry",
+        require_lease_generation=int(lease_generation),
+    )
+    if result.get("already_renewed"):
+        return {"status": "success", "already_renewed": True}
+    browser_metrics.record("browser_expiry_close", status=result.get("status"))
+    result["error_code"] = "run_expired"
+    return result
+
+
+async def capture_frame(
+    run_id: str,
+    phase: str,
+    action: dict[str, str] | None = None,
+    *,
+    artifact_override: str | None = None,
+) -> str | None:
+    """Upload a bounded JPEG (or reference a milestone), commit, then publish."""
+    if phase not in {"nav", "before", "after", "blocked", "closed"}:
+        raise ValueError("invalid browser frame phase")
+    state = _browse_contexts.get(run_id)
+    if state is None:
         raise RuntimeError("browser context is unavailable")
+    lock = _frame_locks.setdefault(run_id, asyncio.Lock())
+    async with lock:
+        for _attempt in range(2):
+            run = await firestore.get_browser_run(run_id)
+            if not run:
+                return None
+            candidate = int(run.get("frame_seq", 0)) + 1
+            artifact = f"browserframe_{run_id}_{candidate}.jpg"
+            uploaded: str | None = artifact_override
+            try:
+                shot = None if artifact_override else await asyncio.wait_for(
+                    state["page"].screenshot(
+                        type="jpeg", quality=75, full_page=False,
+                        style=_sensitive_screenshot_style(),
+                    ),
+                    timeout=5,
+                )
+                if shot is not None and len(shot) > 500 * 1024:
+                    shot = await asyncio.wait_for(
+                        state["page"].screenshot(
+                            type="jpeg", quality=50, full_page=False,
+                            style=_sensitive_screenshot_style(),
+                        ),
+                        timeout=5,
+                    )
+                if shot is not None and len(shot) <= 500 * 1024:
+                    await asyncio.to_thread(storage.save_bytes, artifact, shot)
+                    uploaded = artifact
+            except Exception:
+                uploaded = None
+            try:
+                frame_title = await asyncio.wait_for(state["page"].title(), timeout=5)
+                frame_url = redact_url(getattr(state["page"], "url", ""))
+            except Exception:
+                frame_title = ""
+                frame_url = str(run.get("current_url") or "")
+            frame = await firestore.commit_browser_frame(
+                run_id,
+                candidate,
+                {
+                    "phase": phase,
+                    "url": frame_url,
+                    "title": frame_title,
+                    "action": action,
+                },
+                uploaded,
+            )
+            if frame.get("conflict"):
+                continue
+            if frame.get("committed"):
+                browser_metrics.record(
+                    "browser_frame_commit", frame_seq=candidate, status=phase
+                )
+                state["artifact"] = uploaded
+                refreshed = await firestore.get_browser_run(run_id) or run
+                await _publish_browser_event(
+                    refreshed, "browser.frame", frame=frame, version=frame["run_version"]
+                )
+                return uploaded
+            return None
+        return None
+
+
+async def save_milestone_pageshot(run_id: str, seq: int, tag: str) -> str | None:
+    """Persist a full-page PNG only for blocked/final evidence milestones."""
+    if tag not in {"blocked", "final"}:
+        raise ValueError("invalid milestone pageshot tag")
+    state = _browse_contexts.get(run_id)
+    if state is None:
+        return None
     artifact = f"pageshot_{run_id}_{seq}_{tag}.png"
-    shot = await runtime["page"].screenshot(full_page=True)
-    # storage.save_bytes mirrors to GCS synchronously (blocking) — offload it.
-    await asyncio.to_thread(storage.save_bytes, artifact, shot)
-    runtime["artifact"] = artifact
-    await firestore.update_browser_run(run_id, screenshot_artifact=artifact)
-    return artifact
+    try:
+        shot = await asyncio.wait_for(
+            state["page"].screenshot(
+                full_page=True, style=_sensitive_screenshot_style()
+            ),
+            timeout=5,
+        )
+        await asyncio.to_thread(storage.save_bytes, artifact, shot)
+        state["artifact"] = artifact
+        await _mutate_run_view(run_id, screenshot_artifact=artifact)
+        return artifact
+    except Exception:
+        return None
+
+
+async def save_pageshot(run_id: str, seq: int, tag: str) -> str | None:
+    """Compatibility adapter while callers migrate to frames/milestones."""
+    if tag == "blocked":
+        artifact = await save_milestone_pageshot(run_id, seq, "blocked")
+        await capture_frame(run_id, "blocked", artifact_override=artifact)
+        return artifact
+    if tag in {"before", "after", "nav"}:
+        return await capture_frame(run_id, tag)
+    raise ValueError("invalid pageshot tag")
 
 
 async def _extract_and_store(run_id: str, seq: int) -> dict:
@@ -1152,7 +2064,7 @@ async def _extract_and_store(run_id: str, seq: int) -> dict:
     runtime.update(extracted)
     runtime["text_artifact"] = artifact
     runtime["injection_suspected"] = scan_injection(extracted["text"])
-    await firestore.update_browser_run(
+    await _mutate_run_view(
         run_id,
         current_url=redact_url(runtime["page"].url),
         title=extracted["title"],
@@ -1162,6 +2074,7 @@ async def _extract_and_store(run_id: str, seq: int) -> dict:
 
 async def _freeze_for_bot(run_id: str, seq: int) -> dict:
     runtime = _browse_contexts[run_id]
+    run = await firestore.get_browser_run(run_id)
     artifact = runtime.get("artifact")
     if not runtime.get("bot_captured"):
         artifact = await save_pageshot(run_id, seq, "blocked")
@@ -1173,9 +2086,15 @@ async def _freeze_for_bot(run_id: str, seq: int) -> dict:
             "refused",
             json.dumps({"url": redact_url(runtime["page"].url)}),
         )
-    await firestore.update_browser_run(
-        run_id, status="blocked", close_reason="bot_challenge"
-    )
+    if run and run.get("status") == "opening":
+        await _transition_run(
+            run_id, "active",
+            current_url=redact_url(runtime["page"].url),
+            title=await runtime["page"].title(),
+        )
+    # blocked is nonterminal: blocked_reason explains the freeze. Writing
+    # close_reason here made a live run look closed in the RunView.
+    await _transition_run(run_id, "blocked", blocked_reason="bot_challenge")
     return _error(
         "bot_challenge",
         "bot protection detected; the run is frozen",
@@ -1211,6 +2130,16 @@ async def _open_run(session_key: dict, url: str, purpose: str) -> dict:
     session_id = str(session_key.get("session_id") or "")
     if not user_id or not session_id:
         return _error("no_active_run", "a user and session are required")
+    fill_owner = await current_run_for_session(
+        {"app_name": app_name, "user_id": user_id, "session_id": session_id},
+        "fill",
+    )
+    if fill_owner:
+        return _error(
+            "browser_busy",
+            "a form-fill run owns this session's Browser surface",
+            active_run=_run_view(fill_owner),
+        )
     active = await current_run_for_session(
         {"app_name": app_name, "user_id": user_id, "session_id": session_id}, "browse"
     )
@@ -1227,8 +2156,9 @@ async def _open_run(session_key: dict, url: str, purpose: str) -> dict:
         await close_run(active["run_id"], "superseded", "agent:co_founder")
         active = None
     if active and active["run_id"] not in _browse_contexts:
-        await firestore.update_browser_run(
-            active["run_id"], status="closed", close_reason="restart"
+        await _transition_run(
+            active["run_id"], "closed", "browser.closed", owner_loss=True,
+            close_reason="restart"
         )
         active = None
 
@@ -1243,13 +2173,20 @@ async def _open_run(session_key: dict, url: str, purpose: str) -> dict:
                 "session_id": session_id,
                 "kind": "browse",
                 "goal": purpose,
-                "status": "active",
+                "status": "opening",
                 "close_reason": None,
                 "current_url": None,
                 "title": None,
                 "last_action": None,
                 "screenshot_artifact": None,
                 "action_count": 0,
+                "version": 1,
+                "frame_seq": 0,
+                "browser_generation": browser_runtime.generation,
+                "owner_instance": INSTANCE_ID,
+                "lease_generation": 1,
+                "expires_at": (now + timedelta(minutes=5)).isoformat(),
+                "blocked_reason": None,
                 "started_at": now.isoformat(),
                 "deadline_at": (
                     now + timedelta(seconds=BROWSE_TIME_BOX_SECONDS)
@@ -1258,8 +2195,32 @@ async def _open_run(session_key: dict, url: str, purpose: str) -> dict:
                 "updated_at": now.isoformat(),
             }
         )
+        await _register_browser_resource(
+            founder_id=user_id, session_id=session_id, run_id=run_id,
+            kind="browse", goal=purpose)
+        created = await firestore.get_browser_run(run_id)
+        if created:
+            await _publish_browser_event(
+                created, "browser.started", run=_run_view(created), version=1
+            )
+            scheduled = await _schedule_run_expiry(created)
+            if scheduled.get("status") != "success":
+                await close_run(run_id, "error", "agent:co_founder")
+                return _error(
+                    "browser_unavailable",
+                    "durable browser expiry could not be scheduled",
+                    reason="expiry_unscheduled",
+                )
     try:
-        runtime = _browse_contexts.get(run_id) or await _new_browse_context(run_id)
+        runtime = _browse_contexts.get(run_id) or await _new_browse_context(
+            run_id,
+            {"app_name": app_name, "user_id": user_id, "session_id": session_id},
+        )
+        lease = browser_runtime.lease_for_run(run_id)
+        if lease:
+            await firestore.update_browser_run(
+                run_id, browser_generation=lease.browser_generation
+            )
         runtime["policy_error"] = None
         response = await runtime["page"].goto(
             canonical, wait_until="domcontentloaded", timeout=30_000
@@ -1292,6 +2253,16 @@ async def _open_run(session_key: dict, url: str, purpose: str) -> dict:
         shot = await save_pageshot(
             run_id, int(active.get("action_count", 0)) if active else 0, "nav"
         )
+        promoted = await _transition_run(run_id, "active")
+        if not promoted.get("ok"):
+            # The run was closed underneath this open (founder stop, expiry, or
+            # owner-loss reconciliation). Returning success here would hand back
+            # a live page behind a closed run and leak its foreground lease.
+            await close_run(run_id, "superseded", "system:browser")
+            return _error("browser_unavailable",
+                          "browser run was closed before it became active",
+                          reason="disconnected")
+        await renew_run_expiry(run_id)
         await firestore.audit(
             "agent:co_founder",
             "browse_open",
@@ -1313,10 +2284,26 @@ async def _open_run(session_key: dict, url: str, purpose: str) -> dict:
             "links": extracted["links"],
             "screenshot_artifact": shot,
         }
+    except BrowserForegroundBusy:
+        await close_run(run_id, "error", "agent:co_founder")
+        return _error("browser_busy", "the session already owns browser work")
+    except BrowserCapacityExceeded:
+        await close_run(run_id, "error", "agent:co_founder")
+        return _error("capacity_exceeded", "browser context capacity is full")
+    except BrowserRuntimeUnavailable as exc:
+        await close_run(run_id, "error", "agent:co_founder")
+        return _error(
+            "browser_unavailable",
+            "browser runtime is unavailable",
+            reason=exc.reason,
+        )
     except Exception as exc:
         await close_run(run_id, "error", "agent:co_founder")
         code = "timeout" if "Timeout" in type(exc).__name__ else "browser_unavailable"
-        return _error(code, f"browser open failed: {str(exc)[:240]}")
+        return _error(
+            code, f"browser open failed: {str(exc)[:240]}",
+            reason="disconnected" if code == "browser_unavailable" else None,
+        )
 
 
 async def read_current(run_id: str, question: str) -> dict:
@@ -1539,13 +2526,45 @@ async def record_action_budget(run_id: str) -> dict:
     )
 
 
+def _policy_action_result(
+    outcome: str, policy_error: dict[str, Any] | None = None
+) -> tuple[str, dict[str, Any]]:
+    """Translate the once-gate winner into one durable/returned result."""
+    if outcome == "FAILED":
+        return "FAILED", policy_error or _error(
+            "policy_refused", "a browser download was blocked during this action"
+        )
+    return "UNCERTAIN", policy_error or _error(
+        "dialog_blocked",
+        "a consequential browser dialog interrupted this action; its outcome is uncertain",
+        reason="A consequential browser event requires the founder",
+    )
+
+
+async def _commit_action_result(
+    run_id: str, action_id: str, status: str, result: dict[str, Any]
+) -> dict[str, Any]:
+    """CAS PREPARED to one terminal result and return the actual winner."""
+    committed = await firestore.update_browser_action(
+        run_id, action_id, status=status, result_ref=result
+    )
+    if isinstance(committed, dict) and not committed.get("updated", True):
+        winner = committed.get("status")
+        if winner in {"SUCCEEDED", "FAILED", "UNCERTAIN"}:
+            return committed.get("result_ref") or _error(
+                "policy_refused",
+                f"browser action completed as {winner.lower()} without result data",
+            )
+    return result
+
+
 async def propose_and_act(run_id: str, invocation_id: str) -> dict:
     """Propose, validate, reserve, ledger, execute, and persist one research action."""
     lock = _browse_locks.setdefault(run_id, asyncio.Lock())
     async with lock:
         run = await firestore.get_browser_run(run_id)
         runtime = _browse_contexts.get(run_id)
-        if not run or run.get("status") == "closed" or not runtime:
+        if not run or not runtime:
             return _error("no_active_run", "there is no active browser run")
         if run.get("status") == "blocked":
             return _error(
@@ -1553,6 +2572,12 @@ async def propose_and_act(run_id: str, invocation_id: str) -> dict:
                 "the browser run is frozen by bot protection",
                 reason="Bot protection requires the founder",
             )
+        if run.get("status") != "active":
+            return _error(
+                "no_active_run",
+                f"browser run is {run.get('status')}; actions require active",
+            )
+        runtime["action_task"] = asyncio.current_task()
         action_id = hashlib.sha256(f"{run_id}:{invocation_id}".encode()).hexdigest()
         existing = await firestore.get_browser_action(run_id, action_id)
         if existing:
@@ -1619,7 +2644,9 @@ async def propose_and_act(run_id: str, invocation_id: str) -> dict:
                     "model_error", "isolated browser proposer is not configured"
                 )
             snapshot = await _interactive_snapshot(runtime["page"])
-            shot = await runtime["page"].screenshot(full_page=True)
+            shot = await asyncio.wait_for(
+                runtime["page"].screenshot(full_page=True), timeout=5
+            )
             proposal = await _proposer_fn(run["goal"], snapshot["text"], shot)
             # _validate_research_proposal runs synchronous DNS (getaddrinfo) for
             # link targets — offload it so the event loop is never blocked.
@@ -1663,42 +2690,75 @@ async def propose_and_act(run_id: str, invocation_id: str) -> dict:
                     "action identity was already prepared",
                     reason="Action outcome is uncertain",
                 )
+            if not browser_runtime.begin_action(run_id, action_id):
+                result = _error(
+                    "policy_refused",
+                    "browser action could not acquire its completion gate",
+                    reason="Action outcome is uncertain",
+                )
+                await _commit_action_result(
+                    run_id, action_id, "UNCERTAIN", result)
+                return result
             await save_pageshot(run_id, seq, "before")
             fresh = await extract_page_text(runtime["page"])
             if fresh["dom_hash"] != snapshot["dom_hash"]:
                 result = _error(
                     "stale_page", "the page changed before the action could execute"
                 )
-                await firestore.update_browser_action(
-                    run_id, action_id, status="FAILED", result_ref=result
-                )
-                return result
+                browser_runtime.claim_action_completion(
+                    run_id, action_id, "FAILED")
+                return await _commit_action_result(
+                    run_id, action_id, "FAILED", result)
             runtime["policy_error"] = None
             result = await execute_action(
                 runtime["page"], proposal, "research", run_id, invocation_id
             )
             if result.get("error"):
-                await firestore.update_browser_action(
-                    run_id, action_id, status="FAILED", result_ref=result
-                )
-                return result
+                _claimed, winner = browser_runtime.claim_action_completion(
+                    run_id, action_id, "FAILED")
+                if winner in {"FAILED", "UNCERTAIN"}:
+                    status, result = _policy_action_result(
+                        winner, runtime.get("policy_error") or result)
+                else:
+                    status = "FAILED"
+                return await _commit_action_result(
+                    run_id, action_id, status, result)
             await runtime["page"].wait_for_timeout(
                 min(2000, int(os.environ.get("BROWSE_SETTLE_MS", "800")))
             )
+            completion = browser_runtime.action_completion(run_id, action_id)
+            if completion in {"FAILED", "UNCERTAIN"}:
+                status, result = _policy_action_result(
+                    completion, runtime.get("policy_error"))
+                return await _commit_action_result(
+                    run_id, action_id, status, result)
             if runtime.get("policy_error"):
-                result = runtime["policy_error"]
-                await firestore.update_browser_action(
-                    run_id, action_id, status="FAILED", result_ref=result
-                )
-                return result
+                # Popup and navigation guards are not Page dialog/download
+                # events, but still complete through the same gate.
+                _claimed, winner = browser_runtime.claim_action_completion(
+                    run_id, action_id, "FAILED")
+                status, result = _policy_action_result(
+                    winner or "FAILED", runtime["policy_error"])
+                return await _commit_action_result(
+                    run_id, action_id, status, result)
             if await detect_bot_challenge(runtime["page"]):
                 result = await _freeze_for_bot(run_id, seq)
-                await firestore.update_browser_action(
-                    run_id, action_id, status="FAILED", result_ref=result
-                )
-                return result
+                browser_runtime.claim_action_completion(
+                    run_id, action_id, "FAILED")
+                return await _commit_action_result(
+                    run_id, action_id, "FAILED", result)
             extracted = await _extract_and_store(run_id, seq)
             after = await save_pageshot(run_id, seq, "after")
+            # Linearization point: no await between checking the winner and
+            # claiming success. A Playwright event delivered before this line
+            # wins FAILED/UNCERTAIN; one delivered after cannot rewrite success.
+            _claimed, winner = browser_runtime.claim_action_completion(
+                run_id, action_id, "SUCCEEDED")
+            if winner != "SUCCEEDED":
+                status, result = _policy_action_result(
+                    winner or "UNCERTAIN", runtime.get("policy_error"))
+                return await _commit_action_result(
+                    run_id, action_id, status, result)
             label = (
                 (target or {}).get("label")
                 or proposal.get("target_key")
@@ -1710,15 +2770,17 @@ async def propose_and_act(run_id: str, invocation_id: str) -> dict:
                 "target": str(label)[:180],
                 "at": _now_iso(),
             }
-            await firestore.update_browser_run(run_id, last_action=last_action)
-            # Sliding time-box (18): the 90 s budget bounds action *activity*,
-            # not the founder's reading time — every successful action renews it.
-            await firestore.update_browser_run(
+            # One bumping mutation: last_action is UI-visible, and the sliding
+            # time-box (18 — the 90 s budget bounds action *activity*, not the
+            # founder's reading time) rides along in the same commit.
+            await _mutate_run_view(
                 run_id,
+                last_action=last_action,
                 deadline_at=(
                     _now() + timedelta(seconds=BROWSE_TIME_BOX_SECONDS)
                 ).isoformat(),
             )
+            await renew_run_expiry(run_id)
             final = {
                 "status": "success",
                 "action": {"kind": proposal["action"], "target": str(label)[:180]},
@@ -1726,9 +2788,10 @@ async def propose_and_act(run_id: str, invocation_id: str) -> dict:
                 "excerpt": extracted["text"][:600],
                 "screenshot_artifact": after,
             }
-            await firestore.update_browser_action(
-                run_id, action_id, status="SUCCEEDED", result_ref=final
-            )
+            actual = await _commit_action_result(
+                run_id, action_id, "SUCCEEDED", final)
+            if actual is not final:
+                return actual
             await firestore.audit(
                 "agent:co_founder",
                 "browse_action",
@@ -1740,61 +2803,172 @@ async def propose_and_act(run_id: str, invocation_id: str) -> dict:
             )
             return final
         except Exception as exc:
+            code = "timeout" if "Timeout" in type(exc).__name__ else "browser_unavailable"
             result = _error(
-                "timeout" if "Timeout" in type(exc).__name__ else "browser_unavailable",
-                f"browser action failed: {str(exc)[:240]}",
+                code, f"browser action failed: {str(exc)[:240]}",
+                reason="disconnected" if code == "browser_unavailable" else None,
             )
             if "action_id" in locals() and await firestore.get_browser_action(
                 run_id, action_id
             ):
-                await firestore.update_browser_action(
-                    run_id, action_id, status="FAILED", result_ref=result
-                )
+                _claimed, winner = browser_runtime.claim_action_completion(
+                    run_id, action_id, "FAILED")
+                status, result = _policy_action_result(
+                    winner or "FAILED", runtime.get("policy_error") or result)
+                return await _commit_action_result(
+                    run_id, action_id, status, result)
             return result
+        finally:
+            browser_runtime.finish_action(run_id, action_id)
+            if runtime.get("action_task") is asyncio.current_task():
+                runtime.pop("action_task", None)
 
 
-async def close_run(run_id: str, reason: str, actor: str) -> dict:
-    """Idempotently close a browser context and its durable run record."""
-    run = await firestore.get_browser_run(run_id)
-    # Close the live context FIRST, unconditionally — even when the durable
-    # record already reads "closed". Otherwise a run whose Firestore row was
-    # marked closed elsewhere (a reconcile tick, a supersede) but whose context
-    # is still registered here would leak an open browser window forever.
-    runtime = _browse_contexts.pop(run_id, None)
-    _browse_locks.pop(run_id, None)  # bounded: per-run lock dies with the run
-    if runtime:
-        try:
-            await runtime["context"].close()
-        except Exception:
-            pass
-    if not run or run.get("status") == "closed":
-        return {"status": "success", "already_closed": True}
-    await firestore.update_browser_run(run_id, status="closed", close_reason=reason)
-    action = "browse_stop" if reason == "founder_stop" else "browse_close"
-    await firestore.audit(
-        actor,
-        action,
-        f"browser_runs/{run_id}",
-        "success",
-        json.dumps({"url": run.get("current_url"), "reason": reason}),
-    )
-    return {"status": "success", "already_closed": False}
+async def _commit_closed_frame(
+    run_id: str, run: dict[str, Any], artifact: str | None
+) -> dict[str, Any] | None:
+    """Commit terminal metadata using retained evidence, never a dead page."""
+    lock = _frame_locks.setdefault(run_id, asyncio.Lock())
+    async with lock:
+        for _attempt in range(2):
+            current = await firestore.get_browser_run(run_id)
+            if not current:
+                return None
+            candidate = int(current.get("frame_seq", 0)) + 1
+            frame = await firestore.commit_browser_frame(
+                run_id,
+                candidate,
+                {
+                    "phase": "closed",
+                    "url": current.get("current_url") or run.get("current_url") or "",
+                    "title": current.get("title") or run.get("title") or "",
+                    "action": None,
+                },
+                artifact or current.get("screenshot_artifact"),
+                closing=True,   # the one frame allowed to land during stopping
+            )
+            if frame.get("conflict"):
+                continue
+            return frame if frame.get("committed") else None
+    return None
+
+
+async def close_run(run_id: str, reason: str, actor: str,
+                    *, require_lease_generation: int | None = None) -> dict:
+    """Reserve stopping, bound cleanup, terminalize, audit, then publish.
+
+    `require_lease_generation` re-verifies the durable lease generation INSIDE
+    the close lock (expiry): a renewal that landed after the caller's check
+    must abort the close rather than terminate a live run.
+    """
+    lock = _close_locks.setdefault(run_id, asyncio.Lock())
+    try:
+        async with lock:
+            run = await firestore.get_browser_run(run_id)
+            lease = browser_runtime.lease_for_run(run_id)
+            if not run:
+                if lease:
+                    await browser_runtime.close_lease(run_id)
+                _browse_contexts.pop(run_id, None)
+                return {"status": "success", "already_closed": True}
+            if (require_lease_generation is not None
+                    and int(run.get("lease_generation", 0)) != require_lease_generation):
+                return {"status": "success", "already_renewed": True}
+            if run.get("status") == "closed":
+                browser_expiry.cancel(run_id)
+                # A durable close can race an open that already registered a
+                # lease. Releasing it here keeps the supervisor from holding a
+                # foreground slot for a dead run, which would wedge every later
+                # open in this session as browser_busy until process death.
+                if lease:
+                    await browser_runtime.close_lease(run_id)
+                _browse_contexts.pop(run_id, None)
+                return {"status": "success", "already_closed": True}
+            if lease:
+                lease.closing = True
+            if run.get("status") != "stopping":
+                transition = await _transition_run(run_id, "stopping")
+                if not transition.get("ok"):
+                    return _error(
+                        "browser_unavailable", "browser run could not reserve stopping",
+                        reason="disconnected",
+                    )
+                run = transition
+
+            state = _browse_contexts.get(run_id)
+            action_task = state.get("action_task") if state else None
+            current_task = asyncio.current_task()
+            if action_task and action_task is not current_task and not action_task.done():
+                action_task.cancel()
+                with contextlib.suppress(asyncio.TimeoutError, asyncio.CancelledError):
+                    await asyncio.wait_for(asyncio.shield(action_task), timeout=2)
+            await firestore.mark_prepared_browser_actions_uncertain(run_id, "stopped")
+
+            final_artifact = None
+            if state and state.get("page") is not None:
+                seq = int(run.get("action_count", 0))
+                final_artifact = await save_milestone_pageshot(run_id, seq, "final")
+            if lease:
+                await browser_runtime.close_lease(run_id)
+            closed_frame = await _commit_closed_frame(run_id, run, final_artifact)
+            if closed_frame:
+                projected = await firestore.get_browser_run(run_id) or run
+                await _publish_browser_event(
+                    projected, "browser.frame", frame=closed_frame,
+                    version=closed_frame.get("run_version", projected.get("version", 0))
+                )
+            terminal = await _transition_run(
+                run_id, "closed", "browser.closed", close_reason=reason
+            )
+            browser_expiry.cancel(run_id)
+            _browse_contexts.pop(run_id, None)
+            _browse_locks.pop(run_id, None)
+            _frame_locks.pop(run_id, None)
+            action = "browse_stop" if reason == "founder_stop" else "browse_close"
+            await firestore.audit(
+                actor,
+                action,
+                f"browser_runs/{run_id}",
+                "success",
+                json.dumps({"url": run.get("current_url"), "reason": reason}),
+            )
+            browser_metrics.record("browser_stop", kind=run.get("kind"), reason=reason)
+            return {
+                "status": "success",
+                "run_id": run_id,
+                "kind": run.get("kind"),
+                "already_closed": False,
+                "version": terminal.get("version"),
+                "frame_seq": (closed_frame or {}).get("seq"),
+            }
+    finally:
+        if not lock.locked() and not getattr(lock, "_waiters", None):
+            _close_locks.pop(run_id, None)
 
 
 def _run_view(run: dict | None) -> dict | None:
     if not run:
         return None
     artifact = run.get("screenshot_artifact")
+    status = str(run.get("status") or "closed")
     return {
-        "active": run.get("status") == "active",
+        "active": status in {"opening", "active", "blocked", "stopping"},
         "kind": run.get("kind"),
         "run_id": run.get("run_id"),
+        "application_id": run.get("application_id"),
+        "phase": run.get("phase"),
         "url": run.get("current_url"),
         "title": run.get("title"),
         "goal": run.get("goal"),
         "screenshot_url": f"/api/artifacts/{artifact}/preview" if artifact else None,
+        "screenshot_artifact": artifact,
         "last_action": run.get("last_action"),
-        "status": run.get("status"),
+        "status": status,
+        "version": int(run.get("version", 0)),
+        "frame_seq": int(run.get("frame_seq", 0)),
+        "blocked_reason": run.get("blocked_reason"),
+        "close_reason": run.get("close_reason"),
+        "expires_at": run.get("expires_at"),
     }
 
 
@@ -1825,6 +2999,46 @@ async def active_run_for_session(
     )
 
 
+async def _register_browser_resource(*, founder_id: str, session_id: str,
+                                     run_id: str, kind: str, goal: str,
+                                     application_id: str = "") -> None:
+    """Make a browser run findable from its conversation (docs/23 §6.1).
+
+    Supporting visibility: browser evidence surfaces under its parent work,
+    not as a primary search hit. Registration never fails a run — the browser
+    is the founder-visible product here, the projection is navigation.
+    """
+    if not session_id or not founder_id:
+        return
+    try:
+        from services import session_resources as sr
+
+        await sr.register_session_resource(
+            founder_id=founder_id, session_id=session_id,
+            resource_type=sr.ResourceType.BROWSER_REPORT,
+            canonical_id=run_id,
+            relationship=sr.Relationship.PRODUCED,
+            occurrence_key=f"browser_run:{run_id}",
+            producer_kind="service", producer_id=f"browser:{kind}",
+            producer_output_key="run",
+            title=(goal or f"Browser {kind}")[:200],
+            summary=f"Browser {kind} run",
+            status="opening",
+            visibility=sr.Visibility.SUPPORTING,
+            parent_resource_id=(
+                sr.resource_id_for(founder_id, sr.ResourceType.APPLICATION,
+                                   "applications", application_id)
+                if application_id else None),
+            session_verified=True)
+    except Exception:  # noqa: BLE001 — provenance never breaks browser work
+        # This module has no module-level logger; referencing a bare `logger`
+        # here would raise NameError *inside* the handler that exists to make
+        # this failure harmless.
+        import logging
+
+        logging.getLogger(__name__).exception(
+            "browser resource registration failed")
+
 async def current_run_for_session(
     session_key: dict, kind: str = "browse"
 ) -> dict | None:
@@ -1836,60 +3050,90 @@ async def current_run_for_session(
         kind,
     )
     return next(
-        (row for row in rows if row.get("status") in {"active", "blocked"}), None
+        (
+            row
+            for row in rows
+            if row.get("status") in {"opening", "active", "blocked", "stopping"}
+        ),
+        None,
     )
 
 
-async def stop_browser(session_key: dict, actor: str) -> dict:
-    """Founder endpoint service: idempotently stop this session's browse run."""
-    active = await current_run_for_session(session_key, "browse")
-    if not active:
+async def stop_browser(
+    session_key: dict, actor: str, run_id: str | None = None
+) -> dict:
+    """Idempotently stop an owned foreground browse or fill run."""
+    rows = await firestore.list_browser_runs(
+        str(session_key.get("app_name") or "co_founder"),
+        str(session_key.get("user_id") or ""),
+        str(session_key.get("session_id") or ""),
+    )
+    if run_id:
+        selected = next((row for row in rows if row.get("run_id") == run_id), None)
+        if selected is None:
+            return _error("not_found", "browser run does not belong to this session")
+    else:
+        selected = next(
+            (
+                row
+                for row in rows
+                if row.get("status") in {"opening", "active", "blocked", "stopping"}
+            ),
+            None,
+        )
+    if not selected or selected.get("status") == "closed":
         return {"status": "success", "already_closed": True}
-    return await close_run(active["run_id"], "founder_stop", actor)
+    return await close_run(selected["run_id"], "founder_stop", actor)
 
 
-async def register_fill_run(session_key: dict, context, page, goal: str) -> dict:
-    """Register an approval-gated form-filler context for the shared live panel."""
-    active = await active_run_for_session(session_key, "fill")
-    if active:
-        await close_run(active["run_id"], "superseded", "agent:form_filler")
-    run_id = uuid.uuid4().hex
-    now = _now()
-    await firestore.create_browser_run(
-        {
-            "run_id": run_id,
-            "app_name": session_key.get("app_name") or "co_founder",
-            "user_id": session_key.get("user_id") or "",
-            "session_id": session_key.get("session_id") or "",
-            "kind": "fill",
-            "goal": " ".join(goal.split())[:200],
-            "status": "active",
-            "close_reason": None,
-            "current_url": redact_url(page.url),
-            "title": await page.title(),
-            "last_action": None,
-            "screenshot_artifact": None,
-            "action_count": 0,
-            "started_at": now.isoformat(),
-            "deadline_at": (now + timedelta(minutes=30)).isoformat(),
-            "created_at": now.isoformat(),
-            "updated_at": now.isoformat(),
-        }
-    )
-    _browse_contexts[run_id] = {
-        "run_id": run_id,
-        "context": context,
-        "page": page,
-        "dom_hash": "",
-        "text": "",
-        "links": [],
-        "artifact": None,
-        "injection_suspected": False,
-        "policy_error": None,
-        "bot_captured": False,
+def fill_session_for_application(application_id: str) -> dict[str, Any] | None:
+    """Return a transient view of a supervisor-owned fill lease.
+
+    This is intentionally a lookup, not a second page registry.  The runtime's
+    application index remains the sole owner used for replacement and cleanup.
+    """
+    lease = browser_runtime.lease_for_application(application_id)
+    if lease is None or lease.closing or lease.kind != "fill" or lease.page is None:
+        return None
+    state = _browse_contexts.get(lease.run_id or "")
+    if state is None:
+        return None
+    return {
+        "run_id": lease.run_id,
+        "page": lease.page,
+        "context": lease.context,
+        "signature": state.get("signature"),
+        "phase": lease.phase,
     }
-    artifact = await save_pageshot(run_id, 0, "nav")
-    return {"status": "success", "run_id": run_id, "screenshot_artifact": artifact}
+
+
+def set_fill_signature(application_id: str, signature: str | None) -> bool:
+    """Attach a non-secret portal signature to the supervisor-owned run state."""
+    lease = browser_runtime.lease_for_application(application_id)
+    state = _browse_contexts.get(lease.run_id or "") if lease else None
+    if state is None:
+        return False
+    state["signature"] = signature
+    return True
+
+
+async def set_fill_phase(application_id: str, phase: str) -> dict[str, Any]:
+    """Project non-secret portal progress from the owning supervisor lease."""
+    if phase not in {
+        "authenticating", "verifying", "filling", "awaiting_approval", "submitting"
+    }:
+        return _error("policy_refused", "invalid fill phase")
+    lease = browser_runtime.lease_for_application(application_id)
+    if lease is None or not lease.run_id:
+        return _error("no_active_run", "no open portal")
+    await browser_runtime.set_phase(lease.run_id, phase)
+    result = await firestore.mutate_browser_run_view(lease.run_id, phase=phase)
+    if result.get("ok"):
+        await _publish_browser_event(
+            result, "browser.status", run=_run_view(result),
+            status=result.get("status"), version=result.get("version", 0)
+        )
+    return {"status": "success", "run_id": lease.run_id, "phase": phase}
 
 
 async def update_fill_run(
@@ -1910,7 +3154,16 @@ async def update_fill_run(
     }
     if screenshot_artifact:
         fields["screenshot_artifact"] = screenshot_artifact
-    await firestore.update_browser_run(run_id, **fields)
+    changed = await firestore.mutate_browser_run_view(run_id, **fields)
+    if changed.get("ok"):
+        await _publish_browser_event(
+            changed, "browser.status", run=_run_view(changed),
+            status=changed.get("status"), version=changed.get("version", 0)
+        )
+    await capture_frame(
+        run_id, "after", {"kind": kind, "target": target[:180]}
+    )
+    await renew_run_expiry(run_id)
 
 
 async def browser_status_projection(session_key: dict) -> dict:
@@ -1926,62 +3179,201 @@ async def browser_status_projection(session_key: dict) -> dict:
             "goal": None,
             "last_action": None,
         }
-    return {
-        "active": run.get("status") == "active",
-        "kind": run.get("kind"),
-        "run_id": run.get("run_id"),
-        "url": run.get("current_url"),
-        "goal": run.get("goal"),
-        "last_action": run.get("last_action"),
-    }
+    return _run_view(run) or {}
+
+
+def _reclaimable_orphan(row: dict[str, Any], now: datetime) -> bool:
+    """True only when no other process can still be driving this run.
+
+    Three ways to prove it:
+
+    1. It is stamped by THIS process and we hold no lease for it.
+    2. It is stamped by this process's own Cloud Run revision. The service runs
+       `--max-instances 1`, so one revision has at most one instance: a
+       different process id under the same revision is a dead predecessor
+       (this is what keeps "kill the server mid-run → restart → closed/restart"
+       immediate, per docs/18).
+    3. Its durable lease has lapsed. A live owner renews expiry on every
+       successful action, so an expired lease means the owner is gone or long
+       idle. This is the only proof available for a run belonging to ANOTHER
+       revision, which during a rolling deploy may still be mid-fill.
+
+    A pre-lease legacy row (no owner stamp and no expiry at all) predates this
+    protocol; the migration backfills expiry for anything current, so such a row
+    cannot belong to a live owner.
+    """
+    owner = str(row.get("owner_instance") or "")
+    if owner == INSTANCE_ID:
+        return True
+    if owner and owner.split(":", 1)[0] == INSTANCE_ID.split(":", 1)[0]:
+        return True
+    raw_expiry = row.get("expires_at")
+    if not owner and not raw_expiry:
+        return True
+    try:
+        expires = datetime.fromisoformat(str(raw_expiry).replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return False   # a stamped owner with unreadable expiry is never assumed dead
+    if expires.tzinfo is None:
+        expires = expires.replace(tzinfo=timezone.utc)
+    return expires <= now
 
 
 async def reconcile_session(session_key: dict) -> dict:
-    """Close durable active runs whose in-process contexts disappeared."""
+    """Terminalize a nonterminal run whose supervised lease disappeared.
+
+    Runs before every agent turn (callbacks.initialize_session_state), so it is
+    the hottest reconciliation path — and it must honour the same instance fence
+    as startup. Without it, an agent request landing on a NEW revision during a
+    rolling deploy would close the OLD revision's live fill: its credentialed
+    page keeps executing while the founder's panel reports `closed`.
+    """
     rows = await firestore.list_browser_runs(
         str(session_key.get("app_name") or "co_founder"),
         str(session_key.get("user_id") or ""),
         str(session_key.get("session_id") or ""),
     )
+    now = _now()
     for row in rows:
-        if row.get("status") == "active" and row["run_id"] not in _browse_contexts:
-            await firestore.update_browser_run(
-                row["run_id"], status="closed", close_reason="restart"
+        if (
+            row.get("status") in {"opening", "active", "blocked", "stopping"}
+            and browser_runtime.lease_for_run(row["run_id"]) is None
+            and _reclaimable_orphan(row, now)
+        ):
+            await _transition_run(
+                row["run_id"], "closed", "browser.closed", owner_loss=True,
+                close_reason="restart"
             )
     return await browser_status_projection(session_key)
 
 
 async def reconcile_all_runs() -> None:
-    for run in await firestore.list_active_browser_runs():
-        if run["run_id"] not in _browse_contexts:
-            await firestore.update_browser_run(
-                run["run_id"], status="closed", close_reason="restart"
-            )
+    """Terminalize runs this process owned but no longer holds a lease for.
+
+    Scoped to INSTANCE_ID: a run stamped by another instance may still have a
+    live context behind it (rolling deploy, overlapping revisions), and closing
+    it here would leave credentialed work executing with the observation plane
+    reporting `closed`. Those runs are reconciled by their own owner's restart,
+    or by their durable expiry lease if that owner never comes back.
+    """
+    now = _now()
+    for run in await firestore.list_nonterminal_browser_runs():
+        run_id = run["run_id"]
+        if browser_runtime.lease_for_run(run_id) is not None:
+            continue  # this process still owns a live context for it
+        if not _reclaimable_orphan(run, now):
+            continue  # another instance may still be driving it
+        await firestore.mark_prepared_browser_actions_uncertain(run_id, "restart")
+        await _transition_run(
+            run_id, "closed", "browser.closed", owner_loss=True,
+            close_reason="restart"
+        )
+
+
+async def _reconcile_lost_leases(leases: list[ContextLease]) -> None:
+    """Unexpected generation loss terminalizes each durable owner once."""
+    for lease in leases:
+        if not lease.run_id:
+            continue
+        run = await firestore.get_browser_run(lease.run_id)
+        if not run or run.get("status") == "closed":
+            continue
+        _browse_contexts.pop(lease.run_id, None)
+        _browse_locks.pop(lease.run_id, None)
+        _frame_locks.pop(lease.run_id, None)
+        browser_expiry.cancel(lease.run_id)
+        await firestore.mark_prepared_browser_actions_uncertain(
+            lease.run_id, "browser_crash"
+        )
+        await _transition_run(
+            lease.run_id, "closed", "browser.closed", owner_loss=True,
+            close_reason="browser_crash"
+        )
+
+
+SHUTDOWN_RUN_BUDGET_SECONDS = 2.0
+SHUTDOWN_TOTAL_BUDGET_SECONDS = 5.5
+
+
+async def _terminalize_for_shutdown(run_id: str) -> None:
+    """Record the truth, then release — inside a per-run budget.
+
+    Ordering matters: the durable `closed` write is what the founder's panel
+    and the next instance read, so it happens FIRST and gets the budget. The
+    context close is best-effort after that; `browser_runtime.shutdown()` and
+    process exit reap anything still open.
+    """
+    async def _work() -> None:
+        await firestore.mark_prepared_browser_actions_uncertain(run_id, "restart")
+        await _transition_run(
+            run_id, "closed", "browser.closed", owner_loss=True,
+            close_reason="restart",
+        )
+        browser_expiry.cancel(run_id)
+        _browse_contexts.pop(run_id, None)
+        _browse_locks.pop(run_id, None)
+        _frame_locks.pop(run_id, None)
+
+    try:
+        await asyncio.wait_for(_work(), timeout=SHUTDOWN_RUN_BUDGET_SECONDS)
+    except Exception:  # noqa: BLE001 — best effort; restart reconciliation covers it
+        import logging
+
+        logging.getLogger(__name__).warning(
+            "shutdown could not terminalize browser run %s", run_id)
 
 
 async def shutdown() -> None:
-    """Best-effort shutdown; durable restart reconciliation covers interruptions."""
-    global _browser, _playwright, _proxy
-    for runtime in list(_browse_contexts.values()):
-        try:
-            await runtime["context"].close()
-        except Exception:
-            pass
-    _browse_contexts.clear()
-    if _proxy is not None:
-        await _proxy.close()
+    """Terminalize owned runs, then release process resources.
+
+    docs/22 requires shutdown to reconcile every owned durable run. Closing
+    contexts alone left runs `active` in Firestore until some later instance
+    started — with --min-instances 0 the founder could watch a "live" run with
+    no browser behind it for an unbounded time. Best-effort: a SIGKILL still
+    falls back to expiry-fenced restart reconciliation.
+    """
+    global _proxy, _public_proxy
+    # Shutdown-specific protocol, deliberately NOT close_run(): that path can
+    # spend 2 s cancelling an action + 5 s on final evidence + 5 s closing the
+    # context, PER RUN, sequentially — far past the platform's grace window.
+    # Here ownership is terminalized first (durable truth is what the founder
+    # sees), nonessential final screenshots are skipped, and contexts close
+    # concurrently under one bounded budget. Anything that misses the budget is
+    # still covered by expiry-fenced restart reconciliation.
+    async def _shutdown_work() -> None:
+        await asyncio.gather(
+            *(_terminalize_for_shutdown(lease.run_id)
+              for lease in browser_runtime.leases() if lease.run_id),
+            return_exceptions=True,
+        )
+        await browser_expiry.shutdown()
+        await browser_runtime.shutdown()
+        proxies = [proxy for proxy in (_proxy, _public_proxy) if proxy is not None]
+        if proxies:
+            with contextlib.suppress(asyncio.TimeoutError):
+                await asyncio.wait_for(
+                    asyncio.gather(
+                        *(proxy.close() for proxy in proxies),
+                        return_exceptions=True,
+                    ),
+                    timeout=0.5,
+                )
+        await browser_event_hub.clear()
+
+    try:
+        await asyncio.wait_for(
+            _shutdown_work(), timeout=SHUTDOWN_TOTAL_BUDGET_SECONDS)
+    except asyncio.TimeoutError:
+        logging.getLogger(__name__).warning(
+            "browser service shutdown exceeded %.1f s",
+            SHUTDOWN_TOTAL_BUDGET_SECONDS,
+        )
+    finally:
+        _browse_contexts.clear()
+        _browse_locks.clear()
+        _frame_locks.clear()
         _proxy = None
-    if _browser is not None:
-        try:
-            await asyncio.wait_for(_browser.close(), timeout=5)
-        except Exception:
-            pass
-        finally:
-            _browser = None
-    if _playwright is not None:
-        try:
-            await asyncio.wait_for(_playwright.stop(), timeout=5)
-        except Exception:
-            pass
-        finally:
-            _playwright = None
+        _public_proxy = None
+
+
+browser_runtime.configure_disconnect_callback(_reconcile_lost_leases)

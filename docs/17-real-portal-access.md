@@ -16,8 +16,10 @@ Gmail connector closing the email-verification loop. Un-cuts 14 §cut-list #1.
    creation is **audited** — "where does Alex have accounts?" is always
    answerable. The submission gate (docs/09, 12) is unaffected and stays.
 2. **Email+password and SSO both allowed.** SSO ("Continue with Google") runs
-   through Alex's own Google identity (alex@ruhu.ai OAuth). No improvisation
-   with the founder's personal accounts.
+   through Alex's own Google identity (alex@ruhu.ai OAuth) only when it remains
+   in the projected primary page and adapter-declared origins. A popup handoff
+   is closed and becomes `needs_human` under 22. No improvisation with the
+   founder's personal accounts.
 3. **Never defeat bot protection.** CAPTCHA / anti-bot challenge → stop,
    screenshot, hand to the founder. This boundary stays: bypassing CAPTCHAs
    violates portal ToS and anti-abuse norms, and endangers every relationship
@@ -26,6 +28,11 @@ Gmail connector closing the email-verification loop. Un-cuts 14 §cut-list #1.
    per-portal password generated at registration, stored as
    `portal-cred-{host}`, fetched by name at execution. Never in session state,
    prompts, logs, or artifacts.
+5. **Authentication is foreground browser work.** Registration, sign-in,
+   credential entry, and verification are phases of the application-linked
+   `kind="fill"` BrowserRun from 22. The RunView exists before context creation
+   and remains visible in the in-app Browser surface; no separate invisible
+   credentialed/verification context or external OS browser is permitted.
 
 ## The email verification loop
 
@@ -58,7 +65,8 @@ register_account(portal)
 - Form-filler tools: `register_account(portal_url)` — **approval-gated**
   (`create_portal_account`); and `sign_in(portal_url)` — ungated (Alex's own
   delegated identity), every sign-in **audited**; both behind the existing
-  staleness fence; every step screenshotted.
+  staleness fence; every step emits the ordered JPEG frames from 22, with PNG
+  reserved for blocked/final milestones.
 - Mock portal gains a signup + verification-email simulation page so the whole
   flow is testable end-to-end offline.
 
@@ -76,4 +84,7 @@ approval-gated submit. Real portals simply become reachable.
 - [ ] password never appears in state, logs, chat, or artifacts (grep test)
 - [ ] CAPTCHA/SSO-via-founder-account → clean blocker report, no retry cleverness
 - [ ] verification wait creates no polling loop: wake arrives via Gmail push or the scheduled `verification_timeout` event; timeout → `needs_human` error-as-data
+- [ ] registration/sign-in/verification share one application-linked foreground
+  fill RunView; the Browser surface shows non-secret phase progress and no path
+  opens an external browser window
 - [ ] unit tests for credential store + email parsing; eval case for the flow

@@ -1,25 +1,13 @@
-"""Connector registry (pattern from andrewyng/openworker connectors/descriptors.py).
+"""Founder-visible connector descriptors (docs/24 §5).
 
-Adding a connector is DATA, not UI code: a descriptor declares its auth
-method, the fields the user pastes, step-by-step instructions, and (for token
-connectors) a validate that confirms the credential with a real API call and
-returns the identity to show back. The Connections panel renders from
-GET /api/connectors and never hardcodes a connector.
-
-Auth modes: "builtin" (no credential), "google_oauth" (per-connector
-incremental scopes, services/google_oauth.py), "token" (manual paste, stored
-in .env via google_oauth.save_env_var — prod: Secret Manager, docs/12).
-available=False renders as "Soon" — roadmap connectors (brief §6.5, adr/002).
+This catalogue is presentation data over the closed product registry.  It does
+not validate credentials, call providers, or dynamically enable connectors.
+Durable status is supplied by ``ConnectionRegistry`` at request time.
 """
 
 from __future__ import annotations
 
-import asyncio
-import json
-import urllib.request
 from typing import Any
-
-from services import google_oauth
 
 DESCRIPTORS: list[dict[str, Any]] = [
     {
@@ -33,7 +21,7 @@ DESCRIPTORS: list[dict[str, Any]] = [
         "auth": "google_oauth", "aliases": ("docs", "sheets", "files"),
     },
     {
-        "name": "gmail", "title": "Gmail", "icon": "✉", "brand": "#ea4335",
+        "name": "founder_gmail", "title": "Gmail", "icon": "✉", "brand": "#ea4335",
         "blurb": "Portal mail — confirmations, requests, results. One watched label, read-only.",
         "auth": "google_oauth", "aliases": ("email", "mail"),
     },
@@ -44,16 +32,10 @@ DESCRIPTORS: list[dict[str, Any]] = [
     },
     {
         "name": "github", "title": "GitHub", "icon": "◆", "brand": "#1f2328",
-        "blurb": "Repositories, issues, and CI — credential validated and stored now; tools land with the dev workflow.",
-        "auth": "token", "aliases": ("repo", "issues", "prs"),
-        "fields": [{"key": "token", "label": "Personal access token", "secret": True,
-                    "placeholder": "github_pat_…",
-                    "help": "Fine-grained PAT, read-only repository permissions."}],
-        "instructions": [
-            "GitHub → Settings → Developer settings → Personal access tokens → Fine-grained",
-            "Grant read-only access to the repositories Alex may see",
-            "Paste the token — it is validated against the API, then stored as a secret",
-        ],
+        "blurb": "Repository work is outside the current funding workflow.",
+        "auth": "unavailable", "available": False,
+        "aliases": ("repo", "issues", "prs"),
+        "soon_note": "Not available in this product scope.",
     },
     {
         "name": "slack", "title": "Slack", "icon": "#", "brand": "#611f69",
@@ -87,69 +69,22 @@ DESCRIPTORS: list[dict[str, Any]] = [
 ]
 
 
-def _github_identity() -> str:
-    return google_oauth.runtime_value("GITHUB_LOGIN")
-
-
-def catalog() -> list[dict[str, Any]]:
-    """Descriptors + live status, in display order. The panel renders this."""
+def catalog(status_by_connector: dict[str, dict[str, Any]] | None = None
+            ) -> list[dict[str, Any]]:
+    """Descriptors plus a caller-supplied durable status projection."""
+    status_by_connector = status_by_connector or {}
     out = []
     for d in DESCRIPTORS:
         c = {k: v for k, v in d.items() if k in (
             "name", "title", "icon", "brand", "blurb", "auth", "aliases",
             "fields", "instructions", "soon_note")}
         c["available"] = d.get("available", True)
+        status = status_by_connector.get(d["name"], {})
         if d["auth"] == "builtin":
             c["connected"], c["status_line"] = True, "Built in"
-        elif d["auth"] == "google_oauth":
-            c["connected"] = google_oauth.configured(d["name"])
-            c["status_line"] = "Connected" if c["connected"] else ""
-        elif d["name"] == "github":
-            c["connected"] = bool(google_oauth.runtime_value("GITHUB_TOKEN"))
-            c["status_line"] = (_github_identity() or "Connected") if c["connected"] else ""
         else:
-            c["connected"], c["status_line"] = False, ""
+            c["connected"] = status.get("status") in {"CONNECTED", "DEGRADED"}
+            c["status_line"] = status.get("status_line", "")
+        c["connection"] = status or None
         out.append(c)
     return out
-
-
-def _github_validate(token: str) -> dict:
-    """Confirm the token with a real API call; return the login to show back."""
-    req = urllib.request.Request(
-        "https://api.github.com/user",
-        headers={"Authorization": f"Bearer {token}", "User-Agent": "co-founder",
-                 "Accept": "application/vnd.github+json"})
-    try:
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            return {"ok": True, "identity": json.loads(resp.read()).get("login", "")}
-    except Exception as exc:
-        return {"ok": False, "error": f"github validation failed: {exc}"}
-
-
-async def github_connect(token: str) -> dict:
-    """Validate a GitHub PAT and store it as a secret (.env local / Secret
-    Manager prod). Errors as data (principle 2)."""
-    token = token.strip()
-    if not token:
-        return {"status": "error", "error": True, "message": "token is empty"}
-    result = await asyncio.to_thread(_github_validate, token)
-    if not result["ok"]:
-        return {"status": "error", "error": True, "message": result["error"]}
-    saved = google_oauth.save_env_var("GITHUB_TOKEN", token)
-    if saved.get("status") != "success":
-        return saved
-    saved_login = google_oauth.save_env_var("GITHUB_LOGIN", result["identity"])
-    if saved_login.get("status") != "success":
-        google_oauth.save_env_var("GITHUB_TOKEN", "")
-        return saved_login
-    return {"status": "success", "login": result["identity"]}
-
-
-async def github_disconnect() -> dict:
-    token_result = google_oauth.save_env_var("GITHUB_TOKEN", "")
-    login_result = google_oauth.save_env_var("GITHUB_LOGIN", "")
-    if token_result.get("status") != "success":
-        return token_result
-    if login_result.get("status") != "success":
-        return login_result
-    return {"status": "success"}

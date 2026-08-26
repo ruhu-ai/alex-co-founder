@@ -210,6 +210,12 @@ async def save_opportunity_record(record: dict, entity_schema: dict) -> dict:
         return {"status": "error", "error": True,
                 "message": f"record has fields outside entity_schema: {sorted(extra)}"}
     full = {key: record.get(key) for key in entity_schema}
+    # The extraction contract uses null for unknown fields. Normalize declared
+    # list fields before persistence so every downstream consumer sees one
+    # stable shape; legacy null records are also defended in pipeline_service.
+    for key, declared_type in entity_schema.items():
+        if str(declared_type).startswith("list["):
+            full[key] = pipeline_service.normalize_string_list(full.get(key))
     full["raw_excerpt"] = record.get("raw_excerpt", "")[:2000]
     full["source_type"] = record.get("source_type", "web_page")
     full["dedup_hash"] = pipeline_service.dedup_hash(full.get("name") or "", full.get("application_url") or "")
@@ -221,18 +227,57 @@ _RELEVANCE_WORDS = ("grant", "fund", "program", "programme", "accelerator",
                     "incubator", "fellowship", "award", "prize", "capital")
 
 
-def _queries_from_profile(profile: dict, limit: int = 3) -> list[str]:
-    """Lane 1 query generation (docs/08): deterministic, from profile facts."""
+_DISCOVERY_CONTEXT_MAX = 500
+
+
+_EMAIL_RE = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
+_LONG_DIGITS_RE = re.compile(r"\d{6,}")
+
+
+def scrub_query_text(text: str) -> str:
+    """Sensitivity filter for persisted query text (docs/23 §5.5).
+
+    Executed queries are generated from Founder Profile facts, so anything
+    identifying beyond sector/stage/geography prose is scrubbed before the
+    text becomes durable/searchable: email addresses and long digit runs
+    (phone numbers, registration ids). Bounded at 300 chars.
+    """
+    text = _EMAIL_RE.sub("[email]", text or "")
+    text = _LONG_DIGITS_RE.sub("[number]", text)
+    return text[:300]
+
+
+def normalize_discovery_context(context: str | None) -> str:
+    """Normalize untrusted prose constraints without treating them as policy."""
+    if not context:
+        return ""
+    printable = "".join(
+        " " if ch.isspace() else ch for ch in str(context) if ch.isprintable() or ch.isspace())
+    return re.sub(r"\s+", " ", printable).strip()[:_DISCOVERY_CONTEXT_MAX]
+
+
+def _queries_from_profile(profile: dict, context: str | None = None,
+                          limit: int = 3) -> list[str]:
+    """Lane 1 queries from profile facts plus optional task-scoped prose.
+
+    The prose is data, not an instruction channel. The model-backed search
+    adapter applies the corresponding trust-boundary prompt before searching.
+    """
     facts = profile.get("facts", {})
     sector = facts.get("sector", "technology")
     geo = facts.get("geography", "")
     stage = facts.get("stage", "early-stage")
     who = f"{stage} {sector} startups {geo}".replace("  ", " ").strip()
-    return [
+    queries = [
         f"grant programs for {who} applications open",
         f"accelerators incubators funding {who} apply",
         f"non-dilutive funding awards {sector} founders {geo}".strip(),
-    ][:limit]
+    ]
+    scoped = normalize_discovery_context(context)
+    if scoped:
+        queries = [f"{query}; founder-supplied constraints: {scoped}"
+                   for query in queries]
+    return queries[:limit]
 
 
 def _relevant(item: dict) -> bool:
@@ -277,20 +322,29 @@ async def _ingest_url(url: str, source_type: str, workflow, summary: dict) -> No
                 summary["saved"] += 1
                 if existing is None:
                     summary["new"] += 1
+                # Request → opportunity membership for the receipt and the
+                # session-link registration (docs/23 §5.5): bounded first 100,
+                # deduplicated finds included — a re-found opportunity is still
+                # an occurrence of THIS request.
+                ids = summary.setdefault("opportunity_ids", [])
+                oid = saved.get("opportunity_id", "")
+                if oid and oid not in ids and len(ids) < 100:
+                    ids.append(oid)
             else:
                 summary["errors"].append({"url": url, "error": saved.get("message", "")[:200]})
         except Exception as exc:  # errors as data: skip the record, not the sweep
             summary["errors"].append({"url": url, "error": f"record skipped: {exc}"[:200]})
 
 
-async def run_sweep(workflow, founder_id: str | None = None) -> dict:
+async def run_sweep(workflow, founder_id: str | None = None,
+                    context: str | None = None) -> dict:
     """Full discovery sweep (docs/08): configured lanes plus the profile-driven
     search lane (so scheduled sweeps are autonomous — the scout agent uses the
     same search_programs contract in chat). Fetches snapshot to artifacts even
     when extraction is offline — the sweep never fails because one lane is
     down."""
     summary = {"fetched": 0, "extracted": 0, "saved": 0, "new": 0, "unchanged": 0,
-               "errors": []}
+               "errors": [], "opportunity_ids": [], "executed_queries": []}
     for source in workflow.sources:
         if source["type"] not in ("web_page", "pdf"):
             continue
@@ -304,8 +358,21 @@ async def run_sweep(workflow, founder_id: str | None = None) -> dict:
         max_results = search_sources[0].get("max_results_per_query", 10)
         profile = await firestore.get_profile(founder_id)
         seen_urls: set[str] = set()
-        for query in _queries_from_profile(profile):
+        for index, query in enumerate(
+                _queries_from_profile(profile, context=context)):
             results = await search_programs(query, max_results=max_results)
+            # Durable, bounded, provider-neutral query record (docs/23 §5.5).
+            # Text passes the sensitivity scrub BEFORE persistence — profile-
+            # derived queries can embed founder facts.
+            if len(summary["executed_queries"]) < 12:
+                summary["executed_queries"].append({
+                    "query_id": f"q{index + 1}",
+                    "text": scrub_query_text(query),
+                    "provider": "web_search",
+                    "status": ("ok" if results["status"] == "success"
+                               else "error"),
+                    "result_count": len(results.get("results", []) or []),
+                })
             if results["status"] != "success":
                 summary["errors"].append(
                     {"lane": "search", "query": query, "error": results.get("message", "")[:200]})

@@ -7,7 +7,13 @@ short-circuits the tool by returning a dict when the page changed.
 
 from google.adk.agents import Agent
 
-from ..callbacks import initialize_session_state
+from ..callbacks import (
+    enforce_effect_claims,
+    enforce_workflow_tool_contract,
+    guard_specialist_entry,
+    initialize_session_state,
+    track_tool_outcome,
+)
 from ..config import MODEL
 from ..instructions import FORM_FILLER_INSTRUCTION
 from ..tools import browser, pipeline
@@ -43,8 +49,10 @@ async def verify_before_action(tool, args, tool_context):
         }
     if name not in ("fill_fields", "submit_form"):
         return None
+    from services import browser_service
+
     app_id = tool_context.state.get("active_application_id", "")
-    session = browser._pages.get(app_id)
+    session = browser_service.fill_session_for_application(app_id)
     if name == "submit_form" and not session:
         # After an instance restart / scale-to-zero the in-memory portal page is
         # gone. Don't dead-end the founder's already-granted submission at the
@@ -64,8 +72,6 @@ async def verify_before_action(tool, args, tool_context):
             "message": "Staleness fence: call inspect_form to read the live form "
                        "before filling or submitting.",
         }
-    from services import browser_service
-
     try:
         current = await browser_service.inspect(session["page"])
     except Exception as exc:  # the callback is itself a model-facing guard
@@ -107,6 +113,8 @@ def build_agent(model=None) -> Agent:
             pipeline.request_approval,
         ],
         # Refresh {today}/{browser_status} on turns ADK routes straight here.
-        before_agent_callback=initialize_session_state,
-        before_tool_callback=verify_before_action,
+        before_agent_callback=[initialize_session_state, guard_specialist_entry],
+        before_tool_callback=[enforce_workflow_tool_contract, verify_before_action],
+        after_tool_callback=track_tool_outcome,
+        after_model_callback=enforce_effect_claims,
     )

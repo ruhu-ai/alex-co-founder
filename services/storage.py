@@ -12,6 +12,7 @@ gs:// URIs: via gcsfs (prod).
 from __future__ import annotations
 
 import os
+import re
 
 _ROOT: str | None = None
 
@@ -116,3 +117,24 @@ def list_artifacts() -> list[str]:
         fs, prefix = gcs
         out.extend(p.removeprefix(prefix) for p in fs.ls(prefix))
     return sorted(set(out))
+
+
+def delete_artifact(name: str) -> bool:
+    """Delete one exact relative artifact from local cache and GCS mirror."""
+    if (not name or len(name) > 512 or os.path.isabs(name)
+            or ".." in name.split("/") or not re.fullmatch(
+                r"[A-Za-z0-9_.\-/]+", name)):
+        raise ValueError("invalid artifact name")
+    deleted = False
+    path = artifact_path(name)
+    if os.path.isfile(path):
+        os.remove(path)
+        deleted = True
+    gcs = _gcs()
+    if gcs:
+        fs, prefix = gcs
+        remote = prefix + name
+        if fs.exists(remote):
+            fs.rm(remote)
+            deleted = True
+    return deleted

@@ -10,17 +10,24 @@ The drafter cannot submit; the form-filler cannot draft; the scout cannot score.
 
 | Agent | Model | Why |
 |---|---|---|
-| orchestrator | `ADK_MODEL` (gemini-3.5-flash) | routing + judgment |
-| scout_agent | `ADK_MODEL` | structured extraction from messy text |
-| matchmaker_agent | `ADK_MODEL` | reasoning over fit |
-| interviewer_agent | `ADK_MODEL` | conversational quality matters most here |
-| drafter_agent | `ADK_MODEL` | writing quality + voice fidelity |
-| form_filler_agent | `ADK_MODEL` | tool sequencing, page reasoning |
-| distiller_agent | `ADK_MODEL` | precise rule extraction |
+| orchestrator | `REASONING_MODEL` (default `gemini-3.6-flash`) | routing + judgment |
+| scout_agent | `MODEL` / `ADK_MODEL` (default `gemini-3.6-flash`) | structured extraction from messy text |
+| matchmaker_agent | `MODEL` / `ADK_MODEL` | reasoning over fit |
+| interviewer_agent | `MODEL` / `ADK_MODEL` | conversational quality matters most here |
+| drafter_agent | `REASONING_MODEL` (default `gemini-3.6-flash`) | writing quality + voice fidelity |
+| form_filler_agent | `MODEL` / `ADK_MODEL` | tool sequencing, page reasoning |
+| distiller_agent | `MODEL` / `ADK_MODEL` | precise rule extraction |
 
-All read `os.environ["ADK_MODEL"]` via a shared `config.py` that fails loudly at
-import if Vertex credentials are missing. `config.py` also bootstraps the
-environment the way the reference repo does:
+`config.py` fails loudly at import if Vertex credentials are missing and builds
+both model objects from environment-backed IDs. The reasoning and dialogue
+roles currently resolve to the **same** measured production default
+(`gemini-3.6-flash`); the separate `REASONING_MODEL` seam remains so a future
+model split can be evaluated and enabled without rewiring agents. High-volume
+service-layer extraction uses `LITE_MODEL` (default
+`gemini-3.5-flash-lite`). Live voice builds the same agent graph on
+`LIVE_MODEL` so transfers stay on a native-audio model.
+
+The relevant shared configuration is:
 
 ```python
 import google.auth, os
@@ -32,9 +39,17 @@ os.environ.setdefault("GOOGLE_CLOUD_PROJECT", project_id)
 os.environ.setdefault("GOOGLE_CLOUD_LOCATION", "global")
 os.environ.setdefault("GOOGLE_GENAI_USE_VERTEXAI", "True")
 
+MODEL_ID = os.environ.get("ADK_MODEL", "gemini-3.6-flash")
+REASONING_MODEL_ID = os.environ.get("REASONING_MODEL", "gemini-3.6-flash")
+LITE_MODEL_ID = os.environ.get("LITE_MODEL", "gemini-3.5-flash-lite")
+
 MODEL = Gemini(
-    model=os.environ["ADK_MODEL"],
+    model=MODEL_ID,
     retry_options=types.HttpRetryOptions(attempts=3),   # transient 5xx/429 resilience
+)
+REASONING_MODEL = Gemini(
+    model=REASONING_MODEL_ID,
+    retry_options=types.HttpRetryOptions(attempts=3),
 )
 ```
 
@@ -121,14 +136,17 @@ the founder decides.
 Today: {today}
 Current step: {current_step}
 Active application: {active_application_id}
+Opportunity readiness: {opportunity_readiness}
 Checklist: {checklist_status}
+Registered attachments: {active_attachments}
 Waiting on: {pending_signals}
 Browser: {browser_status}
 
 Routing rules — follow exactly:
 1. current_step IDLE or TRIAGE: call get_pipeline, summarize the board
    (urgent first), and propose one concrete next action. When the founder
-   picks an opportunity, call choose_opportunity and hand off to interviewer_agent.
+   picks an opportunity, call choose_opportunity and hand off to interviewer_agent
+   only after it returns `status=success`. Report incomplete opportunity metadata.
 2. INTERVIEWING: interviewer_agent owns the conversation. Do not draft anything.
 3. DRAFTING: hand off to drafter_agent. One section at a time.
 4. AWAITING_REVIEW: present each section via its summary; collect feedback with
@@ -152,6 +170,9 @@ Behavior rules:
 - LEAD. End every reply with what happens next and what (if anything) you need
   from the founder. Never ask "what would you like to do?"
 - Never skip a state. If asked to, refuse briefly and name the gate.
+- A failed effect call ends that path. Never transfer or describe later work as
+  successful unless a valid recovery commits it. Started/saved/locked/approved/
+  filled/submitted claims require the corresponding completion receipt.
 - Ground every claim in tool data. If you don't know, ask a clarifying question
   or say what you will go and check.
 - Cite the Founder Profile when it shaped something ("I kept this under 150 words
@@ -233,12 +254,14 @@ Program requirements: {active_program_requirements}
 Known profile facts: call get_profile at conversation start and after answers
 update it; never assume what the profile holds.
 Checklist: {checklist_status}
+Registered attachments: {active_attachments}
 
 Rules:
 - Ask ONE clarifying question at a time, and say why you are asking it
   ("This program requires a sustainability plan. Do you have one, or should I
   draft one later from your impact metrics?").
-- When the founder answers, call record_answer immediately.
+- When the founder answers, call record_answer immediately with the current
+  founder message verbatim. Summaries and attachment-derived expansions are refused.
 - If an answer conflicts with a stored fact, ask which is current; never
   silently overwrite.
 - When no gaps remain for the required sections, call complete_interview.
@@ -250,9 +273,10 @@ Tools: `profile.get_profile`, `profile.record_answer`, `pipeline.complete_interv
 `pipeline.get_checklist`, `profile.ingest_document`, `profile.auto_apply_profile_updates`,
 `profile.propose_profile_updates`, `profile.confirm_profile_updates`.
 
-Document-driven profile building: when the founder provides company documents
-(onboarding or mid-flight), drive the ingestion flow (06 §bootstrap): ingest,
-then `auto_apply_profile_updates` — confident, non-conflicting proposals land
+Document-driven profile building: UI uploads are first registered by the server
+with a session-bound ingestion id and explicit scope. Never guess filenames.
+Profile-scoped uploads run the ingestion flow (06 §bootstrap), so confident,
+non-conflicting proposals land
 in the profile immediately (versioned, evidenced, audited). Ask the founder
 only about `needs_founder` items: for a conflict, state both values and ask
 which is current; resolve flagged items via `propose_profile_updates` /
@@ -282,6 +306,8 @@ Rules:
 - Apply voice rules explicitly, and cite them in your tool call notes when a rule
   shaped the draft ("avoided 'revolutionary' per feedback of 2026-08-20").
 - Call save_draft_section. Never paste a full draft only into chat.
+- Present a draft only after `save_draft_section` returns `status=success` in
+  that invocation. An unsaved draft is not a deliverable.
 ```
 
 Tools: `drafting.save_draft_section`, `pipeline.get_opportunity`,

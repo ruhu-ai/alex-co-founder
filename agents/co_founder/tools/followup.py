@@ -22,13 +22,11 @@ def schedule_followup(kind: str, due_at: str, note: str, tool_context: ToolConte
     app_id = tool_context.state.get(ss.K_ACTIVE_APPLICATION_ID, "")
 
     async def _go():
-        app = await firestore.get_application(app_id)
-        if not app:
-            return {"status": "error", "error": True, "message": "no active application"}
-        followups = app.get("followups", [])
-        followups.append({"kind": kind, "due_at": due_at, "status": "PENDING", "note": note})
-        await firestore.update_application(app_id, followups=followups)
-        return {"status": "success", "followups": len(followups)}
+        # Transactional append: the previous read-modify-write of the whole
+        # array lost a follow-up whenever this raced an inbound-mail scan.
+        return await firestore.append_application_followup(
+            app_id, {"kind": kind, "due_at": due_at,
+                     "status": "PENDING", "note": note})
 
     result = run(_go())
     if result.get("status") == "success":
@@ -54,12 +52,10 @@ def record_status(status_note: str, tool_context: ToolContext) -> dict:
     app_id = tool_context.state.get(ss.K_ACTIVE_APPLICATION_ID, "")
 
     async def _go():
-        app = await firestore.get_application(app_id)
-        if not app:
-            return {"status": "error", "error": True, "message": "no active application"}
-        followups = app.get("followups", [])
-        followups.append({"kind": "status", "due_at": None, "status": "DONE", "note": status_note})
-        await firestore.update_application(app_id, followups=followups)
-        return {"status": "success"}
+        result = await firestore.append_application_followup(
+            app_id, {"kind": "status", "due_at": None,
+                     "status": "DONE", "note": status_note})
+        return ({"status": "success"} if result.get("status") == "success"
+                else result)
 
     return run(_go())

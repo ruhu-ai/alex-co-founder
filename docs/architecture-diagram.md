@@ -27,13 +27,15 @@ flowchart LR
         R3 --> DIST
     end
 
-    GEM["Gemini 3.5<br/>(Vertex AI)"]
+    GEM["Gemini 3.6 + Lite/Live tiers<br/>(Vertex AI)"]
     SQL[("Cloud SQL<br/>ADK sessions")]
     FS[("Firestore<br/>pipeline · profiles ·<br/>approvals · audit")]
     GCS[("Cloud Storage<br/>artifacts")]
     SM["Secret Manager<br/>portal creds (by name)"]
     SCHED["Cloud Scheduler"]
     PS["Pub/Sub"]
+    CT["Cloud Tasks<br/>co-founder-events"]
+    BXT["Cloud Tasks<br/>co-founder-browser-expiry"]
     MP["Cloud Run: mock-portal<br/>(16-field form, idempotent submit)"]
 
     UI -->|HTTPS| API
@@ -46,6 +48,10 @@ flowchart LR
     FILL --> SM
     SCHED -->|cron| PS
     PS -->|push OIDC| API
+    API -->|durable portal-wake enqueue| CT
+    CT -->|OIDC /tasks/portal_wake| API
+    API -->|generation-safe lease task| BXT
+    BXT -->|OIDC /tasks/browser_expire| API
     FILL -->|Playwright DOM + vision recon| MP
     MP -->|signed webhook| API
 ```
@@ -62,6 +68,12 @@ sub-agents. Firestore holds the pipeline, the Founder Profile (long-term
 memory), approval tokens (never in model context), and an append-only audit
 trail. The Form-Filler drives Playwright against portals — DOM-first, vision
 recon as tier-1 fallback — and submits only behind a founder-granted,
-server-resolved approval, with a derived idempotency key. Cloud Scheduler →
-Pub/Sub wake the agent for discovery sweeps and deadline scans; the mock
-portal calls back over a signed webhook when a submission confirms.
+server-resolved approval, with a derived idempotency key. Founder commands
+enqueue discovery through Cloud Tasks; Cloud Scheduler → Pub/Sub wakes only
+the deadline sentinel. The mock portal calls back over a signed webhook when a
+submission confirms. Agent wakes
+that must outlive the webhook request are durably enqueued in the existing
+`co-founder-events` Cloud Tasks queue before the webhook acknowledges.
+Generation-safe browser lease expiry uses the separate
+`co-founder-browser-expiry` queue, so resource cleanup cannot wait behind an
+agent wake or its retries.

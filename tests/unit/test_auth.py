@@ -197,6 +197,7 @@ def test_auth_session_grants_and_me_reports_it(env, client, monkeypatch):
     # The cookie the login minted now opens the gate and identifies the founder.
     assert client.get("/private").status_code == 200
     me = client.get("/auth/me").json()
+    assert me["authenticated"] is True
     assert me["mode"] == "session"
     assert me["email"] == "founder@ruhu.ai"
     assert me["name"] == "Ijidai"
@@ -205,8 +206,12 @@ def test_auth_session_grants_and_me_reports_it(env, client, monkeypatch):
 def test_auth_me_modes(env, client):
     assert client.get("/auth/me").json()["mode"] == "open"
     env.setenv("APP_AUTH_TOKEN", "t-secret")
-    assert client.get("/auth/me").status_code == 401
+    anonymous = client.get("/auth/me")
+    assert anonymous.status_code == 200
+    assert anonymous.json()["authenticated"] is False
+    assert anonymous.json()["mode"] == "anonymous"
     r = client.get("/auth/me", headers={"X-App-Key": "t-secret"})
+    assert r.json()["authenticated"] is True
     assert r.json()["mode"] == "token"
 
 

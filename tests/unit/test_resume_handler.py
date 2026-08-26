@@ -1,9 +1,8 @@
 """Stale-session retry in the resume handler (post-feedback wake path)."""
 
 import pytest
-from google.adk.errors import StaleSessionError
 
-from app.resume_handler import ResumeHandler
+from app.resume_handler import ResumeHandler, StaleSessionError
 
 pytestmark = pytest.mark.asyncio
 

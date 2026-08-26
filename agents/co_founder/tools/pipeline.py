@@ -10,9 +10,11 @@ from ._common import add_pending_signal, run
 
 # Application steps in which a committed application is mid-flight: starting a
 # second application would clobber active_application_id/current_step/checklist
-# and strand the first. IDLE/TRIAGE/INTERVIEWING/CLOSED are safe to replace.
+# and strand the first. Retrying the same opportunity is idempotent; replacing
+# it is safe only from IDLE/TRIAGE/CLOSED.
 _INFLIGHT_STEPS = frozenset({
-    ss.ApplicationStep.DRAFTING, ss.ApplicationStep.AWAITING_REVIEW,
+    ss.ApplicationStep.INTERVIEWING, ss.ApplicationStep.DRAFTING,
+    ss.ApplicationStep.AWAITING_REVIEW,
     ss.ApplicationStep.APPROVED, ss.ApplicationStep.FORM_FILLING,
     ss.ApplicationStep.AWAITING_SUBMIT_APPROVAL, ss.ApplicationStep.SUBMITTED,
     ss.ApplicationStep.FOLLOW_UP,
@@ -116,7 +118,9 @@ def choose_opportunity(opportunity_id: str, tool_context: ToolContext) -> dict:
     # while one is mid-flight — clobbering the active ids would strand it.
     active_id = state.get(ss.K_ACTIVE_APPLICATION_ID, "")
     current = state.get(ss.K_CURRENT_STEP, "")
-    if active_id and current in _INFLIGHT_STEPS:
+    active_opportunity = state.get(ss.K_ACTIVE_OPPORTUNITY_ID, "")
+    if (active_id and current in _INFLIGHT_STEPS
+            and active_opportunity != opportunity_id):
         return {"status": "error", "error": True,
                 "message": (f"Application {active_id} is already in progress at "
                             f"{current}. Finish or close it before starting a new "
@@ -125,12 +129,68 @@ def choose_opportunity(opportunity_id: str, tool_context: ToolContext) -> dict:
     founder_id = state.get(ss.K_USER_PROFILE_ID, "founder")
     result = run(pipeline_service.choose_opportunity(founder_id, opportunity_id))
     if result.get("status") == "success":
-        state[ss.K_CURRENT_STEP] = ss.ApplicationStep.INTERVIEWING
+        # A duplicate selection from another/recreated session rehydrates the
+        # durable application's real position; it must never rewind to the
+        # beginning merely because this session had stale local state.
+        state[ss.K_CURRENT_STEP] = result.get(
+            "current_step", ss.ApplicationStep.INTERVIEWING)
         state[ss.K_ACTIVE_APPLICATION_ID] = result["application_id"]
         state[ss.K_ACTIVE_OPPORTUNITY_ID] = opportunity_id
         state[ss.K_ACTIVE_PROGRAM_REQUIREMENTS] = result["active_program_requirements"]
+        state[ss.K_OPPORTUNITY_READINESS] = result.get("readiness", {})
         state[ss.K_CHECKLIST_STATUS] = result["checklist_status"]
+        _register_selection(tool_context, founder_id, opportunity_id, result)
     return result
+
+
+def _register_selection(tool_context: ToolContext, founder_id: str,
+                        opportunity_id: str, result: dict) -> None:
+    """Record the founder's selection occurrence (docs/23 §5.2 triggers).
+
+    `selected` on the opportunity and `created`/`continued` on the application,
+    both keyed so that one application is at most one occurrence per
+    conversation: a re-selection in the same session replays, while continuing
+    the same application in a NEW session is its own durable occurrence.
+    """
+    session_id = getattr(getattr(tool_context, "session", None), "id", "") or ""
+    if not session_id:
+        return
+    from services import session_resources as sr
+
+    application_id = result.get("application_id", "")
+    relationship = (sr.Relationship.CONTINUED if result.get("already_exists")
+                    else sr.Relationship.CREATED)
+    opportunity_resource = sr.resource_id_for(
+        founder_id, sr.ResourceType.OPPORTUNITY, "opportunities",
+        opportunity_id)
+
+    async def _register():
+        from services import firestore
+
+        opp = await firestore.get_opportunity(opportunity_id) or {}
+        await sr.register_session_resource(
+            founder_id=founder_id, session_id=session_id,
+            resource_type=sr.ResourceType.OPPORTUNITY,
+            canonical_id=opportunity_id,
+            relationship=sr.Relationship.SELECTED,
+            occurrence_key=f"select:{application_id}",
+            producer_kind="tool", producer_id="choose_opportunity",
+            producer_output_key="selection",
+            title=str(opp.get("name") or "")[:200],
+            summary=str(opp.get("description") or "")[:500],
+            status=str(opp.get("state") or ""), session_verified=True)
+        await sr.register_session_resource(
+            founder_id=founder_id, session_id=session_id,
+            resource_type=sr.ResourceType.APPLICATION,
+            canonical_id=application_id, relationship=relationship,
+            occurrence_key=f"{relationship}:{application_id}",
+            producer_kind="tool", producer_id="choose_opportunity",
+            producer_output_key="application",
+            title=str(opp.get("name") or "Application")[:200],
+            summary="Application", status=result.get("current_step", ""),
+            parent_resource_id=opportunity_resource, session_verified=True)
+
+    run(_register())
 
 
 def get_opportunity(opportunity_id: str, tool_context: ToolContext) -> dict:

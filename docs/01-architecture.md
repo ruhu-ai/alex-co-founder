@@ -30,7 +30,9 @@
               │ ADK sessions     │   │ pipeline  │  │artifacts│  │ portal creds│
               └──────────────────┘   └───────────┘  └────────┘  └─────────────┘
                                ▲           ▲
-        Cloud Scheduler ──► Pub/Sub ──────┘  (discovery-tick, deadline-tick)
+        Cloud Scheduler ──► Pub/Sub ──────┘  (deadline-tick only)
+        Founder command ──► Cloud Tasks ──► /tasks/discover
+        Signed webhook ──► Cloud Tasks ──► /tasks/portal_wake (durable agent wake)
 
    Cloud Run: mock-portal (separate service) ──webhook──► /webhooks/portal_event
 ```
@@ -78,6 +80,8 @@ co-founder/
 │   ├── memory.py                  # FirestoreMemoryService(BaseMemoryService)
 │   ├── secrets.py                 # Secret Manager fetch (cached)
 │   ├── browser_service.py         # shared Chromium, run registry, action/network policy (18)
+│   ├── browser_runtime.py         # process/context ownership, watchdogs, quotas (22)
+│   ├── browser_events.py          # snapshot-first in-app browser event projection (22)
 │   └── storage.py                 # GCS artifact helpers
 ├── mock_portal/
 │   ├── main.py                    # standalone FastAPI mock application portal
@@ -116,7 +120,8 @@ co-founder/
 | Pipeline store | Firestore (native mode) | see 02 |
 | Memory service | custom `FirestoreMemoryService` | see 06 |
 | Artifacts | local `file://` dev, `gs://` bucket prod | ADK artifact service URI |
-| Browser automation | Playwright (Chromium, headless via env) | see 09 |
+| Durable task dispatch | Cloud Tasks queues `co-founder-events`, `co-founder-browser-expiry` | `co-founder-events` carries portal-event wakes that must outlive the webhook request; generation-safe browser expiry is isolated on its own queue so resource cleanup cannot head-of-line block behind an agent wake (22). 21 extends the event primitive into bounded workflow-step/timer dispatch. |
+| Browser automation | Playwright-managed Chromium; one single-flight process, literal `headless=True`, no headed/attach/system-profile mode | see 09, 18, 22 |
 | Deploy | Cloud Run ×2 (agent, mock-portal), scale-to-zero | see 13 |
 
 ## Environment variables (`.env.example` must list all)
@@ -127,17 +132,23 @@ co-founder/
 | `GOOGLE_CLOUD_PROJECT` | `my-project` | |
 | `GOOGLE_CLOUD_REGION` | `us-central1` | |
 | `GOOGLE_CLOUD_LOCATION` | `global` | Vertex location |
-| `ADK_MODEL` | `gemini-3.5-flash` | default model for all agents |
+| `ADK_MODEL` | `gemini-3.6-flash` | default dialogue/step model; role-specific seams may override it |
+| `REASONING_MODEL` | `gemini-3.6-flash` | orchestrator + drafter seam; currently the same measured model as `ADK_MODEL` |
+| `LITE_MODEL` | `gemini-3.5-flash-lite` | high-volume extraction/classification tier |
 | `SESSION_SERVICE_URI` | `sqlite+aiosqlite:///sessions.db` | prod: Cloud SQL asyncpg URI |
 | `ARTIFACT_SERVICE_URI` | `file://./artifacts` | prod: `gs://<bucket>` |
+| `LIBREOFFICE_CONVERSION_ENABLED` | `false` on native macOS; `true` in Docker | prevents the macOS GUI app bundle from being launched by the local server; production uses the pinned headless Linux package |
 | `FIRESTORE_DATABASE` | `(default)` | pipeline store |
 | `WORKFLOW_FILE` | `workflows/grant_applications.yaml` | active workflow definition |
 | `PORTAL_SECRET_NAME` | `mock-portal-creds` | Secret Manager secret id |
 | `AGENT_BASE_URL` | `http://127.0.0.1:8090` | used by mock portal to call webhooks |
 | `MOCK_PORTAL_URL` | `http://127.0.0.1:8091` | form-filler target |
+| `TASKS_INVOKER_SA` | `scheduler-invoker@project.iam.gserviceaccount.com` | OIDC identity on authenticated Cloud Tasks HTTP delivery |
+| `DISCOVER_COMMAND_ENABLED` | `false` | pre-Phase-0 `/discover` compatibility adapter; production remains off until its tests and full eval gate pass |
 | Browser execution | always headless | Portal pages are shown only in the in-app Browser panel |
 | `BROWSE_OPEN_WEB` | _(unset)_ | dev-only: allow non-allowlisted public hosts (18); production must leave unset/false — fail-closed |
 | `BROWSE_ALLOWED_DOMAINS` | _(empty)_ | comma-separated host patterns; with `BROWSE_OPEN_WEB` unset, empty = deny-all (18) |
+| `PORTAL_ALLOWED_HOSTS` | _(empty)_ | adapter-declared identity-provider/verification origins a credential-typing context may reach besides the portal itself (`*.` prefixes match subdomains, 22 §per-kind matrix). Everything else is refused, so a hostile portal page cannot beacon a typed credential to a third-party host |
 | `BROWSE_BLOCKED_DOMAINS` | _(empty)_ | deny wins over the allowlist (18) |
 | `APPROVAL_TTL_MINUTES` | `30` | approval token lifetime |
 | `GEMMA_EVIDENCE_CHECK_ENABLED` | `false` | enable 20 only after its rollout eval passes |
@@ -213,10 +224,11 @@ changes to load it (only instance #1 is built, but the loader must be real).
 
 ## Data flows (narratives — implement these end-to-end)
 
-**Discovery sweep (background):** Cloud Scheduler → Pub/Sub `discovery-tick` →
-`POST /tasks/discover` → scout fetches each configured source → extracts `Opportunity`
+**Discovery sweep (founder-invoked):** UI button or `/discover` command → durable
+Cloud Task → `POST /tasks/discover` → scout fetches each configured source → extracts `Opportunity`
 records → dedupe → Firestore `opportunities` (state DISCOVERED) → matchmaker scores →
-SHORTLISTED or ARCHIVED(with reason) → founder sees board next visit.
+SHORTLISTED or ARCHIVED(with reason) → founder sees board next visit. There is no
+daily discovery schedule or polling loop.
 
 **Application flow (interactive):** founder picks a SHORTLISTED opportunity in UI →
 session `current_step=INTERVIEWING` → interviewer asks gap questions →

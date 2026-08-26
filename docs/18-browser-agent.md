@@ -16,6 +16,11 @@ This spec adds both: a small `browse` tool family on the orchestrator, and a
 reuses the shared Playwright browser from 09 and changes **nothing** about the
 form-filler's gates (G2/G3, staleness fence, approval tokens).
 
+**Production runtime amendment:** 22 is binding for process/context ownership,
+foreground arbitration, popup/dialog/download containment, event-driven panel
+projection, Stop behavior, leases, quotas, and the no-external-window guard.
+The action, network, and content-trust policies below remain unchanged.
+
 **Browsing is read-first, navigation-complete.** Alex clicks through pages and
 buttons freely; "never commit" is a property of the code below the action
 layer (network policy, submit exclusion, form-surface freeze), not of the
@@ -59,18 +64,19 @@ model's good behavior.
 ## Architecture
 
 ```
-services/browser_service.py        # shared module-level Chromium (09 §Browser session)
+services/browser_runtime.py        # 22: single-flight Chromium + supervised contexts
+services/browser_events.py         # 22: snapshot-first in-app projection
+services/browser_service.py        # action/network policy + durable run/frame protocol
                                    # + local validating proxy (DNS-pinned, §Network policy)
-   └── contexts (one per active run, isolated cookies):
-        ├── fill:{application_id}  # form-filler runs (09) — unchanged
-        └── browse:{run_id}        # NEW: one context per browse run
 agents/co_founder/tools/browse.py  # NEW: thin ADK wrappers (errors as data, audit rows)
 GET  /api/browser/state            # NEW: read-only snapshot for the UI panel (07)
+GET  /api/browser/events           # snapshot-first SSE projection (22)
 POST /api/browser/stop             # NEW: founder-initiated run stop (07)
 ```
 
-Browser execution remains always headless. Browse and fill contexts are independent and may
-coexist on the shared Chromium; the panel arbitration rule is in §UI.
+Browser execution remains always headless. There is one foreground run per
+session: fill supersedes research; research requested during fill returns
+`browser_busy` (22). This prevents invisible browser work behind the panel.
 
 ## The BrowserRun contract (single source of truth)
 
@@ -82,14 +88,19 @@ BrowserRun = {
     "run_id": str,            # opaque uuid hex, minted by open_page — never caller text
     "app_name": str, "user_id": str, "session_id": str,   # registry key parts
     "kind": "browse",         # fill runs are recorded by 09 with kind="fill"
+    "application_id": str | None, # required for fill, null for browse
+    "phase": str | None,       # fill auth/verification/fill/approval/submit phase
     "goal": str,              # immutable, normalized (trimmed, ≤200 chars) at open
-    "status": "active" | "blocked" | "closed",
-    "close_reason": str | None,     # founder_stop | agent_close | superseded | bot_challenge | error | restart
+    "status": "opening" | "active" | "blocked" | "stopping" | "closed",
+    "close_reason": str | None,     # 18 values + superseded_by_fill | expired | browser_crash (22)
     "current_url": str | None, "title": str | None,
     "last_action": {"seq": int, "kind": str, "target": str, "at": str} | None,
     "screenshot_artifact": str | None,   # latest pageshot
     "action_count": int, "started_at": str, "deadline_at": str,  # ISO wall-clock;
                                     # the 90-s time-box checks deadline_at
+    "version": int, "frame_seq": int, "browser_generation": int,
+    "lease_generation": int, "expires_at": str,
+    "blocked_reason": str | None,        # 22 runtime/projection fields
     "created_at": str, "updated_at": str,
 }
 ```
@@ -105,23 +116,27 @@ ledger specified in §Action model.
   with a *different* purpose atomically closes the old run
   (`close_reason=superseded`) and mints a new one.
 - **Reconciliation (no polling):** on server startup, on session wake, **and
-  in `before_agent_callback` on every invocation**, runs with `status=active`
-  whose context is absent from the in-memory registry are atomically marked
+  in `before_agent_callback` on every invocation**, runs in any nonterminal
+  status (`opening`, `active`, `blocked`, `stopping`) whose context is absent
+  from the in-memory registry are atomically marked
   `closed` with `close_reason=restart`, and the session-state `browser_status`
   projection is **rewritten from Firestore before instruction rendering**
   (03) — the template never shows a stale browser.
 - **Stop without ToolContext:** `POST /api/browser/stop` calls the service,
-  which updates Firestore directly; the session-state projection is refreshed
-  on the next wake/tool call. Founder stop is audited as
+  which closes the supervised browse or fill context before committing terminal
+  Firestore state (22). The event projection updates immediately; session state
+  refreshes on the next wake/tool call. Founder stop is audited as
   `actor=founder:<founder_id>` (§State, audit, endpoints).
 - **Server shutdown** closes live contexts best-effort; the restart
   reconciliation above covers anything missed.
 
 ## Service layer (`services/browser_service.py`)
 
-Per 05 §global conventions, all logic lives here; `tools/browse.py` and the
-two endpoints only adapt to these functions. All are async; every failure
-returns the §Error schema, never raises to a caller-facing boundary.
+Per 05 §global conventions, product policy and durable orchestration live
+here; 22's runtime and event modules own only their narrow infrastructure
+seams. `tools/browse.py` and the three endpoints adapt to these functions. All
+are async; every failure returns the §Error schema, never raises to a
+caller-facing boundary.
 
 | Function | Contract |
 |---|---|
@@ -129,7 +144,7 @@ returns the §Error schema, never raises to a caller-facing boundary.
 | `read_current(run_id: str, question: str) -> dict` | Re-extracts if URL or `dom_hash` changed. Answers via the **isolated reader** (§Content trust). Returns `{status, answer, excerpt_ref}` where `excerpt_ref = {artifact, start, end}` — a char range into the `page_{run_id}_{seq}.txt` artifact grounding the answer. No active page → error `no_active_run`. |
 | `propose_and_act(run_id: str, invocation_id: str) -> dict` | The action step, §Action model, in this exact order: terminal-state check (closed/blocked → error, no side effects) → `detect_bot_challenge` + injection-suspension + page-class checks → isolated proposer → deterministic validation → **budget reservation** (atomic increment — only a *validated, executable* action consumes budget, so refusals never count) → PREPARED ledger write → staleness recheck → execution → evidence. |
 | `close_run(run_id: str, reason: str, actor: str) -> dict` | Idempotent: closing a closed run returns `{status: "success", already_closed: true}`. Closes context, updates run (`status`, `close_reason`), audit row attributed to `actor`. |
-| `get_browser_state(session_key: dict) -> dict` | `/api/browser/state` payload: `{status, browse: RunView \| null, fill: RunView \| null}` where `RunView = {active, run_id, url, title, goal, screenshot_url, last_action, status}`. The panel renders `fill` first when present (fills are the approval-critical path), else `browse`. No runs → both null. |
+| `get_browser_state(session_key: dict) -> dict` | `/api/browser/state` payload: `{status, browse: RunView \| null, fill: RunView \| null}` where `RunView = {active, run_id, version, frame_seq, url, title, goal, phase, screenshot_url, last_action, status, blocked_reason}`. `phase` exposes fill progress such as authenticating/verifying/filling but never secret values. `active` means nonterminal; `status` is authoritative for permissions. One run is foreground per 22. No runs → both null. |
 | `check_domain_policy(url: str) -> str \| None` | Error message or `None`. §Network policy matching. |
 | `extract_page_text(page) -> dict` | `{text, links, dom_hash, title}`: visible innerText of `<body>` (scripts/styles stripped, whitespace-normalized, capped at 100 k chars), links = absolute-resolved `<a[href]>` with anchor text, document order, top 15; `dom_hash` = sha256 over normalized text + ordered link hrefs. Same extraction as `fetch_source`'s render path (08). |
 | `validate_url(url: str) -> str \| None` | §Network policy canonicalization + SSRF denial + credential-URL refusal. Error message or `None`. |
@@ -137,7 +152,8 @@ returns the §Error schema, never raises to a caller-facing boundary.
 | `detect_bot_challenge(page) -> dict \| None` | Deterministic signals: reCAPTCHA/hCaptcha/Turnstile iframes or script tags, Cloudflare challenge markup, "verify you are human"-class heading text. Called after every navigation and before every action execution. On detection: freeze run (`status=blocked`), one screenshot artifact, audit `bot_challenge`, and all subsequent `propose_and_act` calls return error `bot_challenge` until `close_run`. |
 | `scan_injection(text: str) -> bool` | Heuristic scanner: instruction-shaped imperatives aimed at the model ("ignore previous instructions", fake `system:`/`<|…|>` tags, base64 blobs). Feeds the §Content trust guard. |
 | `record_action_budget(run_id: str) -> dict` | Firestore transaction at **reservation** time: increment `action_count`, check `deadline_at` (durable ISO wall-clock; the in-process monotonic clock is a cache, never the truth). Returns `{exceeded: bool, reason: "count" \| "time" \| None}`. **Keyed by run_id, never by caller-supplied text.** Only reserved actions count — terminal-state and policy refusals never touch the counter. The 20th action executes, the 21st returns error `budget_exceeded`. Time-box 90 s, **sliding**: each successful action renews `deadline_at` — the box bounds action activity, never the founder's reading time. Exhaustion refuses further actions but the run stays open for reading until `close_run`. |
-| `save_pageshot(run_id: str, seq: int, tag: str) -> str` | Screenshot → artifact `pageshot_{run_id}_{seq}_{tag}.png` (`tag ∈ before\|after\|nav\|blocked`), updates `screenshot_artifact`. |
+| `capture_frame(run_id: str, phase: str) -> dict` | Captures/uploads a bounded viewport JPEG, then commits immutable frame metadata and RunView in one transaction (22). Returns an artifact ref or `null` without failing the browser action. |
+| `save_milestone_pageshot(run_id: str, seq: int, tag: str) -> str` | Full-page PNG only for `tag ∈ blocked\|final`; form fill/submit PNG milestones remain owned by 09. |
 
 ## Action model — browsing policy (code-enforced)
 
@@ -198,8 +214,9 @@ consequential clicks cannot repeat on retry, and crash-ambiguous actions
 degrade to `needs_human` instead of re-executing.
 
 **Vision stays on-demand** (the browser-use `use_vision='auto'` pattern):
-screenshots are captured every step for artifacts and the panel, but enter the
-model context only inside `propose_and_act`.
+bounded JPEG viewport frames are captured every step for ordered evidence and
+the panel, but enter the model context only inside `propose_and_act`. Full-page
+PNG is reserved for blocked/final milestones (22).
 
 ## Network policy (SSRF included) — one interception path for everything
 
@@ -276,19 +293,23 @@ browser-shaped. Asserted in the tool scoping test.
 ### Error schema (all browse tools and endpoints)
 
 ```json
-{"status": "error", "error": true, "code": "<code>", "message": "human-readable",
+{"status": "error", "error": true, "code": "<code>", "reason": "<optional enum>", "message": "human-readable",
  "needs_human": [{"reason": "...", "route": "form_filler", "field": "..."}]}
 ```
 
 `needs_human` items: `reason` required; `route` (e.g. `form_filler`) and
 `field` optional. Codes: `policy_refused`, `ssrf_blocked`, `credential_url`,
 `stale_page`, `budget_exceeded`, `bot_challenge`, `injection_suspected`,
-`no_active_run`, `page_unavailable`, `browser_unavailable`, `model_error`,
-`timeout`. Tool wrappers catch every service/Playwright/model exception and
+`no_active_run`, `page_unavailable`, `browser_unavailable`, `browser_busy`,
+`capacity_exceeded`, `popup_blocked`, `dialog_blocked`, `run_expired`,
+`model_error`, `timeout`. `browser_unavailable` also carries reason
+`launch_failed|circuit_open|disconnected`. Tool wrappers catch every
+service/Playwright/model exception and
 map it to a code — nothing raises to the model (principle 2).
 
-Artifact naming: page text `page_{run_id}_{seq}.txt`; screenshots
-`pageshot_{run_id}_{seq}_{before|after|nav|blocked}.png` (02 registry).
+Artifact naming: page text `page_{run_id}_{seq}.txt`; live frame
+`browserframe_{run_id}_{frame_seq}.jpg`; milestone evidence
+`pageshot_{run_id}_{seq}_{blocked|final}.png` (02/22 registry).
 
 ## Orchestrator instruction (lands in 04 §1 behavior rules)
 
@@ -336,8 +357,10 @@ to Pipeline (the toolbar's board button — no server round-trip).
 ```
 (⏴ = back-to-Pipeline button; the surface fills the left cell, not a card.)
 
-**Data:** polls `GET /api/browser/state?session_id=...` on the existing 5 s
-UI cycle (10 §Behavior rules — no new transport):
+**Data:** opens 22's authenticated snapshot-first
+`GET /api/browser/events?session_id=...` SSE stream while the app is visible.
+`GET /api/browser/state` is the initial/recovery snapshot, never a periodic
+poll. Durable run versions and frame sequences prevent stale replacement.
 
 External links rendered in chat never use a new tab/window or invoke the
 operating-system browser. A click is converted into the same chat request as
@@ -348,32 +371,32 @@ the app callback.
 
 ```json
 {"status": "success",
- "browse": {"active": true, "run_id": "…", "url": "…", "title": "…",
-            "goal": "…", "screenshot_url": "/api/artifacts/pageshot_…_nav.png/preview",
+ "browse": {"active": true, "run_id": "…", "version": 7, "frame_seq": 4,
+            "url": "…", "title": "…",
+            "goal": "…", "screenshot_url": "/api/artifacts/browserframe_…_4.jpg/preview",
             "last_action": {"seq": 3, "kind": "open_link", "target": "Eligibility", "at": "…"},
-            "status": "active | blocked | closed"},
+            "status": "opening | active | blocked | stopping | closed",
+            "blocked_reason": null},
  "fill": null}
 ```
 
-The panel renders `fill` first when non-null, else `browse`; both null →
-panel hidden (or showing the retained post-run snapshot until Dismiss).
+22 permits one foreground run per session, so at most one active RunView is
+rendered. Both null → panel hidden (or showing the retained post-run snapshot
+until Dismiss).
 
-**Controls:** **Stop** → `POST /api/browser/stop` — shown only for
-`kind=browse` + active. For `kind=fill` the surface is watch-only in v1 (fill
-control stays on the existing approval-gate path, 09/10); no Stop button is
-rendered. The toolbar's board button switches the surface back to Pipeline
-(local only, no server round-trip). **The URL bar is typeable:** entering a
-URL composes a chat message ("Open <url> and tell me what it says.") through
-the normal send path — the request travels the agent's policy and audit
-trail, so the founder gets the Cowork-style affordance without this surface
-ever navigating directly. No click-through, no founder takeover beyond that.
+**Controls:** **Stop** → `POST /api/browser/stop` for nonterminal browse and fill
+runs. A fill stop confirms that unsaved portal entries may be discarded; it
+never submits or changes workflow state. The toolbar's board button switches
+the surface back to Pipeline (local only, no server round-trip). **The URL bar
+is typeable:** entering a URL composes a chat message ("Open <url> and tell me
+what it says.") through the normal send path — the request travels the agent's
+policy and audit trail, so this surface never navigates directly. No
+click-through or founder takeover is exposed.
 
-This is the OpenHands `BrowserPanel` pattern (URL bar + latest screenshot per
-step) — deliberately **not** VNC in v1. **Upgrade path (documented, not
-built):** CDP `Page.startScreencast` frames over the existing `WS /live`
-channel (~1 fps; browser-use `RecordingWatchdog` and Skyvern's viewport
-livestream are the references). Revisit only if the 5 s cadence reads as
-"broken" on camera.
+This combines the OpenHands push-store pattern with Cline's ordered action
+frames and remains deliberately **not** VNC or an arbitrary-site iframe. 22's
+SSE channel is browser-observation-only; the existing `WS /live` remains
+voice-only.
 
 ## State, audit, endpoints
 
@@ -384,7 +407,7 @@ livestream are the references). Revisit only if the 5 s cadence reads as
   `browse_close` (`actor=agent:co_founder`), `browse_stop`
   (`actor=founder:<founder_id>`), `bot_challenge`. "Where has Alex browsed?"
   is always answerable.
-- Endpoints (07 routes table): both take `session_id`; the server resolves it
+- Endpoints (07 routes table): state, events, and stop take `session_id`; the server resolves it
   against the founder's sessions — **unknown or non-founder session → 404**,
   identity is never accepted from the request body. `POST /api/browser/stop`
   requires `Content-Type: application/json` (CSRF hedge) and is idempotent:
@@ -407,8 +430,9 @@ livestream are the references). Revisit only if the 5 s cadence reads as
 | `browser-use/browser-use` (local clone) | MIT | ~110k | Action allowlist + step/time budgets; indexed-DOM serialization; stale-DOM action guards; sensitive-data placeholder protocol (mirrors our server-resolved tokens); watchdog guards incl. IP-canonicalizing domain security; screencast live-view primitive |
 | `microsoft/playwright-mcp` | Apache-2.0 | ~36k | AX-tree/text-first page representation; origin allow/block config; granular tool surface |
 | `Skyvern-AI/skyvern` | AGPL-3.0 (patterns only, no code) | ~23k | Viewport livestreaming to a web UI; `act/extract/validate` AI-augmented Playwright actions |
-| `OpenHands/OpenHands` (local clone) | MIT | — | `BrowserPanel` UI: URL bar + latest screenshot per step |
-| `cline/cline` (local clone) | Apache-2.0 | — | `BrowserSession` lifecycle; CDP attach to running Chrome |
+| `OpenHands/OpenHands` (local clone) | MIT | — | Browser observation store updated by WebSocket events while the turn is running |
+| `cline/cline` (local clone) | Apache-2.0 | — | `BrowserSession` ownership + ordered action-result frame timeline; debug/system-Chrome paths explicitly rejected by 22 |
+| `openclaw/openclaw` (local clone) | MIT | — | Session tab ownership, idle cleanup, launch circuit breaking, authenticated observation; headed/personal-profile modes rejected |
 
 Decision: keep our own thin Playwright + Gemini implementation (mandatory
 stack; 09 already ruled "no third-party browser agent"). These repos validate
@@ -434,7 +458,7 @@ mapped through an **injected resolver/validating-proxy transport** to a
 TEST-NET-3 address (`203.0.113.x`) and fulfilled locally, so the production
 SSRF guard stays enabled under test and loopback is never exempted.
 
-- [ ] **Round-trip:** fixture site with linked pages → `open_page` → `read_page` (answer carries a valid `excerpt_ref` into the `page_{run_id}_0.txt` artifact) → injected `click` action → `read_page` → `close_browser`. Assert: every return is a dict; audit rows `browse_open`, `browse_action`, `browse_close` exist; artifacts `page_{run_id}_0.txt`, `pageshot_{run_id}_0_nav.png`, `pageshot_{run_id}_1_before.png`, `pageshot_{run_id}_1_after.png` exist.
+- [ ] **Round-trip:** fixture site with linked pages → `open_page` → `read_page` (answer carries a valid `excerpt_ref` into the `page_{run_id}_0.txt` artifact) → injected `click` action → `read_page` → `close_browser`. Assert: every return is a dict; audit rows `browse_open`, `browse_action`, `browse_close` exist; ordered nav/before/after/closed frame metadata exists, nav/before/after refs resolve to `browserframe_{run_id}_*.jpg`, the closed frame reuses the last artifact, and exactly one `pageshot_{run_id}_*_final.png` milestone exists.
 - [ ] **Browsing policy:** a plain button click succeeds and revealed content is read back; injected proposer attempts (a) a submit-semantics button, (b) `javascript:` link, (c) a form POST, (d) typing into a non-search input, (e) a `download` link — each returns `{"error": true, "code": "policy_refused"}` + audit `refused`; the fixture server records **zero** non-GET/HEAD requests.
 - [ ] **Sliding budget:** exactly 20 actions execute, the 21st returns `budget_exceeded` **and the run stays open for reading**; a successful action renews `deadline_at`; terminal-state/policy refusals never increment the counter.
 - [ ] **G3 bypass impossible:** a fixture application-form page → `classify_page` returns `form`; `browser_action` returns `needs_human` with `route: "form_filler"`; zero fill execution.
@@ -445,8 +469,8 @@ SSRF guard stays enabled under test and loopback is never exempted.
 - [ ] **Idempotent actions:** replaying the same tool invocation returns the recorded result and the fixture link handler fires exactly once; a simulated crash between click and result-persist leaves the action `UNCERTAIN` → `needs_human`, with zero re-execution on recovery.
 - [ ] **Supersede:** `open_page` with a new purpose mid-run closes the old run (`superseded`) and mints a fresh `run_id` + budget; same-purpose `open_page` navigates the existing run.
 - [ ] **Tool scoping:** orchestrator's tool list includes the four browse tools; no sub-agent's list does (04/12 matrix test).
-- [ ] **State reconciliation:** kill the server mid-run → restart → run reads `closed/restart`; `GET /api/browser/state` returns `active: false`; the next wake rewrites the `browser_status` projection.
-- [ ] **Endpoints:** unknown/other-founder `session_id` → 404; `POST /api/browser/stop` twice → second returns `already_closed: true`; audit shows `browse_stop` with `actor=founder:<id>`; route handlers verified to make exactly one service call with unchanged arguments (delegation test).
-- [ ] **Panel:** during a fixture run the Browser surface auto-opens with URL + goal + a screenshot refresh within one 5 s poll cycle; close → the stage retains the last snapshot; the toolbar button returns to Pipeline (no server call); Stop renders only for active `kind=browse`.
+- [ ] **State reconciliation:** kill the server with orphan fixtures in each of `opening`, `active`, `blocked`, and `stopping` → restart → every run reads `closed/restart`; `GET /api/browser/state` returns `active: false`; the next wake rewrites the `browser_status` projection.
+- [ ] **Endpoints:** unknown/other-founder `session_id` → 404; `POST /api/browser/stop` stops browse or fill and is idempotent; audit shows the typed stop with `actor=founder:<id>`; route handlers verified to make exactly one service call with unchanged arguments (delegation test).
+- [ ] **Panel:** while `/wake` is still pending, the Browser surface auto-opens from the event stream with URL + goal + ordered frame; close retains the last snapshot; the toolbar returns to Pipeline without a server call; Stop renders for nonterminal browse and fill. No browser-state polling or arbitrary remote iframe exists.
 - [ ] **No external browser:** chat Markdown links carry `data-browser-url` and route through `browseTo`; the UI contains no `target=_blank`/`window.open`, and the OAuth CLI fallback sets `open_browser=False`.
 - [ ] **Docstring coverage:** `adk web` tool view shows an `Args:` entry for every parameter of the four browse tools (05 convention).

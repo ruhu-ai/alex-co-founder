@@ -2,10 +2,17 @@
 
 from google.adk.agents import Agent
 
-from ..callbacks import enforce_document_grounding, initialize_session_state
+from ..callbacks import (
+    enforce_document_grounding,
+    enforce_effect_claims,
+    enforce_workflow_tool_contract,
+    guard_specialist_entry,
+    initialize_session_state,
+    track_tool_outcome,
+)
 from ..config import MODEL
 from ..instructions import DRAFTER_INSTRUCTION
-from ..tools import documents, drafting, pipeline, profile
+from ..tools import attachments, documents, drafting, pipeline, profile
 
 
 def build_agent(model=None) -> Agent:
@@ -23,9 +30,12 @@ def build_agent(model=None) -> Agent:
             pipeline.get_opportunity,
             profile.get_relevant_answers,
             profile.get_voice_rules,
+            attachments.search_attachment,
         ],
         # Refresh {today}/{browser_status} on turns ADK routes straight here.
-        before_agent_callback=initialize_session_state,
+        before_agent_callback=[initialize_session_state, guard_specialist_entry],
         # Grounding is enforced here, not asked for in a docstring (principle 7).
-        before_tool_callback=enforce_document_grounding,
+        before_tool_callback=[enforce_workflow_tool_contract, enforce_document_grounding],
+        after_tool_callback=track_tool_outcome,
+        after_model_callback=enforce_effect_claims,
     )

@@ -50,6 +50,25 @@ live (text→audio round-trip + browser mic pipeline, 2026-08-19).
 
 ## What NOT to build (scope guard, mirrors brief §5)
 
+`21-alex-platform-north-star.md` specifies the post-v1 platform direction. It
+does not expand this hackathon build scope; its migration phases begin only
+after the final acceptance criteria below are green.
+
+**Authorized pre-Phase-0 compatibility slice:** the competition build may ship
+the feature-flagged conversational-discovery adapter described in 07/08:
+`/discover` plus optional prose reuses the existing sweep, matchmaker, board,
+founder selection, and `grant_applications.yaml` lifecycle. This exception also
+includes transactional selection idempotency, opaque request IDs, durable
+discovery execution receipts, transcript preservation, and their tests. It does
+**not** authorize WorkflowRun/journey records, durable selection waits, `/apply`,
+new workflow YAML, discovery-command attachments, a selection API/UI, or changes to review,
+approval, submission, webhook, and follow-up guards. Today, natural-language
+and command paths promise outcome-level convergence on the same deduplicated,
+scored board; Phase 2 retains its stronger compile-level equivalence contract.
+The independent attachment foundation (explicit conversation/profile scopes,
+native safe extraction, citations, and durable workers) may ship without joining
+attachments to `/discover` or changing the competition lifecycle.
+
 - General business advice chat, strategy, pricing, hiring talk.
 - "Works on any website" automation. (18's browse tools are **read-first** —
   open/navigate/read on request with no submit capability; that is research,
@@ -64,10 +83,20 @@ live (text→audio round-trip + browser mic pipeline, 2026-08-19).
 - **18 — browser agent**: orchestrator `browse.*` tools + Browser panel live
   view. Cheap demo win (founder pastes a link, Alex reads it live on screen);
   build only after the final acceptance criteria below are green.
+- **22 — browser runtime hardening**: after 18 is green, single-flight process
+  ownership, common popup/dialog/download containment, snapshot-first SSE,
+  browse/fill Stop, quotas, durable expiry, launch circuit breaker, and static
+  no-external-browser enforcement. Implement in 22's six work-item order; it
+  hardens the browser surface without adding actions.
 - **20 — Gemma Evidence Checker**: isolated, advisory comparison of completed
   drafts against persisted founder/programme evidence. Build only from its
   contract and enable only after its labelled rollout eval passes; it adds no
   agent, state, or approval gate.
+- **23 — session-linked resources and global search**: after the existing
+  competition lifecycle remains green, add the canonical resource/search
+  projection and many-to-many session links in 23's eight-work-item order.
+  This is a compatibility seam for 21, not permission to skip directly to the
+  WorkflowRun phases or make chat history the work store.
 
 ## Final acceptance criteria (mapped to judging)
 

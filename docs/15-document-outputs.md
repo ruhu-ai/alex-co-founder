@@ -61,11 +61,12 @@ It runs under these constraints, all in code:
 
 | Rule | Implementation |
 |---|---|
-| Controlled install, never the dev's desktop copy | Prod image installs `libreoffice-writer/-calc/-impress` via pinned apt (Dockerfile); local dev may use the desktop install |
+| Controlled install, never the dev's desktop copy | Prod image installs `libreoffice-writer/-calc/-impress` via pinned apt (Dockerfile). Native macOS conversion is disabled by default because its app-bundle wrapper can activate GUI windows; local development returns error-as-data and produces `.docx` instead. |
 | Non-root execution | Image runs as `pwuser` (Dockerfile) |
 | Temporary per-job storage | Each conversion gets a fresh `TemporaryDirectory` (profile + work dir), removed after — no shared profile, no lock-check hacks |
+| Process ownership | Each conversion starts in a new process session. Timeout terminates the entire process group, including children spawned by wrapper scripts, so no converter survives its request. |
 | Macros never execute | Fresh profile (macro security defaults High/disabled) **and** macro-bearing parts (`vbaProject`, `activeX`, `macroSheet`, `oleObject`) stripped from OOXML inputs before conversion |
-| Limits | 25 MB input cap, 120 s hard timeout, bounded concurrency (semaphore of 2); memory bounded by the Cloud Run container limit |
+| Limits | 25 MB input cap, 120 s hard timeout, single-flight conversion (semaphore of 1); memory bounded by the Cloud Run container limit |
 | Output validation | The converted PDF must pass `validate_document` (header + EOF) before it is cached or served; failures delete the artifact and return error-as-data |
 | Residual (documented) | No antivirus scan of uploads; mitigations are macro stripping, the high-security profile, and structural validation |
 

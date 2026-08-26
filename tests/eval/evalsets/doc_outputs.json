@@ -9,7 +9,7 @@
         {
           "invocation_id": "inv_1",
           "user_content": {
-            "parts": [{"text": "Please produce the application pack for Madica as a Word document."}]
+            "parts": [{"text": "Please produce the application pack for the current approved application as a Word document."}]
           },
           "final_response": {
             "role": "model",

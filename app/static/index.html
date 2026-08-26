@@ -194,6 +194,7 @@
 
 body {
   margin: 0;
+  max-width: 100%; overflow-x: hidden;
   background: var(--surface-0);
   color: var(--ink-1);
   font: 400 var(--fs-4)/var(--lh-4) var(--font-ui);
@@ -425,15 +426,29 @@ header .spacer { flex: 1; }
 .menu-item.danger { color: var(--danger-ink); }
 .menu-item.danger .ico { color: var(--danger-ink); }
 
-/* Settings + Sessions sheets — same grouped-inset grammar as Connectors. */
-#settings, #sessions { align-items: flex-start; z-index: 40; }
-#settings .sheet, #sessions .sheet {
+/* Settings + Sessions + founder inbox sheets — grouped-inset grammar. */
+#settings, #sessions, #founderInbox { align-items: flex-start; z-index: 40; }
+#settings .sheet, #sessions .sheet, #founderInbox .sheet {
   background: var(--surface-0); width: 560px; max-width: 100%; max-height: 84vh;
   overflow-y: auto; overscroll-behavior: contain;
   margin-top: 6vh; padding: var(--sp-6);
   border-radius: var(--r-5); box-shadow: var(--e-3);
   animation: lift var(--dur-3) var(--ease-out);
 }
+#founderInboxList { display: flex; flex-direction: column; gap: var(--sp-2); overflow-y: auto; }
+.inbox-item {
+  display: flex; flex-direction: column; gap: var(--sp-2);
+  padding: var(--sp-3); border: 1px solid var(--border);
+  border-radius: var(--r-3); background: var(--surface-2);
+}
+.inbox-item .inbox-head { display: flex; align-items: center; gap: var(--sp-2); }
+.inbox-item .inbox-head .ico { color: var(--attn); }
+.inbox-item .inbox-summary {
+  color: var(--ink-2); font-size: var(--fs-3); line-height: var(--lh-3);
+}
+.inbox-item .inbox-actions { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
+.inbox-item select { flex: 1; min-width: 180px; }
+#inboxCount { font-variant-numeric: tabular-nums; }
 .seg {
   display: inline-flex; gap: 2px; padding: 2px; flex: none;
   background: var(--surface-2); border: 1px solid var(--border);
@@ -528,7 +543,9 @@ h2 .count {
 }
 @media (max-width: 1000px) {
   /* Icon-only header actions; the accessible name lives on aria-label. */
-  header .btn > span { display: none; }
+  /* Collapse button LABELS to icons — but never the avatar, which is the
+     account button's entire content. */
+  header .btn > span:not(.acct-avatar) { display: none; }
   header .btn { padding: 0 var(--sp-2); }
 }
 @media (max-width: 1279px) {
@@ -556,6 +573,15 @@ h2 .count {
   body[data-pane="browser"] #chat { display: none; }
   #splitHandle, #surfaceBtn { display: none; }
   #paneTabs { display: flex !important; }
+}
+@media (max-width: 560px) {
+  header { gap: var(--sp-1); padding-inline: var(--sp-2); }
+  header .brand, header .spacer { display: none; }
+  #paneTabs { margin-right: 0; }
+  #paneTabs button {
+    gap: 0; padding-inline: var(--sp-2); font-size: 0;
+  }
+  #paneTabs button .ico { width: var(--ico-md); height: var(--ico-md); }
 }
 
 /* ============================================================================
@@ -633,6 +659,101 @@ h2 .count {
 
 
 
+/* ── Activity & waiting (docs/24) ──────────────────────────────────────────
+   Six states in one row. Motion renders ONLY while a worker executes: an open
+   wait shows a static dashed ring, because nothing is running (§3 inv. 1). */
+.act {
+  align-self: stretch; border: 1px solid var(--divider);
+  border-radius: var(--r-3); background: var(--surface-2); overflow: hidden;
+}
+.act-head {
+  display: flex; align-items: center; gap: var(--sp-3);
+  padding: 10px var(--sp-3); width: 100%; background: none; border: 0;
+  font: inherit; color: inherit; text-align: left; min-height: 44px;
+}
+button.act-head { cursor: pointer; }
+.act-head:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
+/* Fixed-width glyph slot: swapping spinner for tick causes no reflow. */
+.act-glyph { width: 14px; height: 14px; flex: none; display: block; }
+.act-glyph.spin {
+  border-radius: var(--r-full); border: 2px solid var(--surface-3);
+  border-top-color: var(--accent); animation: act-spin .7s linear infinite;
+}
+@keyframes act-spin { to { transform: rotate(360deg); } }
+.act-glyph.ring { border-radius: var(--r-full); border: 2px dashed var(--ink-3); }
+.act-glyph.dot { border-radius: var(--r-full); background: var(--ink-3); }
+.act-glyph.ok { border-radius: var(--r-full); background: var(--ok-ink); }
+.act-glyph.bad { border-radius: var(--r-full); background: var(--danger); }
+.act-glyph.attn {
+  border-radius: var(--r-full); background: var(--attn);
+  animation: act-pulse 2s infinite;
+}
+@keyframes act-pulse {
+  0%   { box-shadow: 0 0 0 0 color-mix(in srgb, var(--attn) 55%, transparent); }
+  70%  { box-shadow: 0 0 0 7px transparent; }
+  100% { box-shadow: 0 0 0 0 transparent; }
+}
+.act-verb { flex: 1; min-width: 0; font-size: var(--fs-3); line-height: var(--lh-3); color: var(--ink-1); }
+.act-verb b { font-weight: 500; }
+.act-verb .obj { color: var(--ink-2); }
+.act-promise {
+  display: block; margin-top: 2px; font-size: var(--fs-2);
+  line-height: var(--lh-2); color: var(--ink-3);
+}
+.act-time {
+  font: var(--fs-2)/var(--lh-2) var(--font-mono); font-variant-numeric: tabular-nums;
+  color: var(--ink-3); flex: none;
+}
+.act-caret { flex: none; color: var(--ink-3); transition: transform var(--dur-2) var(--ease-out); }
+.act[data-open="true"] .act-caret { transform: rotate(90deg); }
+.act-steps { display: none; border-top: 1px solid var(--divider); padding: var(--sp-2) 0; }
+.act[data-open="true"] .act-steps { display: block; }
+.act-step {
+  display: flex; align-items: baseline; gap: var(--sp-3);
+  padding: 5px var(--sp-3); font-size: var(--fs-3); line-height: var(--lh-3);
+}
+.act-step .tick { flex: none; width: 14px; text-align: center; font-size: var(--fs-2); color: var(--ok-ink); }
+.act-step .txt { flex: 1; min-width: 0; color: var(--ink-2); }
+.act[data-tone="attn"] {
+  border-color: var(--attn);
+  background: color-mix(in srgb, var(--attn) 8%, var(--surface-2));
+}
+.act[data-tone="wait"] { background: var(--surface-1); border-style: dashed; }
+.act[data-tone="done"] { background: var(--surface-1); }
+.act[data-tone="failed"] {
+  border-color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 8%, var(--surface-2));
+}
+/* Tinted grounds lift enough to push --ink-3 under 4.5:1 at 11-12px. */
+.act[data-tone="attn"] .act-time, .act[data-tone="attn"] .act-promise,
+.act[data-tone="failed"] .act-time, .act[data-tone="failed"] .act-promise { color: var(--ink-2); }
+
+/* The return digest: blocked-on-you first, always. */
+.digest {
+  border: 1px solid var(--border); border-radius: var(--r-3);
+  background: var(--surface-1); padding: var(--sp-3); margin-bottom: var(--sp-3);
+  display: flex; flex-direction: column; gap: var(--sp-2);
+}
+.digest-head { display: flex; align-items: center; gap: var(--sp-2); }
+.digest-head h3 { margin: 0; font: 600 var(--fs-4)/var(--lh-4) var(--font-ui); }
+.digest-row {
+  display: flex; align-items: flex-start; gap: var(--sp-3);
+  padding: 10px var(--sp-3); border-radius: var(--r-2); background: var(--surface-2);
+}
+.digest-row[data-kind="founder"] {
+  background: color-mix(in srgb, var(--attn) 10%, var(--surface-2));
+  border: 1px solid color-mix(in srgb, var(--attn) 45%, var(--divider));
+}
+.digest-row .body { flex: 1; min-width: 0; font-size: var(--fs-3); line-height: var(--lh-3); color: var(--ink-1); }
+.digest-row .body em {
+  color: var(--ink-2); font-style: normal; font-size: var(--fs-2);
+  display: block; margin-top: 1px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .act-glyph.spin { animation: none; border-top-color: var(--accent); }
+  .act-glyph.attn { animation: none; }
+}
+
 .typing {
   display: inline-flex; gap: 5px; padding: var(--sp-3) var(--sp-4); align-self: flex-start;
   background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r-4);
@@ -673,6 +794,12 @@ h2 .count {
 .cbtn.voicecall:hover { background: var(--ink-2); }
 .cbtn.voicecall.live { background: var(--danger); color: var(--danger-on); animation: pulse 1.6s infinite; }
 .cbtn.voicecall.connecting { background: var(--attn); color: var(--surface-0); }
+.attachment-scope {
+  max-width: 142px; border: 0; border-left: 1px solid var(--divider);
+  background: transparent; color: var(--ink-2); padding: 0 var(--sp-2);
+  font: 500 var(--fs-1)/1 var(--font-ui); cursor: pointer; outline: none;
+}
+.attachment-scope:focus-visible { box-shadow: 0 0 0 2px var(--accent); }
 @keyframes pulse {
   0%, 100% { box-shadow: 0 0 0 0 var(--danger-bg); }
   50% { box-shadow: 0 0 0 7px transparent; }
@@ -950,6 +1077,9 @@ input.browser-urlbar:focus { outline: none; border-color: var(--accent); }
   background: var(--surface-3);
 }
 .browser-last { color: var(--ink-3); font-size: var(--fs-2); line-height: var(--lh-2); margin-top: var(--sp-2); }
+.browser-timeline { display:flex; gap:var(--sp-1); overflow-x:auto; padding-top:var(--sp-2); }
+.browser-timeline img { width:72px; height:41px; object-fit:cover; border:1px solid var(--line); border-radius:var(--radius-sm); }
+.browser-timeline button { padding:0; border:0; background:transparent; cursor:pointer; }
 
 .approval-banner {
 
@@ -1064,6 +1194,15 @@ body[data-offline="true"] #offline { display: flex; }
   font-size: var(--fs-3); line-height: var(--lh-3);
 }
 .crow .grow { min-width: 0; flex: 1; }
+/* Global search (docs/23 §8.3): semantic tokens only; selection, type, and
+   status all read without relying on colour alone. */
+.chiprow { display: flex; flex-wrap: wrap; gap: var(--sp-2); padding: 0 var(--sp-4) var(--sp-2); }
+.chiprow .btn[aria-pressed="true"] { background: var(--surface-3); border-color: var(--ink-3); }
+.connrow[aria-selected="true"] { background: var(--surface-2); }
+.connrow[aria-selected="true"] .grow b::before { content: "\203A\A0"; color: var(--ink-2); }
+#sessGroups[data-stale="true"] { opacity: .55; }
+.res-meta { display: flex; gap: var(--sp-2); flex-wrap: wrap; align-items: center; }
+.res-orphan { font-style: italic; }
 .crow .grow b { font-weight: 500; color: var(--ink-1); }
 .connrow {
   cursor: pointer; background: none; border: 0; width: 100%; text-align: left;
@@ -1225,8 +1364,14 @@ body[data-offline="true"] #offline { display: flex; }
   </div>
   <button class="btn" data-variant="ghost" data-shape="icon" id="sessionsBtn"
           onclick="openSessions()" aria-haspopup="dialog"
-          title="Search sessions" aria-label="Search sessions">
+          title="Search (⌘K)" aria-label="Search conversations and Alex's work">
     <svg class="ico" aria-hidden="true"><use href="#i-search"/></svg>
+  </button>
+  <button class="btn" data-variant="ghost" id="inboxBtn"
+          onclick="openFounderInbox()" aria-haspopup="dialog"
+          title="Needs your decision" aria-label="Open needs your decision inbox">
+    <svg class="ico" aria-hidden="true"><use href="#i-inbox"/></svg>
+    <span class="badge" data-tone="attn" id="inboxCount" hidden>0</span>
   </button>
   <div class="brand">Co-<span>Founder</span></div>
   <span class="chip">grant_applications</span>
@@ -1300,6 +1445,7 @@ body[data-offline="true"] #offline { display: flex; }
       </div>
       <div class="browser-goal" id="browserGoal" hidden></div>
       <div class="browser-stage" id="browserStage" aria-live="polite"></div>
+      <div class="browser-timeline" id="browserTimeline" aria-label="Browser frame timeline"></div>
       <div class="browser-last" id="browserLast"></div>
     </section>
 
@@ -1309,16 +1455,24 @@ body[data-offline="true"] #offline { display: flex; }
 
   <section id="chat" aria-labelledby="chatTitle">
     <h2 id="chatTitle">Conversation</h2>
+    <div id="digestSlot"></div>
     <div id="chatlog" role="log" aria-live="polite" aria-relevant="additions"></div>
     <div id="composer">
       <div class="pillbar">
-        <button class="cbtn" title="Add a company document" aria-label="Add a company document"
+        <button class="cbtn" title="Attach a document"
+                aria-label="Attach a document"
                 onclick="document.getElementById('docUpload').click()">
           <svg class="ico" aria-hidden="true"><use href="#i-paperclip"/></svg>
         </button>
-        <input type="file" id="docUpload" style="display:none" onchange="uploadDoc(this)">
+        <input type="file" id="docUpload" style="display:none"
+               accept=".pdf,.docx,.pptx,.xlsx,.txt,.csv" onchange="uploadDoc(this)">
+        <select id="attachmentScope" class="attachment-scope" aria-label="Attachment use">
+          <option value="reference_only" selected>Use in conversation</option>
+          <option value="profile">Add to Founder Profile</option>
+        </select>
         <input id="msg" placeholder="Ask your co-founder…" autocomplete="off" aria-label="Message"
-               onkeydown="if(event.key==='Enter')send()" oninput="$('sendBtn').disabled=!this.value.trim()">
+               onkeydown="if(event.key==='Enter')send()"
+               oninput="$('sendBtn').disabled=!this.value.trim()">
         <button class="cbtn" id="micBtn" title="Record a voice note" aria-label="Record a voice note">
           <svg class="ico" aria-hidden="true"><use href="#i-mic"/></svg>
         </button>
@@ -1439,40 +1593,6 @@ body[data-offline="true"] #offline { display: flex; }
         <div class="crow"><span class="grow"><b>Fill form fields</b></span><span class="tag tag-quiet">approved answers only</span></div>
         <div class="crow"><span class="grow"><b>Submit forms</b></span><span class="tag tag-warn">approval-gated</span></div>
       </div>
-    </div>
-
-    <div id="connGithub" style="display:none">
-      <button class="x" style="float:right" onclick="closeConnections()" aria-label="Close"><svg class="ico" aria-hidden="true"><use href="#i-close"/></svg></button>
-      <button class="btn" data-variant="quiet" data-size="sm" onclick="showConn('list')"><svg class="ico ico-sm" aria-hidden="true"><use href="#i-chev-left"/></svg>Connectors</button>
-      <div style="display:flex;align-items:center;gap:12px;margin:12px 0 4px">
-        <span class="cbadge big"><svg class="ico" aria-hidden="true"><use href="#i-code"/></svg></span>
-        <div class="grow">
-          <div class="conn-title">GitHub</div>
-          <div class="status-line" id="githubStatusLine"></div>
-        </div>
-      </div>
-      <div id="githubConnected" style="display:none">
-        <div class="grp-h">Account</div>
-        <div class="grp">
-          <div class="crow"><span class="grow"><b id="githubLogin"></b>
-            <span class="conn-sub">token validated against the GitHub API</span></span>
-            <button class="btn" data-variant="danger" data-size="sm" onclick="disconnectGithub()">Disconnect</button></div>
-        </div>
-      </div>
-      <div id="githubConnect">
-        <div class="grp-h">How connecting works</div>
-        <div class="grp" id="githubInstructions"></div>
-        <div class="crow" style="padding:10px 2px;gap:8px">
-          <input class="textin" id="ghToken" type="password" placeholder="github_pat_…">
-          <button class="btn" data-size="sm" onclick="connectGithub()">Connect</button>
-        </div>
-      </div>
-      <div class="grp-h">Access</div>
-      <div class="grp">
-        <div class="crow"><span class="grow"><b>Store &amp; validate credential</b></span><span class="tag tag-quiet">today</span></div>
-        <div class="crow"><span class="grow"><b>Repo / issue tools</b></span><span class="tag tag-warn">lands with the dev workflow</span></div>
-      </div>
-      <div class="foot">The token is stored as a secret, never in session state, prompts, or logs.</div>
     </div>
 
     <div id="connAlex" style="display:none">
@@ -1657,20 +1777,42 @@ body[data-offline="true"] #offline { display: flex; }
      read-through (provenance path); Resume makes a session active again —
      approvals and drafts are session-scoped, so resuming is how an old
      approval stays actionable. -->
-<div id="sessions" class="dialog" role="dialog" aria-modal="true" aria-label="Sessions"
+<div id="sessions" class="dialog" role="dialog" aria-modal="true" aria-label="Search"
      onclick="if(event.target===this)closeSessions()">
   <div class="sheet">
     <div style="display:flex;align-items:center;margin-bottom:4px;gap:10px">
       <div>
-        <div class="conn-title">Sessions</div>
-        <div class="conn-sub">Every conversation, newest first. Approvals and drafts stay with their session.</div>
+        <div class="conn-title">Search</div>
+        <div class="conn-sub">Search conversations and Alex&#39;s work.</div>
       </div>
       <span style="flex:1"></span>
-      <input class="textin" id="sessSearch" placeholder="Search" style="max-width:180px"
-             oninput="renderSessionsList()" aria-label="Search sessions">
+      <input class="textin" id="sessSearch" placeholder="Search everything"
+             style="max-width:240px" oninput="onSearchInput()"
+             role="combobox" aria-expanded="true" aria-controls="sessGroups"
+             aria-autocomplete="list" aria-label="Search conversations and Alex&#39;s work">
       <button class="x" onclick="closeSessions()" aria-label="Close"><svg class="ico" aria-hidden="true"><use href="#i-close"/></svg></button>
     </div>
-    <div id="sessGroups"></div>
+    <div id="searchChips" class="chiprow" role="group" aria-label="Filter by type"></div>
+    <div id="sessGroups" role="listbox" aria-label="Results"></div>
+    <div id="searchStatus" class="conn-sub" aria-live="polite" style="margin-top:6px"></div>
+  </div>
+</div>
+
+<div id="founderInbox" class="dialog" role="dialog" aria-modal="true"
+     aria-labelledby="founderInboxTitle"
+     onclick="if(event.target===this)closeFounderInbox()">
+  <div class="sheet">
+    <div style="display:flex;align-items:center;margin-bottom:4px;gap:10px">
+      <div>
+        <div class="conn-title" id="founderInboxTitle">Needs your decision</div>
+        <div class="conn-sub">Messages Alex could not safely link without your judgment.</div>
+      </div>
+      <span style="flex:1"></span>
+      <button class="x" onclick="closeFounderInbox()" aria-label="Close">
+        <svg class="ico" aria-hidden="true"><use href="#i-close"/></svg>
+      </button>
+    </div>
+    <div id="founderInboxList" aria-live="polite"></div>
   </div>
 </div>
 
@@ -1726,8 +1868,17 @@ matchMedia("(prefers-color-scheme: light)").addEventListener("change", () => {
 
 // ---------- state ----------
 let sessionId = null, activeApp = null, pendingApproval = null, thinking = false;
+let pipelineApps = [], founderInboxRows = [];
 let chatCount = 0;
 let browserSnapshot = null;
+let browserEventSource = null, browserEventSession = null;
+let browserEventTries = 0, browserEventTimer = 0;
+let browserFrames = [], browserResyncing = false;
+// Run-view versions and frame seqs are tracked separately: a frame carries no
+// status/kind, so letting it advance the run-view version made a corrective
+// full-state read look stale and get dropped (finding: frame-version bookkeeping).
+const browserVersions = new Map();
+const browserFrameSeqs = new Map();
 // Persisted so a tab reload reuses the same session — approvals are strictly
 // session-scoped, so minting a new session on every load would orphan a
 // pending submit approval permanently (finding: newSession-on-every-load).
@@ -1753,7 +1904,11 @@ async function api(path, opts = {}) {
   if (!r.ok) {
     // Surface failures instead of toasting success on a 401/500 body.
     let detail = "";
-    try { detail = (await r.json()).error || ""; } catch (_) { /* non-JSON */ }
+    try {
+      const body = await r.json();
+      detail = body.message || body.detail ||
+        (typeof body.error === "string" ? body.error : "");
+    } catch (_) { /* non-JSON */ }
     throw new Error(detail || `${r.status} ${r.statusText}`);
   }
   return r.json();
@@ -1817,8 +1972,11 @@ function md(src) {
   t = t.replace(/`([^`\n]+)`/g, "<code>$1</code>");
   t = t.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
   t = t.replace(/(^|\s)\*([^*\n]+)\*/g, "$1<em>$2</em>");
-  t = t.replace(/\[([^\]]+)\]\((https?:[^)\s]+)\)/g, (_all, label, url) => {
+  t = t.replace(/\[([^\]]+)\]\(((?:https?:|\/)[^)\s]+)\)/g, (_all, label, url) => {
     const decoded = url.replaceAll("&amp;", "&").replaceAll("&lt;", "<").replaceAll("&gt;", ">");
+    if (decoded.startsWith("/")) {
+      return `<a href="${url}" download>${label}</a>`;
+    }
     return `<a href="#" data-browser-url="${encodeURIComponent(decoded)}">${label}</a>`;
   });
   const lines = t.split("\n"); let html = "", list = null;
@@ -1839,6 +1997,7 @@ function md(src) {
 
 // ---------- chat ----------
 let PERSONA = "Alex", WORKFLOW = "";  // founder-facing agent name (docs/adr/001); from /api/config
+let pendingUploads = 0, readyAttachmentRefs = [];
 fetch("/api/config").then(r => r.json()).then(j => {
   PERSONA = j.persona_name || PERSONA; WORKFLOW = j.workflow_id || "";
 }).catch(() => {});
@@ -1894,6 +2053,164 @@ document.addEventListener("click", (event) => {
   catch { toast("That link is not a valid URL.", "danger"); return; }
   browseTo(url);
 });
+// ---------- activity & waiting (docs/24) ----------
+// One component, six states. Motion renders ONLY while a worker executes; an
+// open wait is deliberately still, because nothing is running.
+const ACT_ELAPSED_THRESHOLD_MS = 5000;   // no timer on a quick turn
+const ACT_SHOW_GRACE_MS = 500;           // delay appearing, never disappearing
+let actState = null, actTimer = null, actGraceTimer = null, actStartedAt = 0;
+
+function actGlyph(kind) { return `<span class="act-glyph ${kind}" aria-hidden="true"></span>`; }
+
+function fmtElapsed(ms) {
+  const s = Math.floor(ms / 1000);
+  if (s < 60) return s + "s";
+  return Math.floor(s / 60) + "m " + String(s % 60).padStart(2, "0") + "s";
+}
+
+// Show the working line, debounced so two fast steps do not flicker it.
+function actStartWorking() {
+  actStartedAt = Date.now();
+  clearTimeout(actGraceTimer);
+  actGraceTimer = setTimeout(() => {
+    actState = { tone: "run", verb: "Thinking", steps: [] };
+    actRender();
+    actTimer = setInterval(actRender, 1000);
+  }, ACT_SHOW_GRACE_MS);
+}
+
+// Hiding is never delayed.
+function actStop() {
+  clearTimeout(actGraceTimer);
+  clearInterval(actTimer);
+  actTimer = null;
+  const el = $("actLine");
+  if (el) el.remove();
+  actState = null;
+  showStopControl(false);
+}
+
+// Turn finished: collapse the live line into a permanent receipt.
+function actFinish(trace) {
+  clearTimeout(actGraceTimer);
+  clearInterval(actTimer);
+  actTimer = null;
+  const steps = (trace || []).filter(t => t && t.verb);
+  const el = $("actLine");
+  if (el) el.remove();
+  actState = null;
+  if (!steps.length) return;
+  const total = Date.now() - actStartedAt;
+  const summary = steps.map(s => s.verb + (s.object ? " " + s.object : ""))
+                       .join(", ");
+  const node = document.createElement("div");
+  node.className = "act";
+  node.dataset.tone = "done";
+  node.dataset.open = "false";
+  node.innerHTML =
+    `<button class="act-head" aria-expanded="false" data-act-toggle>
+       ${actGlyph("ok")}
+       <span class="act-verb"><span class="obj">${esc(summary)}</span></span>
+       <span class="act-time">${fmtElapsed(total)}</span>
+       <svg class="act-caret" width="12" height="12" viewBox="0 0 16 16" aria-hidden="true">
+         <path d="M6 3l5 5-5 5" fill="none" stroke="currentColor" stroke-width="2"
+               stroke-linecap="round" stroke-linejoin="round"/></svg>
+     </button>
+     <div class="act-steps" role="list">${steps.map(stepRow).join("")}</div>`;
+  $("chatlog").appendChild(node);
+  $("chatlog").scrollTop = $("chatlog").scrollHeight;
+}
+
+function stepRow(step) {
+  const object = step.object ? " " + step.object : "";
+  return `<div class="act-step" role="listitem"><span class="tick">&#10003;</span>
+    <span class="txt">${esc(step.verb + object)}</span></div>`;
+}
+
+function actRender() {
+  if (!actState) return;
+  let el = $("actLine");
+  if (!el) {
+    el = document.createElement("div");
+    el.id = "actLine";
+    el.className = "act";
+    el.setAttribute("aria-live", "polite");
+    $("chatlog").appendChild(el);
+  }
+  el.dataset.tone = actState.tone;
+  const elapsed = Date.now() - actStartedAt;
+  const clock = elapsed >= ACT_ELAPSED_THRESHOLD_MS
+    ? `<span class="act-time">${fmtElapsed(elapsed)}</span>` : "";
+  el.innerHTML =
+    `<div class="act-head">${actGlyph("spin")}
+       <span class="act-verb"><b>${esc(actState.verb)}</b></span>${clock}</div>`;
+  // Past the threshold, Stop replaces Send: one slot, one meaning.
+  if (elapsed >= ACT_ELAPSED_THRESHOLD_MS) showStopControl(true);
+  $("chatlog").scrollTop = $("chatlog").scrollHeight;
+}
+
+function showStopControl(on) {
+  const btn = $("sendBtn");
+  if (!btn) return;
+  btn.dataset.stop = on ? "true" : "";
+  btn.title = btn.ariaLabel = on ? "Stop" : "Send";
+}
+
+// ---------- waiting + return digest ----------
+const SEEN_KEY = "cofounder-lastseen";
+
+function waitRow(w) {
+  const glyph = w.blocked_on === "founder" ? "attn"
+              : w.wait_kind === "discovery_running" ? "spin" : "ring";
+  const tone = w.blocked_on === "founder" ? "attn" : "wait";
+  return `<div class="act" data-tone="${tone}" data-open="false">
+    <div class="act-head">${actGlyph(glyph)}
+      <span class="act-verb"><b>${esc(w.title)}</b>
+        <span class="act-promise">${esc(w.next_check_action)}</span></span>
+    </div></div>`;
+}
+
+function renderDigest(data) {
+  const host = $("digestSlot");
+  if (!host) return;
+  const waits = data.waits || [], changed = data.changed || [];
+  const blocked = waits.filter(w => w.blocked_on === "founder");
+  const open = waits.filter(w => w.blocked_on !== "founder");
+  if (!blocked.length && !changed.length && !open.length) { host.innerHTML = ""; return; }
+  const rows = [];
+  for (const w of blocked) {
+    rows.push(`<div class="digest-row" data-kind="founder">${actGlyph("attn")}
+      <span class="body"><strong>${esc(w.title)}</strong><em>${esc(w.next_check_action)}</em></span></div>`);
+  }
+  for (const c of changed.slice(0, 3)) {
+    rows.push(`<div class="digest-row">${actGlyph("ok")}
+      <span class="body">${esc(c.title || "Something finished")}
+      <em>${esc(timeAgo(c.at) || "recently")} &middot; nothing needed from you</em></span></div>`);
+  }
+  for (const w of open.slice(0, 2)) {
+    rows.push(`<div class="digest-row">${actGlyph("ring")}
+      <span class="body">${esc(w.title)}<em>${esc(w.next_check_action)}</em></span></div>`);
+  }
+  host.innerHTML = `<div class="digest">
+    <div class="digest-head"><h3>While you were away</h3>
+      <span style="flex:1"></span>
+      <button class="btn" data-variant="quiet" data-size="sm" data-digest-dismiss>Dismiss</button>
+    </div>${rows.join("")}</div>`;
+}
+
+async function refreshWaiting() {
+  if (!sessionId) return;
+  const since = localStorage.getItem(SEEN_KEY) || "";
+  let data;
+  try {
+    data = await api(`/api/waiting?session_id=${encodeURIComponent(sessionId)}`
+      + (since ? `&since=${encodeURIComponent(since)}` : ""));
+  } catch (e) { return; }          // waiting never breaks the page
+  renderDigest(data);
+}
+
+function markSeen() { localStorage.setItem(SEEN_KEY, new Date().toISOString()); }
+
 function setThinking(on) {
   thinking = on;
   const old = document.querySelector(".typing"); if (old) old.remove();
@@ -1908,12 +2225,18 @@ function chatPlaceholder() {
     "Ask for anything on your plate — or upload your deck and it will start building your profile.");
 }
 async function newSession() {
+  if (voice) { toast("Hang up the live call before starting a new conversation.", "attn"); return; }
+  actStop();
+  closeBrowserEvents();
   const r = await api("/session/new", { method: "POST", body: "{}" });
   sessionId = r.session_id;
   localStorage.setItem(SESSION_KEY, sessionId);
   $("sessionTag").textContent = "session " + sessionId;
   chatCount = 0;
+  readyAttachmentRefs = [];
+  resetBrowserView();
   chatPlaceholder();
+  connectBrowserEvents();
 }
 // Reuse a stored session across reloads; only mint a fresh one when there is
 // none or it no longer exists server-side (e.g. the session store was reset).
@@ -1951,6 +2274,10 @@ async function send() {
   const input = $("msg");
   const text = input.value.trim();
   if (!text || thinking) return;
+  if (pendingUploads) {
+    toast("Wait for the attachment to finish processing before sending.", "attn");
+    return;
+  }
   if (viewingSession) backToSession();
   if (!sessionId) await newSession();
   addMsg("you", text); input.value = "";
@@ -1962,14 +2289,28 @@ async function send() {
     return;
   }
   setThinking(true);
+  actStartWorking();
   try {
-    const r = await api("/wake", { method: "POST", body: JSON.stringify({ message: text, session_id: sessionId }) });
+    // One opaque id per founder submission. If the transport layer retries
+    // this request it must reuse the body; intentionally sending the same text
+    // later receives a new id and remains a new request.
+    const requestId = "req_" + crypto.randomUUID();
+    const r = await api("/wake", { method: "POST", body: JSON.stringify({
+      message: text, session_id: sessionId, client_request_id: requestId,
+      attachment_refs: readyAttachmentRefs
+    }) });
+    readyAttachmentRefs = [];
+    actFinish(r.trace);
     (r.replies || []).forEach(t => addMsg("agent", t));
   } catch (e) {
+    actStop();
     addMsg("agent", "I couldn't reach the server, so that message wasn't sent. Try again.");
   }
   setThinking(false);
+  showStopControl(false);
+  markSeen();
   refresh();
+  refreshWaiting();
 }
 
 // ---------- board ----------
@@ -1977,7 +2318,14 @@ async function runSweep() {
   const b = $("sweepBtn");
   b.disabled = true; b.querySelector("span").textContent = "Sweeping…";
   try {
-    await api("/tasks/discover", { method: "POST", body: "{}" });
+    // Founder-facing discovery boundary (docs/23 §6.2): the UI calls the
+    // public request endpoint, never an internal task worker. One opaque
+    // request id per click; the report returns to THIS conversation through
+    // the durable receipt's origin session.
+    const reqId = "req_" + [...crypto.getRandomValues(new Uint8Array(16))]
+      .map(x => x.toString(16).padStart(2, "0")).join("");
+    await api("/api/discovery-requests", { method: "POST", body: JSON.stringify({
+      session_id: sessionId, client_request_id: reqId, context: "" }) });
     toast("Sweep running. Alex works in the background — new finds appear here as they're scored.", "ok");
   } catch (e) {
     toast(`Sweep didn't start: ${e.message}`, "danger");
@@ -2003,7 +2351,6 @@ function setOffline(down) {
 }
 
 async function refresh() {
-  loadBrowserState();
   refreshGateBanner();
   let board;
   try {
@@ -2016,7 +2363,7 @@ async function refresh() {
     if (!booted) {
       markLoaded();
       $("boardCols").innerHTML = emptyState("alert", "Can't reach the server",
-        "Alex's pipeline is unavailable. This retries on its own every few seconds.",
+        "Alex's pipeline is unavailable. It refreshes when you come back to this tab — or retry now.",
         `<button class="btn" data-variant="secondary" data-size="sm" onclick="refresh()">
            ${ico("refresh", "ico-sm")}Retry now</button>`);
       $("audit").innerHTML = "";
@@ -2050,6 +2397,7 @@ async function refresh() {
     `<button class="btn" data-size="sm" onclick="runSweep()">${ico("refresh")}Run a sweep</button>`);
 
   const apps = board.applications || [];
+  pipelineApps = apps;
   $("apps").innerHTML = apps.map(a =>
     `<article class="card appcard ${activeApp && activeApp.id === a.id ? "active" : ""}"
        tabindex="0" role="button" data-app-id="${esc(a.id)}"
@@ -2061,6 +2409,7 @@ async function refresh() {
          "Pick a shortlisted programme above and tell Alex to start — it interviews you, then drafts.");
   if (!activeApp && apps.length) loadApp(apps[0].id);
   if (activeApp) loadApp(activeApp.id, true);
+  refreshFounderInbox();
   syncChat();
   loadDocuments();
 
@@ -2146,33 +2495,177 @@ wireSplit({ handleId: "splitHandle", varName: "--left-w",
 wireSplit({ handleId: "splitHandleRight", varName: "--right-w",
             storageKey: "rightPanelWidth", edge: "right", min: 320, max: 640 });
 
-// ---------- live browser work (docs/18) ----------
-async function loadBrowserState() {
-  if (!sessionId) return;
-  let state;
-  try { state = await api(`/api/browser/state?session_id=${encodeURIComponent(sessionId)}`); }
-  catch { return; }
-  const run = state.fill && state.fill.active ? { ...state.fill, kind: "fill" }
-            : state.browse && state.browse.active ? { ...state.browse, kind: "browse" }
-            : state.browse ? { ...state.browse, kind: "browse" }
-            : state.fill ? { ...state.fill, kind: "fill" } : null;
-  const wasActive = browserSnapshot && browserSnapshot.active;
-  if (run) browserSnapshot = run;
-  // A run starting is the "watch it work" moment — surface it (wide layouts;
-  // narrow layouts get the Browser pane tab instead).
-  if (run && run.active && !wasActive && window.innerWidth >= 960
-      && document.body.dataset.surface !== "browser") showSurface("browser");
+// ---------- live browser work (docs/22) ----------
+// One place to forget browser view state. The maps must clear with the frames:
+// leaving a version floor behind meant the next session's first snapshot could
+// be rejected as "older" and the panel would stay blank.
+function resetBrowserView() {
+  browserSnapshot = null; browserFrames = [];
+  browserVersions.clear(); browserFrameSeqs.clear();
+}
+
+function pickBrowserRun(state) {
+  return state.fill && state.fill.active ? { ...state.fill, kind: "fill" }
+    : state.browse && state.browse.active ? { ...state.browse, kind: "browse" }
+    : state.browse ? { ...state.browse, kind: "browse" }
+    : state.fill ? { ...state.fill, kind: "fill" } : null;
+}
+
+// A page can outlive many runs, so the per-run maps are bounded LRUs: re-insert
+// on write so the run being watched is never the one evicted.
+const BROWSER_RUN_MEMORY = 24;
+function trackBrowserRun(map, runId, value) {
+  map.delete(runId); map.set(runId, value);
+  while (map.size > BROWSER_RUN_MEMORY) map.delete(map.keys().next().value);
+}
+
+// Cross-run arbitration, mirroring the server's foreground precedence
+// (pickBrowserRun): an active fill outranks an active browse, and any active
+// run outranks a terminal one. Without a rank, a stale run's browser.closed
+// displaced the LIVE run's view and hid Stop while a credentialed run was still
+// executing (finding: unconditional run replacement).
+function browserRunRank(run) {
+  if (!run || !run.run_id) return -1;
+  if (run.active) return run.kind === "fill" ? 3 : 2;
+  return run.kind === "fill" ? 0 : 1;
+}
+
+// `authoritative` marks a full durable state read (browser.snapshot or GET
+// /api/browser/state). Those already ran through the server's precedence, so
+// they may switch runs freely — that is how a view stuck on a stale "active"
+// run heals. Single-run stream events must earn the switch on rank.
+function reduceBrowserRun(run, authoritative = false) {
+  if (!run || !run.run_id) return;
+  const version = Number(run.version || 0);
+  if (version < Number(browserVersions.get(run.run_id) || 0)) return;
+  trackBrowserRun(browserVersions, run.run_id, version);
+  const current = browserSnapshot;
+  const sameRun = !!(current && current.run_id === run.run_id);
+  if (!sameRun && !authoritative && browserRunRank(run) < browserRunRank(current)) return;
+  const wasActive = !!(current && current.active);
+  // Merge within a run: a status event carries no frame, and replacing wholesale
+  // dropped the last screenshot the founder was watching.
+  browserSnapshot = sameRun ? { ...current, ...run } : run;
+  if (run.active && !wasActive) {
+    if (window.innerWidth < 960) showPane("browser");
+    else if (document.body.dataset.surface !== "browser") showSurface("browser");
+  }
   renderBrowserPanel();
+}
+
+function reduceBrowserFrame(event) {
+  const frame = event.frame || {};
+  const runId = event.run_id;
+  const version = Number(event.version || frame.run_version || 0);
+  const currentVersion = Number(browserVersions.get(runId) || 0);
+  if (!runId || version < currentVersion) return;
+  const priorSeq = Number(browserFrameSeqs.get(runId) || 0);
+  if (Number(frame.seq || 0) < priorSeq) return;
+  const firstFrameForRun = !browserFrameSeqs.has(runId);
+  trackBrowserRun(browserFrameSeqs, runId, Number(frame.seq || 0));
+  const screenshot = frame.artifact
+    ? `/api/artifacts/${encodeURIComponent(frame.artifact)}/preview` : null;
+  if (browserSnapshot && browserSnapshot.run_id === runId) {
+    browserSnapshot = {
+      ...browserSnapshot, frame_seq: Number(frame.seq || 0),
+      url: frame.url || browserSnapshot.url || "",
+      title: frame.title || browserSnapshot.title || "",
+      screenshot_url: screenshot,
+    };
+  } else if (firstFrameForRun && !browserVersions.has(runId)) {
+    // A frame has no status/kind/goal, so it can never define a run view —
+    // building one from {} painted a statusless, Stop-less panel. Ask once for
+    // the durable view of a run we have never seen instead.
+    loadBrowserState();
+  }
+  if (["nav", "after", "blocked", "closed"].includes(frame.phase)) {
+    browserFrames = browserFrames.filter(item =>
+      !(item.run_id === runId && Number(item.seq) === Number(frame.seq)));
+    browserFrames.push({ ...frame, run_id: runId, screenshot_url: screenshot });
+    browserFrames = browserFrames.slice(-12);
+  }
+  renderBrowserPanel();
+}
+
+// The server suppresses every event while a resync is pending, so one failed
+// GET could show a closed run as live until the 55-minute stream horizon. Two
+// bounded retries, then the next reconnect's snapshot heals it — never a loop.
+const BROWSER_RESYNC_BACKOFF = [2000, 5000];
+async function loadBrowserState(attempt = 0) {
+  if (!sessionId || browserResyncing) return;
+  const session = sessionId;
+  browserResyncing = true;
+  try {
+    const state = await api(`/api/browser/state?session_id=${encodeURIComponent(session)}`);
+    const run = pickBrowserRun(state);
+    if (run) reduceBrowserRun(run, true); else { browserSnapshot = null; renderBrowserPanel(); }
+  } catch {
+    const wait = BROWSER_RESYNC_BACKOFF[attempt];
+    if (wait !== undefined) setTimeout(() => {
+      if (sessionId === session) loadBrowserState(attempt + 1);
+    }, wait);
+  }
+  finally { browserResyncing = false; }
+}
+
+function handleBrowserEvent(event) {
+  let data;
+  try { data = JSON.parse(event.data); } catch { return; }
+  if (data.type === "browser.snapshot") {
+    const run = pickBrowserRun(data.state || {});
+    if (run) reduceBrowserRun(run, true); else { browserSnapshot = null; renderBrowserPanel(); }
+  } else if (data.type === "browser.frame") reduceBrowserFrame(data);
+  else if (data.type === "browser.resync") loadBrowserState();
+  else if (data.run) reduceBrowserRun(data.run);
+}
+
+function closeBrowserEvents() {
+  if (browserEventSource) browserEventSource.close();
+  browserEventSource = null; browserEventSession = null;
+  if (browserEventTimer) { clearTimeout(browserEventTimer); browserEventTimer = 0; }
+}
+
+// EventSource only auto-reconnects after a clean stream end; a 4xx (429 on a
+// fourth tab, 404 on a dropped session) kills it permanently. Retry a bounded
+// number of times, and always clear the same-session guard first so a later
+// visibilitychange or session switch can try again.
+const BROWSER_STREAM_BACKOFF = [2000, 6000, 15000];
+function connectBrowserEvents(isRetry = false) {
+  if (!sessionId || document.visibilityState === "hidden") { closeBrowserEvents(); return; }
+  if (browserEventSource && browserEventSession === sessionId) return;
+  closeBrowserEvents();
+  if (!isRetry) browserEventTries = 0;  // founder-driven attempt: fresh budget
+  browserEventSession = sessionId;
+  const source = new EventSource(`/api/browser/events?session_id=${encodeURIComponent(sessionId)}`);
+  browserEventSource = source;
+  source.addEventListener("open", () => { browserEventTries = 0; });
+  source.addEventListener("error", () => {
+    if (source !== browserEventSource) return;            // superseded connection
+    if (source.readyState !== EventSource.CLOSED) return; // transient: it retries itself
+    const session = browserEventSession;
+    closeBrowserEvents();
+    const wait = BROWSER_STREAM_BACKOFF[browserEventTries];
+    if (wait === undefined) return;  // give up; the panel keeps its last state
+    browserEventTries += 1;
+    browserEventTimer = setTimeout(() => {
+      browserEventTimer = 0;
+      if (sessionId === session) connectBrowserEvents(true);
+    }, wait);
+  });
+  ["browser.snapshot", "browser.started", "browser.frame", "browser.status",
+   "browser.closed", "browser.resync"].forEach(type =>
+    source.addEventListener(type, handleBrowserEvent));
 }
 
 function renderBrowserPanel() {
   const run = browserSnapshot;
-  const live = !!(run && run.active && run.status === "active");
+  const nonterminal = !!(run && run.active);
+  const live = !!(run && run.status === "active");
   const liveBadge = $("browserLive");
-  liveBadge.hidden = !(run && (live || run.status === "blocked"));
+  liveBadge.hidden = !run;
   liveBadge.dataset.tone = run && run.status === "blocked" ? "danger" : "info";
-  liveBadge.textContent = run && run.status === "blocked" ? "blocked" : "live";
-  $("browserStopBtn").hidden = !(live && run.kind === "browse");
+  liveBadge.textContent = run ? ({active:"live"}[run.status] || run.status || "closed") : "";
+  $("browserStopBtn").hidden = !nonterminal;
   const urlEl = $("browserUrl");
   if (document.activeElement !== urlEl) {  // never clobber a URL being typed
     urlEl.value = run ? (run.url || "") : "";
@@ -2181,9 +2674,9 @@ function renderBrowserPanel() {
   const goalEl = $("browserGoal");
   if (run) {
     const label = run.kind === "fill"
-      ? (live ? `${PERSONA} is filling a form` : "Form work finished")
+      ? (nonterminal ? `${PERSONA} is filling a form${run.phase ? ` · ${run.phase}` : ""}` : "Form work finished")
       : run.status === "blocked" ? `${PERSONA}'s browser is blocked`
-        : live ? `${PERSONA} is browsing` : "Browsing finished";
+        : nonterminal ? `${PERSONA} is browsing` : "Browsing finished";
     goalEl.hidden = false;
     goalEl.textContent = run.goal ? `${label} — “${run.goal}”` : label;
   } else {
@@ -2191,7 +2684,8 @@ function renderBrowserPanel() {
   }
   const stage = $("browserStage");
   if (run && run.screenshot_url) {
-    stage.innerHTML = `<img src="${esc(run.screenshot_url)}?v=${encodeURIComponent(run.last_action?.at || run.run_id)}"
+    // Both parts matter: frames advance frame_seq, status events advance version.
+    stage.innerHTML = `<img src="${esc(run.screenshot_url)}?v=${encodeURIComponent(`${run.version || 0}.${run.frame_seq || 0}`)}"
          alt="Latest browser screenshot">`;
   } else {
     stage.innerHTML = emptyState("globe",
@@ -2202,8 +2696,13 @@ function renderBrowserPanel() {
   $("browserLast").textContent = run
     ? (run.last_action
         ? `Last: ${run.last_action.kind} “${run.last_action.target || "page"}” · ${timeAgo(run.last_action.at)}`
-        : (live ? "Opening the page…" : "Last frame retained"))
+        : (nonterminal ? `${run.status === "opening" ? "Opening" : run.status}…` : "Last frame retained as evidence"))
     : "";
+  $("browserTimeline").innerHTML = browserFrames
+    .filter(frame => !run || frame.run_id === run.run_id)
+    .map(frame => frame.screenshot_url
+      ? `<button title="${esc(frame.phase)} · ${esc(frame.title || "page")}" onclick="browserSnapshot.screenshot_url='${esc(frame.screenshot_url)}';renderBrowserPanel()"><img src="${esc(frame.screenshot_url)}" alt="${esc(frame.phase)} frame"></button>`
+      : `<span title="Evidence expired">${esc(frame.phase)}</span>`).join("");
 }
 
 // Typing a URL asks Alex to open it — through chat, so the request stays on
@@ -2218,13 +2717,13 @@ async function browseTo(raw) {
 }
 
 async function stopBrowsing() {
-  if (!sessionId) return;
+  if (!sessionId || !browserSnapshot) return;
+  if (browserSnapshot.kind === "fill" && !confirm("Stop form work? Unsaved portal entries may be discarded. Nothing will be submitted.")) return;
   const result = await api("/api/browser/stop", {
-    method: "POST", body: JSON.stringify({ session_id: sessionId })
+    method: "POST", body: JSON.stringify({ session_id: sessionId, run_id: browserSnapshot.run_id })
   });
-  toast(result.status === "success" ? "Browsing stopped." : (result.message || "Couldn't stop browsing."),
+  toast(result.status === "success" ? "Browser work stopped." : (result.message || "Couldn't stop browser work."),
         result.status === "success" ? "ok" : "danger");
-  await loadBrowserState();
 }
 
 // ---------- reference tabs (docs/16 §7.10) ----------
@@ -2530,6 +3029,7 @@ document.addEventListener("keydown", e => {
     e.preventDefault();
     ({ modal: closeApproval, pdfModal: closePdf, connections: closeConnections,
        settings: closeSettings, sessions: closeSessions,
+       founderInbox: closeFounderInbox,
        shotModal: () => closeDialog("shotModal") })[dlg.id]();
     return;
   }
@@ -2635,6 +3135,9 @@ $("micBtn").onclick = async () => {
     const fd = new FormData();
     fd.append("file", new Blob(chunks, { type: "audio/webm" }), "note.webm");
     fd.append("context", "founder voice note");
+    // A voice note is a founder-visible artifact: it carries its session so
+    // it is findable from this conversation (docs/23 §6.1).
+    fd.append("session_id", sessionId);
     let j;
     try {
       const r = await fetch("/api/voice-note", { method: "POST", body: fd });
@@ -2670,24 +3173,142 @@ $("micBtn").onclick = async () => {
 async function uploadDoc(input) {
   const f = input.files[0]; if (!f) return;
   input.value = "";  // allow re-uploading the same file
-  const fd = new FormData(); fd.append("file", f);
+  if (!sessionId) await newSession();
+  const attachmentSessionId = sessionId;
+  const scope = $("attachmentScope").value || "reference_only";
+  pendingUploads += 1;
+  $("sendBtn").disabled = true;
+  const fd = new FormData();
+  fd.append("file", f);
+  fd.append("session_id", sessionId);
+  fd.append("scope", scope);
   const d = document.createElement("div");
   d.className = "msg agent";
-  d.innerHTML = `${agentHead()}<p>Reading <b>${esc(f.name)}</b> — pulling out facts about your
-    company. This takes about 15 seconds.</p>`;
+  const purpose = scope === "profile" ? "for proposed Founder Profile updates" : "for this conversation";
+  d.innerHTML = `${agentHead()}<p>Uploading <b>${esc(f.name)}</b> ${purpose}…</p>`;
   $("chatlog").appendChild(d);
   $("chatlog").scrollTop = $("chatlog").scrollHeight;
   try {
     const r = await fetch("/api/ingest", { method: "POST", body: fd });
-    const j = await r.json();
-    d.innerHTML = agentHead() + (j.status === "success"
-      ? `<p>Read <b>${esc(f.name)}</b> — ${esc(j.summary || "facts extracted")}. I've applied
-         what I'm confident about; I'll only come back to you about conflicts.</p>`
-      : `<p>I couldn't read <b>${esc(f.name)}</b>: ${esc(j.message || "the file wouldn't parse")}.</p>`);
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok || j.status !== "success" || !j.attachment_ref) {
+      throw new Error(j.message || j.detail || `upload failed (${r.status})`);
+    }
+    if (sessionId === attachmentSessionId && !readyAttachmentRefs.includes(j.attachment_ref)) {
+      readyAttachmentRefs.push(j.attachment_ref);
+    }
+    d.innerHTML = `${agentHead()}<p><b>${esc(f.name)}</b> is queued ${purpose}.
+      You can keep chatting while I process it.</p>`;
+    watchAttachment(j.attachment_ref, f.name, scope, d, attachmentSessionId);
   } catch (e) {
-    d.innerHTML = agentHead() + `<p>The upload didn't reach me: ${esc(e.message || e)}. Try again.</p>`;
+    d.innerHTML = agentHead() + `<p>I couldn't accept <b>${esc(f.name)}</b>:
+      ${esc(e.message || e)}.</p>`;
+  } finally {
+    pendingUploads = Math.max(0, pendingUploads - 1);
+    if (!pendingUploads && !thinking) {
+      $("sendBtn").disabled = !$("msg").value.trim();
+    }
   }
   refresh();
+}
+
+async function watchAttachment(ref, filename, scope, messageNode, attachmentSessionId) {
+  const terminal = new Set(["READY", "NEEDS_FOUNDER", "CONFIRMED", "NO_TEXT", "UNSUPPORTED", "FAILED"]);
+  for (let attempt = 0; attempt < 45; attempt += 1) {
+    if (attempt) await new Promise(resolve => setTimeout(resolve, 2000));
+    try {
+      const j = await api(`/api/ingest/${encodeURIComponent(ref)}?session_id=${encodeURIComponent(attachmentSessionId)}`);
+      const status = j.ingestion_status || "QUEUED";
+      if (!terminal.has(status)) {
+        messageNode.innerHTML = `${agentHead()}<p>Processing <b>${esc(filename)}</b>
+          for ${scope === "profile" ? "Founder Profile review" : "cited conversation use"}…
+          <span class="badge" data-tone="info">${esc(status.toLowerCase())}</span></p>`;
+        continue;
+      }
+      if (status === "READY") {
+        messageNode.innerHTML = `${agentHead()}<p><b>${esc(filename)}</b> is ready —
+          ${Number(j.chunk_count || 0)} cited section${Number(j.chunk_count || 0) === 1 ? "" : "s"} available in this conversation.</p>`;
+      } else if (status === "CONFIRMED") {
+        messageNode.innerHTML = `${agentHead()}<p><b>${esc(filename)}</b> is ready —
+          ${Number(j.auto_applied || 0)} supported Founder Profile update${Number(j.auto_applied || 0) === 1 ? "" : "s"} applied.</p>`;
+      } else if (status === "NEEDS_FOUNDER") {
+        messageNode.innerHTML = `${agentHead()}<p><b>${esc(filename)}</b> is ready —
+          ${Number(j.auto_applied || 0)} supported profile update${Number(j.auto_applied || 0) === 1 ? "" : "s"} applied;
+          ${Number(j.needs_founder || 0)} need your review.</p>
+          <div class="grp" data-profile-review-list="${esc(ref)}"
+               data-profile-review-session="${esc(attachmentSessionId)}"></div>`;
+        await renderProfileReview(ref, attachmentSessionId, messageNode);
+      } else {
+        readyAttachmentRefs = readyAttachmentRefs.filter(item => item !== ref);
+        messageNode.innerHTML = `${agentHead()}<p>I did not read <b>${esc(filename)}</b>:
+          ${esc(j.message || status.toLowerCase().replaceAll("_", " "))}.</p>`;
+      }
+      return;
+    } catch (e) {
+      if (attempt >= 2) {
+        messageNode.innerHTML = `${agentHead()}<p><b>${esc(filename)}</b> was accepted, but I couldn't refresh its status.
+          I will check the durable record on your next message.</p>`;
+        return;
+      }
+    }
+  }
+  messageNode.innerHTML = `${agentHead()}<p><b>${esc(filename)}</b> is still processing.
+    You can continue chatting; I will refresh its status on your next message.</p>`;
+}
+
+async function renderProfileReview(ref, ownerSessionId, messageNode) {
+  const slot = messageNode.querySelector("[data-profile-review-list]");
+  if (!slot) return;
+  try {
+    const review = await api(`/api/ingest/${encodeURIComponent(ref)}/profile-review?session_id=${encodeURIComponent(ownerSessionId)}`);
+    const proposals = review.proposals || [];
+    if (!proposals.length) {
+      slot.innerHTML = `<div class="crow"><span class="grow">Profile review complete.</span>
+        <span class="tag tag-quiet">founder confirmed</span></div>`;
+      return;
+    }
+    slot.innerHTML = proposals.map(p => `<div class="crow" style="align-items:flex-start">
+      <div class="grow">
+        <b>${esc(p.kind || "profile update")}</b>
+        <div class="conn-sub">${esc(JSON.stringify(p.payload || {}))}</div>
+        <div class="foot">${esc(p.review_reason || "Founder review required")}</div>
+        <span class="tag tag-warn">${esc(p.verification_level || "UNCONFIRMED_EVIDENCE")}</span>
+        ${p.source_available === false ? '<span class="tag tag-warn">source unavailable</span>' : ""}
+      </div>
+      <div style="display:flex;gap:6px">
+        <button class="btn" data-size="sm" data-profile-action="approve"
+                data-profile-ref="${esc(ref)}" data-profile-session="${esc(ownerSessionId)}"
+                data-profile-proposal="${esc(p.id)}">Confirm</button>
+        <button class="btn" data-variant="quiet" data-size="sm" data-profile-action="reject"
+                data-profile-ref="${esc(ref)}" data-profile-session="${esc(ownerSessionId)}"
+                data-profile-proposal="${esc(p.id)}">Reject</button>
+      </div></div>`).join("");
+  } catch (e) {
+    slot.textContent = "Profile review could not be loaded from the durable record.";
+  }
+}
+
+async function resolveProfileProposal(button) {
+  const decision = button.dataset.profileAction;
+  const reason = decision === "reject"
+    ? (window.prompt("Why is this profile proposal wrong or outdated?") || "").trim()
+    : "";
+  if (decision === "reject" && !reason) return;
+  button.disabled = true;
+  try {
+    await api(`/api/ingest/${encodeURIComponent(button.dataset.profileRef)}/profile-review`, {
+      method: "POST", body: JSON.stringify({
+        session_id: button.dataset.profileSession,
+        proposal_id: button.dataset.profileProposal,
+        decision, reason,
+      }),
+    });
+    const messageNode = button.closest(".msg.agent");
+    await renderProfileReview(button.dataset.profileRef, button.dataset.profileSession, messageNode);
+  } catch (e) {
+    button.disabled = false;
+    window.alert(e.message || "Profile review could not be saved.");
+  }
 }
 
 // ---------- view-only preview (docs/15): any document -> PDF -> pdfjs ----------
@@ -2788,8 +3409,33 @@ document.addEventListener("click", (e) => {
   if (card) { loadApp(card.dataset.appId); return; }
   const row = e.target.closest(".connrow[data-conn]");
   if (row && !e.target.closest("a")) { showConn(row.dataset.conn); return; }
+  const actToggle = e.target.closest("[data-act-toggle]");
+  if (actToggle) {
+    const box = actToggle.closest(".act");
+    const open = box.dataset.open === "true";
+    box.dataset.open = open ? "false" : "true";
+    actToggle.setAttribute("aria-expanded", open ? "false" : "true");
+    return;
+  }
+  if (e.target.closest("[data-digest-dismiss]")) {
+    // Local only: dismissal never mutates a domain record (docs/24 §8.2).
+    $("digestSlot").innerHTML = "";
+    markSeen();
+    return;
+  }
+  const chip = e.target.closest("[data-search-type]");
+  if (chip) {
+    const t = chip.dataset.searchType;
+    searchTypes.has(t) ? searchTypes.delete(t) : searchTypes.add(t);
+    runSearch({ reset: true });
+    return;
+  }
+  const more = e.target.closest("[data-search-more]");
+  if (more) { runSearch({ reset: false }); return; }
   const resume = e.target.closest("[data-session-resume]");
   if (resume) { resumeSession(resume.dataset.sessionResume); return; }
+  const hit = e.target.closest("[data-search-open]");
+  if (hit) { openSearchResult(Number(hit.dataset.searchOpen)); return; }
   const sess = e.target.closest("[data-session-open]");
   if (sess) {
     closeSessions();
@@ -2800,9 +3446,16 @@ document.addEventListener("click", (e) => {
   }
   const drive = e.target.closest("[data-drive-action]");
   if (drive) {
-    if (drive.dataset.driveAction === "ingest") ingestDrive(drive.dataset.fileId);
+    if (drive.dataset.driveAction === "ingest") ingestDrive(drive.dataset.sourceGrantId);
     else if (drive.dataset.driveAction === "remove") removeDriveFile(drive.dataset.fileId);
+    return;
   }
+  const resolveInbox = e.target.closest("[data-inbox-resolve]");
+  if (resolveInbox) { resolveFounderInbox(resolveInbox.dataset.inboxResolve); return; }
+  const dismissInbox = e.target.closest("[data-inbox-dismiss]");
+  if (dismissInbox) dismissFounderInbox(dismissInbox.dataset.inboxDismiss);
+  const profileAction = e.target.closest("[data-profile-action]");
+  if (profileAction) resolveProfileProposal(profileAction);
 });
 document.addEventListener("keydown", (e) => {
   if (e.key !== "Enter" && e.key !== " ") return;
@@ -2810,6 +3463,23 @@ document.addEventListener("keydown", (e) => {
   if (!card) return;
   e.preventDefault();
   loadApp(card.dataset.appId);
+});
+
+// Global search keyboard contract (docs/23 §8.1): Cmd/Ctrl+K toggles, arrows
+// move the active result, Enter opens it read-through, Escape closes.
+document.addEventListener("keydown", (e) => {
+  if ((e.metaKey || e.ctrlKey) && (e.key === "k" || e.key === "K")) {
+    e.preventDefault();
+    $("sessions").dataset.open === "true" ? closeSessions() : openSessions();
+    return;
+  }
+  if ($("sessions").dataset.open !== "true") return;
+  if (e.key === "ArrowDown") { e.preventDefault(); moveSearchActive(1); }
+  else if (e.key === "ArrowUp") { e.preventDefault(); moveSearchActive(-1); }
+  else if (e.key === "Enter" && searchActive >= 0) {
+    e.preventDefault();
+    openSearchResult(searchActive);
+  }
 });
 
 function renderDocuments() {
@@ -2844,11 +3514,19 @@ function renderSessionDocCards() {
 
 // provenance navigation: doc → the conversation that produced it
 async function viewSession(sid) {
+  actStop();
   if (!sid || sid === sessionId) { toast("You're already viewing this session."); return; }
+  // Read-through reassigns the global sessionId that the live WebSocket and
+  // mid-call typed input are bound to. Refuse while a call is active so a
+  // search result can never silently re-route the founder's speech or typing
+  // (docs/23 §8.2).
+  if (voice) { toast("Hang up the live call before opening another conversation.", "attn"); return; }
   const h = await api("/api/chat/" + sid);
   if (h.error) { toast("That session no longer exists.", "danger"); return; }
   if (!viewingSession) viewingSession = sessionId;
   sessionId = sid;
+  resetBrowserView();
+  connectBrowserEvents();
   chatCount = (h.messages || []).length;
   $("sessionTag").innerHTML = `viewing ${sid} — <a href="#" class="doc-tag" onclick="backToSession();return false">‹ back to your session</a>`;
   const log = $("chatlog");
@@ -2856,11 +3534,14 @@ async function viewSession(sid) {
   for (const m of h.messages || []) addMsg(m.role, m.text);
 }
 function backToSession() {
+  actStop();
   if (!viewingSession) return;
   sessionId = viewingSession;
   viewingSession = null;
   $("sessionTag").textContent = "session " + sessionId;
   chatCount = 0;
+  resetBrowserView();
+  connectBrowserEvents();
   syncChat();
 }
 async function syncDrive(name) {
@@ -2882,7 +3563,7 @@ function closeConnections() { closeDialog("connections"); }
 
 const CONN_PANES = { list: "connList", drive: "connDrive", gmail: "connGmail",
                      calendar: "connCalendar", browser: "connBrowser",
-                     github: "connGithub", alex_mail: "connAlex", soon: "connSoon" };
+                     founder_gmail: "connGmail", alex_mail: "connAlex", soon: "connSoon" };
 function showConn(which) {
   const c = connectorCatalog.find(x => x.name === which);
   // The pane's hero badge takes its hue from the catalog, not a CSS table —
@@ -2920,7 +3601,7 @@ const CONN_FOLD = 8;
 // Telegram reusing the composer's send arrow, is a real legibility bug.
 const CONN_ICON = {
   drive: "cloud-up",       // company records
-  gmail: "inbox",          // the watched-label mailbox
+  founder_gmail: "inbox",  // the watched-label mailbox
   imap: "at",              // any-account mail — deliberately NOT a 2nd envelope
   calendar: "calendar",
   browser: "globe",
@@ -2958,10 +3639,13 @@ function brandStyle(c) {
 function connRow(c) {
   const badge = `<span class="cbadge" ${brandStyle(c)}>${connMark(c)}</span>`;
   if (c.connected) {
+    const connectionTone = c.connection && c.connection.status === "DEGRADED"
+      ? `<span class="tag tag-warn">Needs attention</span>`
+      : `<span class="chip-ok">Ready</span>`;
     return `<button class="crow connrow" data-conn="${esc(c.name)}">
       ${badge}
       <span class="grow"><b>${esc(c.title)}</b><div class="conn-sub">${esc(c.status_line || "Connected")}</div></span>
-      <span class="chip-ok">Ready</span><span class="chev">${ico("chev-right", "ico-sm")}</span></button>`;
+      ${connectionTone}<span class="chev">${ico("chev-right", "ico-sm")}</span></button>`;
   }
   const action = !c.available
     ? `<span class="tag tag-quiet">Soon</span>`
@@ -2991,19 +3675,6 @@ function renderConnectorList() {
   $("connListGroups").innerHTML = html;
 }
 
-async function connectGithub() {
-  const t = $("ghToken").value.trim(); if (!t) return;
-  $("ghToken").value = "";
-  const j = await api("/api/connectors/github/token", { method: "POST",
-    headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token: t }) });
-  if (j.status === "success") { toast(`GitHub connected as ${j.login}.`, "ok"); await loadConnections(); showConn("github"); }
-  else toast(j.message || "Couldn't connect GitHub — check the token.", "danger");
-}
-async function disconnectGithub() {
-  await api("/api/connectors/github/token", { method: "DELETE" });
-  toast("GitHub disconnected.", "ok"); await loadConnections(); showConn("github");
-}
-
 const KIND_LABEL = { confirmation: "confirmation", request: "request",
                      result_positive: "result", result_negative: "result", update: "update" };
 const KIND_TONE = { confirmation: "ok", request: "attn", result_positive: "ok",
@@ -3016,23 +3687,32 @@ async function loadConnections() {
 
   connState = await api("/api/integrations");
   const conn = connState.connectors || {};
+  const status = connState.connection_status || {};
   const any = Object.values(conn).some(Boolean);
   const driveFiles = (connState.drive || {}).files || [];
   const gmail = connState.gmail || {};
 
   $("connListFoot").innerHTML = (any
     ? `Signed in as <b style="color:var(--ink)">${esc(connState.account_email || "Google account")}</b> · <a href="/api/integrations/google/connect">Reconnect all</a><br>` : "")
-    + `Google connectors are read-only by construction — the agent can never send, delete, or modify anything in your Google account.`;
+    + `Reads stay within the scope shown here. Sending mail, creating calendar events, and exporting files remain approval-gated.`;
 
   const notConnFor = k => `<span class="dot off"></span><span>Not connected</span>
     <a class="btn" data-variant="accent" data-size="sm" style="margin-left:8px"
        href="/api/integrations/google/connect?connector=${k}">Connect</a>`;
-  $("driveStatusLine").innerHTML = conn.drive ? `<span class="dot"></span> Connected · read-only` : notConnFor("drive");
-  $("gmailStatusLine").innerHTML = conn.gmail ? `<span class="dot"></span> Connected · read-only` : notConnFor("gmail");
-  $("calendarStatusLine").innerHTML = conn.calendar ? `<span class="dot"></span> Connected · read-only` : notConnFor("calendar");
+  const durableStatus = (key, access) => {
+    const row = status[key];
+    if (!row || !conn[key]) return notConnFor(key);
+    const tone = row.status === "DEGRADED" ? "tag-warn" : "tag-quiet";
+    const disconnect = row.can_disconnect
+      ? `<button class="btn" data-variant="danger" data-size="sm" onclick="disconnectConnector('${esc(key)}')">Disconnect</button>` : "";
+    return `<span class="dot"></span><span>${esc(row.status_line || "Connected")} · ${esc(access)}</span>
+      <span class="tag ${tone}">${esc(row.status)}</span>${disconnect}`;
+  };
+  $("driveStatusLine").innerHTML = durableStatus("drive", "selected files");
+  $("gmailStatusLine").innerHTML = durableStatus("founder_gmail", "watched label");
+  $("calendarStatusLine").innerHTML = durableStatus("calendar", "read + approval-gated create");
 
-  $("alexStatusLine").innerHTML = conn.alex_mail
-    ? `<span class="dot"></span> Connected · read + approval-gated send` : notConnFor("alex_mail");
+  $("alexStatusLine").innerHTML = durableStatus("alex_mail", "read + approval-gated send");
   const alexLast = (connState.alex_mail || {}).last_scan;
   $("alexLastScan").innerHTML = alexLast && !alexLast.error
     ? (alexLast.events || []).map(e => `
@@ -3043,16 +3723,6 @@ async function loadConnections() {
       </div>`).join("") ||
       `<div class="crow"><span class="grow conn-sub">Scanned ${timeAgo(alexLast.at)} — no new mail.</span></div>`
     : `<div class="crow"><span class="grow conn-sub">${alexLast && alexLast.error ? esc(alexLast.error) : "Never scanned."}</span></div>`;
-
-  const gh = connectorCatalog.find(c => c.name === "github") || {};
-  $("githubStatusLine").innerHTML = gh.connected
-    ? `<span class="dot"></span> Connected` : `<span class="dot off"></span> Not connected`;
-  $("githubConnected").style.display = gh.connected ? "" : "none";
-  $("githubConnect").style.display = gh.connected ? "none" : "";
-  if (gh.connected) $("githubLogin").textContent = gh.status_line || "Connected";
-  $("githubInstructions").innerHTML = (gh.instructions || []).map(
-    (s, i) => `<div class="crow"><span class="conn-sub" style="flex:none">${i + 1}.</span>
-      <span class="grow">${esc(s)}</span></div>`).join("");
 
   if (conn.calendar) {
     api("/api/integrations/calendar/upcoming").then(j => {
@@ -3074,7 +3744,7 @@ async function loadConnections() {
         <span class="cbadge sm"><svg class="ico" aria-hidden="true"><use href="#i-cloud-up"/></svg></span>
         <span class="grow"><b>${esc(f.name)}</b>
           <span class="conn-sub">${esc(f.id)}</span></span>
-        <button class="btn" data-variant="quiet" data-size="sm" data-drive-action="ingest" data-file-id="${esc(f.id)}">Ingest</button>
+        <button class="btn" data-variant="quiet" data-size="sm" data-drive-action="ingest" data-source-grant-id="${esc(f.source_grant_id)}">Ingest</button>
         <button class="x" title="Remove" aria-label="Remove" data-drive-action="remove" data-file-id="${esc(f.id)}"><svg class="ico" aria-hidden="true"><use href="#i-close"/></svg></button>
       </div>`).join("")
     : `<div class="crow"><span class="grow conn-sub">Nothing selected yet — add a file id below.</span></div>`;
@@ -3092,11 +3762,36 @@ async function loadConnections() {
     : `<div class="crow"><span class="grow conn-sub">${last && last.error ? esc(last.error) : "Never scanned."}</span></div>`;
 }
 
+async function disconnectConnector(key) {
+  const row = ((connState || {}).connection_status || {})[key];
+  if (!row || !row.can_disconnect) return;
+  const names = (row.disconnect_impacts || []).map(id => {
+    const c = connectorCatalog.find(item => item.name === id);
+    return c ? c.title : id;
+  });
+  const warning = row.disconnect_mode === "local_only"
+    ? `Disconnect ${key} from Co-Founder? The shared Google grant will remain active for ${names.join(", ") || "the other connectors"}. You can revoke the whole grant later in Google Account permissions.`
+    : `Disconnect ${key}? This is the last active connector on this Google account, so Co-Founder will revoke the account-wide Google grant and remove its local credential.`;
+  if (!window.confirm(warning)) return;
+  const result = await api(`/api/integrations/${encodeURIComponent(row.connection_id)}`, {
+    method: "DELETE", body: JSON.stringify({ version: row.version }) });
+  if (result.status !== "success") {
+    toast(result.message || "The connection changed. Reload and try again.", "danger");
+    return;
+  }
+  toast(result.message || "Connection disabled.",
+        result.outcome === "UNCERTAIN" ? "danger" : "ok");
+  if (result.action_required && result.permissions_url) {
+    toast("Check Google Account permissions to confirm the grant is gone.", "danger");
+  }
+  await loadConnections();
+}
+
 async function addDriveFile() {
   const id = $("driveFileId").value.trim();
   if (!id) return;
   await api("/api/integrations/drive/files", { method: "POST",
-    body: JSON.stringify({ file_id: id, action: "add" }) });
+    body: JSON.stringify({ file_id: id, action: "add", selected_session_id: sessionId || null }) });
   $("driveFileId").value = "";
   toast("Added — Alex may now read that file.", "ok");
   loadConnections();
@@ -3107,9 +3802,11 @@ async function removeDriveFile(id) {
   toast("Removed — Alex can no longer see that file.", "ok");
   loadConnections();
 }
-async function ingestDrive(id) {
+async function ingestDrive(sourceGrantId) {
   toast("Fetching from Drive and extracting…");
-  const r = await api("/api/ingest/drive", { method: "POST", body: JSON.stringify({ file_id: id }) });
+  if (!sessionId) await newSession();
+  const r = await api("/api/ingest/drive", { method: "POST", body: JSON.stringify({
+    session_id: sessionId, source_grant_id: sourceGrantId, scope: "profile" }) });
   toast(r.status === "success" ? `Read it — ${r.summary || "facts extracted"}.` : (r.message || "Couldn't read that file."),
         r.status === "success" ? "ok" : "danger");
 }
@@ -3284,64 +3981,292 @@ function renderLiveTranscript({ who, text, finished }) {
   $("chatlog").scrollTop = $("chatlog").scrollHeight;
 }
 
-// ---------- session history (header search icon) ----------
-let sessList = [];
+// ---------- global search (header search icon) — docs/23 §8 ----------
+// Server-side, founder-scoped, typed search over conversations AND Alex's
+// durable work. Replaces the old client-side substring filter over the
+// newest sessions' opening lines.
+let searchRows = [];
+let searchActive = -1;
+let searchGeneration = 0;      // stale-response suppression
+let searchCursor = null;
+let searchTypes = new Set();
+let searchDebounce = null;
+
+const SEARCH_GROUPS = [
+  ["session", "Conversations", "chat"],
+  ["discovery_request", "Searches", "search"],
+  ["opportunity", "Opportunities & Leads", "target"],
+  ["application", "Applications", "compass"],
+  ["document", "Documents & Artifacts", "file"],
+  ["artifact", "Documents & Artifacts", "file"],
+  ["browser_report", "Evidence", "globe"],
+  ["evidence_report", "Evidence", "globe"],
+];
+const GROUP_TITLE = t => (SEARCH_GROUPS.find(g => g[0] === t) || [, "Results"])[1];
+const GROUP_ICON = t => (SEARCH_GROUPS.find(g => g[0] === t) || [, , "file"])[2];
 
 async function openSessions() {
   openDialog("sessions", "#sessSearch");
-  $("sessGroups").innerHTML =
-    `<div class="grp"><div class="crow"><span class="grow conn-sub">Loading…</span></div></div>`;
-  try {
-    const r = await api("/api/sessions");
-    sessList = r.sessions || [];
-  } catch (e) {
-    $("sessGroups").innerHTML = `<div class="grp"><div class="crow">
-      <span class="grow conn-sub">Couldn't load sessions: ${esc(e.message || e)}</span></div></div>`;
-    return;
-  }
-  renderSessionsList();
+  renderSearchChips();
+  await runSearch({ reset: true });
 }
 function closeSessions() { closeDialog("sessions"); }
 
-function sessionRow(s) {
-  // While viewing another session, the founder's real session is parked in
-  // viewingSession — that one is "Current", not the one being read.
-  const current = s.id === (viewingSession || sessionId);
-  return `<button class="crow connrow" data-session-open="${esc(s.id)}">
-    <span class="cbadge sm">${ico("chat")}</span>
-    <span class="grow"><b>${esc(s.preview || "New conversation")}</b>
-      <div class="conn-sub"><span class="tnum">${s.messages}</span> message${s.messages === 1 ? "" : "s"}
-        · ${timeAgo(s.updated_at) || "just now"} · ${esc(s.id)}</div></span>
+// ---------- founder inbox (docs/24 WI-5) ----------
+async function refreshFounderInbox() {
+  let result;
+  try { result = await api("/api/founder-inbox?status=UNREAD&limit=100"); }
+  catch { return; }
+  founderInboxRows = result.items || [];
+  const count = founderInboxRows.length;
+  $("inboxCount").textContent = String(count);
+  $("inboxCount").hidden = count === 0;
+  $("inboxBtn").setAttribute("aria-label", count
+    ? `Open needs your decision inbox, ${count} unread`
+    : "Open needs your decision inbox");
+  if ($("founderInbox").dataset.open === "true") renderFounderInbox();
+}
+
+function inboxApplications(item) {
+  const allowed = (item.candidate_refs || []).map(row => row.application_id).filter(Boolean);
+  if (!allowed.length) return pipelineApps;
+  const known = new Map(pipelineApps.map(app => [app.id, app]));
+  return allowed.map(id => known.get(id) || { id, opportunity_name: id });
+}
+
+function renderFounderInbox() {
+  const target = $("founderInboxList");
+  if (!founderInboxRows.length) {
+    target.innerHTML = emptyState("inbox", "Nothing needs your decision",
+      "Messages with a reliable causal link are handled without asking you.");
+    return;
+  }
+  target.innerHTML = founderInboxRows.map(item => {
+    const apps = inboxApplications(item);
+    const select = apps.length
+      ? `<select class="textin" id="inbox-app-${esc(item.inbox_item_id)}"
+                 aria-label="Application for ${esc(item.title)}">
+           ${apps.map(app => `<option value="${esc(app.id)}">${esc(app.opportunity_name || app.id)}</option>`).join("")}
+         </select>`
+      : `<span class="conn-sub">No application is available to link yet.</span>`;
+    return `<article class="inbox-item">
+      <div class="inbox-head">${ico("alert")}
+        <b>${esc(item.title || "Mailbox update")}</b>
+        <span class="badge" data-tone="attn">Needs you</span></div>
+      <div class="inbox-summary">${esc(item.summary || "Choose the related work item or dismiss this message.")}</div>
+      <div class="inbox-actions">${select}
+        ${apps.length ? `<button class="btn" data-variant="primary" data-size="sm"
+                    data-inbox-resolve="${esc(item.inbox_item_id)}">Link message</button>` : ""}
+        <button class="btn" data-variant="ghost" data-size="sm"
+                data-inbox-dismiss="${esc(item.inbox_item_id)}">Dismiss</button>
+      </div>
+    </article>`;
+  }).join("");
+}
+
+async function openFounderInbox() {
+  openDialog("founderInbox", ".x");
+  await refreshFounderInbox();
+}
+function closeFounderInbox() { closeDialog("founderInbox"); }
+
+async function resolveFounderInbox(inboxId) {
+  if (!sessionId) { toast("Start a conversation before linking this message.", "attn"); return; }
+  const select = $("inbox-app-" + inboxId);
+  if (!select || !select.value) { toast("Choose an application first.", "attn"); return; }
+  try {
+    await api(`/api/founder-inbox/${encodeURIComponent(inboxId)}/resolve`, {
+      method: "POST", body: JSON.stringify({
+        application_id: select.value, resource_id: select.value, session_id: sessionId
+      })
+    });
+    toast("Message linked to the application.", "ok");
+    await refreshFounderInbox();
+    refresh();
+  } catch (error) { toast(error.message || "The message could not be linked.", "danger"); }
+}
+
+async function dismissFounderInbox(inboxId) {
+  try {
+    await api(`/api/founder-inbox/${encodeURIComponent(inboxId)}/dismiss`, {
+      method: "POST", body: JSON.stringify({ confirm: true })
+    });
+    toast("Message dismissed.", "ok");
+    await refreshFounderInbox();
+  } catch (error) { toast(error.message || "The message could not be dismissed.", "danger"); }
+}
+
+function renderSearchChips() {
+  const types = [["session", "Conversations"], ["discovery_request", "Searches"],
+                 ["opportunity", "Opportunities"], ["application", "Applications"],
+                 ["document", "Documents"]];
+  $("searchChips").innerHTML = types.map(([t, label]) =>
+    `<button class="btn" data-variant="quiet" data-size="sm" data-search-type="${t}"
+             aria-pressed="${searchTypes.has(t)}">${esc(label)}</button>`).join("");
+}
+
+function onSearchInput() {
+  clearTimeout(searchDebounce);
+  searchDebounce = setTimeout(() => runSearch({ reset: true }), 200);
+}
+
+async function runSearch({ reset = false } = {}) {
+  const q = ($("sessSearch").value || "").trim();
+  const generation = ++searchGeneration;
+  if (reset) { searchCursor = null; searchActive = -1; }
+  $("sessGroups").dataset.stale = searchRows.length ? "true" : "";
+  if (!searchRows.length) {
+    $("sessGroups").innerHTML =
+      `<div class="grp"><div class="crow"><span class="grow conn-sub">Searching…</span></div></div>`;
+  }
+  const params = new URLSearchParams();
+  if (q) params.set("q", q);
+  if (searchTypes.size) params.set("types", [...searchTypes].join(","));
+  if (searchCursor && !reset) params.set("cursor", searchCursor);
+  let r;
+  try {
+    r = await api("/api/search?" + params.toString());
+  } catch (e) {
+    // Preserve the current result set on failure (docs/23 §10).
+    if (generation !== searchGeneration) return;
+    $("sessGroups").dataset.stale = "";
+    $("searchStatus").textContent = `Search failed: ${e.message || e}. Showing the last results.`;
+    if (!searchRows.length) {
+      $("sessGroups").innerHTML =
+        `<div class="grp"><div class="crow"><span class="grow conn-sub">Couldn't search just now. Try again.</span></div></div>`;
+    }
+    return;
+  }
+  // An older in-flight response must never replace newer results.
+  if (generation !== searchGeneration) return;
+  searchRows = reset ? (r.results || []) : searchRows.concat(r.results || []);
+  searchCursor = r.next_cursor || null;
+  $("sessGroups").dataset.stale = "";
+  $("searchStatus").textContent = r.truncated
+    ? "Showing the closest matches — narrow your search to see more."
+    : "";
+  renderSessionsList();
+}
+
+function resultRow(row, index) {
+  const current = row.result_type === "session"
+    && row.session_id === (viewingSession || sessionId);
+  const orphan = row.result_type !== "session" && !row.session_id;
+  const where = row.result_type === "session"
+    ? `${row.occurrence_count || 0} item${row.occurrence_count === 1 ? "" : "s"}`
+    : orphan
+      ? `<span class="res-orphan">Origin conversation unavailable</span>`
+      : `in ${esc(row.latest_occurrence ? row.latest_occurrence.relationship : "")} conversation`;
+  const times = row.occurrence_count > 1
+    ? ` · <span class="tnum">${row.occurrence_count}</span> conversations` : "";
+  return `<button class="crow connrow" role="option" id="sres-${index}"
+    aria-selected="${index === searchActive}" data-search-open="${index}">
+    <span class="cbadge sm">${ico(GROUP_ICON(row.result_type))}</span>
+    <span class="grow"><b>${esc(row.title || "Untitled")}</b>
+      <div class="conn-sub res-meta"><span>${esc(row.subtitle || "")}</span></div>
+      <div class="conn-sub">${where}${times}${
+        row.occurred_at ? ` · ${timeAgo(row.occurred_at) || "just now"}` : ""}</div></span>
+    ${row.status ? `<span class="chip">${esc(row.status)}</span>` : ""}
     ${current ? `<span class="chip-ok">Current</span>`
-              : `<span class="btn" data-variant="quiet" data-size="sm"
-                       data-session-resume="${esc(s.id)}">Resume</span>`}
+              : row.session_id ? `<span class="btn" data-variant="quiet" data-size="sm"
+                       data-session-resume="${esc(row.session_id)}">Resume</span>` : ""}
   </button>`;
 }
 
 function renderSessionsList() {
-  const q = ($("sessSearch").value || "").trim().toLowerCase();
-  const match = s => !q || s.id.toLowerCase().includes(q)
-    || (s.preview || "").toLowerCase().includes(q);
-  const shown = sessList.filter(match);
-  $("sessGroups").innerHTML = shown.length
-    ? `<div class="grp-h">${shown.length} session${shown.length === 1 ? "" : "s"}</div>
-       <div class="grp">${shown.map(sessionRow).join("")}</div>`
-    : `<div class="grp"><div class="crow"><span class="grow conn-sub">${
-        q ? "Nothing matches. Search covers each conversation's opening line and session id."
-          : "No sessions yet — say something to your co-founder and the first one appears here."}</span></div></div>`;
+  renderSearchChips();
+  if (!searchRows.length) {
+    const q = ($("sessSearch").value || "").trim();
+    $("sessGroups").innerHTML = `<div class="grp"><div class="crow"><span class="grow conn-sub">${
+      q ? "Nothing matches. Search covers conversations, previous searches, opportunities, applications, documents and artifacts."
+        : "Nothing yet — say something to your co-founder and it appears here."}</span></div></div>`;
+    return;
+  }
+  const order = [];
+  const byGroup = new Map();
+  searchRows.forEach((row, index) => {
+    const title = GROUP_TITLE(row.result_type);
+    if (!byGroup.has(title)) { byGroup.set(title, []); order.push(title); }
+    byGroup.get(title).push(resultRow(row, index));
+  });
+  $("sessGroups").innerHTML = order.map(title =>
+    `<div class="grp-h">${esc(title)}</div><div class="grp">${byGroup.get(title).join("")}</div>`
+  ).join("") + (searchCursor
+    ? `<div class="grp"><button class="crow connrow" data-search-more="1">
+         <span class="grow conn-sub">Show more</span></button></div>`
+    : "");
+}
+
+function moveSearchActive(delta) {
+  if (!searchRows.length) return;
+  searchActive = Math.max(0, Math.min(searchRows.length - 1, searchActive + delta));
+  renderSessionsList();
+  const el = $(`sres-${searchActive}`);
+  if (el) el.scrollIntoView({ block: "nearest" });
+}
+
+// Opening a result is READ-THROUGH: it never changes the active session.
+// Resume is a separate, explicit control (docs/23 §8.2).
+async function openSearchResult(index) {
+  const row = searchRows[index];
+  if (!row) return;
+  const here = viewingSession || sessionId;
+  closeSessions();
+  if (row.result_type === "session") {
+    if (row.session_id && row.session_id !== here) await viewSession(row.session_id);
+    return;
+  }
+  // A result already in this conversation focuses in place; only a result
+  // from another conversation opens read-through (docs/23 §8.2). Awaiting
+  // the transcript swap keeps focus from landing before the panel updates.
+  if (row.session_id && row.session_id !== here) await viewSession(row.session_id);
+  focusResource(row);
+}
+
+// The server returns a closed focus enum, never a URL or JavaScript.
+function focusResource(row) {
+  const focus = row.focus || {};
+  switch (focus.kind) {
+    case "opportunity":
+      showSurface("pipeline");
+      toast(`Showing ${row.title} on the board.`, "ok");
+      refresh();
+      break;
+    case "application":
+      loadApp(focus.id);
+      break;
+    case "document":
+    case "artifact":
+      selectTab("docs");
+      toast(`${row.title} is in Documents.`, "ok");
+      break;
+    case "browser_report":
+    case "evidence_report":
+      selectTab("form");
+      break;
+    case "discovery_request":
+      toast(`Previous search: ${row.title}. Opening it doesn't run it again.`, "ok");
+      break;
+    default:
+      break;
+  }
 }
 
 // Resume = make it the active session again (localStorage + tag + polling),
 // exactly the state a reload restores. Distinct from viewSession(), which is
 // a read-through visit that keeps your real session parked.
 function resumeSession(sid) {
+  actStop();
   closeSessions();
+  if (voice) { toast("Hang up the live call before switching sessions.", "attn"); return; }
   if (sid === (viewingSession || sessionId)) { backToSession(); return; }
   sessionId = sid;
   viewingSession = null;
   localStorage.setItem(SESSION_KEY, sid);
   $("sessionTag").textContent = "session " + sid;
   chatCount = 0;
+  resetBrowserView();
+  connectBrowserEvents();
   syncChat();
   refresh();
   toast("Session resumed — new messages continue here.", "ok");
@@ -3388,6 +4313,7 @@ document.addEventListener("keydown", (e) => {
   if (e.key === "Escape" && !$("acctMenu").hidden) { toggleAcctMenu(); $("acctBtn").focus(); }
 });
 async function logout() {
+  closeBrowserEvents();
   try { await api("/auth/logout", { method: "POST", body: "{}" }); } catch { /* cookie may already be gone */ }
   location.href = "/login.html";
 }
@@ -3409,12 +4335,21 @@ function renderThemeSeg() {
 
 // ---------- boot ----------
 loadIdentity();
-restoreSession().then(refresh);
+restoreSession().then(() => {
+  connectBrowserEvents(); refresh(); refreshWaiting();
+});
+// Read on the same triggers the rest of the page already uses: focus and
+// visibility restore. There is no periodic poll (docs/24 §3 invariant 10).
+window.addEventListener("focus", refreshWaiting);
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden) refreshWaiting();
+});
 // Dormant by default: refresh on founder activity and after explicit actions,
 // never by a timer that keeps waking a scale-to-zero backend.
 window.addEventListener("focus", refresh);
 document.addEventListener("visibilitychange", () => {
-  if (document.visibilityState === "visible") refresh();
+  if (document.visibilityState === "visible") { connectBrowserEvents(); refresh(); }
+  else closeBrowserEvents();
 });
 </script>
 </body>

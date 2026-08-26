@@ -12,6 +12,7 @@ import hashlib
 import json
 import os
 import re
+import sys
 import tempfile
 import threading
 import xml.etree.ElementTree as ET
@@ -140,9 +141,23 @@ def build_pptx(title: str, spec: dict, path: str) -> dict:
         return _err(f"pptx build failed: {exc}")
 
 
+def _libreoffice_conversion_enabled() -> bool:
+    """True when the external converter is allowed in this environment."""
+    configured = os.environ.get("LIBREOFFICE_CONVERSION_ENABLED")
+    if configured is None:
+        # The macOS app bundle is a GUI application even when invoked through
+        # its `soffice` wrapper. A hung launch can repeatedly activate windows,
+        # so local macOS conversion is opt-in. The production Linux container
+        # explicitly enables its pinned, headless package.
+        return sys.platform != "darwin"
+    return configured.strip().lower() in {"1", "true", "yes", "on"}
+
+
 def _soffice() -> str | None:
     import shutil
 
+    if not _libreoffice_conversion_enabled():
+        return None
     return shutil.which("soffice") or shutil.which("libreoffice")
 
 
@@ -161,7 +176,9 @@ def _semaphore() -> threading.BoundedSemaphore:
     global _SOFFICE_SEMAPHORE
     with _SEMAPHORE_LOCK:
         if _SOFFICE_SEMAPHORE is None:
-            _SOFFICE_SEMAPHORE = threading.BoundedSemaphore(2)
+            # LibreOffice is a heavyweight external process. Single-flight is
+            # deliberate: a request burst must queue, not become a launch storm.
+            _SOFFICE_SEMAPHORE = threading.BoundedSemaphore(1)
     return _SOFFICE_SEMAPHORE
 
 
@@ -186,8 +203,13 @@ def convert_to_pdf(src_path: str, out_path: str) -> dict:
     """Any Office doc -> PDF via headless LibreOffice (preview path, docs/15).
     Errors as data where soffice is absent."""
     import shutil
+    import signal
     import subprocess
 
+    if not _libreoffice_conversion_enabled():
+        return _err(
+            "PDF conversion is disabled in this environment; produce a .docx "
+            "instead or explicitly enable the headless converter")
     soffice = _soffice()
     if not soffice:
         return _err("preview needs LibreOffice (soffice) on this machine")
@@ -209,16 +231,31 @@ def convert_to_pdf(src_path: str, out_path: str) -> dict:
             os.makedirs(work_dir)
             staged = os.path.join(work_dir, os.path.basename(src_path))
             _strip_ooxml_macros(src_path, staged)
-            proc = subprocess.run(
+            # A wrapper script may spawn the real LibreOffice process. Run the
+            # whole conversion in its own process group so a timeout cannot
+            # leave an orphaned office process holding files and CPU forever.
+            proc = subprocess.Popen(
                 [soffice, "--headless", "--invisible", "--nologo", "--norestore",
                  "--nodefault",
                  f"-env:UserInstallation=file://{profile_dir}",
                  "--convert-to", "pdf", "--outdir", work_dir, staged],
-                capture_output=True, timeout=_CONVERT_TIMEOUT_S)
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                start_new_session=True,
+            )
+            try:
+                _stdout, stderr = proc.communicate(timeout=_CONVERT_TIMEOUT_S)
+            except subprocess.TimeoutExpired:
+                try:
+                    os.killpg(proc.pid, signal.SIGKILL)
+                except (OSError, ProcessLookupError):
+                    proc.kill()
+                proc.communicate()
+                return _err(f"pdf conversion timed out ({_CONVERT_TIMEOUT_S}s)")
             converted = os.path.join(
                 work_dir, os.path.splitext(os.path.basename(staged))[0] + ".pdf")
             if proc.returncode != 0 or not os.path.exists(converted):
-                return _err(f"pdf conversion failed: {proc.stderr.decode()[:200]}")
+                return _err(f"pdf conversion failed: {stderr.decode()[:200]}")
             os.makedirs(os.path.dirname(out_path), exist_ok=True)
             shutil.move(converted, out_path)  # temp may be another filesystem
         valid = validate_document(out_path, "pdf")
@@ -229,8 +266,6 @@ def convert_to_pdf(src_path: str, out_path: str) -> dict:
                 pass
             return _err(f"converted PDF failed validation: {valid['message']}")
         return {"status": "success"}
-    except subprocess.TimeoutExpired:
-        return _err(f"pdf conversion timed out ({_CONVERT_TIMEOUT_S}s)")
     except Exception as exc:
         return _err(f"pdf conversion failed: {exc}")
     finally:
@@ -240,6 +275,10 @@ def convert_to_pdf(src_path: str, out_path: str) -> dict:
 def build_pdf(title: str, spec: dict, path: str) -> dict:
     """PDF = docx build + headless LibreOffice conversion (docs/15). Degrades
     to error-as-data where soffice is absent (e.g. slim deploy images)."""
+    if not _libreoffice_conversion_enabled():
+        return _err(
+            "PDF conversion is disabled in this environment; produce a .docx "
+            "instead or explicitly enable the headless converter")
     if not _soffice():
         return _err("PDF conversion needs LibreOffice (soffice) on this machine — "
                     "produce a .docx instead; it converts in one step")

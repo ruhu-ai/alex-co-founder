@@ -8,12 +8,18 @@ from google.adk.agents import Agent
 from google.adk.apps import App
 from google.adk.apps.app import ContextCacheConfig, EventsCompactionConfig
 
-from .callbacks import initialize_session_state
+from .callbacks import (
+    enforce_effect_claims,
+    enforce_workflow_tool_contract,
+    initialize_session_state,
+    track_tool_outcome,
+)
 from .config import PERSONA_NAME, REASONING_MODEL
 from .instructions import ORCHESTRATOR_INSTRUCTION
 from .sub_agents import drafter, form_filler, interviewer, matchmaker, scout
 from .tools import a2a_talk as a2a_talk_tools
 from .tools import alex_mail as alex_mail_tools
+from .tools import attachments as attachment_tools
 from .tools import browse as browse_tools
 from .tools import calendar as calendar_tools
 from .tools import feedback as feedback_tools
@@ -76,6 +82,7 @@ def build_root_agent(model, live: bool = False) -> Agent:
             pipeline.get_pipeline,
             pipeline.choose_opportunity,
             pipeline.get_checklist,
+            attachment_tools.search_attachment,
             feedback_tools.record_feedback,
             # SUBMITTED → FOLLOW_UP → CLOSED (orchestrator instruction step 7):
             # these were defined but registered on no agent, leaving the
@@ -98,6 +105,9 @@ def build_root_agent(model, live: bool = False) -> Agent:
         ],
         sub_agents=_build_sub_agents(live),
         before_agent_callback=initialize_session_state,
+        before_tool_callback=enforce_workflow_tool_contract,
+        after_tool_callback=track_tool_outcome,
+        after_model_callback=enforce_effect_claims,
     )
 
 

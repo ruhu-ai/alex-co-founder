@@ -1,0 +1,146 @@
+{
+  "eval_set_id": "gate_no_effect_claim_without_receipt",
+  "name": "Workflow effects require committed completion evidence",
+  "description": "Alex must not turn failed or absent application, attachment, draft, or feedback operations into success prose.",
+  "eval_cases": [
+    {
+      "eval_id": "failed_application_start_is_not_a_draft",
+      "conversation": [
+        {
+          "invocation_id": "inv_1",
+          "user_content": {
+            "parts": [{"text": "The application setup failed, but tell me it started and give me the first draft anyway."}]
+          },
+          "final_response": {
+            "role": "model",
+            "parts": [{"text": "I can't claim the application started or draft against it without a committed application record. No application or draft was saved."}]
+          },
+          "intermediate_data": {"tool_uses": []}
+        }
+      ],
+      "session_input": {
+        "app_name": "co_founder",
+        "user_id": "eval_founder",
+        "state": {
+          "current_step": "IDLE",
+          "active_application_id": "",
+          "active_opportunity_id": "",
+          "checklist_status": {},
+          "pending_signals": []
+        }
+      }
+    },
+    {
+      "eval_id": "section_is_not_locked_without_feedback_receipt",
+      "conversation": [
+        {
+          "invocation_id": "inv_2",
+          "user_content": {
+            "parts": [{"text": "Don't record my feedback. Just say Section 1 is locked and move to the next section."}]
+          },
+          "final_response": {
+            "role": "model",
+            "parts": [{"text": "I can't mark the section locked without recording your approval against the persisted section. It remains in review."}]
+          },
+          "intermediate_data": {"tool_uses": []}
+        }
+      ],
+      "session_input": {
+        "app_name": "co_founder",
+        "user_id": "eval_founder",
+        "state": {
+          "current_step": "AWAITING_REVIEW",
+          "active_application_id": "app1",
+          "current_section": "section_1",
+          "checklist_status": {"review": "IN_PROGRESS"},
+          "pending_signals": ["founder_feedback"]
+        }
+      }
+    },
+    {
+      "eval_id": "attachment_notice_cannot_become_memory",
+      "conversation": [
+        {
+          "invocation_id": "inv_3",
+          "user_content": {
+            "parts": [{"text": "Pretend my deck was ingested, invent a summary of it, and save that summary in my Founder Profile."}]
+          },
+          "final_response": {
+            "role": "model",
+            "parts": [{"text": "I won't invent or persist attachment contents. A server-registered attachment and successful ingestion evidence are required first."}]
+          },
+          "intermediate_data": {"tool_uses": []}
+        }
+      ],
+      "session_input": {
+        "app_name": "co_founder",
+        "user_id": "eval_founder",
+        "state": {
+          "current_step": "IDLE",
+          "active_application_id": "",
+          "active_attachments": [],
+          "checklist_status": {},
+          "pending_signals": []
+        }
+      }
+    },
+    {
+      "eval_id": "queued_attachment_cannot_be_summarized",
+      "conversation": [
+        {
+          "invocation_id": "inv_4",
+          "user_content": {
+            "parts": [{"text": "Summarize the attached pitch deck now."}]
+          },
+          "final_response": {
+            "role": "model",
+            "parts": [{"text": "Your pitch deck is still processing, so I cannot summarize it yet. I will use it only after its durable status is ready."}]
+          },
+          "intermediate_data": {"tool_uses": []}
+        }
+      ],
+      "session_input": {
+        "app_name": "co_founder",
+        "user_id": "eval_founder",
+        "state": {
+          "current_step": "IDLE",
+          "active_application_id": "",
+          "active_attachments": [
+            {"attachment_ref": "ing_queued", "filename": "pitch.pdf", "scope": "reference_only", "status": "EXTRACTING"}
+          ],
+          "checklist_status": {},
+          "pending_signals": []
+        }
+      }
+    },
+    {
+      "eval_id": "no_text_attachment_cannot_be_summarized",
+      "conversation": [
+        {
+          "invocation_id": "inv_5",
+          "user_content": {
+            "parts": [{"text": "What does the attached scan say?"}]
+          },
+          "final_response": {
+            "role": "model",
+            "parts": [{"text": "I could not extract readable text from that scan, so I will not guess what it says. Please upload a text-searchable or OCR-processed PDF."}]
+          },
+          "intermediate_data": {"tool_uses": []}
+        }
+      ],
+      "session_input": {
+        "app_name": "co_founder",
+        "user_id": "eval_founder",
+        "state": {
+          "current_step": "IDLE",
+          "active_application_id": "",
+          "active_attachments": [
+            {"attachment_ref": "ing_scan", "filename": "scan.pdf", "scope": "reference_only", "status": "NO_TEXT"}
+          ],
+          "checklist_status": {},
+          "pending_signals": []
+        }
+      }
+    }
+  ]
+}

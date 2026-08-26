@@ -8,12 +8,19 @@ substring-matching numbers, G1 allowing drafts in SUBMITTED, etc.).
 from types import SimpleNamespace
 
 import pytest
+from google.adk.models import LlmResponse
+from google.genai import types
 
 from agents.co_founder import state_schema as ss
-from agents.co_founder.callbacks import enforce_document_grounding
+from agents.co_founder.callbacks import (
+    enforce_document_grounding,
+    enforce_effect_claims,
+    enforce_workflow_tool_contract,
+    track_tool_outcome,
+)
 from agents.co_founder.state_schema import ApplicationStep
 from agents.co_founder.sub_agents.form_filler import verify_before_action
-from agents.co_founder.tools import browser, discovery, drafting, pipeline
+from agents.co_founder.tools import browser, discovery, drafting, feedback, pipeline, profile
 from services import approval_service, browser_service, portal_accounts
 from tests.unit.test_issue_regressions import fake_store_create_application
 
@@ -26,6 +33,8 @@ def _context(state, session_id="session-1"):
         user_id="founder",
         session=SimpleNamespace(
             app_name="co_founder", user_id="founder", id=session_id),
+        user_content=types.Content(
+            role="user", parts=[types.Part.from_text(text="founder answer")]),
     )
 
 
@@ -96,21 +105,29 @@ async def test_register_account_code_entry_failure_is_not_verified(
 
     ctx_obj = _Ctx()
 
-    async def registered(*_a):
+    async def registered(*_a, **_k):
         return {"status": "success", "body": "Check your email to verify",
-                "context": ctx_obj, "page": _FailPage()}
+                "context": ctx_obj, "page": _FailPage(), "run_id": "fill-run"}
 
     async def code_mail(**_k):
         return {"status": "success", "code": "123456"}
 
     monkeypatch.setattr(browser_service, "register", registered)
     monkeypatch.setattr("services.alex_mailbox.wait_for_email", code_mail)
+    closed = []
+
+    async def close_run(run_id, reason, actor):
+        closed.append((run_id, reason, actor))
+        return {"status": "success"}
+
+    monkeypatch.setattr(browser_service, "close_run", close_run)
 
     result = browser.register_account(
-        "https://portal.example", "alex@ruhu.ai", _context({}))
+        "https://portal.example", "alex@ruhu.ai",
+        _context({ss.K_ACTIVE_APPLICATION_ID: "app-register"}))
     assert result["error"] is True
     assert "code field missing" in result["message"]
-    assert ctx_obj.closed is True  # context not leaked
+    assert closed == [("fill-run", "agent_close", "agent:form_filler")]
     assert portal_accounts.get_credential("portal.example") is None  # never stored
 
 
@@ -118,12 +135,24 @@ async def test_register_account_code_entry_failure_is_not_verified(
 
 async def test_fill_fields_refill_while_armed_is_idempotent(
         fake_store, monkeypatch):
+    from services import approval_service
+
     app_id = await fake_store_create_application(
         fake_store, state=ApplicationStep.AWAITING_SUBMIT_APPROVAL)
-    # The gate was already armed on the first fill: a pending submit approval.
-    await __import__("services").firestore.create_approval(
-        app_id, "submit_application", 30, founder_id="founder", session_id="session-1")
-    browser._pages[app_id] = {"page": object(), "signature": "sig", "run_id": ""}
+    mapping = {"a": "1", "b": "2", "c": "3", "d": "4"}
+    # The gate was already armed on the first fill: a pending submit approval
+    # bound to this exact form + mapping, so the corrective re-fill produces the
+    # same subject and must reuse it rather than mint a second request.
+    armed = await __import__("services").firestore.create_approval(
+        app_id, "submit_application", 30, founder_id="founder",
+        session_id="session-1",
+        subject_hash=approval_service.submit_subject_hash(
+            app_id, "sig", approval_service.mapping_hash(mapping)))
+    live_session = {"page": object(), "signature": "sig", "run_id": ""}
+    monkeypatch.setattr(
+        browser_service, "fill_session_for_application",
+        lambda candidate: live_session if candidate == app_id else None,
+    )
 
     async def fake_fill(_page, _mapping, _attachments):
         return {"status": "success", "filled": 3, "filled_fields": ["a", "b", "c"],
@@ -143,15 +172,16 @@ async def test_fill_fields_refill_while_armed_is_idempotent(
     ctx = _context({ss.K_USER_PROFILE_ID: "founder",
                     ss.K_ACTIVE_APPLICATION_ID: app_id,
                     ss.K_CURRENT_STEP: ApplicationStep.AWAITING_SUBMIT_APPROVAL})
-    result = browser.fill_fields({"a": "1", "b": "2", "c": "3", "d": "4"}, ctx)
+    result = browser.fill_fields(dict(mapping), ctx)
 
     assert result["filled"] == 3 and result["total"] == 4
     assert "warning" not in result  # no misleading "state transition failed"
-    assert result.get("submit_approval_id")  # idempotent request returned the pending one
+    # idempotent request returned the pending one — same subject, same row
+    assert result.get("submit_approval_id") == armed
+    assert fake_store.approvals[armed]["status"] == "PENDING"
     # No illegal same-state transition attempted — state is untouched.
     assert fake_store.applications[app_id]["state"] == \
         ApplicationStep.AWAITING_SUBMIT_APPROVAL
-    browser._pages.pop(app_id, None)
 
 
 # --- Finding 6: complete_interview refuses while required gaps remain ---------
@@ -254,6 +284,100 @@ async def test_save_draft_section_refused_outside_drafting(step):
     assert "Gate G1" in result["message"]
 
 
+# --- Fail-closed orchestration and completion evidence ----------------------
+
+async def test_transfer_to_interviewer_requires_committed_state():
+    ctx = _context({ss.K_CURRENT_STEP: ApplicationStep.IDLE})
+    result = await enforce_workflow_tool_contract(
+        _tool("transfer_to_agent"), {"agent_name": "interviewer_agent"}, ctx)
+    assert result["error"] is True
+    assert result["error_code"] == "invalid_agent_handoff"
+
+
+async def test_failed_effect_replaces_polished_success_prose():
+    ctx = _context({ss.K_CURRENT_STEP: ApplicationStep.IDLE})
+    track_tool_outcome(
+        _tool("choose_opportunity"), {}, ctx,
+        {"status": "error", "error": True, "message": "database unavailable"})
+    response = LlmResponse(content=types.Content(
+        role="model", parts=[types.Part.from_text(
+            text="I prepared your application and saved the first section.")]))
+    guarded = enforce_effect_claims(ctx, response)
+    assert guarded is not None
+    assert "database unavailable" in guarded.content.parts[0].text
+    assert "No later workflow step was committed" in guarded.content.parts[0].text
+
+
+async def test_unsaved_draft_and_unrecorded_approval_are_not_presented():
+    ctx = _context({ss.K_CURRENT_STEP: ApplicationStep.DRAFTING})
+    draft = LlmResponse(content=types.Content(
+        role="model", parts=[types.Part.from_text(text="Draft: invented output")]))
+    guarded_draft = enforce_effect_claims(ctx, draft)
+    assert "has not been saved" in guarded_draft.content.parts[0].text
+
+    locked = LlmResponse(content=types.Content(
+        role="model", parts=[types.Part.from_text(text="Section 1 is locked.")]))
+    guarded_lock = enforce_effect_claims(ctx, locked)
+    assert "no persisted section feedback receipt" in guarded_lock.content.parts[0].text
+
+
+async def test_pipeline_count_claim_must_equal_tool_snapshot():
+    ctx = _context({})
+    track_tool_outcome(_tool("get_pipeline"), {}, ctx, {
+        "status": "success",
+        "opportunities": {"SHORTLISTED": [{}] * 11, "DISCOVERED": [], "ARCHIVED": []},
+        "applications": [{}] * 4,
+    })
+    response = LlmResponse(content=types.Content(
+        role="model", parts=[types.Part.from_text(text="We have 8 shortlisted programs.")]))
+    guarded = enforce_effect_claims(ctx, response)
+    assert guarded.content.parts[0].text.startswith("The current board has 11 shortlisted")
+
+
+async def test_record_answer_requires_verbatim_founder_turn_and_active_interview(fake_store):
+    no_app = _context({ss.K_CURRENT_STEP: ApplicationStep.IDLE})
+    refused = profile.record_answer("traction", "What traction?", "founder answer", no_app)
+    assert refused["error"] is True
+    assert fake_store.profiles == {}
+
+    app_id = await fake_store_create_application(
+        fake_store, state=ApplicationStep.INTERVIEWING)
+    ctx = _context({ss.K_CURRENT_STEP: ApplicationStep.INTERVIEWING,
+                    ss.K_ACTIVE_APPLICATION_ID: app_id,
+                    ss.K_USER_PROFILE_ID: "founder"})
+    invented = profile.record_answer(
+        "traction", "What traction?", "founder answer plus invented metric", ctx)
+    assert invented["error_code"] == "answer_not_verbatim"
+    assert fake_store.profiles == {}
+
+    saved = profile.record_answer("traction", "What traction?", "founder answer", ctx)
+    assert saved["status"] == "success"
+    assert fake_store.profiles["founder"]["facts"]["traction"] == "founder answer"
+    assert fake_store.applications[app_id]["interview_qa"][0]["source"] == "founder_turn"
+
+
+async def test_attachment_notice_cannot_become_profile_fact(fake_store):
+    app_id = await fake_store_create_application(
+        fake_store, state=ApplicationStep.INTERVIEWING)
+    ctx = _context({ss.K_CURRENT_STEP: ApplicationStep.INTERVIEWING,
+                    ss.K_ACTIVE_APPLICATION_ID: app_id,
+                    ss.K_USER_PROFILE_ID: "founder"})
+    ctx.user_content = types.Content(
+        role="user", parts=[types.Part.from_text(text="I attached our pitch deck")])
+    result = profile.record_answer(
+        "deck", "What is in the deck?", "I attached our pitch deck", ctx)
+    assert result["error_code"] == "attachment_notice_not_answer"
+    assert fake_store.profiles == {}
+
+
+async def test_feedback_tool_requires_review_state(fake_store):
+    ctx = _context({ss.K_CURRENT_STEP: ApplicationStep.DRAFTING,
+                    ss.K_ACTIVE_APPLICATION_ID: "app-1"})
+    result = feedback.record_feedback("s1", "approve", "", "", ctx)
+    assert result["error"] is True
+    assert "AWAITING_REVIEW" in result["message"]
+
+
 # --- Finding 14b: pending signals are appended, not clobbered -----------------
 
 async def test_add_pending_signal_is_additive_and_idempotent():
@@ -268,7 +392,11 @@ async def test_add_pending_signal_is_additive_and_idempotent():
 
 async def test_fence_uses_persisted_signature_key(fake_store, monkeypatch):
     app_id = "app-fence"
-    browser._pages[app_id] = {"page": object(), "signature": "sig-old"}
+    live_session = {"page": object(), "signature": "sig-old"}
+    monkeypatch.setattr(
+        browser_service, "fill_session_for_application",
+        lambda candidate: live_session if candidate == app_id else None,
+    )
 
     async def same(_page):
         return {"status": "success", "signature": "sig-old", "fields": []}
@@ -280,12 +408,15 @@ async def test_fence_uses_persisted_signature_key(fake_store, monkeypatch):
     result = await verify_before_action(
         SimpleNamespace(name="fill_fields"), {}, ctx)
     assert result is None  # signatures match → the tool may run
-    browser._pages.pop(app_id, None)
 
 
 async def test_fence_ignores_dropped_temp_key(fake_store, monkeypatch):
     app_id = "app-fence2"
-    browser._pages[app_id] = {"page": object()}  # no in-process signature either
+    live_session = {"page": object()}  # no supervisor signature either
+    monkeypatch.setattr(
+        browser_service, "fill_session_for_application",
+        lambda candidate: live_session if candidate == app_id else None,
+    )
     ctx = _context({ss.K_ACTIVE_APPLICATION_ID: app_id,
                     ss.K_CURRENT_STEP: "FORM_FILLING",
                     "temp:portal_signature": "sig-old"})
@@ -293,13 +424,16 @@ async def test_fence_ignores_dropped_temp_key(fake_store, monkeypatch):
         SimpleNamespace(name="fill_fields"), {}, ctx)
     assert result["stale"] is True
     assert "inspect_form" in result["message"]
-    browser._pages.pop(app_id, None)
 
 
 async def test_inspect_form_persists_signature_under_nontemp_key(
         fake_store, monkeypatch):
     app_id = "app-set"
-    browser._pages[app_id] = {"page": object(), "signature": None}
+    live_session = {"page": object(), "signature": None}
+    monkeypatch.setattr(
+        browser, "_portal_session",
+        lambda candidate: live_session if candidate == app_id else None,
+    )
 
     async def insp(_page):
         return {"status": "success", "signature": "sig-new",
@@ -312,38 +446,25 @@ async def test_inspect_form_persists_signature_under_nontemp_key(
     assert result["status"] == "success"
     assert ctx.state[ss.K_PORTAL_SIGNATURE] == "sig-new"
     assert "temp:portal_signature" not in ctx.state
-    browser._pages.pop(app_id, None)
 
 
-# --- (browser-keeps-opening) _register_fill closes the prior portal window ---
-async def test_register_fill_closes_prior_window(monkeypatch):
+# --- (browser-keeps-opening) _register_fill has no secondary page registry ---
+async def test_register_fill_uses_supervisor_owned_run(monkeypatch):
     from agents.co_founder.tools import browser as b
-
-    closed = {"n": 0}
-
-    class _Ctx:
-        async def close(self):
-            closed["n"] += 1
-
     app_id = "app-reg-fill"
-    b._pages[app_id] = {"context": _Ctx(), "page": object(), "run_id": "r1"}
-
-    async def fake_register_fill_run(sk, ctx, page, goal):
-        return {"status": "success", "run_id": "r2"}
 
     async def fake_projection(sk):
         return {}
 
-    monkeypatch.setattr(browser_service, "register_fill_run", fake_register_fill_run)
     monkeypatch.setattr(browser_service, "browser_status_projection", fake_projection)
 
-    new_ctx = _Ctx()
     tc = SimpleNamespace(state={}, session=SimpleNamespace(id="s1"), user_id="u1")
-    b._register_fill({"context": new_ctx, "page": object()}, app_id, tc)
+    result = b._register_fill(
+        {"run_id": "r2", "screenshot_artifact": "frame.jpg"}, app_id, tc
+    )
 
-    assert closed["n"] == 1  # the prior window was closed, not orphaned
-    assert b._pages[app_id]["context"] is new_ctx
-    b._pages.pop(app_id, None)
+    assert result["run_id"] == "r2"
+    assert not hasattr(b, "_pages")
 
 
 # --- (code-review #1) submit_voice_note takes a sanitized artifact name ------

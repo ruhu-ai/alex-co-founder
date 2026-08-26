@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import io
+import json
 import os
 from pathlib import Path
 
@@ -16,7 +17,8 @@ ROOT = Path(__file__).parents[2]
 
 
 @pytest.mark.asyncio
-async def test_losing_approval_claim_never_calls_email_provider(monkeypatch):
+async def test_losing_approval_claim_never_calls_email_provider(
+        monkeypatch, fake_store):
     sends = []
 
     class Service:
@@ -100,23 +102,25 @@ async def test_bounded_upload_rejects_oversize_and_bad_type():
 
 def test_failed_secret_persistence_does_not_change_live_process(monkeypatch):
     monkeypatch.setenv("K_SERVICE", "co-founder")
-    monkeypatch.setenv("GITHUB_TOKEN", "previous")
+    monkeypatch.setenv("TEST_RUNTIME_SECRET", "previous")
 
     def _fail(_key, _value):
         raise RuntimeError("secret manager unavailable")
 
     monkeypatch.setattr("services.secrets.put", _fail)
-    result = google_oauth.save_env_var("GITHUB_TOKEN", "replacement")
+    result = google_oauth.save_env_var("TEST_RUNTIME_SECRET", "replacement")
     assert result["status"] == "error"
-    assert os.environ["GITHUB_TOKEN"] == "previous"
+    assert os.environ["TEST_RUNTIME_SECRET"] == "previous"
 
 
 def test_browser_and_mobile_runtime_invariants_are_encoded():
     browser_source = (ROOT / "services/browser_service.py").read_text()
+    runtime_source = (ROOT / "services/browser_runtime.py").read_text()
     env_example = (ROOT / ".env.example").read_text()
     ui = (ROOT / "app/static/index.html").read_text()
-    assert "launch(headless=True)" in browser_source
-    assert "HEADLESS=false" not in browser_source
+    assert "launch(headless=True)" in runtime_source
+    assert "launch(headless=True)" not in browser_source
+    assert "HEADLESS=false" not in runtime_source
     assert "HEADLESS=" not in env_example
     assert 'body[data-pane="board"] #leftCell' in ui
     assert 'body[data-pane="browser"] #leftCell' in ui
@@ -143,7 +147,37 @@ def test_cloud_build_and_required_eval_gate_are_reproducible():
     assert "pytest==" not in requirements and "ruff==" not in requirements
     assert "ADK eval gate blocked" in ci and "exit 1" in ci
     assert "--min-instances 0 --max-instances 1" in deploy
+    assert "--cpu-throttling" in deploy
     assert "--no-cpu-throttling" not in deploy
+
+
+def test_discovery_is_manual_only_and_deadline_monitoring_stays_scheduled():
+    deploy = (ROOT / "scripts/deploy.sh").read_text()
+    main_source = (ROOT / "app/main.py").read_text()
+
+    assert "discovery-daily" not in deploy
+    assert "discovery-tick-push" not in deploy
+    assert "discovery-tick" not in deploy
+    assert "deadline-scan-6h" in deploy
+    assert "deadline-tick-push" in deploy
+    assert "--ack-deadline=600" in deploy
+    # Behavioral, not whitespace-exact (docs/23 WI-3 refactored the dispatch
+    # call site): discovery reaches the worker through a durable Cloud Task,
+    # and the route is never a Scheduler/Pub-Sub target.
+    assert '"/tasks/discover"' in main_source
+    assert "task_queue.enqueue" in main_source
+    assert "this route is not scheduled" in main_source
+
+
+def test_agent_engine_deploy_reuses_one_scale_to_zero_resource():
+    deploy = (ROOT / "scripts/deploy_agent_engine.sh").read_text()
+    config = json.loads(
+        (ROOT / "agents/co_founder/.agent_engine_config.json").read_text())
+
+    assert "--agent_engine_id" in deploy
+    assert "multiple co-founder Agent Engines found" in deploy
+    assert config["min_instances"] == 0
+    assert config["max_instances"] == 1
 
 
 def test_mock_portal_cloud_state_and_public_urls_are_durable():

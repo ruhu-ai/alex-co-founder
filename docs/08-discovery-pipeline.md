@@ -1,14 +1,14 @@
 # 08 — Discovery Pipeline & Deadline Sentinel
 
-The background half of the system: scheduled sweeps that find programs, score
-them, and keep urgency fresh — with zero founder involvement. This is the
-"runs asynchronously in the background" requirement from the rules.
+The asynchronous discovery and deadline subsystem: founders invoke discovery
+when they need it, while the deadline sentinel alone runs on a schedule. There
+is no daily discovery job or polling loop.
 
 ## Discovery sweep flow
 
 ```
-Cloud Scheduler (daily 07:00) ──► Pub/Sub topic: discovery-tick
-   └─► POST /tasks/discover (push subscription, OIDC)
+Founder UI or `/discover` command ──► durable Cloud Task
+   └─► POST /tasks/discover (OIDC in Cloud Run; inline in local development)
         └─ system session (user_id="system", fresh session_id)
              ├─ LANE 1 (search): generate queries from Founder Profile
              │     → search_programs → result URLs → relevance filter
@@ -28,6 +28,12 @@ Cloud Scheduler (daily 07:00) ──► Pub/Sub topic: discovery-tick
   shapes what gets searched; what gets found then gets scored against the same
   profile. This closed loop is the answer to "how does it find programs that
   match *us*?"
+- When the feature-flagged `/discover <context>` adapter supplies task-scoped
+  prose, the same deterministic profile queries include that normalized,
+  500-character-bounded context. The Gemini search prompt encloses the query in
+  an explicit untrusted-data boundary. Context never mutates the Founder
+  Profile, enters a system-session instruction, selects an opportunity, or
+  broadens tool/attachment authority.
 - **Fixture strategy (binding):** every configured source is snapshotted into
   `tests/fixtures/` on Day 1; CI and evals replay fixtures (deterministic),
   only the live demo fetches real URLs. The demo board is **pre-seeded** so the
@@ -45,6 +51,13 @@ Cloud Scheduler (daily 07:00) ──► Pub/Sub topic: discovery-tick
 | **2. Configured** | `web_page` / `pdf` URLs from YAML | fetch → HTML→text (or Gemini document understanding for PDF) → artifact → extract records |
 | **3. Crawl** | listing pages from lanes 1–2 | `fetch_source` returns top-N links with anchor text; scout picks promising detail pages (depth ≤ 2) → fetch each → extract |
 | **4. Manual** | founder pastes text/URL in UI | `POST /wake` with "add this program: ..." → same scout path |
+
+The additive `/discover` adapter also reaches these lanes, then the existing
+system-session matchmaker and board. Natural-language discovery remains the
+agent/scout route in v1. The two routes therefore promise **outcome-level**
+equivalence (deduplicated opportunities, the same scoring guards, and the same
+board), not identical compiled request envelopes. Compile-level equivalence is
+still required by 21 Phase 2 and is not weakened by this adapter.
 
 **Rendered-fetch fallback:** if a plain HTTP fetch returns a thin JS shell
 (< 500 chars of text or a known SPA marker), re-fetch through the shared
@@ -72,7 +85,8 @@ records with `raw_excerpt` citations.** Call this out in the Devpost write-up.
 
 ```
 Cloud Scheduler (every 6h) ──► Pub/Sub topic: deadline-tick
-   └─► POST /tasks/deadline_scan
+   └─► POST /webhooks/deadline (fast durable enqueue; message-id dedupe)
+        └─► Cloud Tasks → POST /tasks/deadline_scan
         └─ recompute urgency for all SHORTLISTED opportunities
            and FOLLOW_UP applications:
              days_left = deadline - today
@@ -85,21 +99,24 @@ Urgency note format (matchmaker + sentinel both use it):
 `"closes in 9 days, needs 2 essays — start now"` (deadline + required_materials
 workload estimate).
 
-## Pub/Sub + Scheduler wiring (prod; local dev: POST directly)
+## Task and scheduler wiring
 
-| Job | Schedule | Target |
+| Work | Trigger | Target |
 |---|---|---|
-| `discovery-daily` | `0 7 * * *` | topic `discovery-tick` |
-| `deadline-scan-6h` | `0 */6 * * *` | topic `deadline-tick` |
+| Discovery | founder action only | Cloud Task → `/tasks/discover` |
+| `deadline-scan-6h` | `0 */6 * * *` | Pub/Sub `deadline-tick` |
 
-Push subscriptions point at the Cloud Run service `/tasks/*` routes with an OIDC
-service account. Commands in 13-deployment. Local development skips Pub/Sub
-entirely: `curl -X POST localhost:8090/tasks/discover`.
+The deadline push subscription points at the Cloud Run deadline route with an
+OIDC service account. Manual discovery is dispatched through Cloud Tasks with a
+founder request ID. Commands are in 13-deployment. Local development runs
+discovery directly: `curl -X POST localhost:8090/tasks/discover`.
 
-Task routes return success only after the request-bound sweep completes. A
-worker crash therefore causes Pub/Sub redelivery instead of losing acknowledged
-in-process work. Redelivery is at-least-once — sweep idempotency (dedupe_check,
-already-distilled skips) is mandatory, not optional.
+Task routes return success only after request-bound work completes. Pub/Sub's
+deadline webhook does no scan or model work: it durably enqueues one Cloud Task
+using the message ID and acknowledges immediately. A worker crash therefore
+causes bounded Cloud Tasks redelivery instead of a Pub/Sub push storm. Delivery
+is at-least-once, so discovery receipts and deadline task-name deduplication are
+mandatory.
 
 ## Failure behavior
 

@@ -24,6 +24,9 @@ jobs:
       - name: Design system — contrast, palette drift, portal (docs/16 §2.4, §12)
         run: .venv/bin/python scripts/check_contrast.py
 
+      - name: Browser ownership and external-launch invariants
+        run: .venv/bin/python scripts/check_browser_invariants.py
+
       - name: Design system — icon sprite is up to date
         run: |
           .venv/bin/python scripts/build_icons.py

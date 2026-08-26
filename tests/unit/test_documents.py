@@ -18,6 +18,31 @@ def artifacts_tmp(tmp_path, monkeypatch):
 class TestLibreOfficePosture:
     """docs/15 §LibreOffice: conversion hardening contracts."""
 
+    def test_native_macos_conversion_is_disabled_unless_explicitly_enabled(
+            self, monkeypatch):
+        monkeypatch.delenv("LIBREOFFICE_CONVERSION_ENABLED", raising=False)
+        monkeypatch.setattr(ds.sys, "platform", "darwin")
+
+        assert ds._libreoffice_conversion_enabled() is False
+        assert ds._soffice() is None
+
+    def test_disabled_conversion_never_spawns_a_process(
+            self, artifacts_tmp, monkeypatch):
+        import subprocess
+
+        src = artifacts_tmp / "local.docx"
+        src.write_bytes(b"local")
+        monkeypatch.setenv("LIBREOFFICE_CONVERSION_ENABLED", "false")
+
+        def _must_not_spawn(*_args, **_kwargs):
+            raise AssertionError("disabled conversion attempted to launch LibreOffice")
+
+        monkeypatch.setattr(subprocess, "Popen", _must_not_spawn)
+        result = ds.convert_to_pdf(str(src), str(artifacts_tmp / "local.pdf"))
+
+        assert result["status"] == "error"
+        assert "disabled" in result["message"]
+
     def test_macro_parts_stripped_from_ooxml(self, artifacts_tmp):
         import zipfile
 
@@ -34,6 +59,7 @@ class TestLibreOfficePosture:
         assert not any("vbaProject" in n or "activeX" in n.lower() for n in names)
 
     def test_size_cap_is_error_data(self, artifacts_tmp, monkeypatch):
+        monkeypatch.setenv("LIBREOFFICE_CONVERSION_ENABLED", "true")
         big = artifacts_tmp / "big.docx"
         big.write_bytes(b"0" * 1024)
         monkeypatch.setattr(ds, "MAX_CONVERT_BYTES", 100)
@@ -42,10 +68,49 @@ class TestLibreOfficePosture:
         assert "too large" in result["message"]
         assert not (artifacts_tmp / "big.pdf").exists()
 
-    def test_missing_source_is_error_data(self, artifacts_tmp):
+    def test_missing_source_is_error_data(self, artifacts_tmp, monkeypatch):
+        monkeypatch.setenv("LIBREOFFICE_CONVERSION_ENABLED", "true")
         result = ds.convert_to_pdf(
             str(artifacts_tmp / "nope.docx"), str(artifacts_tmp / "nope.pdf"))
         assert result["status"] == "error" and result["error"] is True
+
+    def test_timeout_kills_the_entire_conversion_process_group(
+            self, artifacts_tmp, monkeypatch):
+        import signal
+        import subprocess
+
+        src = artifacts_tmp / "slow.docx"
+        src.write_bytes(b"not-an-ooxml-package")
+        killed = []
+
+        class _TimedOutProcess:
+            pid = 4242
+            returncode = None
+
+            def __init__(self):
+                self.communications = 0
+
+            def communicate(self, timeout=None):
+                self.communications += 1
+                if self.communications == 1:
+                    raise subprocess.TimeoutExpired("soffice", timeout)
+                return b"", b""
+
+            def kill(self):
+                killed.append((self.pid, "fallback"))
+
+        process = _TimedOutProcess()
+        monkeypatch.setenv("LIBREOFFICE_CONVERSION_ENABLED", "true")
+        monkeypatch.setattr(ds, "_soffice", lambda: "/fake/soffice")
+        monkeypatch.setattr(subprocess, "Popen", lambda *_a, **_k: process)
+        monkeypatch.setattr(os, "killpg", lambda pid, sig: killed.append((pid, sig)))
+        monkeypatch.setattr(ds, "_CONVERT_TIMEOUT_S", 0.01)
+
+        result = ds.convert_to_pdf(str(src), str(artifacts_tmp / "slow.pdf"))
+
+        assert result["status"] == "error" and "timed out" in result["message"]
+        assert killed == [(4242, signal.SIGKILL)]
+        assert process.communications == 2
 
     @pytest.mark.skipif(not ds._soffice(), reason="soffice not installed")
     def test_real_conversion_validates_output_and_cleans_up(self, artifacts_tmp):
@@ -105,9 +170,8 @@ class TestBuilders:
         assert ds.produce("txt", "x", {}, "x.txt")["status"] == "error"
 
     def test_pdf_build_and_validate(self, artifacts_tmp):
-        import shutil
-        if not shutil.which("soffice"):
-            pytest.skip("LibreOffice not installed — pdf conversion unavailable")
+        if not ds._soffice():
+            pytest.skip("LibreOffice conversion unavailable in this environment")
         r = ds.produce("pdf", "Pack", {"sections": [{"heading": "Traction",
                                                     "paragraphs": ["1,200 patients."]}]},
                        "pack_v1.pdf")

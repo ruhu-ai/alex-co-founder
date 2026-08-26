@@ -28,9 +28,10 @@ packaging, A2A, embeddings, model breadth**.
 
 1. **Cloud Run deploy** (docs/13): app + mock portal, secrets in Secret
    **Status (Aug 20): DEPLOYED + verified — app, mock portal, Cloud SQL,
-   Scheduler/PubSub OIDC loop live.**
+   deadline Scheduler/PubSub OIDC loop live.**
    Manager, `--min-instances 1` for the demo window, `/healthz` warm, Cloud
-   SQL sessions, Scheduler → `/tasks/discover` + `/tasks/deadline_scan` daily.
+   SQL sessions, founder-invoked Cloud Tasks → `/tasks/discover`, and Scheduler
+   → `/tasks/deadline_scan` every six hours.
    *Criteria: Production Readiness.*
 2. **Vertex Agent Engine deploy** (hybrid, `adk deploy agent_engine`).
    **Status (Aug 20): DEPLOYED inside the 45-min box —

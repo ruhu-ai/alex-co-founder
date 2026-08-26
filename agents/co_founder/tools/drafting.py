@@ -84,6 +84,8 @@ def complete_drafting(tool_context: ToolContext) -> dict:
 
     state = tool_context.state
     app_id = state.get(ss.K_ACTIVE_APPLICATION_ID, "")
+    # Session comes from the invocation context, never from model args.
+    session_id = getattr(getattr(tool_context, "session", None), "id", "") or ""
 
     async def _go():
         app = await firestore.get_application(app_id) if app_id else None
@@ -113,7 +115,7 @@ def complete_drafting(tool_context: ToolContext) -> dict:
         # blocks: unavailable and invalid are honest statuses, not gates. Only
         # failing to persist the report stops the transition, because a report
         # the founder cannot see must not be silently dropped.
-        gate = await _attach_evidence_check(app, app_id)
+        gate = await _attach_evidence_check(app, app_id, session_id)
         if not gate.get("ok"):
             return gate          # IN_PROGRESS / persistence failure: stay in DRAFTING
 
@@ -132,7 +134,8 @@ def complete_drafting(tool_context: ToolContext) -> dict:
     return result
 
 
-async def _attach_evidence_check(app: dict, app_id: str) -> dict:
+async def _attach_evidence_check(app: dict, app_id: str,
+                                 session_id: str = "") -> dict:
     """Run the Evidence Checker before founder review.
 
     Returns {"ok": True} to proceed, or an error dict that must block the
@@ -181,6 +184,33 @@ async def _attach_evidence_check(app: dict, app_id: str) -> dict:
                         "try again in a moment" if report.get("status") == "IN_PROGRESS"
                         else "the evidence report could not be completed; try again"),
         }
+    # Supporting resource under the application (docs/23 §6.1). Occurrence is
+    # keyed by the report's deterministic input hash, so re-running drafting
+    # over the same draft replays instead of duplicating.
+    report_id = report.get("report_id") or ""
+    if session_id and report_id:
+        try:
+            from services import session_resources as sr
+
+            await sr.register_session_resource(
+                founder_id=founder, session_id=session_id,
+                resource_type=sr.ResourceType.EVIDENCE_REPORT,
+                canonical_id=report_id,
+                relationship=sr.Relationship.PRODUCED,
+                occurrence_key=f"evidence_check:{report_id}",
+                producer_kind="service", producer_id="gemma_evidence",
+                producer_output_key="report",
+                title="Evidence check",
+                summary=f"{len(report.get('findings') or [])} findings",
+                status=str(report.get("status") or ""),
+                visibility=sr.Visibility.SUPPORTING,
+                parent_resource_id=sr.resource_id_for(
+                    founder, sr.ResourceType.APPLICATION, "applications",
+                    app_id),
+                session_verified=True)
+        except Exception:  # noqa: BLE001 — provenance never blocks review
+            logging.getLogger(__name__).warning(
+                "evidence resource registration failed")
     return {"ok": True}
 
 

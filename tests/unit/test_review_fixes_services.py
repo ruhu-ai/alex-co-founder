@@ -71,7 +71,7 @@ class _SubmitPage:
 
     async def inner_text(self, selector="body"): return self.body
 
-    async def click(self, selector):
+    async def click(self, selector, **_kwargs):
         self.clicks += 1
         if self.receipt_after is not None:
             self.receipt = self.receipt_after
@@ -112,10 +112,27 @@ class TestStrictSubmit:
 # --- #7 approve-with-edit updates the section content ----------------------
 
 class TestApproveEdit:
+    async def test_feedback_is_rejected_before_review(self, fake_store):
+        app_id = "app-too-early"
+        fake_store.applications[app_id] = {
+            "id": app_id, "founder_id": "founder",
+            "state": ApplicationStep.DRAFTING,
+            "draft_sections": [{"section_id": "s1", "section_key": "traction",
+                                "status": "DRAFTED", "content": "draft"}],
+        }
+
+        result = await feedback_service.record_feedback(
+            "founder", app_id, "s1", "approve")
+
+        assert result["error"] is True
+        assert "AWAITING_REVIEW" in result["message"]
+        assert fake_store.feedback == {}
+
     async def test_edit_lands_on_section_content(self, fake_store, monkeypatch):
         app_id = "app-edit"
         fake_store.applications[app_id] = {
-            "id": app_id, "founder_id": "founder", "state": ApplicationStep.DRAFTING,
+            "id": app_id, "founder_id": "founder",
+            "state": ApplicationStep.AWAITING_REVIEW,
             "draft_sections": [{"section_id": "s1", "section_key": "traction",
                                 "status": "DRAFTED", "content": "old draft"}],
         }
@@ -139,7 +156,8 @@ class _RaiseExec:
 
 
 class TestApprovalReservedBeforeAction:
-    async def test_send_email_consumes_before_ambiguous_failure(self, monkeypatch):
+    async def test_send_email_consumes_before_ambiguous_failure(
+            self, monkeypatch, fake_store):
         claims = []
 
         class _Svc:
@@ -165,7 +183,8 @@ class TestApprovalReservedBeforeAction:
         assert claims == ["ap1"]  # retry cannot duplicate a possibly-sent email
         alex_mailbox.set_service_factory(None)
 
-    async def test_create_event_consumes_before_ambiguous_failure(self, monkeypatch):
+    async def test_create_event_consumes_before_ambiguous_failure(
+            self, monkeypatch, fake_store):
         claims = []
 
         class _Svc:
@@ -188,6 +207,11 @@ class TestApprovalReservedBeforeAction:
             "Intro", "2026-08-25T14:00:00+01:00", "2026-08-25T14:30:00+01:00",
             ["a@b.co"], founder_id="founder", session_id="s1")
         assert result["status"] == "error"
+        # ...and the ambiguity is reported as ambiguity: the event may exist and
+        # the invites may be out, so the caller reconciles by event_id rather
+        # than retrying (docs/24 §11.2).
+        assert result["error_code"] == "provider_outcome_uncertain"
+        assert result["uncertain"] is True and result["event_id"]
         assert claims == ["ap1"]
         calendar_adapter.set_service_factory(None)
 
@@ -254,8 +278,13 @@ class TestHistoryFetch:
 
         result = await alex_mailbox.fetch_history_events()
         assert result["scanned"] == 2  # both pages walked
-        assert set(captured["ids"]) == {"a", "b"}
+        assert set(result["unmarked_event_ids"]) == {"a", "b"}
         assert captured["history_id"] == "201"  # last page's historyId persisted
+        # The fetch marks nothing: the caller retires the ids only after the
+        # domain effect is durable (docs/24 §9.2).
+        assert "ids" not in captured
+        await alex_mailbox.mark_processed(result["unmarked_event_ids"])
+        assert set(captured["ids"]) == {"a", "b"}
 
 
 # --- #18 run_sweep audits the real outcome ---------------------------------

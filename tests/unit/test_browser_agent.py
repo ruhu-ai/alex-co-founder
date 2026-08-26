@@ -24,6 +24,7 @@ class BrowserRepo:
     def __init__(self):
         self.runs = {}
         self.actions = {}
+        self.frames = {}
         self.audit = []
 
     async def create_run(self, record):
@@ -35,6 +36,76 @@ class BrowserRepo:
 
     async def update_run(self, run_id, **fields):
         self.runs[run_id].update(copy.deepcopy(fields))
+
+    async def transition_run(self, run_id, status, owner_loss=False, **fields):
+        row = self.runs.get(run_id)
+        if row is None:
+            return {"ok": False, "missing": True}
+        edges = {
+            "opening": {"active", "stopping"},
+            "active": {"blocked", "stopping"},
+            "blocked": {"stopping"},
+            "stopping": {"closed"},
+            "closed": set(),
+        }
+        old = row.get("status")
+        if old == status:
+            return {"ok": True, "idempotent": True, **copy.deepcopy(row)}
+        allowed = status in edges.get(old, set())
+        if owner_loss and old in {"opening", "active", "blocked", "stopping"}:
+            allowed = status == "closed"
+        if not allowed:
+            return {"ok": False, "from": old, "to": status}
+        row.update(copy.deepcopy(fields))
+        row["status"] = status
+        row["version"] = int(row.get("version", 0)) + 1
+        return {"ok": True, **copy.deepcopy(row)}
+
+    async def mutate_view(self, run_id, **fields):
+        row = self.runs.get(run_id)
+        if row is None:
+            return {"ok": False, "missing": True}
+        if row.get("status") == "closed":
+            return {"ok": False, "closed": True, **copy.deepcopy(row)}
+        row.update(copy.deepcopy(fields))
+        row["version"] = int(row.get("version", 0)) + 1
+        return {"ok": True, **copy.deepcopy(row)}
+
+    async def commit_frame(self, run_id, candidate_seq, frame, artifact,
+                           *, closing=False):
+        row = self.runs.get(run_id)
+        if row is None:
+            return {"committed": False, "missing": True}
+        if row.get("status") == "closed":
+            return {"committed": False, "closed": True}
+        # Mirrors the production precondition: only the terminal closed-frame
+        # may land while stopping, so a surviving action task cannot append a
+        # stray after-frame behind the closed evidence.
+        if row.get("status") == "stopping" and not closing:
+            return {"committed": False, "stopping": True}
+        if int(row.get("frame_seq", 0)) + 1 != candidate_seq:
+            return {
+                "committed": False,
+                "conflict": True,
+                "current_seq": int(row.get("frame_seq", 0)),
+            }
+        version = int(row.get("version", 0)) + 1
+        value = {
+            **copy.deepcopy(frame),
+            "seq": candidate_seq,
+            "run_id": run_id,
+            "run_version": version,
+            "artifact": artifact,
+        }
+        if (run_id, candidate_seq) in self.frames:
+            raise AssertionError(
+                f"frame {run_id}/{candidate_seq} overwritten — frames are immutable"
+            )
+        self.frames[(run_id, candidate_seq)] = value
+        row.update({"frame_seq": candidate_seq, "version": version})
+        if artifact:
+            row["screenshot_artifact"] = artifact
+        return {"committed": True, **copy.deepcopy(value)}
 
     async def list_runs(self, app_name, user_id, session_id, kind=None):
         rows = [
@@ -58,6 +129,39 @@ class BrowserRepo:
             if row["status"] == "active"
         ]
 
+    async def list_nonterminal(self, owner_instance=None):
+        return [
+            copy.deepcopy(row)
+            for row in self.runs.values()
+            if row.get("status") in {"opening", "active", "blocked", "stopping"}
+            and (owner_instance is None
+                 or row.get("owner_instance") == owner_instance)
+        ]
+
+    async def renew_lease(self, run_id, expires_at, *, expected_generation=None,
+                          lease_generation=None):
+        row = self.runs.get(run_id)
+        if row is None:
+            return {"ok": False, "missing": True}
+        if row.get("status") not in {"opening", "active", "blocked"}:
+            return {"ok": False, "status": row.get("status")}
+        current = int(row.get("lease_generation", 0))
+        if expected_generation is not None and current != expected_generation:
+            return {"ok": False, "superseded": True,
+                    "lease_generation": current}
+        generation = lease_generation if lease_generation is not None else current + 1
+        row.update({"lease_generation": generation, "expires_at": expires_at})
+        return {"ok": True, "lease_generation": generation,
+                "expires_at": expires_at}
+
+    async def mark_uncertain(self, run_id, reason):
+        count = 0
+        for (candidate_run_id, _action_id), row in self.actions.items():
+            if candidate_run_id == run_id and row.get("status") == "PREPARED":
+                row.update({"status": "UNCERTAIN", "reason": reason})
+                count += 1
+        return count
+
     async def reserve(self, run_id, now_iso, max_actions):
         row = self.runs[run_id]
         if row["status"] != "active":
@@ -80,7 +184,15 @@ class BrowserRepo:
         return {"created": True, **copy.deepcopy(self.actions[key])}
 
     async def update_action(self, run_id, action_id, **fields):
-        self.actions[(run_id, action_id)].update(copy.deepcopy(fields))
+        row = self.actions.get((run_id, action_id))
+        if row is None:
+            return {"updated": False, "missing": True}
+        # Production refuses to rewrite a terminal ledger row: a late task must
+        # not overwrite the UNCERTAIN a stop/crash recorded.
+        if row.get("status") in {"SUCCEEDED", "FAILED", "UNCERTAIN"}:
+            return {"updated": False, **copy.deepcopy(row)}
+        row.update(copy.deepcopy(fields))
+        return {"updated": True, **copy.deepcopy(row)}
 
     async def add_audit(
         self, actor, action, target, result, detail="", idempotency_key=None
@@ -105,13 +217,19 @@ async def browser_env(monkeypatch, tmp_path):
         "create_browser_run": repo.create_run,
         "get_browser_run": repo.get_run,
         "update_browser_run": repo.update_run,
+        "transition_browser_run": repo.transition_run,
+        "mutate_browser_run_view": repo.mutate_view,
+        "commit_browser_frame": repo.commit_frame,
         "list_browser_runs": repo.list_runs,
         "find_active_browser_run": repo.active,
         "list_active_browser_runs": repo.list_active,
+        "list_nonterminal_browser_runs": repo.list_nonterminal,
+        "renew_browser_lease": repo.renew_lease,
         "reserve_browser_action": repo.reserve,
         "get_browser_action": repo.get_action,
         "prepare_browser_action": repo.prepare,
         "update_browser_action": repo.update_action,
+        "mark_prepared_browser_actions_uncertain": repo.mark_uncertain,
         "audit": repo.add_audit,
     }
     for name, fn in mapping.items():
@@ -267,9 +385,9 @@ async def test_round_trip_artifacts_audit_and_idempotency(browser_env, fixture_s
     )
     names = set(storage.list_artifacts())
     assert f"page_{run_id}_0.txt" in names
-    assert f"pageshot_{run_id}_0_nav.png" in names
-    assert f"pageshot_{run_id}_1_before.png" in names
-    assert f"pageshot_{run_id}_1_after.png" in names
+    assert f"browserframe_{run_id}_1.jpg" in names
+    assert f"browserframe_{run_id}_2.jpg" in names
+    assert f"browserframe_{run_id}_3.jpg" in names
     assert {row["action"] for row in browser_env.audit} >= {
         "browse_open",
         "browse_action",

@@ -1,0 +1,14 @@
+.gcloudignore
+.git
+.gitignore
+#!include:.gitignore
+
+# Development-only material is not part of the Cloud Run runtime image.
+.claude/
+.github/
+docs/
+tests/
+infra/
+scripts/
+PROJECT_BRIEF.md
+README.md

@@ -68,6 +68,7 @@ button {
 button:hover { filter: brightness(1.08); }
 button:disabled { opacity: .5; cursor: not-allowed; }
 button.secondary { background: var(--surface-2); border-color: var(--border); color: var(--ink-1); }
+.gmark { width: 18px; height: 18px; flex: none; }
 .split { display: flex; align-items: center; gap: 10px; color: var(--ink-3); font-size: 12px; }
 .split::before, .split::after { content: ""; flex: 1; height: 1px; background: var(--divider); }
 .note { font-size: 12px; line-height: 18px; color: var(--ink-3); }
@@ -102,7 +103,16 @@ button.secondary { background: var(--surface-2); border-color: var(--border); co
   </form>
 
   <div class="split">or</div>
-  <button class="secondary" id="googleBtn" type="button">Continue with Google</button>
+  <button class="secondary" id="googleBtn" type="button">
+    <!-- Official Google "G" — sign-in buttons are the sanctioned use of this
+         mark (Google Identity branding guidelines); colors never re-themed. -->
+    <svg class="gmark" viewBox="0 0 48 48" aria-hidden="true">
+      <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>
+      <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/>
+      <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/>
+      <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/>
+    </svg>
+    <span id="googleLabel">Continue with Google</span></button>
   <div class="note">Access is limited to emails authorized for this workspace.
     Your co-founder never sees your password.</div>
 </div>
@@ -111,6 +121,19 @@ button.secondary { background: var(--surface-2); border-color: var(--border); co
 const $ = id => document.getElementById(id);
 const show = (text, tone) => { const m = $("msg"); m.textContent = text; m.dataset.tone = tone; };
 const clear = () => { $("msg").removeAttribute("data-tone"); };
+const busy = (on) => ["signinBtn", "googleBtn"].forEach(id => $(id).disabled = on);
+
+const GOOGLE_LABEL = "Continue with Google";
+const googleLabel = text => { $("googleLabel").textContent = text; };
+
+// Google sign-in is a CURRENT-TAB redirect — docs/22: human OAuth may replace
+// this tab but never opens a window — so the browser leaves this page and comes
+// back as a fresh load. This tab-scoped flag survives that round trip so the
+// page returns in its pending state instead of looking like an idle form that
+// silently ate the click.
+const GOOGLE_PENDING = "cofounder-google-pending";
+const resuming = sessionStorage.getItem(GOOGLE_PENDING) === "1";
+if (resuming) { busy(true); googleLabel("Finishing sign-in…"); }
 
 // Match the app's stored theme choice so the two pages never disagree.
 const stored = localStorage.getItem("cofounder-theme");
@@ -121,9 +144,11 @@ const cfg = await fetch("/auth/config").then(r => r.json()).catch(() => null);
 
 // Already signed in (or dev-open)? Straight to the app.
 const me = await fetch("/auth/me").then(r => r.ok ? r.json() : null).catch(() => null);
-if (me) {
+if (me?.authenticated) {
+  sessionStorage.removeItem(GOOGLE_PENDING);
   location.replace("/");
 } else if (!cfg || !cfg.enabled) {
+  sessionStorage.removeItem(GOOGLE_PENDING);
   $("tagline").textContent = "Sign-in isn't configured for this deployment.";
   show("Set FIREBASE_WEB_API_KEY, FIREBASE_PROJECT_ID and ALLOWED_LOGIN_EMAILS "
      + "to enable email + Google sign-in — or open the app with your access key "
@@ -133,7 +158,7 @@ if (me) {
   const { initializeApp } = await import("https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js");
   const { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword,
           sendEmailVerification, sendPasswordResetEmail,
-          GoogleAuthProvider, signInWithPopup, signOut } =
+          GoogleAuthProvider, signInWithRedirect, getRedirectResult, signOut } =
     await import("https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js");
 
   const auth = getAuth(initializeApp({
@@ -141,6 +166,8 @@ if (me) {
 
   // A Firebase sign-in only counts once the SERVER accepts it: it verifies
   // the ID token, requires a verified email, and checks the allowlist.
+  // BOTH sign-in paths — email/password and the Google redirect return — finish
+  // here, so what the server is handed can never differ between them.
   async function establishSession(user) {
     const idToken = await user.getIdToken();
     const r = await fetch("/auth/session", {
@@ -152,8 +179,6 @@ if (me) {
     show(j.error || "Sign-in was rejected.", "danger");
   }
 
-  const busy = (on) => ["signinBtn", "googleBtn"].forEach(id => $(id).disabled = on);
-
   const FRIENDLY = {
     "auth/invalid-credential": "Wrong email or password.",
     "auth/wrong-password": "Wrong email or password.",
@@ -161,10 +186,45 @@ if (me) {
     "auth/too-many-requests": "Too many attempts — wait a minute, or reset your password.",
     "auth/email-already-in-use": "That email already has an account — sign in instead.",
     "auth/weak-password": "Password must be at least 6 characters.",
-    "auth/popup-closed-by-user": "The Google window was closed before finishing.",
     "auth/invalid-email": "That doesn't look like an email address.",
+    // Redirect outcomes. The popup-only codes (popup-closed-by-user,
+    // popup-blocked, cancelled-popup-request) can no longer happen.
+    "auth/account-exists-with-different-credential":
+      "That email already signs in with a password — use the form above instead.",
+    "auth/user-cancelled": "Google sign-in was cancelled.",
+    "auth/network-request-failed":
+      "Couldn't reach Google — check your connection and try again.",
+    "auth/web-storage-unsupported":
+      "This browser is blocking the storage Google sign-in needs — allow cookies for this site.",
+    "auth/unauthorized-domain": "This domain isn't authorized for Google sign-in.",
   };
   const friendly = e => FRIENDLY[e && e.code] || (e && e.message) || String(e);
+
+  // The Google return trip. getRedirectResult() consumes the credential the
+  // provider handed back to THIS tab; from there it is the same server exchange
+  // the email path uses. Runs on every load: cheap and null when idle.
+  async function completeGoogleRedirect() {
+    let result = null;
+    try {
+      result = await getRedirectResult(auth);
+    } catch (e) {
+      sessionStorage.removeItem(GOOGLE_PENDING);
+      busy(false); googleLabel(GOOGLE_LABEL);
+      show(friendly(e), "danger");
+      return;
+    }
+    sessionStorage.removeItem(GOOGLE_PENDING);
+    if (result) {
+      clear();
+      try { await establishSession(result.user); }
+      catch (e) { show(friendly(e), "danger"); }
+    } else if (resuming) {
+      // Back from Google with no credential: consent declined, or this tab
+      // reloaded after the result was already consumed.
+      show("Google sign-in didn't finish — try again.", "danger");
+    }
+    busy(false); googleLabel(GOOGLE_LABEL);
+  }
 
   $("emailForm").addEventListener("submit", async () => {
     clear(); busy(true);
@@ -206,13 +266,22 @@ if (me) {
   };
 
   $("googleBtn").onclick = async () => {
-    clear(); busy(true);
+    clear(); busy(true); googleLabel("Redirecting to Google…");
     try {
-      const cred = await signInWithPopup(auth, new GoogleAuthProvider());
-      await establishSession(cred.user);
-    } catch (e) { show(friendly(e), "danger"); }
-    busy(false);
+      // Set the flag BEFORE navigating: this call normally never returns
+      // because the tab is already on its way to Google.
+      sessionStorage.setItem(GOOGLE_PENDING, "1");
+      await signInWithRedirect(auth, new GoogleAuthProvider());
+    } catch (e) {
+      sessionStorage.removeItem(GOOGLE_PENDING);
+      busy(false); googleLabel(GOOGLE_LABEL);
+      show(friendly(e), "danger");
+    }
   };
+
+  // Last, so a credential waiting from the previous page load lands on a fully
+  // wired page. The buttons are already disabled while `resuming` is true.
+  await completeGoogleRedirect();
 }
 </script>
 </body>

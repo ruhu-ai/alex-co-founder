@@ -1,6 +1,8 @@
 """Profile tools (docs/05, 06). Errors as data. Thin wrappers over
 services.profile_service."""
 
+import re
+
 from google.adk.tools import ToolContext
 
 from .. import state_schema as ss
@@ -9,6 +11,15 @@ from ._common import run
 
 def _founder_id(tool_context: ToolContext) -> str:
     return tool_context.state.get(ss.K_USER_PROFILE_ID, "founder")
+
+
+def _founder_turn_text(tool_context: ToolContext) -> str:
+    """The current founder turn, which is the only valid interview evidence."""
+    content = getattr(tool_context, "user_content", None)
+    return "\n".join(
+        part.text for part in (getattr(content, "parts", None) or [])
+        if getattr(part, "text", None)
+    ).strip()
 
 
 def get_profile(tool_context: ToolContext) -> dict:
@@ -24,6 +35,7 @@ def get_profile(tool_context: ToolContext) -> dict:
         profile = await profile_service.get_profile(_founder_id(tool_context))
         return {"status": "success", "version": profile.get("version", 0),
                 "facts": profile.get("facts", {}),
+                "fact_provenance": profile.get("fact_provenance", {}),
                 "voice_rules": profile.get("voice_rules", []),
                 "decision_patterns": profile.get("decision_patterns", []),
                 "rejection_history": profile.get("rejection_history", [])[-5:]}
@@ -43,20 +55,50 @@ def record_answer(question_key: str, question: str, answer: str, tool_context: T
         dict with status. Appends to the application's interview_qa and upserts
         profile facts; updates checklist_status.
     """
-    from services import firestore, profile_service
+    from services import firestore
 
-    founder = _founder_id(tool_context)
-    result = run(profile_service.record_answer(founder, question_key, question, answer))
+    state = tool_context.state
+    if state.get(ss.K_CURRENT_STEP) != ss.ApplicationStep.INTERVIEWING:
+        return {
+            "status": "error", "error": True,
+            "message": ("record_answer requires an active INTERVIEWING application "
+                        f"(current: {state.get(ss.K_CURRENT_STEP)})."),
+        }
+    app_id = state.get(ss.K_ACTIVE_APPLICATION_ID, "")
+    if not app_id:
+        return {"status": "error", "error": True,
+                "message": "no active application"}
 
-    app_id = tool_context.state.get(ss.K_ACTIVE_APPLICATION_ID, "")
-    if app_id:
-        async def _append():
-            app = await firestore.get_application(app_id)
-            if app:
-                qa = app.get("interview_qa", [])
-                qa.append({"question_key": question_key, "question": question, "answer": answer})
-                await firestore.update_application(app_id, interview_qa=qa)
-        run(_append())
+    verbatim = _founder_turn_text(tool_context)
+    if not verbatim:
+        return {"status": "error", "error": True,
+                "message": "no founder text is available to record verbatim"}
+    normalize = lambda value: re.sub(r"\s+", " ", value).strip()  # noqa: E731
+    if normalize(answer) != normalize(verbatim):
+        return {
+            "status": "error", "error": True,
+            "error_code": "answer_not_verbatim",
+            "message": ("The answer must be the founder's current message verbatim. "
+                        "Do not summarize or add claims from an attachment."),
+        }
+    if re.search(r"\b(?:attached|uploaded)\b", verbatim, re.I):
+        return {
+            "status": "error", "error": True,
+            "error_code": "attachment_notice_not_answer",
+            "message": ("An attachment notice is not an interview fact. Use the "
+                        "registered attachment metadata and ingestion result instead."),
+        }
+    if not re.fullmatch(r"[a-z][a-z0-9_.-]{1,79}", question_key):
+        return {"status": "error", "error": True,
+                "message": "question_key must be a stable lowercase identifier"}
+
+    result = run(firestore.record_interview_answer(
+        _founder_id(tool_context), app_id, question_key,
+        question[:1000], verbatim[:10000]))
+    if result.get("status") == "success":
+        checklist = dict(state.get(ss.K_CHECKLIST_STATUS) or {})
+        checklist["interview"] = ss.ChecklistStatus.IN_PROGRESS
+        state[ss.K_CHECKLIST_STATUS] = checklist
     return result
 
 
@@ -117,25 +159,62 @@ def ingest_document(source_type: str, ref: str, tool_context: ToolContext) -> di
 
     Args:
         source_type: "upload" or "google_drive".
-        ref: Uploaded filename/artifact ref, or a founder-selected Drive file id.
+        ref: Registered upload attachment ref, or an ACTIVE Drive source_grant_id.
 
     Returns:
         dict with status, ingestion_id, proposed_count, summary. Never writes
         the profile directly — auto_apply_profile_updates applies the
         confident, non-conflicting ones.
     """
-    from services import profile_service
+    if source_type == "upload":
+        from services import firestore
 
-    artifact = ref
+        attachments = list(tool_context.state.get(ss.K_ACTIVE_ATTACHMENTS) or [])
+        match = next((item for item in attachments
+                      if ref == item.get("attachment_ref")), None)
+        if not match:
+            return {
+                "status": "error", "error": True,
+                "error_code": "unregistered_attachment",
+                "message": ("That upload is not registered in this session. Use an "
+                            "attachment_ref from active_attachments; never guess a filename."),
+            }
+        ingestion = run(firestore.get_ingestion(match["attachment_ref"]))
+        if not isinstance(ingestion, dict) or not ingestion.get("id"):
+            return {"status": "error", "error": True,
+                    "message": "registered attachment ingestion was not found"}
+        return {
+            "status": "success",
+            "ingestion_id": ingestion["id"],
+            "already_ingested": True,
+            "ingestion_status": ingestion.get("status", "QUEUED"),
+            "auto_applied": int(ingestion.get("auto_applied") or 0),
+            "needs_founder": int(ingestion.get("needs_founder_count") or 0),
+            "summary": f"registered attachment {ingestion.get('source_ref', 'document')}",
+        }
+
     if source_type == "google_drive":
-        from services import drive_adapter
+        from services import source_ingestion
 
-        fetched = drive_adapter.fetch_file(ref)
-        if fetched.get("status") != "success":
-            return fetched
-        artifact = fetched["artifact"]
-    return run(profile_service.ingest_document(
-        _founder_id(tool_context), source_type, ref, artifact))
+        session_id = (getattr(getattr(tool_context, "session", None), "id", "")
+                      or getattr(tool_context, "session_id", ""))
+        invocation_id = (getattr(tool_context, "function_call_id", "")
+                         or getattr(tool_context, "invocation_id", ""))
+        if not session_id or not invocation_id:
+            return {"status": "error", "error": True,
+                    "error_code": "invalid_contract",
+                    "message": "Drive ingestion needs its originating session."}
+        result = run(source_ingestion.register_source_ingestion(
+            founder_id=_founder_id(tool_context), session_id=session_id,
+            source_type="google_drive", source_grant_id=ref,
+            source_ref=ref, display_name="Drive document", data=None,
+            declared_content_type="application/octet-stream", scope="profile",
+            occurrence_key=f"tool-drive:{invocation_id}", session_verified=True))
+        result.pop("http_status", None)
+        return result
+    return {"status": "error", "error": True,
+            "error_code": "invalid_contract",
+            "message": "source_type must be upload or google_drive"}
 
 
 def auto_apply_profile_updates(ingestion_id: str, tool_context: ToolContext) -> dict:
@@ -166,7 +245,8 @@ def propose_profile_updates(ingestion_id: str, tool_context: ToolContext) -> dic
     """
     from services import profile_service
 
-    return run(profile_service.propose_profile_updates(ingestion_id))
+    return run(profile_service.propose_profile_updates(
+        _founder_id(tool_context), ingestion_id))
 
 
 def confirm_profile_updates(ingestion_id: str, approved: list[str], rejected: list[str],

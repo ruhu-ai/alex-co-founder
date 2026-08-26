@@ -10,7 +10,8 @@ from types import SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient
-from google.adk.errors import StaleSessionError
+
+from app.resume_handler import StaleSessionError
 
 # ---------------------------------------------------------------------------
 # mock portal (findings 3, 4, 17)

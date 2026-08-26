@@ -34,6 +34,12 @@ Backward edges (all legal, all logged):
 - `TRIAGE → IDLE` when founder closes the triage view.
 - `FOLLOW_UP` stays current across many wake cycles until closure.
 
+Browser Stop is not an application transition. A stop during `FORM_FILLING`
+leaves the application there until a reconstructed fill produces a new report.
+A stop during `AWAITING_SUBMIT_APPROVAL` leaves that state in place, but submit
+is allowed only after the reopened portal and mapping still match the report to
+which the approval was granted (09/22).
+
 ## Transition table (binding)
 
 | # | From → To | Actor | Guard (must be true) | Side effects |
@@ -45,14 +51,16 @@ Backward edges (all legal, all logged):
 | 5 | DRAFTING → AWAITING_REVIEW | drafter | every section has status ≥ DRAFTED; evidence-check report persisted. No model outcome blocks this edge — only failing to read the application or persist the report does, both pre-existing `complete_drafting` failures (20) | latest evidence-check pointer written; sections presented one at a time |
 | 6 | AWAITING_REVIEW → APPROVED | orchestrator | all sections status=APPROVED | `submit_idempotency_key` generated |
 | 7 | APPROVED → FORM_FILLING | founder (UI) | — | portal creds fetched at execution time only |
-| 8 | FORM_FILLING → AWAITING_SUBMIT_APPROVAL | form-filler | fill report written (partial OK) | approval PENDING record created; UI prompts founder |
-| 9 | AWAITING_SUBMIT_APPROVAL → SUBMITTED | form-filler | **server-side approval resolved** (GRANTED, unexpired, unconsumed) | approval → CONSUMED; confirmation stored; audit row |
+| 8 | FORM_FILLING → AWAITING_SUBMIT_APPROVAL | form-filler | fresh fill report written (partial OK), including portal and mapping hashes | approval PENDING record bound to those hashes; UI prompts founder |
+| 9 | AWAITING_SUBMIT_APPROVAL → SUBMITTED | form-filler | **server-side approval resolved** (GRANTED, unexpired, unconsumed) and live portal/mapping hashes match its `subject_hash` | approval → CONSUMED; confirmation stored; audit row |
 | 10 | SUBMITTED → FOLLOW_UP | system | `submission.confirmation_id` present | followup schedule created |
 | 11 | FOLLOW_UP → CLOSED | system/founder | result recorded or deadline passed | final audit row |
 
 **Safety gates (eval-tested, see 11):**
 - G1: no `save_draft_section` while `current_step == INTERVIEWING` and gaps remain.
-- G2: no `submit_form` without a valid approval token — the tool itself validates,
+- G2: no `submit_form` without a valid approval token bound to the current fill
+  report — the tool itself validates approval status, expiry, consumption, portal
+  signature, and mapping hash,
   so even a mis-prompted model cannot submit. Refusal returns
   `{"error": true, "message": "Submission blocked: no approval"}` and writes an
   `audit` row with `result=refused`.
@@ -102,16 +110,19 @@ state.setdefault("checklist_status", {})
 state.setdefault("pending_signals", [])
 state.setdefault("current_section", "")
 state.setdefault("browser_status", {"active": False, "kind": None, "run_id": None,
-                                    "url": None, "goal": None, "last_action": None})  # 18
+                                    "version": 0, "frame_seq": 0, "status": None,
+                                    "phase": None, "url": None, "goal": None,
+                                    "last_action": None})  # 18/22
 state.setdefault("user:profile_id", founder_id)  # resolved from auth/env
 state.setdefault("user:prefs", {})
 state.setdefault("app:workflow_id", workflow.workflow_id)
 ```
 
 `browser_status` is the exception to setdefault-only: on **every** invocation
-the callback reconciles it from Firestore `browser_runs` (18) — an `active`
-projection whose run is closed or absent is rewritten before instruction
-rendering, so the orchestrator template never shows a stale browser.
+the callback reconciles it from Firestore `browser_runs` (18/22) — `active`
+means nonterminal, while `status` controls permissions. A projection whose run
+is closed or absent is rewritten before instruction rendering, so the
+orchestrator template never shows a stale browser.
 
 ## Checklist model
 
@@ -128,3 +139,6 @@ gets injected into the orchestrator instruction.
 - [ ] Entering APPROVED generates `submit_idempotency_key`; calling `submit_form` twice with the same key submits once (second call returns `{"error": true, "message": "Already submitted"}`).
 - [ ] Killing the server at AWAITING_REVIEW, restarting, and POSTing feedback resumes the same session with checklist and drafts intact.
 - [ ] Safety gates G1–G3 hold when tested via `adk web` with adversarial prompts ("just submit it now").
+- [ ] Stopping a browser in `FORM_FILLING` or `AWAITING_SUBMIT_APPROVAL`
+  performs no application transition; the 09/22 recovery checks gate the next
+  fill or submit.

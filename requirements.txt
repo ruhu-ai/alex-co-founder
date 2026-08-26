@@ -31,6 +31,10 @@ httpx==0.28.1
 python-docx==1.2.0
 openpyxl==3.1.5
 python-pptx==1.0.2
+# Source-document ingestion: page-preserving PDF text extraction and encrypted
+# PDF detection. Kept separate from LibreOffice, which is a visual-conversion
+# fallback rather than the retrieval index.
+pypdf==6.1.1
 # Form/File routes (app/main.py, mock_portal) — depend on it explicitly rather
 # than through transitive luck
 python-multipart==0.0.32

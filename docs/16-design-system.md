@@ -470,7 +470,8 @@ product was a void where its main feature is.
 
 First paint only. Skeletons are **markup, not state**: they sit in the HTML and
 the first successful render replaces the container's `innerHTML`, so they are
-destroyed rather than toggled and can never flash on the 5 s poll.
+destroyed rather than toggled and can never flash on a later activity-driven
+refresh or event-stream reconciliation.
 
 Each stands in for the shape it replaces — a board card is a title, a meta line
 and a meter, so its skeleton is three lines at those widths. They carry
@@ -554,9 +555,11 @@ browser run starts. The hairline between the left cell and the chat is a drag
 handle (`role="separator"`, 10px hit area, keyboard arrows at 16px steps);
 the width is clamped 260–600px and persisted in `localStorage`
 (`leftPanelWidth`). The Browser surface follows the watch-view grammar:
-toolbar (globe, read-only URL pill, Stop for active browse runs, close-back
-to Pipeline), a stage with the latest audited frame, and a meta line — it is
-a live view, not an interactive browser.
+toolbar (globe, typeable request URL field, Stop for every nonterminal browse
+or fill run, close-back to Pipeline), a stage with the latest audited frame,
+and a meta line. Entering a URL composes the normal audited `/wake` request; it
+does not navigate the surface. The Browser remains an observation/control view,
+not an interactive remote browser or iframe (18/22).
 
 `--surface-0` therefore shows only *through* the dividers at full width. It is
 still painted on `body` (§1) because it is the ground behind the drawer and any
@@ -674,9 +677,9 @@ Also guarded:
       even without Node, so the test is never silently vacuous.
 - [x] First paint shows skeletons shaped like the content they stand in for;
       they are markup, so the first successful render destroys them and they
-      cannot flash on the 5 s poll. A *failed* first load resolves them into a
-      "Can't reach the server" state with a retry, rather than shimmering
-      forever.
+      cannot flash on later refresh/event reconciliation. A *failed* first
+      load resolves them into a "Can't reach the server" state with a retry,
+      rather than shimmering forever.
 
 ## 12. The mock portal is deliberately *not* this system
 

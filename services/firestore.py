@@ -9,11 +9,64 @@ from __future__ import annotations
 
 import hashlib
 import os
+import re
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
 _client = None
+
+# ---------------------------------------------------------------------------
+# Collection registry (docs/23 §9.7, docs/02).
+#
+# Every Firestore collection this application touches, by literal name. The
+# coverage test (tests/unit/test_collection_registry.py) scans services/ and
+# app/ for `.collection("…")` literals and fails when one is missing here, so
+# a new collection cannot ship without registering — the future export/
+# deletion implementation enumerates from this registry, never a hand list.
+# ---------------------------------------------------------------------------
+
+TOP_LEVEL_COLLECTIONS: frozenset[str] = frozenset({
+    "opportunities",
+    "applications",
+    "profiles",
+    "ingestions",
+    "artifacts",
+    "feedback",
+    "approvals",
+    "audit",
+    "evidence_checks",
+    "browser_runs",
+    "discovery_requests",
+    "oauth_states",
+    "integrations",
+    "gmail_state",
+    "alex_mail_state",
+    "portal_registrations",
+    "source_state",
+    "documents",
+    "document_versions",
+    "founder_state",       # proactive-delivery routing table (app/main.py)
+    # docs/23 session-resource projections
+    "resource_index",
+    "session_resource_links",
+    "session_catalog",
+    # docs/24 data-source reliability safety records
+    "data_connections",
+    "source_grants",
+    "external_events",
+    "founder_inbox",
+    "external_actions",
+})
+
+SUBCOLLECTIONS: frozenset[str] = frozenset({
+    "update_receipts",     # profiles/{id}/update_receipts
+    "frames",              # browser_runs/{id}/frames
+    "actions",             # browser_runs/{id}/actions
+    "chunks",              # artifacts/{id}/chunks
+})
+
+REGISTERED_COLLECTIONS: frozenset[str] = TOP_LEVEL_COLLECTIONS | SUBCOLLECTIONS
 
 
 def get_client():
@@ -107,9 +160,54 @@ async def set_opportunity_state(opportunity_id: str, state: str, **fields: Any) 
 # ---------------------------------------------------------------------------
 
 async def create_application(founder_id: str, opportunity_id: str, checklist: list[dict]) -> str:
-    doc_id = _new_id()
-    await get_client().collection("applications").document(doc_id).set(
-        {
+    """Backward-compatible wrapper around the transactional create contract."""
+    result = await get_or_create_application(founder_id, opportunity_id, checklist)
+    return result["application_id"]
+
+
+async def find_application_by_founder_opportunity(
+        founder_id: str, opportunity_id: str) -> Optional[dict[str, Any]]:
+    """Find a legacy/random-id application for this founder and opportunity.
+
+    New application IDs are deterministic, but records created before that
+    invariant shipped used UUIDs. This compatibility lookup prevents selecting
+    one of those opportunities from creating a second application.
+    """
+    query = get_client().collection("applications").where(
+        "founder_id", "==", founder_id)
+    matches = [doc.to_dict() | {"id": doc.id} async for doc in query.stream()
+               if doc.to_dict().get("opportunity_id") == opportunity_id]
+    if not matches:
+        return None
+    matches.sort(
+        key=lambda row: (row.get("state") == "CLOSED", row.get("created_at", "")))
+    return matches[0]
+
+
+async def get_or_create_application(
+        founder_id: str, opportunity_id: str, checklist: list[dict]) -> dict[str, Any]:
+    """Transactionally create at most one application per founder/opportunity.
+
+    A deterministic document id is the durable uniqueness constraint. A
+    caller-side lookup alone is racy: two sessions can both observe absence and
+    create UUID-backed records. The transaction returns whether it performed
+    the write so duplicate selection can rehydrate the existing application.
+    """
+    from google.cloud import firestore as gc_firestore
+
+    digest = hashlib.sha256(f"{founder_id}:{opportunity_id}".encode()).hexdigest()
+    doc_id = f"app_{digest[:28]}"
+    ref = get_client().collection("applications").document(doc_id)
+    transaction = get_client().transaction()
+
+    @gc_firestore.async_transactional
+    async def _create(txn):
+        snap = await ref.get(transaction=txn)
+        if snap.exists:
+            return {"application_id": doc_id, "created": False,
+                    "application": snap.to_dict() | {"id": doc_id}}
+        now = _now()
+        record = {
             "opportunity_id": opportunity_id,
             "founder_id": founder_id,
             "state": "INTERVIEWING",
@@ -119,16 +217,59 @@ async def create_application(founder_id: str, opportunity_id: str, checklist: li
             "form_fill_report": None,
             "submission": None,
             "followups": [],
-            "created_at": _now(),
-            "updated_at": _now(),
+            "created_at": now,
+            "updated_at": now,
         }
-    )
-    return doc_id
+        txn.set(ref, record)
+        return {"application_id": doc_id, "created": True,
+                "application": record | {"id": doc_id}}
+
+    return await _create(transaction)
 
 
 async def get_application(application_id: str) -> Optional[dict[str, Any]]:
     doc = await get_client().collection("applications").document(application_id).get()
     return doc.to_dict() | {"id": doc.id} if doc.exists else None
+
+
+async def append_application_followup(
+    application_id: str, entry: dict[str, Any],
+    dedupe_key: str = "") -> dict[str, Any]:
+    """Transactionally append one follow-up, refusing a duplicate.
+
+    Every writer previously did a read-modify-write of the whole `followups`
+    array through the blind `update_application`, so two concurrent writers
+    (an inbound-mail scan and an agent tool, or two mail scans) each read N
+    items and each wrote N+1 — silently destroying one follow-up. A redelivered
+    provider message also appended a second copy.
+
+    `dedupe_key` is matched against `external_event_id`, making redelivery an
+    idempotent success rather than a duplicate effect.
+    """
+    from google.cloud import firestore as gc_firestore
+
+    ref = get_client().collection("applications").document(application_id)
+    transaction = get_client().transaction()
+
+    @gc_firestore.async_transactional
+    async def _append(txn):
+        snap = await ref.get(transaction=txn)
+        if not snap.exists:
+            return {"status": "error", "error": True,
+                    "message": f"application {application_id} not found"}
+        current = snap.to_dict()
+        followups = list(current.get("followups") or [])
+        if dedupe_key and any(
+                str(item.get("external_event_id") or "") == dedupe_key
+                for item in followups if isinstance(item, dict)):
+            return {"status": "success", "duplicate": True,
+                    "followups": len(followups)}
+        followups.append(entry)
+        txn.update(ref, {"followups": followups, "updated_at": _now()})
+        return {"status": "success", "duplicate": False,
+                "followups": len(followups)}
+
+    return await _append(transaction)
 
 
 async def update_application(application_id: str, **fields: Any) -> None:
@@ -273,6 +414,12 @@ async def update_draft_section(application_id: str, founder_id: str,
         if record.get("founder_id") != founder_id:
             return {"status": "error", "error": True,
                     "message": "application does not belong to this founder"}
+        if record.get("state") != "AWAITING_REVIEW":
+            return {
+                "status": "error", "error": True,
+                "message": ("section feedback is accepted only in AWAITING_REVIEW "
+                            f"(current: {record.get('state')})"),
+            }
         sections = [dict(section) for section in record.get("draft_sections", [])]
         section = next((item for item in sections
                         if item.get("section_id") == section_id), None)
@@ -291,13 +438,15 @@ async def update_draft_section(application_id: str, founder_id: str,
 
 
 async def create_oauth_state(state: str, verifier: str, scopes: list[str] | None,
-                             account: str, ttl_minutes: int = 10) -> None:
+                             account: str, connector: str = "",
+                             ttl_minutes: int = 10) -> None:
     """Persist one PKCE consent transaction across restarts and instances."""
     expires = datetime.now(timezone.utc) + timedelta(minutes=ttl_minutes)
     await get_client().collection("oauth_states").document(state).set({
         "verifier": verifier,
         "scopes": scopes,
         "account": account,
+        "connector": connector,
         "expires_at": expires.isoformat(),
         "created_at": _now(),
     })
@@ -335,6 +484,8 @@ async def get_profile(founder_id: str) -> dict[str, Any]:
     return {
         "version": 0,
         "facts": {},
+        "fact_provenance": {},
+        "fact_history": [],
         "voice_rules": [],
         "canonical_answers": [],
         "rejection_history": [],
@@ -343,11 +494,16 @@ async def get_profile(founder_id: str) -> dict[str, Any]:
 
 
 def _default_profile() -> dict[str, Any]:
-    return {"version": 0, "facts": {}, "voice_rules": [], "canonical_answers": [],
+    return {"version": 0, "facts": {}, "fact_provenance": {},
+            "fact_history": [],
+            "voice_rules": [], "canonical_answers": [],
             "rejection_history": [], "decision_patterns": []}
 
 
-async def apply_profile_update(founder_id: str, kind: str, payload: dict, evidence: str) -> int:
+async def apply_profile_update(founder_id: str, kind: str, payload: dict, evidence: str,
+                               idempotency_key: str | None = None, *,
+                               verification_level: str = "FOUNDER_CONFIRMED",
+                               provenance: dict[str, Any] | None = None) -> int:
     """Append a profile mutation and bump version, transactionally.
 
     Read-modify-write inside a Firestore transaction so concurrent distiller /
@@ -355,44 +511,199 @@ async def apply_profile_update(founder_id: str, kind: str, payload: dict, eviden
     version number — the version is assigned inside the transaction."""
     from google.cloud import firestore as gc_firestore
 
+    from services import data_source_contracts as dsc
+
+    level = dsc.require_closed(verification_level, dsc.VerificationLevel)
     collection = {
         "voice_rule": "voice_rules",
         "canonical_answer_update": "canonical_answers",
         "fact_update": "facts",
         "decision_pattern": "decision_patterns",
     }[kind]
-    entry = {**payload, "evidence": evidence, "created_at": _now()}
+    safe_provenance = {
+        str(key)[:64]: value for key, value in (provenance or {}).items()
+        if key in {"source", "source_id", "source_grant_id", "source_version",
+                   "citation", "source_available"}
+    }
+    entry = {**payload, "evidence": evidence, "created_at": _now(),
+             "verification_level": level.value, **safe_provenance}
     if collection != "facts":
         entry["id"] = _new_id()[:12]
 
     ref = get_client().collection("profiles").document(founder_id)
+    receipt_ref = None
+    receipt_audit_ref = None
+    if idempotency_key:
+        receipt_id = hashlib.sha256(
+            f"{founder_id}:{idempotency_key}".encode()).hexdigest()
+        receipt_ref = ref.collection("update_receipts").document(receipt_id)
+        receipt_audit_ref = get_client().collection("audit").document(
+            f"profile_update_{receipt_id[:32]}")
     transaction = get_client().transaction()
 
     @gc_firestore.async_transactional
-    async def _apply(txn) -> int:
+    async def _apply(txn) -> tuple[int, bool]:
         snap = await ref.get(transaction=txn)
+        receipt = await receipt_ref.get(transaction=txn) if receipt_ref else None
+        if receipt is not None and receipt.exists:
+            return int(receipt.to_dict().get("profile_version") or 0), False
         profile = snap.to_dict() if snap.exists else _default_profile()
         if collection == "facts":
             facts = dict(profile.get("facts", {}))
+            history = list(profile.get("fact_history") or [])
+            previous_provenance = dict(profile.get("fact_provenance") or {})
+            for key, value in payload.items():
+                if key in facts and facts[key] != value:
+                    history.append({
+                        "key": key, "value": facts[key],
+                        **previous_provenance.get(key, {}),
+                        "verification_level": "SUPERSEDED",
+                        "superseded_at": entry["created_at"],
+                    })
             facts.update(payload)
             profile["facts"] = facts
+            profile["fact_history"] = history[-200:]
+            provenance = dict(profile.get("fact_provenance") or {})
+            for key in payload:
+                provenance[key] = {
+                    "source": kind,
+                    "evidence": evidence[:2_000],
+                    "recorded_at": entry["created_at"],
+                    "verification_level": level.value,
+                    **safe_provenance,
+                }
+            profile["fact_provenance"] = provenance
         else:
             items = list(profile.get(collection, []))
             items.append(entry)
             profile[collection] = items
         profile["version"] = int(profile.get("version", 0)) + 1
         txn.set(ref, profile)
-        return profile["version"]
+        if receipt_ref:
+            txn.set(receipt_ref, {
+                "idempotency_key": idempotency_key,
+                "profile_version": profile["version"], "created_at": _now(),
+            })
+            txn.set(receipt_audit_ref, {
+                "actor": "agent:distiller", "action": "profile_update",
+                "target": f"profiles/{founder_id}", "result": "success",
+                "detail": f"{kind}: {evidence[:200]}",
+                "idempotency_key": idempotency_key, "created_at": _now(),
+            })
+        return profile["version"], True
 
-    version = await _apply(transaction)
-    await audit(
-        actor="agent:distiller",
-        action="profile_update",
-        target=f"profiles/{founder_id}",
-        result="success",
-        detail=f"{kind}: {evidence[:200]}",
-    )
+    version, applied = await _apply(transaction)
+    if applied and not idempotency_key:
+        await audit(
+            actor="agent:distiller",
+            action="profile_update",
+            target=f"profiles/{founder_id}",
+            result="success",
+            detail=f"{kind}: {evidence[:200]}",
+            idempotency_key=idempotency_key,
+        )
     return version
+
+
+async def record_interview_answer(founder_id: str, application_id: str,
+                                  question_key: str, question: str,
+                                  answer: str) -> dict[str, Any]:
+    """Atomically persist one verbatim answer to its application and profile.
+
+    The former two-step path wrote global memory first and only *then* tried to
+    append to an optional application. A missing application therefore polluted
+    every later workflow. This transaction admits writes only for an owned
+    INTERVIEWING application and commits both projections together.
+    """
+    from google.cloud import firestore as gc_firestore
+
+    app_ref = get_client().collection("applications").document(application_id)
+    profile_ref = get_client().collection("profiles").document(founder_id)
+    transaction = get_client().transaction()
+
+    @gc_firestore.async_transactional
+    async def _record(txn):
+        app_snap = await app_ref.get(transaction=txn)
+        if not app_snap.exists:
+            return {"status": "error", "error": True,
+                    "message": "no active application"}
+        app = app_snap.to_dict()
+        if app.get("founder_id") != founder_id:
+            return {"status": "error", "error": True,
+                    "message": "application does not belong to this founder"}
+        if app.get("state") != "INTERVIEWING":
+            return {
+                "status": "error", "error": True,
+                "message": ("interview answers can only be recorded in "
+                            f"INTERVIEWING (current: {app.get('state')})"),
+            }
+
+        qa = list(app.get("interview_qa") or [])
+        duplicate = next((row for row in qa
+                          if row.get("question_key") == question_key
+                          and row.get("question") == question
+                          and row.get("answer") == answer), None)
+        if duplicate:
+            return {"status": "success", "application_id": application_id,
+                    "question_key": question_key, "already_recorded": True}
+
+        now = _now()
+        qa.append({
+            "question_key": question_key,
+            "question": question,
+            "answer": answer,
+            "source": "founder_turn",
+            "recorded_at": now,
+        })
+        profile_snap = await profile_ref.get(transaction=txn)
+        profile = profile_snap.to_dict() if profile_snap.exists else _default_profile()
+        facts = dict(profile.get("facts") or {})
+        history = list(profile.get("fact_history") or [])
+        previous_provenance = dict(profile.get("fact_provenance") or {})
+        if question_key in facts and facts[question_key] != answer:
+            history.append({
+                "key": question_key, "value": facts[question_key],
+                **previous_provenance.get(question_key, {}),
+                "verification_level": "SUPERSEDED",
+                "superseded_at": now,
+            })
+        facts[question_key] = answer
+        provenance = dict(profile.get("fact_provenance") or {})
+        provenance[question_key] = {
+            "source": "interview_answer",
+            "application_id": application_id,
+            "question": question[:500],
+            "recorded_at": now,
+            "verification_level": "FOUNDER_CONFIRMED",
+            "source_available": True,
+        }
+        version = int(profile.get("version", 0)) + 1
+        txn.update(app_ref, {"interview_qa": qa, "updated_at": now})
+        txn.set(profile_ref, {
+            **profile,
+            "facts": facts,
+            "fact_provenance": provenance,
+            "fact_history": history[-200:],
+            "version": version,
+        })
+        return {
+            "status": "success",
+            "application_id": application_id,
+            "question_key": question_key,
+            "profile_version": version,
+            "already_recorded": False,
+        }
+
+    result = await _record(transaction)
+    if result.get("status") == "success" and not result.get("already_recorded"):
+        await audit(
+            actor="agent:interviewer",
+            action="record_answer",
+            target=f"applications/{application_id}",
+            result="success",
+            detail=f"question_key={question_key[:100]}",
+        )
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -420,6 +731,191 @@ async def list_inflight_applications(founder_id: str) -> list[dict[str, Any]]:
     docs = [d for d in docs if d.get("state") != "CLOSED"]
     docs.sort(key=lambda d: d.get("created_at", ""), reverse=True)
     return docs
+
+
+# ---------------------------------------------------------------------------
+# conversational discovery receipts (pre-Phase-0 adapter)
+# ---------------------------------------------------------------------------
+
+async def claim_discovery_request(request_id: str, founder_id: str,
+                                  context_hash: str,
+                                  lease_seconds: int = 900) -> dict[str, Any]:
+    """Claim one opaque founder submission for bounded discovery execution.
+
+    Cloud Tasks task-name dedupe is only a dispatch optimization. This durable
+    receipt is the worker-side idempotency boundary and permits a failed or
+    lease-expired attempt to be retried without treating message text as an ID.
+    """
+    import time as _time
+
+    from google.cloud import firestore as gc_firestore
+
+    doc_id = hashlib.sha256(f"{founder_id}:{request_id}".encode()).hexdigest()[:32]
+    ref = get_client().collection("discovery_requests").document(doc_id)
+    transaction = get_client().transaction()
+    owner = uuid.uuid4().hex
+
+    @gc_firestore.async_transactional
+    async def _claim(txn):
+        snap = await ref.get(transaction=txn)
+        current: dict[str, Any] = {}
+        if snap.exists:
+            current = snap.to_dict()
+            if current.get("context_hash") != context_hash:
+                return {"claimed": False, "conflict": True,
+                        "status": current.get("status", "UNKNOWN")}
+            if current.get("status") == "COMPLETE":
+                return {"claimed": False, "duplicate": True, "status": "COMPLETE"}
+            started = float(current.get("lease_started_epoch") or 0)
+            lease = float(current.get("lease_seconds") or lease_seconds)
+            if current.get("status") == "RUNNING" and _time.time() - started <= lease:
+                return {"claimed": False, "in_progress": True, "status": "RUNNING"}
+        now = _now()
+        # Merge-safe claim (docs/23 §5.5): the public boundary writes origin/
+        # display/resource fields onto the ACCEPTED receipt before dispatch —
+        # a full-document replace here would erase them.
+        preserved = {k: current[k] for k in (
+            "origin_session_id", "origin_message_id", "display_query",
+            "context", "executed_queries", "result_opportunity_ids",
+            "resource_id", "dispatch_status", "dispatch_error") if k in current}
+        txn.set(ref, {
+            **preserved,
+            "request_id": request_id,
+            "founder_id": founder_id,
+            "context_hash": context_hash,
+            "status": "RUNNING",
+            "lease_owner": owner,
+            "lease_started_epoch": _time.time(),
+            "lease_seconds": lease_seconds,
+            "updated_at": now,
+            "created_at": current.get("created_at", now) if snap.exists else now,
+        })
+        return {"claimed": True, "lease_owner": owner, "status": "RUNNING",
+                "receipt": {**preserved, "request_id": request_id}}
+
+    return await _claim(transaction)
+
+
+def discovery_receipt_id(founder_id: str, request_id: str) -> str:
+    """The receipt document id IS the discovery_request_id (docs/23 §5.5)."""
+    return hashlib.sha256(f"{founder_id}:{request_id}".encode()).hexdigest()[:32]
+
+
+async def create_discovery_receipt(request_id: str, founder_id: str,
+                                   context_hash: str, *,
+                                   origin_session_id: str,
+                                   display_query: str,
+                                   context: str = "",
+                                   origin_message_id: str | None = None
+                                   ) -> dict[str, Any]:
+    """Durably accept one founder discovery submission at the public boundary
+    (docs/23 §6.2). State machine: ACCEPTED → RUNNING → COMPLETE | FAILED.
+
+    Duplicate delivery of the same request returns the existing receipt;
+    reusing the request id with different normalized context is a conflict.
+    """
+    from google.cloud import firestore as gc_firestore
+
+    doc_id = discovery_receipt_id(founder_id, request_id)
+    ref = get_client().collection("discovery_requests").document(doc_id)
+    transaction = get_client().transaction()
+
+    @gc_firestore.async_transactional
+    async def _create(txn):
+        snap = await ref.get(transaction=txn)
+        if snap.exists:
+            current = snap.to_dict()
+            if current.get("context_hash") != context_hash:
+                return {"accepted": False, "conflict": True,
+                        "discovery_request_id": doc_id,
+                        "status": current.get("status", "UNKNOWN")}
+            return {"accepted": True, "duplicate": True,
+                    "discovery_request_id": doc_id,
+                    "status": current.get("status", "ACCEPTED"),
+                    "resource_id": current.get("resource_id", "")}
+        now = _now()
+        txn.set(ref, {
+            "request_id": request_id,
+            "founder_id": founder_id,
+            "context_hash": context_hash,
+            "status": "ACCEPTED",
+            "origin_session_id": origin_session_id,
+            "origin_message_id": origin_message_id,
+            "display_query": display_query,
+            "context": context,
+            "executed_queries": [],
+            "result_opportunity_ids": [],
+            "resource_id": "",
+            "dispatch_status": "pending",
+            "dispatch_error": "",
+            "lease_owner": "",
+            "created_at": now,
+            "updated_at": now,
+        })
+        return {"accepted": True, "duplicate": False,
+                "discovery_request_id": doc_id, "status": "ACCEPTED",
+                "resource_id": ""}
+
+    return await _create(transaction)
+
+
+async def get_discovery_request(request_id: str, founder_id: str
+                                ) -> Optional[dict[str, Any]]:
+    doc_id = discovery_receipt_id(founder_id, request_id)
+    snap = await get_client().collection("discovery_requests").document(
+        doc_id).get()
+    return (snap.to_dict() | {"id": doc_id}) if snap.exists else None
+
+
+async def get_discovery_request_by_id(discovery_request_id: str
+                                      ) -> Optional[dict[str, Any]]:
+    """Load a receipt by its document id — the worker path (docs/23 §6.2)."""
+    if not discovery_request_id:
+        return None
+    snap = await get_client().collection("discovery_requests").document(
+        discovery_request_id).get()
+    return (snap.to_dict() | {"id": discovery_request_id}) if snap.exists else None
+
+
+async def update_discovery_receipt(request_id: str, founder_id: str,
+                                   fields: dict[str, Any]) -> bool:
+    """Bounded metadata update on the receipt (dispatch outcome, resource id,
+    executed-query projection). Never changes status/lease — those move only
+    through claim/finish."""
+    allowed = {k: v for k, v in fields.items()
+               if k in ("dispatch_status", "dispatch_error", "resource_id",
+                        "executed_queries", "result_opportunity_ids")}
+    if not allowed:
+        return False
+    doc_id = discovery_receipt_id(founder_id, request_id)
+    ref = get_client().collection("discovery_requests").document(doc_id)
+    snap = await ref.get()
+    if not snap.exists:
+        return False
+    await ref.update({**allowed, "updated_at": _now()})
+    return True
+
+
+async def finish_discovery_request(request_id: str, founder_id: str,
+                                   lease_owner: str, status: str,
+                                   summary: dict[str, Any] | None = None) -> bool:
+    """Finish a discovery receipt only when this attempt still owns its lease."""
+    from google.cloud import firestore as gc_firestore
+
+    doc_id = hashlib.sha256(f"{founder_id}:{request_id}".encode()).hexdigest()[:32]
+    ref = get_client().collection("discovery_requests").document(doc_id)
+    transaction = get_client().transaction()
+
+    @gc_firestore.async_transactional
+    async def _finish(txn):
+        snap = await ref.get(transaction=txn)
+        if not snap.exists or snap.to_dict().get("lease_owner") != lease_owner:
+            return False
+        txn.update(ref, {"status": status, "summary": summary or {},
+                         "updated_at": _now(), "finished_at": _now()})
+        return True
+
+    return await _finish(transaction)
 
 
 # ---------------------------------------------------------------------------
@@ -468,7 +964,8 @@ async def mark_distilled(feedback_id: str, rule_ids: list[str]) -> None:
 
 async def create_approval(application_id: str, gate: str, ttl_minutes: int,
                           details: Optional[dict[str, Any]] = None,
-                          founder_id: str = "", session_id: str = "") -> str:
+                          founder_id: str = "", session_id: str = "",
+                          subject_hash: str = "") -> str:
     from datetime import timedelta
 
     doc_id = _new_id()
@@ -480,6 +977,10 @@ async def create_approval(application_id: str, gate: str, ttl_minutes: int,
             "founder_id": founder_id,
             "session_id": session_id,
             "details": details or {},  # what the founder is approving (e.g. email to/subject/body)
+            # Immutable identity of the subject (docs/02): for
+            # submit_application, application id + fill-report portal/mapping
+            # hashes. Submit must match it after any reopen.
+            "subject_hash": subject_hash or None,
             "token": None,
             "status": "PENDING",
             "expires_at": expires.isoformat(),
@@ -524,8 +1025,15 @@ async def get_approval(approval_id: str) -> Optional[dict[str, Any]]:
 
 
 async def find_valid_approval(application_id: str, gate: str = "",
-                              founder_id: str = "", session_id: str = "") -> Optional[dict[str, Any]]:
-    """Server-side lookup for submit: GRANTED, unexpired, unconsumed."""
+                              founder_id: str = "", session_id: str = "",
+                              subject_hash: Optional[str] = None) -> Optional[dict[str, Any]]:
+    """Server-side lookup for submit: GRANTED, unexpired, unconsumed.
+
+    `subject_hash` (when not None) additionally binds the lookup to exactly
+    what the founder approved (docs/02 `approvals.subject_hash`). A row with no
+    stored `subject_hash` never satisfies a bound lookup — legacy rows written
+    before the binding existed fail closed and need a fresh approval.
+    """
     now = _now()
     query = (
         get_client()
@@ -538,9 +1046,39 @@ async def find_valid_approval(application_id: str, gate: str = "",
         if (record.get("expires_at", "") > now
                 and (not gate or record.get("gate") == gate)
                 and (not founder_id or record.get("founder_id") == founder_id)
-                and (not session_id or record.get("session_id") == session_id)):
+                and (not session_id or record.get("session_id") == session_id)
+                and (subject_hash is None
+                     or (record.get("subject_hash") or "") == subject_hash)):
             return record | {"id": doc.id}
     return None
+
+
+async def expire_stale_approvals(application_id: str, gate: str,
+                                 subject_hash: str = "") -> list[str]:
+    """Expire open (PENDING/GRANTED) approvals whose subject no longer matches.
+
+    Called when a new fill materially changes the portal form or the intended
+    mapping: the founder approved a different thing, so neither an open request
+    nor an existing grant may survive it (docs/12 §Approval tokens, docs/22
+    §Fill Stop and restart recovery). Passing an empty `subject_hash` expires
+    every open approval for the gate. The token is cleared with the status so an
+    expired row carries nothing that could later be replayed.
+    """
+    expired: list[str] = []
+    collection = get_client().collection("approvals")
+    query = collection.where("application_id", "==", application_id)
+    async for doc in query.stream():
+        record = doc.to_dict()
+        if record.get("gate") != gate:
+            continue
+        if record.get("status") not in ("PENDING", "GRANTED"):
+            continue
+        if subject_hash and (record.get("subject_hash") or "") == subject_hash:
+            continue
+        await collection.document(doc.id).update(
+            {"status": "EXPIRED", "token": None})
+        expired.append(doc.id)
+    return expired
 
 
 async def find_pending_approval(application_id: str, gate: str = "",
@@ -637,12 +1175,207 @@ async def get_browser_run(run_id: str) -> Optional[dict[str, Any]]:
 
 
 async def update_browser_run(run_id: str, **fields: Any) -> None:
-    """Update mutable BrowserRun fields; immutable identity and goal are ignored."""
+    """Update non-lifecycle fields; status changes require the graph transaction."""
+    from google.cloud import firestore as gc_firestore
+
     fields.pop("goal", None)
     fields.pop("run_id", None)
-    await get_client().collection("browser_runs").document(run_id).update(
-        {**fields, "updated_at": _now()}
-    )
+    fields.pop("status", None)
+    ref = get_client().collection("browser_runs").document(run_id)
+    transaction = get_client().transaction()
+
+    @gc_firestore.async_transactional
+    async def _update(txn):
+        snap = await ref.get(transaction=txn)
+        if not snap.exists or snap.to_dict().get("status") == "closed":
+            return
+        txn.update(ref, {**fields, "updated_at": _now()})
+
+    await _update(transaction)
+
+
+_BROWSER_EDGES = {
+    "opening": {"active", "stopping"},
+    "active": {"blocked", "stopping"},
+    "blocked": {"stopping"},
+    "stopping": {"closed"},
+    "closed": set(),
+}
+
+
+async def transition_browser_run(
+    run_id: str,
+    status: str,
+    *,
+    owner_loss: bool = False,
+    **fields: Any,
+) -> dict[str, Any]:
+    """Transactionally enforce docs/22's browser lifecycle and version bump."""
+    from google.cloud import firestore as gc_firestore
+
+    ref = get_client().collection("browser_runs").document(run_id)
+    transaction = get_client().transaction()
+
+    @gc_firestore.async_transactional
+    async def _transition(txn):
+        snap = await ref.get(transaction=txn)
+        if not snap.exists:
+            return {"ok": False, "missing": True}
+        current = snap.to_dict()
+        old = current.get("status")
+        if old == status:
+            return {"ok": True, "idempotent": True, **current}
+        allowed = status in _BROWSER_EDGES.get(old, set())
+        if owner_loss and old in {"opening", "active", "blocked", "stopping"}:
+            allowed = status == "closed"
+        if not allowed:
+            return {"ok": False, "from": old, "to": status}
+        update = {
+            **fields,
+            "status": status,
+            "version": int(current.get("version", 0)) + 1,
+            "updated_at": _now(),
+        }
+        txn.update(ref, update)
+        return {"ok": True, **current, **update, "run_id": run_id}
+
+    return await _transition(transaction)
+
+
+async def mutate_browser_run_view(run_id: str, **fields: Any) -> dict[str, Any]:
+    """Atomically mutate UI-visible non-status fields and bump version."""
+    from google.cloud import firestore as gc_firestore
+
+    ref = get_client().collection("browser_runs").document(run_id)
+    transaction = get_client().transaction()
+
+    @gc_firestore.async_transactional
+    async def _mutate(txn):
+        snap = await ref.get(transaction=txn)
+        if not snap.exists:
+            return {"ok": False, "missing": True}
+        current = snap.to_dict()
+        if current.get("status") == "closed":
+            return {"ok": False, "closed": True, **current}
+        update = {
+            **fields,
+            "version": int(current.get("version", 0)) + 1,
+            "updated_at": _now(),
+        }
+        txn.update(ref, update)
+        return {"ok": True, **current, **update, "run_id": run_id}
+
+    return await _mutate(transaction)
+
+
+async def renew_browser_lease(
+    run_id: str,
+    expires_at: str,
+    *,
+    expected_generation: int | None = None,
+    lease_generation: int | None = None,
+) -> dict[str, Any]:
+    """Transactionally mint the next lease generation for a live run.
+
+    Read-modify-write outside a transaction let two concurrent renewals mint
+    the SAME generation (so a stale expiry task still matched), and could renew
+    a run that reached `stopping` in between.
+    """
+    from google.cloud import firestore as gc_firestore
+
+    ref = get_client().collection("browser_runs").document(run_id)
+    transaction = get_client().transaction()
+
+    @gc_firestore.async_transactional
+    async def _renew(txn):
+        snap = await ref.get(transaction=txn)
+        if not snap.exists:
+            return {"ok": False, "missing": True}
+        current = snap.to_dict()
+        if current.get("status") not in {"opening", "active", "blocked"}:
+            return {"ok": False, "status": current.get("status")}
+        current_generation = int(current.get("lease_generation", 0))
+        if (expected_generation is not None
+                and current_generation != int(expected_generation)):
+            return {"ok": False, "superseded": True,
+                    "lease_generation": current_generation}
+        generation = (int(lease_generation) if lease_generation is not None
+                      else current_generation + 1)
+        if generation <= current_generation:
+            return {"ok": False, "invalid_generation": True,
+                    "lease_generation": current_generation}
+        txn.update(ref, {"lease_generation": generation,
+                         "expires_at": expires_at, "updated_at": _now()})
+        return {"ok": True, "lease_generation": generation, "expires_at": expires_at}
+
+    return await _renew(transaction)
+
+
+async def commit_browser_frame(
+    run_id: str,
+    candidate_seq: int,
+    frame: dict[str, Any],
+    artifact: str | None,
+    *,
+    closing: bool = False,
+) -> dict[str, Any]:
+    """Commit immutable frame metadata and latest RunView atomically.
+
+    Artifact bytes are uploaded before this call. A counter precondition makes
+    a conflicting upload an undiscoverable lifecycle-cleaned orphan.
+
+    `closing=True` marks the terminal closed-frame written by the stop path.
+    Ordinary frames are refused once the run reaches `stopping`: a surviving
+    action task could otherwise land an after-frame *behind* the closed frame
+    (the close path commits the closed frame while still `stopping`), leaving
+    a stray screenshot as the run's terminal evidence.
+    """
+    from google.cloud import firestore as gc_firestore
+
+    run_ref = get_client().collection("browser_runs").document(run_id)
+    frame_ref = run_ref.collection("frames").document(str(candidate_seq))
+    transaction = get_client().transaction()
+
+    @gc_firestore.async_transactional
+    async def _commit(txn):
+        snap = await run_ref.get(transaction=txn)
+        if not snap.exists:
+            return {"committed": False, "missing": True}
+        run = snap.to_dict()
+        if run.get("status") == "closed":
+            return {"committed": False, "closed": True}
+        if run.get("status") == "stopping" and not closing:
+            return {"committed": False, "stopping": True}
+        if int(run.get("frame_seq", 0)) + 1 != candidate_seq:
+            return {
+                "committed": False,
+                "conflict": True,
+                "current_seq": int(run.get("frame_seq", 0)),
+            }
+        version = int(run.get("version", 0)) + 1
+        value = {
+            **frame,
+            "seq": candidate_seq,
+            "run_id": run_id,
+            "run_version": version,
+            "artifact": artifact,
+            "created_at": _now(),
+        }
+        # create(), not set(): frames are immutable, so a counter regression
+        # (e.g. a bad backfill) must fail loudly rather than silently
+        # overwrite committed evidence.
+        txn.create(frame_ref, value)
+        update: dict[str, Any] = {
+            "frame_seq": candidate_seq,
+            "version": version,
+            "updated_at": _now(),
+        }
+        if artifact:
+            update["screenshot_artifact"] = artifact
+        txn.update(run_ref, update)
+        return {"committed": True, **value}
+
+    return await _commit(transaction)
 
 
 async def list_browser_runs(app_name: str, user_id: str, session_id: str,
@@ -666,6 +1399,30 @@ async def find_active_browser_run(app_name: str, user_id: str, session_id: str,
 async def list_active_browser_runs() -> list[dict[str, Any]]:
     query = get_client().collection("browser_runs").where("status", "==", "active")
     return [doc.to_dict() | {"run_id": doc.id} async for doc in query.stream()]
+
+
+_NONTERMINAL_BROWSER_STATES = ("opening", "active", "blocked", "stopping")
+
+
+async def list_nonterminal_browser_runs(
+    owner_instance: str | None = None,
+) -> list[dict[str, Any]]:
+    """Return durable runs that still claim browser ownership.
+
+    The status filter runs server-side (one small `in` query per call instead
+    of streaming the whole collection on every startup/snapshot).
+
+    `owner_instance` restricts the result to runs stamped by that process. A
+    process may only reconcile runs it can prove nobody else owns: during a
+    rolling deploy two revisions overlap, and an unfenced sweep would close the
+    *other* live instance's runs while their contexts keep executing.
+    """
+    query = get_client().collection("browser_runs").where(
+        "status", "in", list(_NONTERMINAL_BROWSER_STATES))
+    rows = [doc.to_dict() | {"run_id": doc.id} async for doc in query.stream()]
+    if owner_instance is not None:
+        rows = [row for row in rows if row.get("owner_instance") == owner_instance]
+    return rows
 
 
 async def reserve_browser_action(run_id: str, now_iso: str, max_actions: int) -> dict[str, Any]:
@@ -722,15 +1479,417 @@ async def prepare_browser_action(run_id: str, action_id: str, record: dict[str, 
     return await _prepare(transaction)
 
 
-async def update_browser_action(run_id: str, action_id: str, **fields: Any) -> None:
+_TERMINAL_ACTION_STATES = {"SUCCEEDED", "FAILED", "UNCERTAIN"}
+
+
+async def update_browser_action(
+    run_id: str, action_id: str, **fields: Any
+) -> dict[str, Any]:
+    """Update one ledger row, refusing to rewrite a terminal outcome.
+
+    A stop/crash terminalizes in-flight rows as UNCERTAIN. A late action task
+    that survived the cancel bound would otherwise overwrite that row with
+    SUCCEEDED/FAILED, erasing the very ambiguity the ledger exists to record.
+    """
+    from google.cloud import firestore as gc_firestore
+
     ref = (get_client().collection("browser_runs").document(run_id)
            .collection("actions").document(action_id))
-    await ref.update({**fields, "updated_at": _now()})
+    transaction = get_client().transaction()
+
+    @gc_firestore.async_transactional
+    async def _update(txn):
+        snap = await ref.get(transaction=txn)
+        if not snap.exists:
+            return {"updated": False, "missing": True}
+        current = snap.to_dict()
+        if current.get("status") in _TERMINAL_ACTION_STATES:
+            return {"updated": False, **current, "action_id": action_id}
+        update = {**fields, "updated_at": _now()}
+        txn.update(ref, update)
+        return {"updated": True, **current, **update, "action_id": action_id}
+
+    return await _update(transaction)
+
+
+async def mark_prepared_browser_actions_uncertain(
+    run_id: str, reason: str
+) -> int:
+    """Terminalize in-flight ledger rows before a context is closed."""
+    from google.cloud import firestore as gc_firestore
+
+    actions = (
+        get_client().collection("browser_runs").document(run_id).collection("actions")
+    )
+    rows = [doc async for doc in actions.stream()]
+    changed = 0
+    for doc in rows:
+        transaction = get_client().transaction()
+
+        @gc_firestore.async_transactional
+        async def _mark(txn, ref=doc.reference):
+            latest = await ref.get(transaction=txn)
+            if not latest.exists or latest.to_dict().get("status") != "PREPARED":
+                return False
+            txn.update(
+                ref,
+                {
+                    "status": "UNCERTAIN",
+                    "uncertainty_reason": reason,
+                    "updated_at": _now(),
+                },
+            )
+            return True
+
+        changed += int(await _mark(transaction))
+    return changed
 
 
 # ---------------------------------------------------------------------------
-# ingestions (docs/02, 06 §bootstrap)
+# artifacts + ingestions (docs/02, 06 §bootstrap)
 # ---------------------------------------------------------------------------
+
+async def register_artifact_ingestion(
+    *, founder_id: str, session_id: str, scope: str, source_type: str,
+    source_ref: str, storage_name: str, declared_content_type: str,
+    detected_content_type: str, detected_extension: str, size_bytes: int,
+    sha256: str, connection_id: str | None = None,
+    source_grant_id: str | None = None,
+    provider_source_id: str | None = None,
+    provider_version: str | None = None,
+    provider_modified_at: str | None = None,
+    provider_content_type: str | None = None,
+    authority: str = "reference_only",
+    document_id: str | None = None,
+    occurrence_key: str | None = None,
+) -> str:
+    """Atomically register source metadata and a QUEUED ingestion.
+
+    v1 deliberately shares the opaque id between records so existing
+    ``attachment_refs`` remain compatible while authorization/provenance and
+    execution state stay separate concepts.
+    """
+    from google.cloud import firestore as gc_firestore
+
+    if scope not in {"profile", "reference_only"}:
+        raise ValueError("invalid ingestion scope")
+    authority = "profile_candidate" if scope == "profile" else "reference_only"
+    doc_id = document_id or _new_id()
+    if not re.fullmatch(r"[a-f0-9]{32}", doc_id):
+        raise ValueError("invalid ingestion id")
+    now = _now()
+    artifact_ref = get_client().collection("artifacts").document(doc_id)
+    ingestion_ref = get_client().collection("ingestions").document(doc_id)
+    audit_id = hashlib.sha256(f"ingestion-audit:{doc_id}".encode()).hexdigest()[:32]
+    audit_ref = get_client().collection("audit").document(audit_id)
+    artifact_row = {
+        "founder_id": founder_id,
+        "session_id": session_id,
+        "scope": scope,
+        "source_type": source_type,
+        "source_ref": source_ref,
+        "storage_name": storage_name,
+        # Compatibility with callers that still display ``artifact``.
+        "artifact": storage_name,
+        "declared_content_type": declared_content_type,
+        "detected_content_type": detected_content_type,
+        "detected_extension": detected_extension,
+        "size_bytes": size_bytes,
+        "sha256": sha256,
+        "connection_id": connection_id,
+        "source_grant_id": source_grant_id,
+        "provider_source_id": provider_source_id,
+        "provider_version": provider_version,
+        "provider_modified_at": provider_modified_at,
+        "provider_content_type": provider_content_type,
+        "authority": authority,
+        "occurrence_key": occurrence_key,
+        "provenance_status": "PENDING",
+        "status": "QUEUED",
+        "index_generation": "",
+        "extractor_version": "alex-document-extractor:v1",
+        "model_version": os.environ.get("ADK_MODEL", "gemini-3.6-flash"),
+        "retention_policy": "profile" if scope == "profile" else "session",
+        "created_at": now,
+        "updated_at": now,
+    }
+    ingestion_row = {
+        "artifact_id": doc_id,
+        "founder_id": founder_id,
+        "session_id": session_id,
+        "scope": scope,
+        "source_type": source_type,
+        "source_ref": source_ref,
+        "artifact": storage_name,
+        "content_type": detected_content_type,
+        "size_bytes": size_bytes,
+        "sha256": sha256,
+        "connection_id": connection_id,
+        "source_grant_id": source_grant_id,
+        "provider_source_id": provider_source_id,
+        "provider_version": provider_version,
+        "provider_modified_at": provider_modified_at,
+        "authority": authority,
+        "occurrence_key": occurrence_key,
+        "provenance_status": "PENDING",
+        "status": "QUEUED",
+        "proposed_updates": [],
+        "auto_applied": 0,
+        "needs_founder_count": 0,
+        "chunk_count": 0,
+        "confirmed_at": None,
+        "created_at": now,
+        "updated_at": now,
+    }
+    audit_row = {
+        "actor": f"founder:{founder_id}", "action": "register_attachment",
+        "idempotency_key": doc_id, "target": f"artifacts/{doc_id}",
+        "result": "success", "detail": f"scope={scope}; source_type={source_type}",
+        "created_at": now,
+    }
+    transaction = get_client().transaction()
+
+    @gc_firestore.async_transactional
+    async def _register(txn):
+        existing = await ingestion_ref.get(transaction=txn)
+        if existing.exists:
+            row = existing.to_dict()
+            identity = ("founder_id", "session_id", "scope", "source_type", "source_ref",
+                        "source_grant_id", "sha256", "occurrence_key")
+            if any(row.get(key) != ingestion_row.get(key) for key in identity):
+                raise ValueError("ingestion occurrence conflicts with existing receipt")
+            return doc_id
+        txn.set(artifact_ref, artifact_row)
+        txn.set(ingestion_ref, ingestion_row)
+        txn.set(audit_ref, audit_row)
+        return doc_id
+
+    return await _register(transaction)
+
+
+async def get_artifact(artifact_id: str) -> Optional[dict[str, Any]]:
+    doc = await get_client().collection("artifacts").document(artifact_id).get()
+    return doc.to_dict() | {"id": doc.id} if doc.exists else None
+
+
+async def update_artifact(artifact_id: str, **fields: Any) -> None:
+    await get_client().collection("artifacts").document(artifact_id).update(
+        {**fields, "updated_at": _now()})
+
+
+async def replace_artifact_chunks(artifact_id: str, chunks: list[dict]) -> None:
+    """Replace one derived index using an atomic generation pointer.
+
+    Chunk writes can span Firestore's batch limit. Readers continue using the
+    previous complete generation until every new chunk exists; only then does
+    one artifact update publish the new generation. Stale chunks are cleanup,
+    never part of the correctness boundary.
+    """
+    collection = (get_client().collection("artifacts").document(artifact_id)
+                  .collection("chunks"))
+    existing = [doc async for doc in collection.stream()]
+    generation_material = "|".join(
+        f"{int(chunk.get('ordinal', 0))}:{chunk.get('content_sha256', '')}"
+        for chunk in chunks)
+    generation = hashlib.sha256(generation_material.encode()).hexdigest()[:20]
+    writes: list[tuple[Any, dict]] = []
+    new_ids: set[str] = set()
+    for chunk in chunks:
+        digest = hashlib.sha256(
+            f"{chunk.get('ordinal', 0)}:{chunk.get('content_sha256', '')}".encode()
+        ).hexdigest()[:16]
+        chunk_id = f"chunk_{int(chunk.get('ordinal', 0)):04d}_{digest}"
+        chunk["id"] = chunk_id
+        new_ids.add(chunk_id)
+        writes.append((collection.document(chunk_id), {
+            **chunk, "artifact_id": artifact_id, "generation": generation,
+            "created_at": _now(),
+        }))
+    for start in range(0, len(writes), 450):
+        batch = get_client().batch()
+        for ref, payload in writes[start:start + 450]:
+            batch.set(ref, payload)
+        await batch.commit()
+    await update_artifact(artifact_id, index_generation=generation)
+    stale = [doc.reference for doc in existing if doc.id not in new_ids]
+    for start in range(0, len(stale), 450):
+        batch = get_client().batch()
+        for ref in stale[start:start + 450]:
+            batch.delete(ref)
+        await batch.commit()
+
+
+async def list_artifact_chunks(artifact_id: str, limit: int = 400) -> list[dict[str, Any]]:
+    artifact = await get_artifact(artifact_id)
+    generation = (artifact or {}).get("index_generation", "")
+    collection = (get_client().collection("artifacts").document(artifact_id)
+                  .collection("chunks"))
+    rows = [doc.to_dict() | {"id": doc.id} async for doc in collection.stream()]
+    if generation:
+        rows = [row for row in rows if row.get("generation") == generation]
+    rows.sort(key=lambda row: int(row.get("ordinal") or 0))
+    return rows[:max(1, min(limit, 400))]
+
+
+async def claim_ingestion(ingestion_id: str, *, lease_owner: str = "",
+                          lease_seconds: int = 900) -> dict[str, Any]:
+    """Lease one ingestion attempt; terminal work is an idempotent duplicate."""
+    import time as _time
+
+    from google.cloud import firestore as gc_firestore
+
+    ref = get_client().collection("ingestions").document(ingestion_id)
+    artifact_ref = get_client().collection("artifacts").document(ingestion_id)
+    transaction = get_client().transaction()
+    owner = lease_owner or uuid.uuid4().hex
+    terminal = {"READY", "NEEDS_FOUNDER", "CONFIRMED", "NO_TEXT", "UNSUPPORTED", "FAILED"}
+
+    @gc_firestore.async_transactional
+    async def _claim(txn):
+        snap = await ref.get(transaction=txn)
+        if not snap.exists:
+            return {"status": "error", "error": True, "message": "ingestion not found"}
+        current = snap.to_dict()
+        if current.get("status") in terminal:
+            return {"status": "success", "duplicate": True,
+                    "ingestion_status": current.get("status")}
+        started = float(current.get("lease_started_epoch") or 0)
+        lease = float(current.get("lease_seconds") or lease_seconds)
+        if current.get("lease_owner") and _time.time() - started <= lease:
+            return {"status": "success", "in_progress": True,
+                    "ingestion_status": current.get("status")}
+        fields = {
+            "status": "VALIDATING", "lease_owner": owner,
+            "lease_started_epoch": _time.time(), "lease_seconds": lease_seconds,
+            "attempt": int(current.get("attempt") or 0) + 1,
+            "updated_at": _now(), "error_code": None, "message": None,
+        }
+        txn.update(ref, fields)
+        txn.update(artifact_ref, {"status": "VALIDATING", "updated_at": _now()})
+        return {"status": "success", "claimed": True, "lease_owner": owner}
+
+    return await _claim(transaction)
+
+
+async def set_ingestion_stage(ingestion_id: str, lease_owner: str, status: str) -> bool:
+    """Advance a processing stage only while this worker owns the lease."""
+    import time as _time
+
+    from google.cloud import firestore as gc_firestore
+    ref = get_client().collection("ingestions").document(ingestion_id)
+    artifact_ref = get_client().collection("artifacts").document(ingestion_id)
+    transaction = get_client().transaction()
+
+    @gc_firestore.async_transactional
+    async def _set(txn):
+        snap = await ref.get(transaction=txn)
+        if not snap.exists or snap.to_dict().get("lease_owner") != lease_owner:
+            return False
+        txn.update(ref, {"status": status, "lease_started_epoch": _time.time(),
+                         "updated_at": _now()})
+        txn.update(artifact_ref, {"status": status, "updated_at": _now()})
+        return True
+    return await _set(transaction)
+
+
+async def update_ingestion_leased(ingestion_id: str, lease_owner: str,
+                                  **fields: Any) -> bool:
+    """Update worker-owned ingestion data without accepting a stale writer."""
+    from google.cloud import firestore as gc_firestore
+    ref = get_client().collection("ingestions").document(ingestion_id)
+    transaction = get_client().transaction()
+
+    @gc_firestore.async_transactional
+    async def _update(txn):
+        snap = await ref.get(transaction=txn)
+        if not snap.exists or snap.to_dict().get("lease_owner") != lease_owner:
+            return False
+        txn.update(ref, {**fields, "updated_at": _now()})
+        return True
+
+    return await _update(transaction)
+
+
+async def finish_ingestion(ingestion_id: str, lease_owner: str, status: str,
+                           **fields: Any) -> bool:
+    """Commit a terminal ingestion result only for the current lease owner."""
+    from google.cloud import firestore as gc_firestore
+    ref = get_client().collection("ingestions").document(ingestion_id)
+    artifact_ref = get_client().collection("artifacts").document(ingestion_id)
+    transaction = get_client().transaction()
+
+    @gc_firestore.async_transactional
+    async def _finish(txn):
+        snap = await ref.get(transaction=txn)
+        if not snap.exists or snap.to_dict().get("lease_owner") != lease_owner:
+            return False
+        now = _now()
+        audit_ref = get_client().collection("audit").document(_new_id())
+        clean = {key: value for key, value in fields.items() if value is not None}
+        txn.update(ref, {
+            **clean, "status": status, "lease_owner": None,
+            "finished_at": now, "updated_at": now,
+            **({"confirmed_at": now} if status == "CONFIRMED" else {}),
+        })
+        txn.update(artifact_ref, {
+            "status": status, "updated_at": now,
+            **{key: value for key, value in clean.items()
+               if key in {"chunk_count", "error_code", "message"}},
+        })
+        txn.set(audit_ref, {
+            "actor": "agent:document_ingestion", "action": "ingest_document",
+            "idempotency_key": ingestion_id,
+            "target": f"artifacts/{ingestion_id}",
+            "result": ("success" if status in {"READY", "NEEDS_FOUNDER", "CONFIRMED"}
+                       else "error"),
+            "detail": f"terminal_status={status}", "created_at": now,
+        })
+        return True
+    return await _finish(transaction)
+
+
+async def retry_ingestion(ingestion_id: str, lease_owner: str, *,
+                          error_code: str, message: str,
+                          max_attempts: int = 3) -> dict[str, Any]:
+    """Release a transient failure for redelivery, or terminalize at the cap."""
+    from google.cloud import firestore as gc_firestore
+    ref = get_client().collection("ingestions").document(ingestion_id)
+    artifact_ref = get_client().collection("artifacts").document(ingestion_id)
+    transaction = get_client().transaction()
+
+    @gc_firestore.async_transactional
+    async def _retry(txn):
+        snap = await ref.get(transaction=txn)
+        if not snap.exists or snap.to_dict().get("lease_owner") != lease_owner:
+            return {"status": "error", "error": True,
+                    "message": "ingestion lease changed"}
+        attempt = int(snap.to_dict().get("attempt") or 1)
+        terminal = attempt >= max_attempts
+        status = "FAILED" if terminal else "QUEUED"
+        now = _now()
+        audit_ref = get_client().collection("audit").document(_new_id())
+        fields = {
+            "status": status, "lease_owner": None, "lease_started_epoch": None,
+            "error_code": error_code, "message": message, "updated_at": now,
+            **({"finished_at": now} if terminal else {}),
+        }
+        txn.update(ref, fields)
+        txn.update(artifact_ref, {
+            "status": status, "error_code": error_code,
+            "message": message, "updated_at": now,
+        })
+        txn.set(audit_ref, {
+            "actor": "agent:document_ingestion", "action": "ingest_document_attempt",
+            "idempotency_key": f"{ingestion_id}:{attempt}",
+            "target": f"artifacts/{ingestion_id}",
+            "result": "error" if terminal else "retrying",
+            "detail": f"attempt={attempt}; error_code={error_code}"[:500],
+            "created_at": now,
+        })
+        return {"status": "success", "retryable": not terminal,
+                "ingestion_status": status, "attempt": attempt}
+
+    return await _retry(transaction)
 
 async def create_ingestion(founder_id: str, source_type: str, source_ref: str,
                            artifact: str, proposed_updates: list[dict]) -> str:
@@ -873,14 +2032,42 @@ async def get_last_alex_scan() -> Optional[dict[str, Any]]:
     return doc.to_dict() if doc.exists else None
 
 
+async def get_legacy_data_source_snapshot(founder_id: str) -> dict[str, Any]:
+    """Bounded M1 migration input; values are counts/ids, never credentials."""
+    integrations_doc = await get_client().collection("integrations").document(
+        founder_id).get()
+    integrations = integrations_doc.to_dict() if integrations_doc.exists else {}
+    gmail_ids = await get_processed_gmail_ids()
+    alex_ids = await get_processed_alex_ids()
+    missing_owner = missing_session = 0
+    for collection_name in ("ingestions", "applications", "portal_registrations"):
+        async for doc in get_client().collection(collection_name).stream():
+            row = doc.to_dict() or {}
+            if not row.get("founder_id"):
+                missing_owner += 1
+            if collection_name != "applications" and not row.get("session_id"):
+                missing_session += 1
+    return {
+        "integrations_exists": integrations_doc.exists,
+        "drive_files": list(integrations.get("drive_files") or [])[:500],
+        "gmail_label_configured": bool(integrations.get("gmail_label")),
+        "processed_gmail_count": len(gmail_ids),
+        "processed_alex_count": len(alex_ids),
+        "missing_owner_count": missing_owner,
+        "missing_session_count": missing_session,
+    }
+
+
 # Pending portal verification routing is non-secret and must survive Cloud Run
 # scale-to-zero. Passwords remain exclusively in Secret Manager.
 async def save_pending_portal_registration(host: str, founder_id: str,
                                            session_id: str, portal_url: str,
-                                           email: str) -> None:
+                                           email: str,
+                                           application_id: str = "") -> None:
     doc_id = hashlib.sha256(host.lower().encode()).hexdigest()[:24]
     await get_client().collection("portal_registrations").document(doc_id).set({
         "host": host, "founder_id": founder_id, "session_id": session_id,
+        "application_id": application_id,
         "portal_url": portal_url, "email": email, "status": "PENDING",
         "updated_at": _now(),
     })
@@ -941,6 +2128,18 @@ async def list_documents(founder_id: str, session_id: str | None = None,
     return sorted(docs, key=lambda d: d.get("created_at", ""), reverse=True)
 
 
+async def get_document_by_artifact(founder_id: str,
+                                   artifact_name: str) -> Optional[dict[str, Any]]:
+    """Return the produced-document registry row authorizing one export."""
+    query = (get_client().collection("documents")
+             .where("founder_id", "==", founder_id)
+             .where("artifact_name", "==", artifact_name)
+             .limit(1))
+    async for doc in query.stream():
+        return doc.to_dict() | {"id": doc.id}
+    return None
+
+
 async def next_document_version(founder_id: str, doc_key: str) -> int:
     """Monotonic per-(founder, doc_key) version from a transactional counter.
 
@@ -963,3 +2162,1330 @@ async def next_document_version(founder_id: str, doc_key: str) -> int:
         return nxt
 
     return await _next(transaction)
+
+
+# ---------------------------------------------------------------------------
+# session-resource projections (docs/23): resource_index,
+# session_resource_links, session_catalog
+# ---------------------------------------------------------------------------
+
+async def upsert_resource_and_link(resource: dict[str, Any],
+                                   link: dict[str, Any]) -> dict[str, Any]:
+    """Transactionally create/update one resource_index row and create its
+    immutable session link if absent (docs/23 §6 step 5).
+
+    Replay semantics: an existing link — tombstoned or live — is final. The
+    call reports a replay and writes nothing, so retries and repair reruns
+    can never duplicate or resurrect an occurrence. Catalog counters are
+    deliberately NOT part of this transaction (hot-document contention).
+    """
+    from google.cloud import firestore as gc_firestore
+
+    resource_ref = get_client().collection("resource_index").document(
+        resource["resource_id"])
+    link_ref = get_client().collection("session_resource_links").document(
+        link["link_id"])
+    transaction = get_client().transaction()
+
+    @gc_firestore.async_transactional
+    async def _commit(txn):
+        link_snap = await link_ref.get(transaction=txn)
+        if link_snap.exists:
+            existing = link_snap.to_dict() or {}
+            return {"resource_created": False, "link_created": False,
+                    "replayed": True,
+                    "tombstoned": bool(existing.get("deleted_at"))}
+        resource_snap = await resource_ref.get(transaction=txn)
+        now = _now()
+        if resource_snap.exists:
+            projection = {
+                k: resource[k]
+                for k in ("title", "summary", "status", "visibility",
+                          "search_terms", "search_prefixes",
+                          "representation_refs", "content_hash")
+                if k in resource
+            }
+            projection["updated_at"] = now
+            txn.update(resource_ref, projection)
+            created = False
+        else:
+            txn.set(resource_ref, {**resource,
+                                   "created_at": now, "updated_at": now})
+            created = True
+        txn.set(link_ref, {**link, "occurred_at": link.get("occurred_at") or now,
+                           "updated_at": now, "deleted_at": None})
+        return {"resource_created": created, "link_created": True,
+                "replayed": False, "tombstoned": False}
+
+    return await _commit(transaction)
+
+
+async def update_resource_projection(resource_id: str,
+                                     fields: dict[str, Any]) -> bool:
+    """Update the CURRENT projection of an existing resource (title/status/
+    search data) without inventing a new occurrence — the matchmaker path."""
+    ref = get_client().collection("resource_index").document(resource_id)
+    snap = await ref.get()
+    if not snap.exists:
+        return False
+    allowed = {k: v for k, v in fields.items()
+               if k in ("title", "summary", "status", "visibility",
+                        "search_terms", "search_prefixes",
+                        "representation_refs", "content_hash")}
+    allowed["updated_at"] = _now()
+    await ref.update(allowed)
+    return True
+
+
+async def get_resource(resource_id: str) -> Optional[dict[str, Any]]:
+    if not resource_id:
+        return None
+    snap = await get_client().collection("resource_index").document(
+        resource_id).get()
+    return (snap.to_dict() | {"id": snap.id}) if snap.exists else None
+
+
+async def tombstone_session_links(founder_id: str, session_id: str) -> int:
+    """Tombstone-in-place every link of one session (docs/23 §5.2). Returns
+    the number newly tombstoned. Rows are never physically deleted here."""
+    query = (get_client().collection("session_resource_links")
+             .where("founder_id", "==", founder_id)
+             .where("session_id", "==", session_id))
+    count = 0
+    async for doc in query.stream():
+        row = doc.to_dict() or {}
+        if not row.get("deleted_at"):
+            await doc.reference.update({"deleted_at": _now(),
+                                        "updated_at": _now()})
+            count += 1
+    return count
+
+
+async def upsert_session_catalog(session_id: str,
+                                 fields: dict[str, Any]) -> None:
+    """Create/update one catalog row. created_at is immutable; merge keeps
+    fields the caller did not supply."""
+    ref = get_client().collection("session_catalog").document(session_id)
+    snap = await ref.get()
+    now = _now()
+    if snap.exists:
+        await ref.update({**fields, "updated_at": now})
+    else:
+        await ref.set({"schema_version": 1, "session_id": session_id,
+                       "status": "active", "message_count": 0,
+                       "resource_count": 0, "resource_types": [],
+                       "search_terms": [], "search_prefixes": [],
+                       **fields, "created_at": now, "updated_at": now})
+
+
+async def get_session_catalog(session_id: str) -> Optional[dict[str, Any]]:
+    snap = await get_client().collection("session_catalog").document(
+        session_id).get()
+    return snap.to_dict() if snap.exists else None
+
+
+async def bump_session_catalog_resources(session_id: str, resource_type: str,
+                                         count_delta: int = 1) -> None:
+    """Best-effort advisory counter update AFTER a link commit — never part
+    of the link transaction (docs/23 §6 step 5); repaired from links."""
+    ref = get_client().collection("session_catalog").document(session_id)
+    snap = await ref.get()
+    if not snap.exists:
+        return
+    row = snap.to_dict() or {}
+    types = list(row.get("resource_types") or [])
+    if resource_type not in types and len(types) < 16:
+        types.append(resource_type)
+    await ref.update({
+        "resource_count": int(row.get("resource_count") or 0) + count_delta,
+        "resource_types": types, "updated_at": _now()})
+
+
+def _keyset_after(rows: list[dict[str, Any]], order_field: str, id_field: str,
+                  start_after: Optional[tuple[str, str]]) -> list[dict[str, Any]]:
+    """Python-side keyset continuation for DESC (order_field, id) scans."""
+    if not start_after:
+        return rows
+    after_key = (start_after[0], start_after[1])
+    return [r for r in rows
+            if (r.get(order_field, ""), r.get(id_field, "")) < after_key]
+
+
+async def search_session_links(founder_id: str, prefix: str, *,
+                               resource_type: Optional[str] = None,
+                               session_id: Optional[str] = None,
+                               limit: int = 50,
+                               start_after: Optional[tuple[str, str]] = None
+                               ) -> list[dict[str, Any]]:
+    """Indexed candidate scan over link occurrences, newest first by the
+    immutable (occurred_at, link_id) keyset. Excludes tombstones in code."""
+    query = (get_client().collection("session_resource_links")
+             .where("founder_id", "==", founder_id)
+             .where("search_prefixes", "array_contains", prefix))
+    if resource_type:
+        query = query.where("resource_type", "==", resource_type)
+    if session_id:
+        query = query.where("session_id", "==", session_id)
+    query = query.order_by("occurred_at", direction="DESCENDING")
+    if start_after:
+        query = query.start_after({"occurred_at": start_after[0]})
+    rows = [doc.to_dict() | {"id": doc.id}
+            async for doc in query.limit(max(1, limit * 2)).stream()]
+    rows = [r for r in rows if not r.get("deleted_at")]
+    rows.sort(key=lambda r: (r.get("occurred_at", ""), r.get("link_id", "")),
+              reverse=True)
+    return _keyset_after(rows, "occurred_at", "link_id", start_after)[:limit]
+
+
+async def list_session_links(founder_id: str, session_id: str, *,
+                             limit: int = 100,
+                             start_after: Optional[tuple[str, str]] = None
+                             ) -> list[dict[str, Any]]:
+    query = (get_client().collection("session_resource_links")
+             .where("founder_id", "==", founder_id)
+             .where("session_id", "==", session_id)
+             .order_by("occurred_at", direction="DESCENDING"))
+    rows = [doc.to_dict() | {"id": doc.id}
+            async for doc in query.limit(max(1, limit * 2)).stream()]
+    rows = [r for r in rows if not r.get("deleted_at")]
+    rows.sort(key=lambda r: (r.get("occurred_at", ""), r.get("link_id", "")),
+              reverse=True)
+    return _keyset_after(rows, "occurred_at", "link_id", start_after)[:limit]
+
+
+async def list_resource_links(founder_id: str, resource_id: str, *,
+                              limit: int = 50) -> list[dict[str, Any]]:
+    query = (get_client().collection("session_resource_links")
+             .where("founder_id", "==", founder_id)
+             .where("resource_id", "==", resource_id)
+             .order_by("occurred_at", direction="DESCENDING"))
+    rows = [doc.to_dict() | {"id": doc.id}
+            async for doc in query.limit(limit).stream()]
+    return [r for r in rows if not r.get("deleted_at")]
+
+
+async def search_resources(founder_id: str, prefix: str, *,
+                           visibility: str = "primary",
+                           resource_type: Optional[str] = None,
+                           limit: int = 50,
+                           start_after: Optional[tuple[str, str]] = None
+                           ) -> list[dict[str, Any]]:
+    """Indexed candidate scan over resource rows by the immutable
+    (created_at, resource_id) keyset (docs/23 §5.6)."""
+    query = (get_client().collection("resource_index")
+             .where("founder_id", "==", founder_id)
+             .where("visibility", "==", visibility)
+             .where("search_prefixes", "array_contains", prefix))
+    if resource_type:
+        query = query.where("resource_type", "==", resource_type)
+    query = query.order_by("created_at", direction="DESCENDING")
+    if start_after:
+        query = query.start_after({"created_at": start_after[0]})
+    rows = [doc.to_dict() | {"id": doc.id}
+            async for doc in query.limit(max(1, limit * 2)).stream()]
+    rows.sort(key=lambda r: (r.get("created_at", ""), r.get("resource_id", "")),
+              reverse=True)
+    return _keyset_after(rows, "created_at", "resource_id", start_after)[:limit]
+
+
+async def search_session_catalog(founder_id: str, prefix: str, *,
+                                 limit: int = 50,
+                                 start_after: Optional[tuple[str, str]] = None
+                                 ) -> list[dict[str, Any]]:
+    query = (get_client().collection("session_catalog")
+             .where("founder_id", "==", founder_id)
+             .where("search_prefixes", "array_contains", prefix)
+             .order_by("created_at", direction="DESCENDING"))
+    if start_after:
+        query = query.start_after({"created_at": start_after[0]})
+    rows = [doc.to_dict() | {"id": doc.id}
+            async for doc in query.limit(max(1, limit * 2)).stream()]
+    rows = [r for r in rows if r.get("status", "active") == "active"]
+    rows.sort(key=lambda r: (r.get("created_at", ""), r.get("session_id", "")),
+              reverse=True)
+    return _keyset_after(rows, "created_at", "session_id", start_after)[:limit]
+
+
+async def list_recent_session_catalog(founder_id: str, *,
+                                      limit: int = 30) -> list[dict[str, Any]]:
+    """Recency listing for the blank state; single page, updated_at DESC."""
+    query = (get_client().collection("session_catalog")
+             .where("founder_id", "==", founder_id)
+             .where("status", "==", "active")
+             .order_by("updated_at", direction="DESCENDING").limit(limit))
+    return [doc.to_dict() | {"id": doc.id} async for doc in query.stream()]
+
+
+async def list_recent_resources(founder_id: str, *,
+                                visibility: str = "primary",
+                                limit: int = 30) -> list[dict[str, Any]]:
+    query = (get_client().collection("resource_index")
+             .where("founder_id", "==", founder_id)
+             .where("visibility", "==", visibility)
+             .order_by("updated_at", direction="DESCENDING").limit(limit))
+    return [doc.to_dict() | {"id": doc.id} async for doc in query.stream()]
+
+
+async def create_voice_note_artifact(founder_id: str, session_id: str,
+                                     storage_name: str, *,
+                                     content_type: str = "audio/webm",
+                                     size_bytes: int = 0,
+                                     transcript_preview: str = "") -> str:
+    """Register a founder voice note as a first-class artifact record.
+
+    Voice notes previously wrote bytes with no durable metadata at all, so
+    they could not be authorized, retained, or found from their conversation
+    (docs/23 §6.1). They are terminal on arrival — there is no extraction
+    pipeline — so no paired ingestion row is created.
+    """
+    doc_id = _new_id()
+    now = _now()
+    await get_client().collection("artifacts").document(doc_id).set({
+        "founder_id": founder_id,
+        "session_id": session_id,
+        "scope": "reference_only",
+        "source_type": "voice_note",
+        "source_ref": "Voice note",
+        "storage_name": storage_name,
+        "artifact": storage_name,
+        "declared_content_type": content_type,
+        "detected_content_type": content_type,
+        "detected_extension": ".webm",
+        "size_bytes": int(size_bytes or 0),
+        "sha256": "",
+        "status": "READY",
+        "transcript_preview": transcript_preview[:240],
+        "retention_policy": "session",
+        "created_at": now,
+        "updated_at": now,
+    })
+    return doc_id
+
+
+async def list_active_discovery_requests(founder_id: str, *,
+                                         limit: int = 10) -> list[dict[str, Any]]:
+    """Receipts still in flight for one founder (docs/24 §5.2).
+
+    Single-field filter plus a client-side status cut, matching the existing
+    no-composite-index policy for this collection.
+    """
+    query = (get_client().collection("discovery_requests")
+             .where("founder_id", "==", founder_id))
+    rows = [doc.to_dict() | {"id": doc.id} async for doc in query.stream()]
+    rows = [r for r in rows
+            if str(r.get("status") or "") in ("ACCEPTED", "RUNNING")]
+    rows.sort(key=lambda r: r.get("created_at", ""), reverse=True)
+    return rows[:limit]
+
+
+# ---------------------------------------------------------------------------
+# Data-source reliability records (docs/24 §6)
+# ---------------------------------------------------------------------------
+
+def _contract_error(message: str, code: str = "invalid_contract") -> dict[str, Any]:
+    return {"status": "error", "error": True,
+            "error_code": code, "message": message}
+
+
+def _lease_is_active(row: dict[str, Any]) -> bool:
+    owner = str(row.get("lease_owner") or "")
+    started = str(row.get("lease_started_at") or "")
+    if not owner or not started:
+        return False
+    try:
+        stamp = datetime.fromisoformat(started.replace("Z", "+00:00"))
+        if stamp.tzinfo is None:
+            stamp = stamp.replace(tzinfo=timezone.utc)
+        age = (datetime.now(timezone.utc) - stamp).total_seconds()
+        return age <= max(1, int(row.get("lease_seconds") or 1))
+    except (TypeError, ValueError):
+        return False
+
+
+async def upsert_data_connection(
+        founder_id: str, connector_id: str, *, account_ref: str = "default",
+        account_hint: str = "", roles: list[str] | None = None,
+        auth_kind: str = "google_oauth", credential_ref: str | None = None,
+        granted_scopes: list[str] | None = None, status: str = "CONNECTED",
+        expected_version: int | None = None) -> dict[str, Any]:
+    """Create/update one owner-scoped connection with optimistic versioning."""
+    from google.cloud import firestore as gc_firestore
+
+    from services import data_source_contracts as dsc
+
+    try:
+        connector = dsc.require_closed(connector_id, dsc.ConnectorId)
+        auth = dsc.require_closed(auth_kind, dsc.ConnectionAuthKind)
+        state = dsc.require_closed(status, dsc.ConnectionStatus)
+        contract = dsc.CONNECTOR_REGISTRY[connector]
+        enabled_roles = list(roles or (role.value for role in contract.roles))
+        closed_roles = [dsc.require_closed(role, dsc.DataSourceRole)
+                        for role in enabled_roles]
+        if not set(closed_roles).issubset(contract.roles):
+            return _contract_error("connector role is not enabled")
+        connection_id = dsc.data_connection_id(
+            founder_id, connector.value, account_ref)
+    except ValueError:
+        return _contract_error("unknown connection contract")
+
+    ref = get_client().collection("data_connections").document(connection_id)
+    transaction = get_client().transaction()
+
+    @gc_firestore.async_transactional
+    async def _write(txn):
+        snapshot = await ref.get(transaction=txn)
+        current = snapshot.to_dict() if snapshot.exists else None
+        version = int((current or {}).get("version") or 0)
+        if expected_version is not None and version != expected_version:
+            return _contract_error("connection changed concurrently",
+                                   "version_conflict")
+        now = _now()
+        row = {
+            "schema_version": 1, "connection_id": connection_id,
+            "founder_id": founder_id, "connector_id": connector.value,
+            "account_ref": str(account_ref)[:256],
+            "account_hint": str(account_hint)[:120],
+            "roles": sorted(role.value for role in closed_roles),
+            "auth_kind": auth.value,
+            "credential_ref": str(credential_ref)[:256] if credential_ref else None,
+            "granted_scopes": sorted({str(scope)[:256]
+                                      for scope in (granted_scopes or []) if scope}),
+            "status": state.value,
+            "last_verified_at": (current or {}).get("last_verified_at"),
+            "last_success_at": (current or {}).get("last_success_at"),
+            "last_error_code": (current or {}).get("last_error_code"),
+            "last_error_at": (current or {}).get("last_error_at"),
+            "disconnected_at": (now if state == dsc.ConnectionStatus.DISCONNECTED
+                                else (current or {}).get("disconnected_at")),
+            "version": version + 1,
+            "created_at": (current or {}).get("created_at") or now,
+            "updated_at": now,
+        }
+        txn.set(ref, row)
+        return {"status": "success", "created": current is None, **row}
+
+    return await _write(transaction)
+
+
+async def get_data_connection(founder_id: str,
+                              connection_id: str) -> Optional[dict[str, Any]]:
+    snapshot = await get_client().collection("data_connections").document(
+        connection_id).get()
+    if not snapshot.exists:
+        return None
+    row = snapshot.to_dict() | {"id": snapshot.id}
+    return row if row.get("founder_id") == founder_id else None
+
+
+async def list_data_connections(founder_id: str) -> list[dict[str, Any]]:
+    query = get_client().collection("data_connections").where(
+        "founder_id", "==", founder_id)
+    rows = [doc.to_dict() | {"id": doc.id} async for doc in query.stream()]
+    return sorted(rows, key=lambda row: (row.get("connector_id", ""),
+                                         row.get("account_ref", "")))
+
+
+async def transition_data_connection(
+        founder_id: str, connection_id: str, *, status: str | None = None,
+        expected_version: int | None = None, verified: bool = False,
+        successful_operation: str | None = None,
+        error_code: str | None = None,
+        disconnect_outcome: str | None = None) -> dict[str, Any]:
+    """Transactionally advance one connection's durable health projection.
+
+    ``expected_version`` is required by user-triggered lifecycle changes and is
+    also available to provider operations so a stale failure cannot overwrite a
+    later reconnect.  Provider text is never persisted; ``error_code`` is a
+    closed safe code.
+    """
+    from google.cloud import firestore as gc_firestore
+
+    from services import data_source_contracts as dsc
+
+    try:
+        closed_status = (dsc.require_closed(status, dsc.ConnectionStatus)
+                         if status else None)
+        closed_error = (dsc.require_closed(error_code, dsc.SafeErrorCode)
+                        if error_code else None)
+    except ValueError:
+        return _contract_error("invalid connection transition")
+    ref = get_client().collection("data_connections").document(connection_id)
+    transaction = get_client().transaction()
+
+    @gc_firestore.async_transactional
+    async def _write(txn):
+        snapshot = await ref.get(transaction=txn)
+        if not snapshot.exists:
+            return _contract_error("connection not found", "owner_mismatch")
+        row = snapshot.to_dict()
+        if row.get("founder_id") != founder_id:
+            return _contract_error("connection not found", "owner_mismatch")
+        version = int(row.get("version") or 0)
+        if expected_version is not None and version != expected_version:
+            return _contract_error("connection changed concurrently",
+                                   "version_conflict")
+        if row.get("status") == dsc.ConnectionStatus.DISCONNECTED.value \
+                and closed_status not in {dsc.ConnectionStatus.CONNECTED,
+                                          dsc.ConnectionStatus.DISCONNECTING}:
+            return _contract_error("connection is disconnected", "auth_required")
+        now = _now()
+        updates: dict[str, Any] = {
+            "version": version + 1, "updated_at": now,
+        }
+        if closed_status:
+            updates["status"] = closed_status.value
+            if closed_status == dsc.ConnectionStatus.DISCONNECTED:
+                updates["disconnected_at"] = now
+            elif closed_status == dsc.ConnectionStatus.CONNECTED:
+                updates["disconnected_at"] = None
+        if verified:
+            updates["last_verified_at"] = now
+        if successful_operation:
+            updates.update({
+                "last_success_at": now,
+                "last_successful_operation": str(successful_operation)[:80],
+                "last_error_code": None,
+                "last_error_at": None,
+            })
+        if closed_error:
+            updates.update({"last_error_code": closed_error.value,
+                            "last_error_at": now})
+        if disconnect_outcome:
+            updates["disconnect_outcome"] = str(disconnect_outcome)[:80]
+        txn.update(ref, updates)
+        return {"status": "success", **row, **updates,
+                "connection_id": connection_id}
+
+    return await _write(transaction)
+
+
+async def revoke_connection_source_grants(founder_id: str,
+                                           connection_id: str) -> dict[str, Any]:
+    """Revoke every ACTIVE source grant for one owner connection."""
+    from services import data_source_contracts as dsc
+
+    connection = await get_data_connection(founder_id, connection_id)
+    if not connection:
+        return _contract_error("connection not found", "owner_mismatch")
+    grants = await list_source_grants(founder_id, connection_id=connection_id)
+    revoked = 0
+    for grant in grants:
+        if grant.get("status") != dsc.SourceGrantStatus.ACTIVE.value:
+            continue
+        result = await revoke_source_grant(
+            founder_id, grant.get("source_grant_id") or grant.get("id"))
+        if result.get("status") == "success":
+            revoked += 1
+    return {"status": "success", "revoked_count": revoked}
+
+
+async def create_source_grant(
+        founder_id: str, connection_id: str, provider_source_id: str, *,
+        display_name: str, allowed_ingestion_scopes: list[str],
+        selected_session_id: str | None = None,
+        provider_content_type: str | None = None,
+        provider_version: str | None = None,
+        provider_modified_at: str | None = None) -> dict[str, Any]:
+    """Create/reactivate one Drive source grant; provider ids are never inferred."""
+    from google.cloud import firestore as gc_firestore
+
+    from services import data_source_contracts as dsc
+
+    connection = await get_data_connection(founder_id, connection_id)
+    if (not connection
+            or connection.get("connector_id") != dsc.ConnectorId.DRIVE.value
+            or connection.get("status") not in {
+                dsc.ConnectionStatus.CONNECTED.value,
+                dsc.ConnectionStatus.DEGRADED.value}):
+        return _contract_error("source connection not found", "source_not_selected")
+    try:
+        scopes = sorted({dsc.require_closed(scope, dsc.IngestionScope).value
+                         for scope in allowed_ingestion_scopes})
+        if not scopes:
+            raise ValueError("empty scope")
+        grant_id = dsc.source_grant_id(
+            founder_id, connection_id, provider_source_id)
+    except ValueError:
+        return _contract_error("invalid source grant")
+    ref = get_client().collection("source_grants").document(grant_id)
+    transaction = get_client().transaction()
+
+    @gc_firestore.async_transactional
+    async def _write(txn):
+        snapshot = await ref.get(transaction=txn)
+        previous = snapshot.to_dict() if snapshot.exists else {}
+        now = _now()
+        row = {
+            "schema_version": 1, "source_grant_id": grant_id,
+            "founder_id": founder_id, "connection_id": connection_id,
+            "connector_id": dsc.ConnectorId.DRIVE.value,
+            "provider_source_id": str(provider_source_id)[:512],
+            "display_name": str(display_name)[:240], "source_kind": "file",
+            "allowed_ingestion_scopes": scopes,
+            "selected_session_id": selected_session_id,
+            "provider_content_type": (str(provider_content_type)[:256]
+                                      if provider_content_type else None),
+            "provider_version": (str(provider_version)[:256]
+                                 if provider_version else None),
+            "provider_modified_at": provider_modified_at,
+            "status": dsc.SourceGrantStatus.ACTIVE.value,
+            "selected_by": f"founder:{founder_id}",
+            "selected_at": now, "revoked_at": None, "updated_at": now,
+        }
+        txn.set(ref, row)
+        return {"status": "success", "created": not bool(previous), **row}
+
+    return await _write(transaction)
+
+
+async def get_source_grant(founder_id: str,
+                           source_grant_id: str) -> Optional[dict[str, Any]]:
+    snapshot = await get_client().collection("source_grants").document(
+        source_grant_id).get()
+    if not snapshot.exists:
+        return None
+    row = snapshot.to_dict() | {"id": snapshot.id}
+    return row if row.get("founder_id") == founder_id else None
+
+
+async def list_source_grants(founder_id: str, *,
+                             connection_id: str | None = None) -> list[dict[str, Any]]:
+    query = get_client().collection("source_grants").where(
+        "founder_id", "==", founder_id)
+    rows = [doc.to_dict() | {"id": doc.id} async for doc in query.stream()]
+    if connection_id:
+        rows = [row for row in rows if row.get("connection_id") == connection_id]
+    return sorted(rows, key=lambda row: row.get("selected_at", ""), reverse=True)
+
+
+async def revoke_source_grant(founder_id: str,
+                              source_grant_id: str) -> dict[str, Any]:
+    from services import data_source_contracts as dsc
+
+    row = await get_source_grant(founder_id, source_grant_id)
+    if not row:
+        return _contract_error("source grant not found", "source_not_selected")
+    if row.get("status") == dsc.SourceGrantStatus.REVOKED.value:
+        return {"status": "success", "duplicate": True,
+                "source_grant_id": source_grant_id}
+    now = _now()
+    await get_client().collection("source_grants").document(source_grant_id).update({
+        "status": dsc.SourceGrantStatus.REVOKED.value,
+        "revoked_at": now, "updated_at": now,
+    })
+    return {"status": "success", "duplicate": False,
+            "source_grant_id": source_grant_id}
+
+
+async def mark_source_grant_missing(founder_id: str,
+                                    source_grant_id: str) -> dict[str, Any]:
+    """Project a provider-deleted/unreadable source without erasing history."""
+    from services import data_source_contracts as dsc
+
+    row = await get_source_grant(founder_id, source_grant_id)
+    if not row:
+        return _contract_error("source grant not found", "source_not_selected")
+    now = _now()
+    await get_client().collection("source_grants").document(source_grant_id).update({
+        "status": dsc.SourceGrantStatus.SOURCE_MISSING.value,
+        "updated_at": now,
+    })
+    return {"status": "success", "source_grant_id": source_grant_id,
+            "grant_status": dsc.SourceGrantStatus.SOURCE_MISSING.value}
+
+
+async def create_external_event(
+        founder_id: str, connection_id: str, connector_id: str,
+        provider_event_id: str, event_kind: str, *, payload_hash: str,
+        provider_thread_id: str | None = None,
+        source_ref: dict[str, Any] | None = None,
+        safe_display: dict[str, Any] | None = None,
+        content_risk: str = "CLEAR", occurred_at: str | None = None,
+        delivery_status: str = "PENDING") -> dict[str, Any]:
+    """Insert one immutable provider receipt; duplicates return the first row."""
+    from google.cloud import firestore as gc_firestore
+
+    from services import data_source_contracts as dsc
+
+    connection = await get_data_connection(founder_id, connection_id)
+    if not connection or connection.get("connector_id") != connector_id:
+        return _contract_error("event connection not found", "owner_mismatch")
+    if not dsc.validate_connector_role(connector_id, dsc.DataSourceRole.EVENT.value):
+        return _contract_error("connector cannot emit events")
+    try:
+        kind = dsc.require_closed(event_kind, dsc.ExternalEventKind)
+        risk = dsc.require_closed(content_risk, dsc.ContentRisk)
+        delivery = dsc.require_closed(delivery_status, dsc.DeliveryStatus)
+        event_id = dsc.external_event_id(
+            founder_id, connection_id, provider_event_id)
+        if len(payload_hash) != 64:
+            raise ValueError("invalid hash")
+    except ValueError:
+        return _contract_error("invalid external event")
+    safe = {str(key)[:64]: str(value)[:280]
+            for key, value in (safe_display or {}).items()}
+    refs = {str(key)[:64]: str(value)[:512]
+            for key, value in (source_ref or {}).items()}
+    ref = get_client().collection("external_events").document(event_id)
+    transaction = get_client().transaction()
+
+    @gc_firestore.async_transactional
+    async def _insert(txn):
+        snapshot = await ref.get(transaction=txn)
+        if snapshot.exists:
+            return {"status": "success", "duplicate": True,
+                    **snapshot.to_dict()}
+        now = _now()
+        row = {
+            "schema_version": 1, "event_id": event_id,
+            "founder_id": founder_id, "connection_id": connection_id,
+            "connector_id": connector_id,
+            "provider_event_id": str(provider_event_id)[:512],
+            "provider_thread_id": (str(provider_thread_id)[:512]
+                                   if provider_thread_id else None),
+            "event_kind": kind.value, "payload_hash": payload_hash,
+            "source_ref": refs, "safe_display": safe,
+            "content_risk": risk.value,
+            "processing_status": dsc.EventProcessingStatus.RECEIVED.value,
+            "lease_owner": None, "lease_started_at": None, "lease_seconds": 0,
+            "correlation_status": dsc.CorrelationStatus.PENDING.value,
+            "application_id": None, "session_id": None, "resource_id": None,
+            "correlation_basis": None, "delivery_status": delivery.value,
+            "effect_ref": None, "attempt_count": 0,
+            "received_at": now, "occurred_at": occurred_at or now,
+            "updated_at": now,
+        }
+        txn.create(ref, row)
+        return {"status": "success", "duplicate": False, **row}
+
+    return await _insert(transaction)
+
+
+async def get_external_event(founder_id: str,
+                             event_id: str) -> Optional[dict[str, Any]]:
+    snapshot = await get_client().collection("external_events").document(
+        event_id).get()
+    if not snapshot.exists:
+        return None
+    row = snapshot.to_dict() | {"id": snapshot.id}
+    return row if row.get("founder_id") == founder_id else None
+
+
+async def list_external_events_by_thread(
+        founder_id: str, provider_thread_id: str, *,
+        limit: int = 20) -> list[dict[str, Any]]:
+    """Owner-scoped thread evidence; only previously exact rows may correlate."""
+    query = get_client().collection("external_events").where(
+        "founder_id", "==", founder_id)
+    rows = [doc.to_dict() | {"id": doc.id} async for doc in query.stream()]
+    rows = [row for row in rows
+            if row.get("provider_thread_id") == provider_thread_id]
+    rows.sort(key=lambda row: row.get("received_at", ""), reverse=True)
+    return rows[:limit]
+
+
+async def claim_external_event(founder_id: str, event_id: str, *,
+                               lease_seconds: int = 120,
+                               lease_owner: str = "") -> dict[str, Any]:
+    from google.cloud import firestore as gc_firestore
+
+    from services import data_source_contracts as dsc
+
+    ref = get_client().collection("external_events").document(event_id)
+    transaction = get_client().transaction()
+
+    @gc_firestore.async_transactional
+    async def _claim(txn):
+        snapshot = await ref.get(transaction=txn)
+        if not snapshot.exists or snapshot.to_dict().get("founder_id") != founder_id:
+            return _contract_error("external event not found", "owner_mismatch")
+        row = snapshot.to_dict()
+        if row.get("processing_status") in {
+                dsc.EventProcessingStatus.APPLIED.value,
+                dsc.EventProcessingStatus.INBOXED.value}:
+            return {"status": "success", "duplicate": True, **row}
+        if _lease_is_active(row):
+            return {"status": "success", "in_progress": True,
+                    "event_id": event_id}
+        owner = lease_owner or uuid.uuid4().hex
+        fields = {
+            "processing_status": dsc.EventProcessingStatus.APPLYING.value,
+            "lease_owner": owner, "lease_started_at": _now(),
+            "lease_seconds": max(1, min(int(lease_seconds), 900)),
+            "attempt_count": min(int(row.get("attempt_count") or 0) + 1, 100),
+            "updated_at": _now(),
+        }
+        txn.update(ref, fields)
+        return {"status": "success", "claimed": True,
+                "lease_owner": owner, "event_id": event_id}
+
+    return await _claim(transaction)
+
+
+async def create_founder_inbox_item(
+        founder_id: str, event_id: str, item_kind: str, *, title: str,
+        summary: str, candidate_refs: list[dict[str, str]] | None = None,
+        lease_owner: str = "") -> dict[str, Any]:
+    """Atomically inbox an ambiguous/unmatched event under its active lease."""
+    from google.cloud import firestore as gc_firestore
+
+    from services import data_source_contracts as dsc
+
+    try:
+        kind = dsc.require_closed(item_kind, dsc.FounderInboxKind)
+        inbox_id = dsc.founder_inbox_id(founder_id, event_id, kind.value)
+    except ValueError:
+        return _contract_error("invalid inbox item")
+    candidates = []
+    for candidate in (candidate_refs or [])[:5]:
+        candidates.append({
+            "resource_id": str(candidate.get("resource_id") or "")[:128],
+            "application_id": str(candidate.get("application_id") or "")[:128],
+            "reason_code": str(candidate.get("reason_code") or "")[:64],
+        })
+    event_ref = get_client().collection("external_events").document(event_id)
+    inbox_ref = get_client().collection("founder_inbox").document(inbox_id)
+    transaction = get_client().transaction()
+
+    @gc_firestore.async_transactional
+    async def _write(txn):
+        event_snapshot = await event_ref.get(transaction=txn)
+        if (not event_snapshot.exists
+                or event_snapshot.to_dict().get("founder_id") != founder_id):
+            return _contract_error("external event not found", "owner_mismatch")
+        event = event_snapshot.to_dict()
+        if lease_owner and event.get("lease_owner") != lease_owner:
+            return _contract_error("external event lease changed", "lease_conflict")
+        inbox_snapshot = await inbox_ref.get(transaction=txn)
+        now = _now()
+        if inbox_snapshot.exists:
+            row = inbox_snapshot.to_dict()
+            duplicate = True
+        else:
+            row = {
+                "schema_version": 1, "inbox_item_id": inbox_id,
+                "founder_id": founder_id, "event_id": event_id,
+                "item_kind": kind.value,
+                "status": dsc.FounderInboxStatus.UNREAD.value,
+                "title": str(title)[:160], "summary": str(summary)[:500],
+                "candidate_refs": candidates,
+                "resolved_resource_id": None, "resolved_session_id": None,
+                "resolution": None, "created_at": now,
+                "updated_at": now, "resolved_at": None,
+            }
+            txn.create(inbox_ref, row)
+            duplicate = False
+        txn.update(event_ref, {
+            "processing_status": dsc.EventProcessingStatus.INBOXED.value,
+            "correlation_status": (dsc.CorrelationStatus.AMBIGUOUS.value
+                                   if kind == dsc.FounderInboxKind.AMBIGUOUS_EVENT
+                                   else dsc.CorrelationStatus.UNMATCHED.value),
+            "delivery_status": dsc.DeliveryStatus.NOT_REQUIRED.value,
+            "lease_owner": None, "lease_started_at": None,
+            "updated_at": now,
+        })
+        return {"status": "success", "duplicate": duplicate, **row}
+
+    return await _write(transaction)
+
+
+async def apply_external_event_to_application(
+        founder_id: str, event_id: str, lease_owner: str,
+        application_id: str, session_id: str, correlation_basis: str,
+        followup: dict[str, Any]) -> dict[str, Any]:
+    """Atomically commit exact correlation, follow-up, and terminal receipt."""
+    from google.cloud import firestore as gc_firestore
+
+    from services import data_source_contracts as dsc
+
+    try:
+        basis = dsc.require_closed(correlation_basis, dsc.CorrelationBasis)
+    except ValueError:
+        return _contract_error("invalid correlation basis")
+    event_ref = get_client().collection("external_events").document(event_id)
+    app_ref = get_client().collection("applications").document(application_id)
+    transaction = get_client().transaction()
+
+    @gc_firestore.async_transactional
+    async def _apply(txn):
+        event_snapshot = await event_ref.get(transaction=txn)
+        app_snapshot = await app_ref.get(transaction=txn)
+        if (not event_snapshot.exists or not app_snapshot.exists
+                or event_snapshot.to_dict().get("founder_id") != founder_id
+                or app_snapshot.to_dict().get("founder_id") != founder_id):
+            return _contract_error("event or application not found", "owner_mismatch")
+        event = event_snapshot.to_dict()
+        if event.get("processing_status") == dsc.EventProcessingStatus.APPLIED.value:
+            return {"status": "success", "duplicate": True,
+                    "effect_ref": event.get("effect_ref")}
+        if event.get("lease_owner") != lease_owner:
+            return _contract_error("external event lease changed", "lease_conflict")
+        application = app_snapshot.to_dict()
+        followups = list(application.get("followups") or [])
+        dedupe_key = event_id
+        duplicate = any(
+            str(item.get("external_event_id") or "") == dedupe_key
+            for item in followups if isinstance(item, dict))
+        if not duplicate:
+            followups = [*followups[-199:], {**followup,
+                                             "external_event_id": dedupe_key}]
+            txn.update(app_ref, {"followups": followups, "updated_at": _now()})
+        now = _now()
+        effect_ref = f"applications/{application_id}/followups/{event_id}"
+        txn.update(event_ref, {
+            "processing_status": dsc.EventProcessingStatus.APPLIED.value,
+            "correlation_status": dsc.CorrelationStatus.EXACT.value,
+            "application_id": application_id, "session_id": session_id,
+            "resource_id": application_id, "correlation_basis": basis.value,
+            "effect_ref": effect_ref, "lease_owner": None,
+            "lease_started_at": None, "updated_at": now,
+        })
+        return {"status": "success", "duplicate": duplicate,
+                "effect_ref": effect_ref, "session_id": session_id,
+                "application_id": application_id}
+
+    return await _apply(transaction)
+
+
+async def apply_external_event_signal(
+        founder_id: str, event_id: str, lease_owner: str, *,
+        session_id: str, correlation_basis: str,
+        resource_id: str | None = None) -> dict[str, Any]:
+    """Commit an exact causal signal that has no application follow-up."""
+    from google.cloud import firestore as gc_firestore
+
+    from services import data_source_contracts as dsc
+
+    try:
+        basis = dsc.require_closed(correlation_basis, dsc.CorrelationBasis)
+    except ValueError:
+        return _contract_error("invalid correlation basis")
+    ref = get_client().collection("external_events").document(event_id)
+    transaction = get_client().transaction()
+
+    @gc_firestore.async_transactional
+    async def _apply(txn):
+        snapshot = await ref.get(transaction=txn)
+        if not snapshot.exists or snapshot.to_dict().get("founder_id") != founder_id:
+            return _contract_error("external event not found", "owner_mismatch")
+        row = snapshot.to_dict()
+        if row.get("processing_status") == dsc.EventProcessingStatus.APPLIED.value:
+            return {"status": "success", "duplicate": True,
+                    "effect_ref": row.get("effect_ref")}
+        if row.get("lease_owner") != lease_owner:
+            return _contract_error("external event lease changed", "lease_conflict")
+        effect_ref = f"signals/{event_id}"
+        txn.update(ref, {
+            "processing_status": dsc.EventProcessingStatus.APPLIED.value,
+            "correlation_status": dsc.CorrelationStatus.EXACT.value,
+            "session_id": session_id, "resource_id": resource_id,
+            "correlation_basis": basis.value, "effect_ref": effect_ref,
+            "lease_owner": None, "lease_started_at": None,
+            "updated_at": _now(),
+        })
+        return {"status": "success", "duplicate": False,
+                "effect_ref": effect_ref, "session_id": session_id}
+
+    return await _apply(transaction)
+
+
+async def claim_external_event_delivery(founder_id: str,
+                                        event_id: str) -> dict[str, Any]:
+    """Claim one founder wake; concurrent/redelivered consumers get duplicate."""
+    from google.cloud import firestore as gc_firestore
+
+    from services import data_source_contracts as dsc
+
+    ref = get_client().collection("external_events").document(event_id)
+    transaction = get_client().transaction()
+
+    @gc_firestore.async_transactional
+    async def _claim(txn):
+        snapshot = await ref.get(transaction=txn)
+        if not snapshot.exists or snapshot.to_dict().get("founder_id") != founder_id:
+            return _contract_error("external event not found", "owner_mismatch")
+        row = snapshot.to_dict()
+        if row.get("delivery_status") in {
+                dsc.DeliveryStatus.ENQUEUED.value,
+                dsc.DeliveryStatus.DELIVERED.value,
+                dsc.DeliveryStatus.NOT_REQUIRED.value}:
+            return {"status": "success", "duplicate": True,
+                    "delivery_status": row.get("delivery_status")}
+        txn.update(ref, {"delivery_status": dsc.DeliveryStatus.ENQUEUED.value,
+                         "updated_at": _now()})
+        return {"status": "success", "claimed": True}
+
+    return await _claim(transaction)
+
+
+async def finish_external_event_delivery(founder_id: str, event_id: str,
+                                         *, delivered: bool) -> dict[str, Any]:
+    row = await get_external_event(founder_id, event_id)
+    if not row:
+        return _contract_error("external event not found", "owner_mismatch")
+    value = "DELIVERED" if delivered else "FAILED"
+    await get_client().collection("external_events").document(event_id).update({
+        "delivery_status": value, "updated_at": _now(),
+    })
+    return {"status": "success", "delivery_status": value}
+
+
+async def get_founder_inbox_item(founder_id: str,
+                                 inbox_item_id: str) -> Optional[dict[str, Any]]:
+    snapshot = await get_client().collection("founder_inbox").document(
+        inbox_item_id).get()
+    if not snapshot.exists:
+        return None
+    row = snapshot.to_dict() | {"id": snapshot.id}
+    return row if row.get("founder_id") == founder_id else None
+
+
+async def list_founder_inbox(
+        founder_id: str, *, status: str = "UNREAD", limit: int = 30,
+        start_after: tuple[str, str] | None = None) -> list[dict[str, Any]]:
+    from services import data_source_contracts as dsc
+
+    try:
+        state = dsc.require_closed(status, dsc.FounderInboxStatus)
+    except ValueError:
+        return []
+    query = (get_client().collection("founder_inbox")
+             .where("founder_id", "==", founder_id)
+             .where("status", "==", state.value)
+             .order_by("created_at", direction="DESCENDING")
+             .limit(max(1, min(limit, 100))))
+    rows = [doc.to_dict() | {"id": doc.id} async for doc in query.stream()]
+    rows.sort(key=lambda row: (row.get("created_at", ""),
+                               row.get("inbox_item_id", "")), reverse=True)
+    if start_after:
+        rows = [row for row in rows
+                if (row.get("created_at", ""), row.get("inbox_item_id", ""))
+                < start_after]
+    return rows[:limit]
+
+
+async def resolve_founder_inbox_item(
+        founder_id: str, inbox_item_id: str, *, application_id: str,
+        resource_id: str, session_id: str,
+        session_verified: bool = False) -> dict[str, Any]:
+    """Resolve one item and apply its event effect exactly once in one txn."""
+    from google.cloud import firestore as gc_firestore
+
+    from services import data_source_contracts as dsc
+
+    if not session_verified:
+        return _contract_error("founder session not found", "owner_mismatch")
+    inbox_ref = get_client().collection("founder_inbox").document(inbox_item_id)
+    event_collection = get_client().collection("external_events")
+    app_ref = get_client().collection("applications").document(application_id)
+    transaction = get_client().transaction()
+
+    @gc_firestore.async_transactional
+    async def _resolve(txn):
+        inbox_snapshot = await inbox_ref.get(transaction=txn)
+        app_snapshot = await app_ref.get(transaction=txn)
+        if (not inbox_snapshot.exists or not app_snapshot.exists
+                or inbox_snapshot.to_dict().get("founder_id") != founder_id
+                or app_snapshot.to_dict().get("founder_id") != founder_id):
+            return _contract_error("inbox item not found", "owner_mismatch")
+        inbox = inbox_snapshot.to_dict()
+        if inbox.get("status") == dsc.FounderInboxStatus.RESOLVED.value:
+            same = (inbox.get("resolved_resource_id") == resource_id
+                    and inbox.get("resolved_session_id") == session_id)
+            return ({"status": "success", "duplicate": True, **inbox}
+                    if same else _contract_error(
+                        "inbox item was already resolved", "version_conflict"))
+        if inbox.get("status") != dsc.FounderInboxStatus.UNREAD.value:
+            return _contract_error("inbox item is not resolvable", "version_conflict")
+        candidates = inbox.get("candidate_refs") or []
+        if candidates and not any(
+                candidate.get("application_id") == application_id
+                and candidate.get("resource_id") == resource_id
+                for candidate in candidates):
+            return _contract_error("resolution is not an authorized candidate",
+                                   "owner_mismatch")
+        event_ref = event_collection.document(str(inbox.get("event_id") or ""))
+        event_snapshot = await event_ref.get(transaction=txn)
+        if (not event_snapshot.exists
+                or event_snapshot.to_dict().get("founder_id") != founder_id):
+            return _contract_error("inbox item not found", "owner_mismatch")
+        event = event_snapshot.to_dict()
+        application = app_snapshot.to_dict()
+        followups = list(application.get("followups") or [])
+        event_id = str(event.get("event_id") or event_ref.id)
+        duplicate = any(row.get("external_event_id") == event_id
+                        for row in followups if isinstance(row, dict))
+        if not duplicate:
+            display = event.get("safe_display") or {}
+            followups = [*followups[-199:], {
+                "kind": f"email_{event.get('event_kind', 'update')}",
+                "due_at": "", "status": "PENDING",
+                "note": ("[provider message] " + str(display.get("title") or "")
+                         + " — " + str(display.get("excerpt") or ""))[:500],
+                "source": event.get("connector_id"),
+                "external_event_id": event_id,
+            }]
+            txn.update(app_ref, {"followups": followups, "updated_at": _now()})
+        now = _now()
+        effect_ref = f"applications/{application_id}/followups/{event_id}"
+        txn.update(event_ref, {
+            "processing_status": dsc.EventProcessingStatus.APPLIED.value,
+            "correlation_status": dsc.CorrelationStatus.EXACT.value,
+            "correlation_basis": dsc.CorrelationBasis.FOUNDER_RESOLUTION.value,
+            "application_id": application_id, "resource_id": resource_id,
+            "session_id": session_id, "effect_ref": effect_ref,
+            "delivery_status": dsc.DeliveryStatus.NOT_REQUIRED.value,
+            "lease_owner": None, "lease_started_at": None, "updated_at": now,
+        })
+        fields = {
+            "status": dsc.FounderInboxStatus.RESOLVED.value,
+            "resolved_resource_id": resource_id,
+            "resolved_session_id": session_id,
+            "resolution": dsc.InboxResolution.LINKED_TO_APPLICATION.value,
+            "updated_at": now, "resolved_at": now,
+        }
+        txn.update(inbox_ref, fields)
+        return {"status": "success", "duplicate": duplicate,
+                "inbox_item_id": inbox_item_id, "effect_ref": effect_ref,
+                **fields}
+
+    return await _resolve(transaction)
+
+
+async def dismiss_founder_inbox_item(founder_id: str,
+                                     inbox_item_id: str) -> dict[str, Any]:
+    from google.cloud import firestore as gc_firestore
+
+    from services import data_source_contracts as dsc
+
+    ref = get_client().collection("founder_inbox").document(inbox_item_id)
+    transaction = get_client().transaction()
+
+    @gc_firestore.async_transactional
+    async def _dismiss(txn):
+        snapshot = await ref.get(transaction=txn)
+        if not snapshot.exists or snapshot.to_dict().get("founder_id") != founder_id:
+            return _contract_error("inbox item not found", "owner_mismatch")
+        row = snapshot.to_dict()
+        if row.get("status") == dsc.FounderInboxStatus.DISMISSED.value:
+            return {"status": "success", "duplicate": True, **row}
+        if row.get("status") != dsc.FounderInboxStatus.UNREAD.value:
+            return _contract_error("inbox item is already resolved", "version_conflict")
+        now = _now()
+        fields = {
+            "status": dsc.FounderInboxStatus.DISMISSED.value,
+            "resolution": dsc.InboxResolution.DISMISSED_BY_FOUNDER.value,
+            "updated_at": now, "resolved_at": now,
+        }
+        txn.update(ref, fields)
+        return {"status": "success", "duplicate": False,
+                "inbox_item_id": inbox_item_id, **fields}
+
+    return await _dismiss(transaction)
+
+
+async def prepare_external_action(
+        founder_id: str, connection_id: str, action_kind: str,
+        idempotency_key: str, request_hash: str, *, session_id: str | None = None,
+        application_id: str | None = None, resource_id: str | None = None,
+        subject_hash: str | None = None, approval_id: str | None = None,
+        lease_seconds: int = 120) -> dict[str, Any]:
+    """Create/claim PREPARED before a provider effect; never overwrite drift."""
+    from google.cloud import firestore as gc_firestore
+
+    from services import data_source_contracts as dsc
+
+    connection = await get_data_connection(founder_id, connection_id)
+    if not connection:
+        return _contract_error("action connection not found", "owner_mismatch")
+    try:
+        kind = dsc.require_closed(action_kind, dsc.ExternalActionKind)
+        action_id = dsc.external_action_id(founder_id, kind.value,
+                                           idempotency_key)
+        if len(request_hash) != 64:
+            raise ValueError("invalid hash")
+    except ValueError:
+        return _contract_error("invalid external action")
+    ref = get_client().collection("external_actions").document(action_id)
+    transaction = get_client().transaction()
+
+    @gc_firestore.async_transactional
+    async def _prepare(txn):
+        snapshot = await ref.get(transaction=txn)
+        now = _now()
+        if snapshot.exists:
+            row = snapshot.to_dict()
+            if row.get("request_hash") != request_hash:
+                return _contract_error("idempotency key payload changed",
+                                       "version_conflict")
+            if row.get("status") in {
+                    dsc.ExternalActionStatus.SUCCEEDED.value,
+                    dsc.ExternalActionStatus.FAILED.value}:
+                return {"status": "success", "duplicate": True, **row}
+            if row.get("status") == dsc.ExternalActionStatus.UNCERTAIN.value:
+                return _contract_error("action requires reconciliation",
+                                       "reconciliation_required") | {
+                                           "action_id": action_id}
+            if _lease_is_active(row):
+                return {"status": "success", "in_progress": True,
+                        "action_id": action_id}
+            # A dead worker may have crashed after transmitting the provider
+            # request but before recording its receipt. Reclaiming PREPARED
+            # would blindly duplicate an email/invite/file. Fail closed into
+            # UNCERTAIN; provider-specific reconciliation decides the truth.
+            fields = {
+                "status": dsc.ExternalActionStatus.UNCERTAIN.value,
+                "uncertainty_reason": "prepared_lease_expired",
+                "error_code": dsc.SafeErrorCode.RECONCILIATION_REQUIRED.value,
+                "lease_owner": None, "lease_started_at": None,
+                "updated_at": now, "completed_at": now,
+            }
+            txn.update(ref, fields)
+            return _contract_error("action requires reconciliation",
+                                   "reconciliation_required") | {
+                                       "action_id": action_id, **fields}
+        owner = uuid.uuid4().hex
+        row = {
+            "schema_version": 1, "action_id": action_id,
+            "founder_id": founder_id, "connection_id": connection_id,
+            "session_id": session_id, "application_id": application_id,
+            "resource_id": resource_id, "action_kind": kind.value,
+            "idempotency_key": str(idempotency_key)[:512],
+            "request_hash": request_hash, "subject_hash": subject_hash,
+            "approval_id": approval_id,
+            "status": dsc.ExternalActionStatus.PREPARED.value,
+            "provider_effect_id": None, "result_ref": {},
+            "uncertainty_reason": None, "error_code": None,
+            "lease_owner": owner, "lease_started_at": now,
+            "lease_seconds": max(1, min(lease_seconds, 900)),
+            "created_at": now, "updated_at": now, "completed_at": None,
+        }
+        txn.create(ref, row)
+        return {"status": "success", "claimed": True,
+                "action_id": action_id, "lease_owner": owner}
+
+    return await _prepare(transaction)
+
+
+async def finish_external_action(
+        founder_id: str, action_id: str, lease_owner: str, status: str, *,
+        provider_effect_id: str | None = None,
+        result_ref: dict[str, Any] | None = None,
+        uncertainty_reason: str | None = None,
+        error_code: str | None = None) -> dict[str, Any]:
+    from google.cloud import firestore as gc_firestore
+
+    from services import data_source_contracts as dsc
+
+    try:
+        terminal = dsc.require_closed(status, dsc.ExternalActionStatus)
+        if terminal == dsc.ExternalActionStatus.PREPARED:
+            raise ValueError("not terminal")
+        if error_code:
+            dsc.require_closed(error_code, dsc.SafeErrorCode)
+    except ValueError:
+        return _contract_error("invalid action completion")
+    ref = get_client().collection("external_actions").document(action_id)
+    transaction = get_client().transaction()
+
+    @gc_firestore.async_transactional
+    async def _finish(txn):
+        snapshot = await ref.get(transaction=txn)
+        if not snapshot.exists or snapshot.to_dict().get("founder_id") != founder_id:
+            return _contract_error("external action not found", "owner_mismatch")
+        current = snapshot.to_dict()
+        if current.get("status") != dsc.ExternalActionStatus.PREPARED.value:
+            return {"status": "success", "duplicate": True, **current}
+        if current.get("lease_owner") != lease_owner:
+            return _contract_error("external action lease changed", "lease_conflict")
+        safe_result = {str(key)[:64]: str(value)[:280]
+                       for key, value in (result_ref or {}).items()}
+        now = _now()
+        fields = {
+            "status": terminal.value,
+            "provider_effect_id": (str(provider_effect_id)[:512]
+                                   if provider_effect_id else None),
+            "result_ref": safe_result,
+            "uncertainty_reason": (str(uncertainty_reason)[:160]
+                                   if uncertainty_reason else None),
+            "error_code": error_code, "lease_owner": None,
+            "lease_started_at": None, "updated_at": now,
+            "completed_at": now,
+        }
+        txn.update(ref, fields)
+        return {"status": "success", "duplicate": False,
+                "action_id": action_id, **fields}
+
+    return await _finish(transaction)
+
+
+async def reconcile_external_action(
+        founder_id: str, action_id: str, status: str, *,
+        provider_effect_id: str | None = None,
+        result_ref: dict[str, Any] | None = None,
+        error_code: str | None = None) -> dict[str, Any]:
+    """Resolve an UNCERTAIN receipt from provider reconciliation evidence."""
+    from google.cloud import firestore as gc_firestore
+
+    from services import data_source_contracts as dsc
+
+    try:
+        terminal = dsc.require_closed(status, dsc.ExternalActionStatus)
+        if terminal not in {dsc.ExternalActionStatus.SUCCEEDED,
+                            dsc.ExternalActionStatus.FAILED}:
+            raise ValueError("reconciliation must be definitive")
+        if error_code:
+            dsc.require_closed(error_code, dsc.SafeErrorCode)
+    except ValueError:
+        return _contract_error("invalid reconciliation")
+    ref = get_client().collection("external_actions").document(action_id)
+    transaction = get_client().transaction()
+
+    @gc_firestore.async_transactional
+    async def _resolve(txn):
+        snapshot = await ref.get(transaction=txn)
+        if not snapshot.exists or snapshot.to_dict().get("founder_id") != founder_id:
+            return _contract_error("external action not found", "owner_mismatch")
+        current = snapshot.to_dict()
+        if current.get("status") in {
+                dsc.ExternalActionStatus.SUCCEEDED.value,
+                dsc.ExternalActionStatus.FAILED.value}:
+            return {"status": "success", "duplicate": True, **current}
+        if current.get("status") != dsc.ExternalActionStatus.UNCERTAIN.value:
+            return _contract_error("action is not awaiting reconciliation",
+                                   "version_conflict")
+        safe_result = {str(key)[:64]: str(value)[:280]
+                       for key, value in (result_ref or {}).items()}
+        now = _now()
+        fields = {
+            "status": terminal.value,
+            "provider_effect_id": (str(provider_effect_id)[:512]
+                                   if provider_effect_id else None),
+            "result_ref": safe_result,
+            "uncertainty_reason": None, "error_code": error_code,
+            "updated_at": now, "completed_at": now,
+        }
+        txn.update(ref, fields)
+        return {"status": "success", "duplicate": False,
+                "action_id": action_id, **fields}
+
+    return await _resolve(transaction)
+
+
+async def get_external_action(founder_id: str,
+                              action_id: str) -> Optional[dict[str, Any]]:
+    snapshot = await get_client().collection("external_actions").document(
+        action_id).get()
+    if not snapshot.exists:
+        return None
+    row = snapshot.to_dict() | {"id": snapshot.id}
+    return row if row.get("founder_id") == founder_id else None
+
+
+async def list_external_actions(founder_id: str, *,
+                                limit: int = 100) -> list[dict[str, Any]]:
+    query = get_client().collection("external_actions").where(
+        "founder_id", "==", founder_id)
+    rows = [doc.to_dict() | {"id": doc.id} async for doc in query.stream()]
+    rows.sort(key=lambda row: row.get("created_at", ""), reverse=True)
+    return rows[:limit]

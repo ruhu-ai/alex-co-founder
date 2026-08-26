@@ -35,7 +35,11 @@ async def test_staleness_fence_blocks_changed_form(monkeypatch):
     context = _context({"active_application_id": app_id,
                         "current_step": "FORM_FILLING",
                         "temp:portal_signature": "sha256:old"})
-    browser._pages[app_id] = {"page": object(), "signature": "sha256:old"}
+    live_session = {"page": object(), "signature": "sha256:old"}
+    monkeypatch.setattr(
+        browser_service, "fill_session_for_application",
+        lambda candidate: live_session if candidate == app_id else None,
+    )
 
     async def changed(_page):
         return {"status": "success", "signature": "sha256:new", "fields": []}
@@ -45,7 +49,6 @@ async def test_staleness_fence_blocks_changed_form(monkeypatch):
         SimpleNamespace(name="submit_form"), {}, context)
     assert result["stale"] is True
     assert result["current_signature"] == "sha256:new"
-    browser._pages.pop(app_id, None)
 
 
 async def test_g3_gate_blocks_portal_tools_before_approved():
@@ -119,8 +122,13 @@ async def test_feedback_rejection_returns_application_to_drafting(
 
 
 async def test_approval_is_session_bound_and_single_use(fake_store):
+    from tests.conftest import bind_fill_report
+
+    app_id = await fake_store_create_application(
+        fake_store, state=ApplicationStep.AWAITING_SUBMIT_APPROVAL)
+    await bind_fill_report(fake_store, app_id)
     requested = await approval_service.request_approval(
-        "app-1", founder_id="founder", session_id="session-1")
+        app_id, founder_id="founder", session_id="session-1")
     wrong = await approval_service.resolve(
         requested["approval_id"], "grant", "founder", "session-2")
     assert wrong["status"] == "error"
@@ -132,14 +140,14 @@ async def test_approval_is_session_bound_and_single_use(fake_store):
     # enforced — after consume, the gate refuses.
     first, second = await asyncio.gather(
         approval_service.resolve_for_submit(
-            "app-1", founder_id="founder", session_id="session-1"),
+            app_id, founder_id="founder", session_id="session-1"),
         approval_service.resolve_for_submit(
-            "app-1", founder_id="founder", session_id="session-1"),
+            app_id, founder_id="founder", session_id="session-1"),
     )
     assert first["status"] == "success" and second["status"] == "success"
     await approval_service.consume(first["approval_id"])
     after = await approval_service.resolve_for_submit(
-        "app-1", founder_id="founder", session_id="session-1")
+        app_id, founder_id="founder", session_id="session-1")
     assert after["status"] == "error"  # CONSUMED is final
 
 
@@ -149,15 +157,24 @@ async def test_expired_grant_no_longer_satisfies_the_gate(fake_store):
     covered before — the expires_at path had no test."""
     from datetime import datetime, timedelta, timezone
 
+    from tests.conftest import bind_fill_report
+
+    app_id = await fake_store_create_application(
+        fake_store, state=ApplicationStep.AWAITING_SUBMIT_APPROVAL)
+    # Fully bound, so expiry — not a missing binding — is what refuses.
+    await bind_fill_report(fake_store, app_id)
     requested = await approval_service.request_approval(
-        "app-ttl", founder_id="founder", session_id="session-1")
+        app_id, founder_id="founder", session_id="session-1")
     aid = requested["approval_id"]
     await approval_service.resolve(aid, "grant", "founder", "session-1")
+    assert (await approval_service.resolve_for_submit(
+        app_id, founder_id="founder", session_id="session-1")
+    )["status"] == "success"
     # fast-forward past the TTL
     fake_store.approvals[aid]["expires_at"] = (
         datetime.now(timezone.utc) - timedelta(minutes=1)).isoformat()
     refused = await approval_service.resolve_for_submit(
-        "app-ttl", founder_id="founder", session_id="session-1")
+        app_id, founder_id="founder", session_id="session-1")
     assert refused["status"] == "error"  # expired grant is not valid
 
 
@@ -165,8 +182,13 @@ async def test_resolve_refuses_expired_pending_request(fake_store):
     """Granting a request that already expired is refused with a clear reason."""
     from datetime import datetime, timedelta, timezone
 
+    from tests.conftest import bind_fill_report
+
+    app_id = await fake_store_create_application(
+        fake_store, state=ApplicationStep.AWAITING_SUBMIT_APPROVAL)
+    await bind_fill_report(fake_store, app_id)
     requested = await approval_service.request_approval(
-        "app-ttl2", founder_id="founder", session_id="session-1")
+        app_id, founder_id="founder", session_id="session-1")
     aid = requested["approval_id"]
     fake_store.approvals[aid]["expires_at"] = (
         datetime.now(timezone.utc) - timedelta(minutes=1)).isoformat()
@@ -189,7 +211,8 @@ async def test_registration_requests_approval_before_browser_side_effect(
 
     monkeypatch.setattr(browser_service, "register", must_not_register)
     result = browser.register_account(
-        "https://portal.example", "alex@ruhu.ai", _context({}))
+        "https://portal.example", "alex@ruhu.ai",
+        _context({"active_application_id": "app-register"}))
     assert result["status"] == "needs_approval"
     assert called is False
 
@@ -209,16 +232,23 @@ async def test_registration_parks_without_polling_and_persists_wake_route(
         async def close(self):
             return None
 
-    async def registered(*_args):
+    async def registered(*_args, **_kwargs):
         return {"status": "success", "body": "Check your email to verify",
-                "context": RegistrationContext(), "page": object()}
+                "context": RegistrationContext(), "page": object(),
+                "run_id": "fill-run"}
 
     async def no_mail(**_kwargs):
         return {"status": "error", "error": True, "message": "not here yet"}
 
     monkeypatch.setattr(browser_service, "register", registered)
     monkeypatch.setattr("services.alex_mailbox.wait_for_email", no_mail)
-    context = _context({})
+    monkeypatch.setattr(
+        browser_service, "close_run",
+        lambda *_a, **_k: __import__("asyncio").sleep(
+            0, result={"status": "success"}
+        ),
+    )
+    context = _context({"active_application_id": "app-register"})
     result = browser.register_account(
         "https://portal.example", "alex@ruhu.ai", context)
     assert result["status"] == "waiting"

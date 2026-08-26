@@ -286,17 +286,24 @@ def install(app) -> None:
     async def auth_me(request: Request):
         claims = _session_claims(request.cookies)
         if claims:
-            return {"status": "success", "mode": "session",
+            return {"status": "success", "authenticated": True,
+                    "mode": "session",
                     "email": claims.get("email", ""),
                     "name": claims.get("name", ""),
                     "sign_in_enabled": firebase_config()["enabled"]}
         if _token_ok(_presented_token(request.headers, request.cookies,
                                       request.query_params)):
-            return {"status": "success",
+            return {"status": "success", "authenticated": True,
                     "mode": "token" if configured_token() else "open",
                     "email": "", "name": "",
                     "sign_in_enabled": firebase_config()["enabled"]}
-        return JSONResponse({"error": "unauthorized"}, status_code=401)
+        # This endpoint is a session probe used by the public login page.
+        # Signed-out is a normal state, not a failed request; returning 200
+        # avoids a misleading console error without weakening the middleware
+        # gate on any protected route.
+        return {"status": "success", "authenticated": False,
+                "mode": "anonymous", "email": "", "name": "",
+                "sign_in_enabled": firebase_config()["enabled"]}
 
     # ---- the gate ----------------------------------------------------------
 

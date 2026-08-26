@@ -75,7 +75,8 @@ search works on Vertex AI + gemini-3.5-flash, returning real, current programs
   loop: allowlist, 20-step budget + 90s time-box, per-step evidence),
   `voice_service`.
 - All 24 tools implemented (thin wrappers; G1/G2/G3 in code).
-- `app/main.py`: 13 routes — chat, webhooks (token-verified), tasks (fast-ack),
+- `app/main.py`: 13 routes — chat, webhooks (token-verified), tasks (durable
+  request-bound acknowledgement),
   api (pipeline, applications, feedback, approvals resolve, voice-note, ingest).
 - `mock_portal/`: 16-field form, deliberate friction (file upload, dynamic
   select), `?v=2` renamed-fields mode, idempotent submit honoring
@@ -117,6 +118,39 @@ recon model fn), the adk web graph check, golden evals, Cloud deploy.
 runtime actions: ADC login → live verification (evals, adk web graph, resume
 proof) → `deploy.sh` → video → submission.
 
+## Data-source reliability slice (docs/24, 2026-08-26)
+
+- WI-0 was traced independently before cutover; its temporary Drive-id gate was
+  superseded in WI-3 by the stronger owner-scoped ACTIVE `source_grant_id`
+  authority, shared by HTTP and model-tool ingestion.
+- WI-1/2 added closed contracts, five canonical collections, registry-driven
+  export/deletion, durable status projections, explicit Drive grants, and honest
+  shared-account revocation behavior.
+- WI-3/4/5 unified source registration, added orphan reconciliation, deterministic
+  provider-event receipts/correlation, and the reduced founder inbox. There is
+  no active-session fallback and no heuristic exact match.
+- WI-6 puts email, Calendar, and produced-document Drive export behind product
+  receipts. Expired PREPARED leases become UNCERTAIN; provider-specific
+  reconciliation is required before another effect.
+- WI-7 labels retrieval as unconfirmed evidence, projects profile verification
+  levels and supersession history, blocks uncited/unsupported auto-apply, and
+  provides an owner/session-scoped founder conflict-review surface.
+- WI-8 migration is dry-run-first and additive. Deterministic unit/eval cases
+  cover duplicates, crash/uncertainty, ownership, poisoning, privacy, parity,
+  and rollback planning. No live provider is required for these checks.
+- Final local/emulated acceptance: **873 passed** (`tests/unit` +
+  `tests/integration`, excluding the documented environmental LibreOffice
+  suite), Ruff clean, collection registry 4/4, browser invariants and contrast
+  checks green. In-app QA passed at 1280×800 and 390×844: no page-level
+  horizontal overflow, reduced inbox is an accessible dialog, Escape restores
+  trigger focus, and the mobile drawer stays within 390 px.
+- In-app QA also exposed that project `co-founder-506001` currently has zero
+  installed composite indexes even though the manifest is complete. Source is
+  remediated: `scripts/deploy.sh` now runs a fail-closed index installer before
+  migrations or Cloud Run and requires every declared index to be READY. This
+  implementation task did **not** mutate the live project; the next reviewed
+  deploy must run that gate before cutover.
+
 ## Fixtures
 
 `tests/fixtures/startup_google_programs.html` (149 KB) and
@@ -124,3 +158,23 @@ proof) → `deploy.sh` → video → submission.
 verified real (25 TEF mentions, 101 program/accelerator mentions). The Day-1
 guidelines PDF remains `TBD-Day-1` in the workflow YAML — pick and snapshot
 when the PDF link is chosen.
+
+## Conversational discovery adapter verification (2026-08-25)
+
+- Pre-Phase-0 `/discover` adapter implemented behind
+  `DISCOVER_COMMAND_ENABLED`; production default remains off.
+- Transactional founder/opportunity selection uniqueness, legacy-record reuse,
+  opaque request IDs, durable worker receipts, transcript persistence,
+  prose-only context, manual-button empty-body compatibility, and empty-result
+  conversational closure are covered by deterministic tests.
+- Full deterministic suite: **390 passed**.
+- Static validation: `ruff check .` and `git diff --check` passed.
+- All six live ADK eval sets passed against Vertex, with persisted result JSON
+  checked by `scripts/check_adk_eval_result.py`: document output 1/1; strict
+  safety gates 9/9; idle resume 1/1; persona identity 3/3 (**14/14 cases**).
+- The document eval originally named an external programme (`Madica`) absent
+  from its supplied state, so the agent correctly refused the unresolved
+  entity and the outcome metric failed. The case now asks for the **current
+  approved application**, which is the entity its `session_input` actually
+  identifies; the successful `produce_document` result and download URL remain
+  mandatory.

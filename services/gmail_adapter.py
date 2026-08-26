@@ -104,11 +104,23 @@ async def scan(label: str = "grants", max_results: int = 20) -> dict:
         body = _body_text(msg.get("payload", {}))[:2000] or msg.get("snippet", "")
         events.append({
             "id": stub["id"],
+            "thread_id": msg.get("threadId") or stub.get("threadId") or "",
             "from": sender,
             "subject": subject,
             "kind": classify(subject, body),
             "excerpt": re.sub(r"\s+", " ", body)[:280],
         })
-    if events:
-        await firestore.add_processed_gmail_ids([e["id"] for e in events])
+    # NOTE: messages are deliberately NOT marked processed here. Marking them
+    # before the caller commits its domain effect (follow-up + notification)
+    # meant a crash in that window lost the message permanently: it stayed in
+    # the processed set and every later scan skipped it. The caller invokes
+    # `mark_processed()` only AFTER its durable write succeeds; a crash before
+    # that simply re-delivers the message on the next scan, which the caller's
+    # own idempotency absorbs.
     return {"status": "success", "events": events, "scanned": len(resp.get("messages", []))}
+
+
+async def mark_processed(message_ids: list[str]) -> None:
+    """Record messages as handled — call ONLY after the domain effect commits."""
+    if message_ids:
+        await firestore.add_processed_gmail_ids(list(message_ids))

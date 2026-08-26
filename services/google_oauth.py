@@ -17,13 +17,15 @@ Adapters degrade to errors-as-data when OAuth is not configured.
 from __future__ import annotations
 
 import os
+import urllib.parse
+import urllib.request
 
 SCOPE_MAP = {
     "drive": [
         "https://www.googleapis.com/auth/drive.readonly",
         "https://www.googleapis.com/auth/drive.file",  # sync produced documents; per-file only
     ],
-    "gmail": ["https://www.googleapis.com/auth/gmail.readonly"],
+    "founder_gmail": ["https://www.googleapis.com/auth/gmail.readonly"],
     "calendar": [
         "https://www.googleapis.com/auth/calendar.readonly",
         "https://www.googleapis.com/auth/calendar.events",  # booking is
@@ -178,6 +180,16 @@ def reset_for_tests() -> None:
     _account_email = ""
 
 
+def clear_account_cache(account: str) -> None:
+    """Drop every in-process credential/status cache for one Google account."""
+    global _account_email
+    _creds.pop(account, None)
+    _granted.pop(account, None)
+    _sm_missing.discard(account)
+    if account == "founder":
+        _account_email = ""
+
+
 _account_email = ""
 
 
@@ -259,4 +271,97 @@ def save_refresh_token(token: str, account: str = "founder") -> dict:
     result = save_env_var(ACCOUNT_ENV.get(account, "GOOGLE_OAUTH_REFRESH_TOKEN"), token)
     if result.get("status") == "success":
         reset_for_tests()
+    return result
+
+
+def verify_consent(credentials, connector: str) -> dict:
+    """Verify a fresh OAuth token's scopes and provider account identity.
+
+    This is intentionally called only in the OAuth callback, never while
+    rendering connector status.  Returned failures are safe data and never
+    include provider bodies or tokens.
+    """
+    if connector not in SCOPE_MAP:
+        return {"status": "error", "error": True,
+                "error_code": "invalid_contract",
+                "message": "unknown Google connector"}
+    try:
+        from googleapiclient.discovery import build
+
+        info = build("oauth2", "v2", credentials=credentials,
+                     cache_discovery=False).tokeninfo(
+                         access_token=credentials.token).execute()
+        granted = sorted(set((info.get("scope") or "").split()))
+        required = set(STATUS_SCOPES.get(connector, SCOPE_MAP[connector]))
+        if not required.issubset(granted):
+            return {"status": "error", "error": True,
+                    "error_code": "scope_missing",
+                    "message": "required Google scope was not granted"}
+        if connector == "drive":
+            identity = build("drive", "v3", credentials=credentials,
+                             cache_discovery=False).about().get(
+                                 fields="user").execute().get("user", {})
+            hint = identity.get("emailAddress", "")
+        elif connector in {"founder_gmail", "alex_mail"}:
+            identity = build("gmail", "v1", credentials=credentials,
+                             cache_discovery=False).users().getProfile(
+                                 userId="me").execute()
+            hint = identity.get("emailAddress", "")
+        else:
+            identity = build("calendar", "v3", credentials=credentials,
+                             cache_discovery=False).calendarList().get(
+                                 calendarId="primary").execute()
+            hint = identity.get("id", "")
+        if not hint:
+            return {"status": "error", "error": True,
+                    "error_code": "provider_rejected",
+                    "message": "Google account identity could not be verified"}
+        local, sep, domain = hint.partition("@")
+        masked = ((local[:1] + "***@" + domain) if sep else "Google account")
+        return {"status": "success", "granted_scopes": granted,
+                "account_hint": masked}
+    except Exception:
+        return {"status": "error", "error": True,
+                "error_code": "provider_unavailable",
+                "message": "Google account verification failed"}
+
+
+def revoke_account_grant(account: str = "founder", timeout_seconds: int = 10
+                         ) -> dict:
+    """Revoke the account-wide refresh-token grant at Google.
+
+    The caller must already have decided that account-wide revocation is safe.
+    A missing token is uncertain, not success: local absence does not prove the
+    provider grant was revoked.
+    """
+    token = _refresh_token(account)
+    if not token:
+        return {"status": "error", "error": True,
+                "error_code": "remote_revocation_uncertain",
+                "message": "provider revocation could not be confirmed"}
+    request = urllib.request.Request(
+        "https://oauth2.googleapis.com/revoke",
+        data=urllib.parse.urlencode({"token": token}).encode(), method="POST",
+        headers={"Content-Type": "application/x-www-form-urlencoded"})
+    try:
+        with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
+            if response.status != 200:
+                raise OSError("unexpected status")
+    except Exception:
+        return {"status": "error", "error": True,
+                "error_code": "remote_revocation_uncertain",
+                "message": "provider revocation could not be confirmed"}
+    return {"status": "success"}
+
+
+def delete_account_credential(account: str = "founder") -> dict:
+    """Delete the named refresh-token secret and invalidate live caches."""
+    key = ACCOUNT_ENV.get(account)
+    if not key:
+        return {"status": "error", "error": True,
+                "error_code": "invalid_contract",
+                "message": "unknown Google account"}
+    result = save_env_var(key, "")
+    if result.get("status") == "success":
+        clear_account_cache(account)
     return result

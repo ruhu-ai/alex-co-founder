@@ -49,7 +49,7 @@ else
 fi
 
 echo "==> [5/7] Enable APIs (skips already-enabled)"
-APIS="run firestore sqladmin pubsub cloudscheduler secretmanager storage cloudbuild aiplatform cloudtrace logging"
+APIS="run firestore sqladmin pubsub cloudscheduler cloudtasks secretmanager storage cloudbuild aiplatform cloudtrace logging"
 for API in $APIS; do
   if gcloud services list --enabled --filter="name:${API}.googleapis.com" --format="value(name)" 2>/dev/null | grep -q .; then
     echo "    $API already enabled"
@@ -63,7 +63,7 @@ echo "==> [6/7] .env values"
 grep -q '^GOOGLE_GENAI_USE_VERTEXAI=' "$ENV_FILE" || echo "GOOGLE_GENAI_USE_VERTEXAI=True" >> "$ENV_FILE"
 grep -q '^GOOGLE_CLOUD_REGION=' "$ENV_FILE"      || echo "GOOGLE_CLOUD_REGION=us-central1" >> "$ENV_FILE"
 grep -q '^GOOGLE_CLOUD_LOCATION=' "$ENV_FILE"    || echo "GOOGLE_CLOUD_LOCATION=global" >> "$ENV_FILE"
-grep -q '^ADK_MODEL=' "$ENV_FILE"                || echo "ADK_MODEL=gemini-3.5-flash" >> "$ENV_FILE"
+grep -q '^ADK_MODEL=' "$ENV_FILE"                || echo "ADK_MODEL=gemini-3.6-flash" >> "$ENV_FILE"
 grep -q '^SESSION_SERVICE_URI=' "$ENV_FILE"      || echo "SESSION_SERVICE_URI=sqlite+aiosqlite:///sessions.db" >> "$ENV_FILE"
 grep -q '^ARTIFACT_SERVICE_URI=' "$ENV_FILE"     || echo "ARTIFACT_SERVICE_URI=file://./artifacts" >> "$ENV_FILE"
 grep -q '^WORKFLOW_FILE=' "$ENV_FILE"            || echo "WORKFLOW_FILE=workflows/grant_applications.yaml" >> "$ENV_FILE"

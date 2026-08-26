@@ -48,8 +48,8 @@ Rules (corrected against the reference implementation):
   resume traffic: the built-in trigger **mints a brand-new session per message**
   (`session_id = uuid4()`), which would start a duplicate workflow instead of
   resuming the parked one. Our `/webhooks/*` and approval/feedback routes look up
-  the founder's existing session. (Scheduler sweeps are fine as fresh sessions —
-  they are new work, not resumes.)
+  the founder's existing session. Founder-invoked discovery uses a separate
+  system scoring session and reports into the originating founder session.
 - Log at startup which agent, session store, memory store, and artifact store
   each surface is wired to.
 
@@ -58,14 +58,18 @@ Rules (corrected against the reference implementation):
 | Method & path | Purpose | Body → Response |
 |---|---|---|
 | `GET /` | serve `app/static/index.html` | UI |
-| `POST /wake` | founder chat entry | `{message, session_id?}` → agent text parts as list. Creates session if missing. |
+| `POST /wake` | founder chat entry | `{message, session_id?, client_request_id?}` → agent text parts as list. Creates session if missing. With `DISCOVER_COMMAND_ENABLED=true`, exact `/discover` is parsed before model invocation. |
 | `POST /session/new` | fresh session id | `{founder_id}` → `{session_id}` |
 | `POST /webhooks/founder_reply` | async founder answer (e.g. from email reply later; v1: UI posts here) | `WebhookPayload` |
 | `POST /webhooks/portal_event` | mock/real portal events (submission confirmed, form changed) | `PortalEvent` |
-| `POST /webhooks/deadline` | Pub/Sub push: deadline sentinel fired | Pub/Sub envelope |
-| `POST /tasks/discover` | Pub/Sub push or Scheduler HTTP: run discovery sweep | Pub/Sub envelope or empty |
-| `POST /tasks/deadline_scan` | recompute urgency on all open items | Pub/Sub envelope or empty |
+| `POST /webhooks/deadline` | Pub/Sub push: validate message ID, durably enqueue one deadline task, then fast-ack | Pub/Sub envelope |
+| `POST /api/discovery-requests` | founder-facing discovery boundary (23 §6.2) | `{session_id, client_request_id, context?}` → `202 {status, request_id, discovery_request_id, resource_id, session_id, duplicate}`; durably persists receipt + resource + session link, then dispatches IDs only |
+| `POST /tasks/discover` | **internal** discovery worker (Cloud Tasks delivery); never scheduled, never a UI shortcut | `{discovery_request_id, founder_id}`; the worker loads context/authority from the receipt. Legacy `{context?, client_request_id?, session_id?}` remains accepted for in-flight tasks |
+| `GET /api/search` | typed global search over conversations and resources (23 §7) | `?q&types&session_id&cursor&limit` → grouped-by-resource results |
+| `GET /api/sessions/{session_id}/resources` | one conversation's resource occurrences (23) | → bounded occurrence list |
+| `POST /tasks/deadline_scan` | Cloud Tasks worker: recompute urgency on all open items and nudge for newly critical items | `{message_id?}` or empty for an authenticated manual run |
 | `POST /tasks/distill` | run the distiller on one feedback record | `{feedback_id}` → runs `distill_runner` (below) |
+| `POST /tasks/browser_expire` | generation-safe browser inactivity expiry (22), Cloud Tasks/OIDC only | `{run_id, lease_generation}` → close only when owner/generation/deadline still match; stale delivery is a success no-op |
 | `GET /api/pipeline` | UI board data | grouped opportunities + in-flight applications |
 | `POST /api/feedback` | UI review controls | `{session_id, section_id, type, reason?, edited_text?}` → runs `record_feedback` path, resumes session |
 | `POST /api/approvals/{approval_id}/resolve` | founder grants/denies at the gate | `{decision: "grant"|"deny"}` → mints/consumes token flow (see 12), resumes session |
@@ -74,7 +78,8 @@ Rules (corrected against the reference implementation):
 | `GET /api/artifacts/{name}/preview` | inline artifact for the UI (browser pageshots, fill screenshots — 18) | founder/session-checked; streams with correct MIME |
 | `GET /api/artifacts/{name}/download` | document downloads (15) | `Content-Disposition: attachment`, correct OOXML MIME |
 | `GET /api/browser/state?session_id=` | Browser panel snapshot (18) | → `get_browser_state` dict; unknown/non-founder session → 404 |
-| `POST /api/browser/stop` | founder stops a browse run (18) | `{session_id}`, requires `Content-Type: application/json` → idempotent `{status, already_closed?}`; audits `browse_stop` as `founder:<id>` |
+| `GET /api/browser/events?session_id=` | snapshot-first in-app browser observation stream (22) | authenticated `text/event-stream`; durable snapshot first, monotonic run/frame events after; unknown/non-founder session → 404 |
+| `POST /api/browser/stop` | founder stops the foreground browse or fill run (18/22) | `{session_id, run_id?}`, requires `Content-Type: application/json` → idempotent `{status, run_id?, kind?, already_closed?}`; audited as `founder:<id>` |
 
 ```python
 class WebhookPayload(BaseModel):
@@ -130,21 +135,38 @@ Event → state_delta mapping (implements 03 §dormancy):
 
 ## Task endpoints
 
-`POST /tasks/discover` and `POST /tasks/deadline_scan` decode the Pub/Sub push
-envelope when present (base64 data attribute) but must also work with an empty
-POST so Cloud Scheduler can hit them directly with an OIDC token. They create a
-**system-owned** session (`user_id="system"`, fresh `session_id` per run —
-sweeps are stateless; dormancy is for founder workflows). `POST /tasks/distill`
+`POST /tasks/discover` accepts direct founder-triggered work or an authenticated
+Cloud Task from the `/discover` adapter; it is never a Pub/Sub or Scheduler
+target. `POST /tasks/deadline_scan` handles the scheduled deadline wake. Discovery
+uses a **system-owned** scoring session (`user_id="system"`); dormancy remains for
+founder workflows. `POST /tasks/distill`
 is a **direct-HTTP admin/retry route only** — the interactive distill path is
 synchronous (inline, awaited, from `/api/feedback` via the service layer), so
 the money-shot draft never races a queue. No distill Pub/Sub topic exists.
 
-**Durable acknowledgement rule:** Pub/Sub task routes acknowledge only after the
-request-bound worker completes, so a crash produces a non-2xx response and
-redelivery. Portal events that need a potentially long agent turn first enqueue
-an authenticated Cloud Task and acknowledge only after that durable enqueue.
-Redelivery is at-least-once: every task remains idempotent (dedupe_check on
-discovery; distiller skips already-`distilled` feedback).
+**Durable acknowledgement rule:** Cloud Task workers acknowledge only after
+request-bound work completes, so a crash produces a non-2xx response and bounded
+redelivery. Pub/Sub webhooks never run long work: deadline and portal events first
+enqueue an authenticated Cloud Task, keyed by the upstream event ID, and
+acknowledge only after that durable enqueue.
+Redelivery is at-least-once: every task remains idempotent (a durable request
+receipt plus `dedupe_check` for discovery; distiller skips already-`distilled` feedback).
+
+**Competition `/discover` adapter:** when its flag is enabled, `/wake` recognizes
+only the exact leading token `/discover` with optional prose. It appends the
+founder turn and static acknowledgment to the ADK session without invoking the
+chat Runner, then dispatches `/tasks/discover` durably on Cloud Run (inline and
+awaited in local development). Unknown slash commands are static refusals.
+Context is normalized and capped at 500 characters; `@attachment` references
+are refused because task-scoped attachment authority is a Phase-2 capability.
+The browser mints an opaque `client_request_id` per submission and reuses it
+only for transport retry. Both the conversational `/discover` adapter and the
+discovery UI button converge on the same durable request service
+(`_accept_discovery_request` → `_dispatch_discovery`); the completion notice
+targets the receipt's `origin_session_id`, never the most recently touched
+session (23 §6.2). Worker receipts enforce retry idempotency; message
+content is never used as an identity. Typed text during a live voice call still
+travels over the Live websocket and cannot launch this adapter.
 
 **`someone_is_there()` principle:** whether a human is present is a property of
 the REQUEST, not the process. Chat routes (`/wake`) have a person; task/webhook
@@ -166,8 +188,10 @@ reason}"`); `output_key="distillation"` lands its result in state, and its
 
 ## Static UI
 
-Mount `app/static` at `/`. The page talks only to `/wake`, `/session/new`,
-`/api/*`. No build step, no framework (see 10).
+Mount `app/static` at `/`. The page uses `/wake`, `/session/new`,
+`/api/discovery-requests` for the discovery button, and `/api/*`. It never
+calls a `/tasks/*` worker route directly (23 §6.2). No build step, no
+framework (see 10).
 
 ## CORS & ops
 

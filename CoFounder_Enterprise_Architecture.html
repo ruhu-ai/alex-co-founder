@@ -448,7 +448,7 @@
     <table>
       <tr><th>Interface</th><th>Direction</th><th>Protocol and authentication</th><th>Status</th></tr>
       <tr><td>Founder chat &amp; voice</td><td>in/out</td><td>static SPA over HTTP + a <code>/live</code> Gemini Live websocket; founder-token cookie (<code>hmac.compare_digest</code>); console is a projection, never an authorization boundary</td><td><span class="status-ok">implemented</span></td></tr>
-      <tr><td>Scheduler ticks</td><td>in</td><td>Cloud Scheduler → Pub/Sub push → OIDC-verified <code>/tasks/discover</code>, <code>/webhooks/deadline</code>; the only driver of deferred sweeps and deadline scans</td><td><span class="status-ok">implemented</span></td></tr>
+      <tr><td>Event triggers</td><td>in</td><td>Founder action → Cloud Tasks → <code>/tasks/discover</code>; Cloud Scheduler → Pub/Sub → fast-ack <code>/webhooks/deadline</code> → deduplicated Cloud Task. Discovery is never scheduled.</td><td><span class="status-ok">implemented</span></td></tr>
       <tr><td>Portal confirmations</td><td>in</td><td>mock/real portal → <code>/webhooks/portal_event</code>, <code>X-Portal-Token</code>; idempotent on <code>confirmation_id</code>; durably enqueues the wake via Cloud Tasks</td><td><span class="status-ok">implemented</span></td></tr>
       <tr><td>Mailbox events</td><td>in</td><td>Gmail push (Pub/Sub) → <code>/webhooks/alex_mail</code> (OIDC or founder token); history walk with a scan fallback</td><td><span class="status-ok">implemented</span></td></tr>
       <tr><td>Model inference</td><td>out</td><td>Vertex AI Gemini, region-pinned to the <code>global</code> endpoint (the current models publish there); <code>HttpRetryOptions(attempts=3)</code></td><td><span class="status-ok">implemented</span></td></tr>
@@ -1169,7 +1169,7 @@
         <g>
           <rect class="card" x="540" y="52" width="220" height="40" rx="7"></rect>
           <text class="card-t" x="552" y="70">Pub/Sub · Scheduler</text>
-          <text class="plat-t" x="552" y="85">discovery-tick · deadline-tick</text>
+          <text class="plat-t" x="552" y="85">deadline-tick only</text>
           <rect class="card" x="540" y="102" width="220" height="40" rx="7"></rect>
           <text class="card-t" x="552" y="120">Cloud Tasks</text>
           <text class="plat-t" x="552" y="135">co-founder-events · concurrency 1</text>
@@ -1191,7 +1191,7 @@
         <path class="flow-b" d="M 760 72 L 800 72" marker-end="url(#ar-b)"></path>
         <path class="flow" d="M 500 72 L 540 72" marker-end="url(#ar)"></path>
         <path class="flow" d="M 260 82 L 300 82" marker-end="url(#ar)"></path>
-        <text class="plat-t" x="40" y="216">Scheduler → Pub/Sub push (OIDC, pinned to the invoker SA) → /tasks/discover · /webhooks/deadline; portal → /webhooks/portal_event → durable Cloud Tasks re-drive → /tasks/portal_wake.</text>
+        <text class="plat-t" x="40" y="216">Founder → Cloud Tasks → /tasks/discover; Scheduler → Pub/Sub fast-ack → /webhooks/deadline → Cloud Tasks; portal events use the same durable queue.</text>
       </svg>
       <p class="caption">
         Deployment topology. <code>deploy.sh</code> is idempotent and asserts <code>BROWSE_OPEN_WEB=false</code>

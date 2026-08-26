@@ -13,8 +13,15 @@ from google.genai import types
 
 try:
     from google.adk.errors import StaleSessionError
-except ImportError:  # ADK 2.7 ships it under a private module
-    from google.adk.errors._stale_session_error import StaleSessionError
+except ImportError:
+    try:  # ADK 2.7 ships it under a private module
+        from google.adk.errors._stale_session_error import StaleSessionError
+    except ImportError:
+        # Older ADK (e.g. 1.x) has no stale-session detection at all. The
+        # installed package wins (docs/README §5): define a sentinel that
+        # nothing raises, so the retry-once branch simply never triggers.
+        class StaleSessionError(Exception):
+            """Fallback for ADK versions without stale-session detection."""
 
 logger = logging.getLogger(__name__)
 

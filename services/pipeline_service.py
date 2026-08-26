@@ -5,6 +5,7 @@ lifecycle. State transitions guarded by the docs/03 table (can_transition).
 from __future__ import annotations
 
 import hashlib
+import re
 
 from agents.co_founder.state_schema import ApplicationStep as Step
 from agents.co_founder.state_schema import ChecklistStatus, OpportunityState, can_transition
@@ -13,7 +14,30 @@ from services import firestore
 _URGENCY_TIERS = ((3, "CRITICAL"), (14, "URGENT"))
 
 
-def compute_urgency(deadline: str | None, required_materials: list[str]) -> dict:
+def normalize_string_list(value) -> list[str]:
+    """Normalize an extractor-owned list field at the domain boundary.
+
+    Discovery intentionally stores unknown fields as ``null``. Business logic
+    must therefore never assume a schema-declared list is present merely
+    because the key exists in Firestore.
+    """
+    if not isinstance(value, (list, tuple, set)):
+        return []
+    return [str(item).strip() for item in value if str(item).strip()]
+
+
+def canonical_opportunity_name(name: str | None) -> str:
+    """Stable, conservative identity for founder-facing duplicate collapse.
+
+    Sources frequently append audience labels ("for founders") to the same
+    programme name. Removing only those known trailing labels avoids merging
+    genuinely different programmes while catching the observed duplicate.
+    """
+    value = re.sub(r"[^a-z0-9]+", " ", (name or "").lower()).strip()
+    return re.sub(r"\s+(?:for\s+)?founders?$", "", value).strip()
+
+
+def compute_urgency(deadline: str | None, required_materials: list[str] | None) -> dict:
     """Deadline sentinel tiers (docs/08): OVERDUE | CRITICAL(≤3d) | URGENT(≤14d) | NORMAL | ROLLING.
 
     "Today" is UTC, explicitly — Cloud Run's server-local date IS UTC, but
@@ -37,13 +61,14 @@ def compute_urgency(deadline: str | None, required_materials: list[str]) -> dict
     return {"tier": tier, "days_left": days, "note": note}
 
 
-def dedup_hash(name: str, application_url: str) -> str:
+def dedup_hash(name: str | None, application_url: str | None) -> str:
+    canonical_name = canonical_opportunity_name(name)
     return hashlib.sha256(
-        f"{(name or '').strip().lower()}|{(application_url or '').strip().lower()}".encode()
+        f"{canonical_name}|{(application_url or '').strip().lower()}".encode()
     ).hexdigest()
 
 
-def initial_checklist(required_materials: list[str]) -> list[dict]:
+def initial_checklist(required_materials: list[str] | None) -> list[dict]:
     items = [
         {"key": "eligibility_check", "label": "Eligibility check"},
         {"key": "interview", "label": "Guided interview"},
@@ -54,7 +79,8 @@ def initial_checklist(required_materials: list[str]) -> list[dict]:
         {"key": "submit", "label": "Submit"},
         {"key": "followup", "label": "Follow up"},
     ]
-    items += [{"key": f"material:{m}", "label": f"Material: {m}"} for m in required_materials]
+    items += [{"key": f"material:{m}", "label": f"Material: {m}"}
+              for m in normalize_string_list(required_materials)]
     return [{**item, "status": ChecklistStatus.PENDING, "section_id": None} for item in items]
 
 
@@ -69,7 +95,22 @@ async def board(founder_id: str, limit: int = 40) -> dict:
             app["opportunity_name"] = opp.get("name")
             app["deadline"] = opp.get("deadline")
     grouped: dict[str, list[dict]] = {"SHORTLISTED": [], "DISCOVERED": [], "ARCHIVED": []}
-    for opp in opportunities:
+    # Do not show two cards for the same programme merely because one source
+    # appended "for founders" or omitted the application URL. This is a
+    # non-destructive projection: application references to either durable
+    # record remain valid.
+    seen: set[tuple[str, str]] = set()
+    for opp in sorted(
+            opportunities,
+            key=lambda item: sum(bool(item.get(key)) for key in (
+                "application_url", "source_url", "description",
+                "required_materials", "raw_excerpt")),
+            reverse=True):
+        cycle = str(opp.get("deadline") or opp.get("created_at") or "")[:4]
+        identity = (canonical_opportunity_name(opp.get("name")), cycle)
+        if identity[0] and identity in seen:
+            continue
+        seen.add(identity)
         grouped.setdefault(opp.get("state", "DISCOVERED"), []).append(opp)
     grouped["SHORTLISTED"].sort(
         key=lambda o: (o.get("urgency") or {}).get("days_left") if (o.get("urgency") or {}).get("days_left") is not None else 9999
@@ -119,23 +160,60 @@ async def archive(opportunity_id: str, reason: str, fit_score: int) -> dict:
 
 
 async def choose_opportunity(founder_id: str, opportunity_id: str) -> dict:
-    """TRIAGE → INTERVIEWING: create the application + checklist (docs/03 #3)."""
+    """TRIAGE → INTERVIEWING, idempotently, across sessions and retries."""
     opp = await firestore.get_opportunity(opportunity_id)
     if not opp:
         return {"status": "error", "error": True, "message": f"opportunity {opportunity_id} not found"}
     if opp["state"] != OpportunityState.SHORTLISTED:
         return {"status": "error", "error": True,
                 "message": f"can only apply to SHORTLISTED opportunities (state is {opp['state']})"}
-    checklist = initial_checklist(opp.get("required_materials", []))
-    application_id = await firestore.create_application(founder_id, opportunity_id, checklist)
-    await firestore.audit("agent:orchestrator", "state_transition", f"applications/{application_id}",
-                          "success", "TRIAGE → INTERVIEWING")
+    materials = normalize_string_list(opp.get("required_materials"))
+    checklist = initial_checklist(materials)
+    existing = await firestore.find_application_by_founder_opportunity(
+        founder_id, opportunity_id)
+    created = False
+    if existing:
+        application_id = existing["id"]
+        application = existing
+    else:
+        claimed = await firestore.get_or_create_application(
+            founder_id, opportunity_id, checklist)
+        application_id = claimed["application_id"]
+        application = claimed["application"]
+        created = bool(claimed["created"])
+
+    current_step = application.get("state", Step.INTERVIEWING)
+    committed_checklist = application.get("checklist") or checklist
+    if created:
+        await firestore.audit(
+            "agent:orchestrator", "state_transition", f"applications/{application_id}",
+            "success", "TRIAGE → INTERVIEWING")
+    missing_metadata = [
+        label for value, label in (
+            (opp.get("application_url"), "verified application URL"),
+            (materials, "required materials"),
+        ) if not value
+    ]
     return {
         "status": "success",
         "application_id": application_id,
-        "current_step": Step.INTERVIEWING,
-        "active_program_requirements": opp.get("required_materials", []),
-        "checklist_status": {item["key"]: item["status"] for item in checklist},
+        "current_step": current_step,
+        "already_active": not created and current_step != Step.CLOSED,
+        "already_exists": not created,
+        "active_program_requirements": materials,
+        "readiness": {
+            "ready_for_portal": not missing_metadata,
+            "missing": missing_metadata,
+            "message": (
+                "Application started, but the opportunity record still needs "
+                + " and ".join(missing_metadata)
+                + ". Drafting may continue from cited programme evidence; portal "
+                  "work must wait for verified metadata."
+                if missing_metadata else "Opportunity metadata is application-ready."
+            ),
+        },
+        "checklist_status": {
+            item["key"]: item["status"] for item in committed_checklist},
     }
 
 

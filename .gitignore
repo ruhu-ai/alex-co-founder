@@ -49,6 +49,10 @@ dist/
 .adk/
 .codex/
 .opensrc
+.claude/
+
+# Local review/render output
+tmp/
 
 # reference material / unrelated binaries — keep out of the submission repo
 /*.pdf

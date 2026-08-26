@@ -39,7 +39,7 @@ founder's voice and thinking through explicit feedback capture.
 | `10-ui.md` | Demo web UI: pipeline board, chat, review controls, approval modal | Day 6, 11 |
 | `11-evaluations.md` | Golden eval sets, safety-gate tests, adaptation integration test, CI | Day 9 |
 | `12-security.md` | Secrets, tool scoping, approval tokens, audit, PII | Throughout |
-| `13-deployment.md` | Local setup, Cloud Run, Cloud SQL, Scheduler/Pub/Sub, cost control | Day 10 |
+| `13-deployment.md` | Local setup, Cloud Run, Cloud SQL, Scheduler/Pub/Sub, Cloud Tasks, cost control | Day 10 |
 | `14-build-plan.md` | 13-day plan, cut list, final acceptance criteria | Daily |
 | `adr/` | Decision records (001: agent identity — persona Alex, role mailbox, no social; 002: meeting presence — notes ladder, Calendar scheduling) | As decisions are made |
 | `15-document-outputs.md` | Document production: docx/xlsx/pptx builders, validation gate, downloads, Drive sync | Post-core |
@@ -48,6 +48,14 @@ founder's voice and thinking through explicit feedback capture.
 | `18-browser-agent.md` | General-purpose browsing (`browse.*` tools), Browser panel live view | Post-core |
 | `19-winning-plan.md` | Gap analysis vs prior winner, prioritized Google-framework coverage, timeline to Aug 31 | Post-core |
 | `20-gemma-evidence-checker.md` | Isolated semantic evidence check before founder review; Gemma, validation, rollout eval | Post-core |
+| `21-alex-platform-north-star.md` | Post-v1 multi-workflow platform: natural conversation, durable runs, dynamic composition, agents/capabilities, long-running execution, safety and migration | North star / post-v1 |
+| `22-browser-runtime-hardening.md` | Production browser ownership, in-app event projection, containment watchdogs, leases, quotas, and no-external-window invariant | Post-core hardening |
+| `23-session-resources-and-global-search.md` | Canonical resource index, many-to-many session provenance, discovery/search history, and top-left global search | Post-core compatibility |
+| `24-activity-and-waiting.md` | Activity line, wait states for a dormant/absent founder, and the return digest; adapter seam onto 21's waits/inbox | Post-core presentation |
+| `23-session-resources-review-prompt.md` | Adversarial architecture review prompt for spec 23 | Review only |
+| `24-data-source-reliability.md` | Current datasource hardening: connection health, source grants, safe Drive ingestion, event correlation/inbox, evidence authority, and external-action receipts | Proposed; review before build |
+| `24-data-source-review-prompt.md` | Adversarial implementation-readiness review prompt for spec 24 | Review only |
+| `25-hiring-operations.md` | Proposed months-long hiring outcome pack: email-first applications, manual LinkedIn publication, role/candidate/onboarding runs, human decisions, evidence/identity boundaries, surfaces, retention, evals, and build gates | Proposed; review before build |
 
 ## Design principles (binding on all implementation)
 
@@ -80,7 +88,7 @@ founder's voice and thinking through explicit feedback capture.
 - Gemini 3.5+ via Gemini API or Vertex AI
 - Google ADK (agent framework)
 - ≥1 Google Cloud infrastructure service — we use Cloud Run, Firestore, Pub/Sub,
-  Cloud Scheduler, Cloud Storage, Secret Manager, Cloud SQL
+  Cloud Scheduler, Cloud Tasks, Cloud Storage, Secret Manager, Cloud SQL
 
 ## Repo name
 

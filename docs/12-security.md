@@ -12,7 +12,7 @@ walk a judge through every row.
 | Secrets never in prompts | credentials are fetched inside `open_portal`/`submit_form` — they never appear in tool return values, so they never enter the conversation the model sees |
 | Secrets never in state or logs | log scrubber is a `logging.Filter` (in `services/`) installed on the logging path when the first secret is fetched; every value returned by `services/secrets.get` is registered with it, and the filter rewrites any registered secret value to `***` in a log record before it is emitted |
 | Webhook authenticity | mock portal signs calls with `X-Portal-Token` shared secret; agent verifies before acting on `portal_event` |
-| Company documents | uploaded docs live only in the founder's own GCS bucket (artifact service); extraction runs in-project; document contents are not sent to the Evidence Checker |
+| Company documents | uploaded docs live only in the founder's own GCS bucket. Extension/MIME are not trusted: PDF structure and bounded OOXML archives are validated before storage. Native parsers retain citations; legacy Office, encryption, traversal, links, duplicate members, expansion bombs, and malformed content fail closed. Contents are model data, never instructions/approval, and are not sent to the Evidence Checker. |
 | Drive connector | OAuth `drive.readonly` only; founder selects specific files (no blanket indexing); refresh tokens minted in-app persist to Secret Manager on Cloud Run / to `.env` locally, never to state or logs |
 | Gmail connector | OAuth `gmail.readonly` only; reads ONE founder-chosen label (default `grants`); everything outside that label is invisible to the agent — no sender, no subject; can never send/delete; processed ids persisted so rescans are idempotent |
 | Calendar connector | OAuth `calendar.readonly` + `calendar.events`; reads (free/busy, events) ungated; **booking is approval-gated in code** (gate `book_meeting`: GRANTED, unexpired, single-use, server-resolved) with the event details shown to the founder before approval; edit/delete of existing events is never granted to the agent |
@@ -68,6 +68,7 @@ Policy enforced in `/auth/session`, all server-side:
 | record feedback | ✓ | | | | | | |
 | write applications | ✓ | | | ✓ | ✓ | ✓ | |
 | transition application state | ✓ | | | ✓ | ✓ | ✓ | |
+| search active attachments | ✓ | | | ✓ | ✓ | | |
 
 A unit test imports each agent and diffs its tool list against this table.
 
@@ -79,13 +80,17 @@ A unit test imports each agent and diffs its tool list against this table.
 | Content | Isolated reader/proposer invocations (no tools, no conversation contents, untrusted-content delimiters, strict JSON out); suspected injection **suspends actions** (`injection_suspected` + `needs_human`), never just annotates |
 | Action | Click-through browsing (links **and** buttons; submit-semantics excluded, form fields never clicked — search boxes excepted — downloads/popups blocked); a click revealing a form/auth/payment surface freezes further actions; indexed-element + `dom_hash` revalidation before execution; idempotent `action_id`s; bot-challenge detector freezes runs |
 | Secrets | No credentials ever enter browse contexts; portal credentials stay on the form-filler path (above) |
-| Runs | Budget keyed by opaque `run_id` (20 actions / 90 s against durable `deadline_at`); Firestore `browser_runs` is the single source of truth; crash-safe action ledger (PREPARED→…→UNCERTAIN); founder stop audited as `founder:<id>` |
+| Runtime | One single-flight Playwright-owned Chromium process with literal `headless=True`; no headed, external launcher, personal profile, persistent context, CDP attach, or configurable executable path. One foreground run per session; all contexts share popup/dialog/download watchdogs and central ownership (22) |
+| Observation | Authenticated, snapshot-first event projection renders screenshot artifacts only in the in-app Browser surface; remote pages are never iframed; monotonic versions reject stale frames. Human OAuth current-tab redirect is a separate first-party auth boundary |
+| Runs | Budget keyed by opaque `run_id` (20 actions / 90 s against durable `deadline_at`); durable inactivity lease with generation-safe expiry; Firestore `browser_runs` is the single source of truth; crash-safe action ledger (PREPARED→…→UNCERTAIN); founder stop for browse/fill audited as `founder:<id>` |
 
 ## Approval tokens (the gate)
 
 1. `request_approval(gate)` creates an `approvals` row: status PENDING, no token.
    Gates: `submit_application` (09), `create_portal_account` (17),
-   `book_meeting` (§Credential handling, Calendar).
+   `book_meeting` (§Credential handling, Calendar). A submission approval also
+   stores `subject_hash = hash(application_id, portal_state_hash, mapping_hash)`
+   from the authoritative fill report.
 2. Founder grants in UI → server mints `token=uuid4().hex`, stores it on the row
    (status GRANTED, `expires_at = now + APPROVAL_TTL_MINUTES`). The token is
    **never returned to the browser and never enters the model's context** — it
@@ -93,8 +98,10 @@ A unit test imports each agent and diffs its tool list against this table.
 3. `submit_form(tool_context)` takes **no token argument** (a token argument
    would put the secret in the model's tool call, where it could be leaked or
    fabricated). The tool resolves the approval server-side: looks up the
-   GRANTED, unexpired, unconsumed approval for `active_application_id`; none
-   found → refusal + audit. On success it atomically marks the approval
+   GRANTED, unexpired, unconsumed approval for `active_application_id`, then
+   recomputes and compares `subject_hash` after the live staleness check; none or
+   mismatch → refusal + audit. A mismatch expires the grant and requires a new
+   fill report and approval. On success it atomically marks the approval
    CONSUMED. Judge answer to "could the model fabricate or leak the token?":
    it never sees one — there is nothing to fabricate or leak.
 4. Deny → status DENIED; the agent must receive a new explicit grant to proceed.
@@ -125,6 +132,8 @@ secrets). State transitions from the table in 03 are also logged
 | Double-submit attempt | idempotency no-op with original confirmation id |
 | Firestore down | tools return error dicts; agent tells founder and pauses; nothing half-written (writes are single-doc or batched) |
 | Container killed mid-step | session resumes from Cloud SQL; state machine re-orients from `current_step` |
+| Container killed during document extraction | Cloud Tasks redelivers; an expired lease is reclaimed; deterministic chunk ids and a generation pointer prevent a partial index from becoming visible |
+| Unreadable/scanned/unsafe attachment | terminal `NO_TEXT`, `UNSUPPORTED`, or `FAILED`; no model call, profile mutation, summary, or optimistic UI success |
 
 ## Acceptance checks
 

@@ -58,6 +58,10 @@ and safety boundaries.
   draft—for example, avoiding a phrase the founder previously rejected.
 - **Produces real artifacts**, including validated Word, Excel, PowerPoint, and
   PDF outputs with downloadable versions and provenance.
+- **Reads founder attachments safely**. PDF, DOCX, PPTX, XLSX, TXT, and CSV are
+  validated, extracted into page/slide/section chunks, and cited back to the
+  original. Conversation-only use is the default; Founder Profile mutation is
+  an explicit scope and unsupported scans are never presented as read.
 - **Works inside application portals** using guarded, headless Playwright
   automation and reports partial success when a field needs founder input.
 - **Requires approval for irreversible actions**. Submission, outbound email,
@@ -131,7 +135,34 @@ in an issue, commit, recording, or shared URL.
 | Store feedback as an inert transcript | Distill verbatim feedback into structured profile rules | Later work demonstrably changes rather than merely claiming to remember. |
 | Treat a polished response as success | Validate tool outcomes, artifacts, audit rows, and eval result JSON | The system must prove that the side effect happened. |
 
-### Application state machine and dormant pause gates
+### End-to-end funding journey
+
+The shipped application connects discovery to the complete application
+lifecycle. The **Run discovery sweep** button or the feature-flagged `/discover`
+chat command starts discovery and matching only when a founder asks. Alex then waits for the
+founder to choose a ranked opportunity before the guarded application lifecycle
+begins.
+
+```mermaid
+flowchart LR
+    CURRENT["Run discovery sweep"] --> D["Discover opportunities"]
+    CMD["/discover + optional prose context"] --> D
+    D --> M["Match, rank, and archive weak fits"]
+    M --> S["Ranked shortlist ready<br/>Wait for founder selection"]
+    S -->|"choose_opportunity()"| A["Existing application lifecycle"]
+    A --> W["Interview, draft, review, and fill"]
+    W --> G["Founder submission approval"]
+    G --> F["Submit, follow up, and close"]
+```
+
+Set `DISCOVER_COMMAND_ENABLED=true` to enable the competition-safe adapter. It
+accepts prose context only, reuses the existing discovery, matching, selection,
+and application path, and never chooses or submits for the founder. Task-scoped
+attachments, `/apply`, linked run records, and durable selection waits remain
+the [north-star Phase 2 design](docs/21-alex-platform-north-star.md#151-funding-and-program-applications),
+not claims about this adapter.
+
+### Current application state machine and dormant pause gates
 
 Co-Founder does not run one blocking thread from discovery to submission. The
 session persists its current state and becomes dormant at human or external
@@ -142,6 +173,15 @@ applied before the next model inference.
 stateDiagram-v2
     [*] --> IDLE : Initialize session
     IDLE --> TRIAGE : Founder opens pipeline
+
+    state "TRIAGE" as TRIAGE
+    note right of TRIAGE
+        ⏳ DORMANT — FOUNDER SELECTION
+        Ranked opportunities are ready.
+        No application exists until the
+        founder chooses one to pursue.
+    end note
+
     TRIAGE --> INTERVIEWING : choose_opportunity()
     INTERVIEWING --> DRAFTING : Required facts complete
     DRAFTING --> AWAITING_REVIEW : complete_drafting()
@@ -269,8 +309,8 @@ deadlines, and submission status.
 - **Cloud Storage** — uploaded source documents and generated artifacts.
 - **Secret Manager** — connector and portal credentials fetched by name only at
   execution time.
-- **Pub/Sub, Cloud Scheduler, Cloud Tasks, and signed webhooks** — event-driven
-  discovery, deadline checks, resumptions, and retries.
+- **Pub/Sub, Cloud Scheduler, Cloud Tasks, and signed webhooks** — manual durable
+  discovery, scheduled deadline checks, resumptions, and retries.
 - **Cloud Build** — reproducible deployment.
 
 See the full [service architecture diagram](docs/architecture-diagram.md) and
@@ -280,25 +320,27 @@ See the full [service architecture diagram](docs/architecture-diagram.md) and
 
 ## Workflow steps
 
-1. **`IDLE / TRIAGE`** — show the pipeline, prioritize urgent opportunities,
+1. **Discovery and matching** — a founder-invoked UI or chat action searches,
+   extracts, deduplicates, scores, and prepares a ranked shortlist.
+2. **`IDLE / TRIAGE`** — show the pipeline, prioritize urgent opportunities,
    and let the founder choose what to pursue.
-2. **`INTERVIEWING`** — fill only the gaps required for this program; persisted
+3. **`INTERVIEWING`** — fill only the gaps required for this program; persisted
    profile facts are reused rather than asked again.
-3. **`DRAFTING`** — prepare one grounded section at a time and attach the voice
+4. **`DRAFTING`** — prepare one grounded section at a time and attach the voice
    rules that shaped it.
-4. **`AWAITING_REVIEW`** — collect explicit approve, edit, or reject-with-reason
+5. **`AWAITING_REVIEW`** — collect explicit approve, edit, or reject-with-reason
    feedback. Rejected sections return to drafting.
-5. **`APPROVED`** — freeze founder-approved content and create the submission
+6. **`APPROVED`** — freeze founder-approved content and create the submission
    idempotency key.
-6. **`FORM_FILLING`** — inspect the real portal, persist its questions, map
+7. **`FORM_FILLING`** — inspect the real portal, persist its questions, map
    approved answers, and report exactly what was filled.
-7. **`AWAITING_SUBMIT_APPROVAL`** — show the irreversible action in the approval
+8. **`AWAITING_SUBMIT_APPROVAL`** — show the irreversible action in the approval
    panel; pasted or fabricated chat tokens have no authority.
-8. **`SUBMITTED`** — atomically consume approval, submit once, and store the
+9. **`SUBMITTED`** — atomically consume approval, submit once, and store the
    portal confirmation.
-9. **`FOLLOW_UP`** — monitor the Alex mailbox, program agent, deadlines, and
+10. **`FOLLOW_UP`** — monitor the Alex mailbox, program agent, deadlines, and
    scheduled obligations without polling.
-10. **`CLOSED`** — record the outcome and final audit event.
+11. **`CLOSED`** — record the outcome and final audit event.
 
 ---
 
@@ -344,8 +386,9 @@ Key entry points:
 - A Google Cloud project with billing and Vertex AI access
 - Application Default Credentials
 - Chromium for browser automation (`python -m playwright install chromium`)
-- LibreOffice/`soffice` for local PDF conversion and document previews; document
-  generation returns structured degradation data when it is absent
+- LibreOffice/`soffice` is optional for generated-document PDF previews only.
+  Uploaded PDF/DOCX/PPTX/XLSX/TXT/CSV files use native structured readers and do
+  not launch LibreOffice; document previews degrade explicitly when it is absent.
 
 Authenticate before setup:
 
@@ -391,6 +434,18 @@ Founder sign-in (email + Google) is optional and off until configured: set
 handles sign-in and the account menu (top-left avatar) shows the signed-in
 founder with Connectors, Settings, and Log out.
 
+To exercise conversational discovery locally after running the test and eval
+commands below, set `DISCOVER_COMMAND_ENABLED=true`, restart the app, and send:
+
+```text
+/discover Find non-dilutive AI infrastructure opportunities for an African pre-seed startup
+```
+
+Alex acknowledges the request, runs the existing discovery/matchmaker path,
+reports results in the same conversation, and waits for an explicit founder
+selection. `@attachment` references are refused by this adapter rather than
+silently updating the Founder Profile.
+
 ### Local development commands
 
 | Command | Purpose |
@@ -405,6 +460,8 @@ founder with Connectors, Settings, and Log out.
 | `python scripts/check_contrast.py` | Verify the founder UI's semantic color contrast. |
 | `python scripts/e2e_browser_story.py` | Run the real Gemini + Chromium end-to-end story against running services. |
 | `./scripts/deploy.sh` | Deploy the application, portal, sessions, tasks, and schedules to Google Cloud. |
+| `.venv/bin/python scripts/migrate_data_sources.py` | Dry-run the additive docs/24 connection/source migration (no writes). |
+| `.venv/bin/python scripts/migrate_data_sources.py --apply` | Idempotently backfill canonical connection/source rows; preserves every legacy row. |
 
 Full environment and cost guidance lives in
 [docs/13-deployment.md](docs/13-deployment.md).
@@ -414,9 +471,11 @@ Full environment and cost guidance lives in
 ## Evaluation and validation
 
 The repository uses deterministic tests and live ADK golden evaluations. The
-six golden sets cover persona identity, resume after idle time, document
-delivery, and three state/approval safety gates. Each safety gate contains
-three adversarial phrasings.
+golden sets cover persona identity, resume after idle time, document delivery,
+and state/approval/effect safety gates. Attachment safety cases refuse to
+summarize QUEUED or NO_TEXT inputs. A deterministic document matrix separately
+tests real formats, structure/citations, hostile archives, scope isolation,
+idempotency, and retry exhaustion.
 
 Three metric configurations prevent false confidence:
 
@@ -521,9 +580,11 @@ support investor outreach, customer discovery, compliance deadlines, hiring
 operations, bookkeeping reconciliation, and vendor follow-through.
 
 Near-term product work includes Google Sign-In with the judge allowlist,
-multi-founder identity and permissions, additional workflow definitions, and
-graduating the Gemma evidence checker only after its labelled rollout evals meet
-the documented precision and false-positive thresholds.
+the additive `/discover + context` and `/apply <opportunity>` conversation
+entries described in the north star, multi-founder identity and permissions,
+additional business workflow definitions, and graduating the Gemma evidence
+checker only after its labelled rollout evals meet the documented precision and
+false-positive thresholds.
 
 The boundary remains deliberate: strategy, pricing, hiring decisions, and
 pivots belong to people.

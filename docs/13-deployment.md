@@ -1,8 +1,8 @@
 # 13 — Deployment
 
-Two Cloud Run services + Firestore + Cloud SQL + Pub/Sub + Scheduler + Secret
-Manager + GCS. Everything scale-to-zero / pay-per-use so the project can stay up
-for judge testing (through ~Oct 1) at near-zero cost.
+Two Cloud Run services + Firestore + Cloud SQL + Pub/Sub + Scheduler + Cloud
+Tasks + Secret Manager + GCS. Everything scale-to-zero / pay-per-use so the
+project can stay up for judge testing (through ~Oct 1) at near-zero cost.
 
 ## Prereqs
 
@@ -15,7 +15,7 @@ for judge testing (through ~Oct 1) at near-zero cost.
   (skips enabled), writes `.env`, makes one test Gemini call.
 
 APIs to enable:
-`run firestore sqladmin pubsub cloudscheduler secretmanager storage cloudbuild aiplatform cloudtrace logging`
+`run firestore sqladmin pubsub cloudscheduler cloudtasks secretmanager storage cloudbuild aiplatform cloudtrace logging`
 
 `requirements.txt` (mirrors the reference repo's pyproject + our additions):
 
@@ -59,7 +59,7 @@ form is what Cloud Run mounts with `--add-cloudsql-instances`.
   Workspace-org projects: grant yourself `roles/orgpolicy.policyAdmin` on the
   org, then set a project-level `allowAll` policy before public deploy.
 - **Compute SA needs explicit roles** for the app: `datastore.user`,
-  `secretmanager.secretAccessor`, `aiplatform.user`, `storage.objectAdmin`,
+  `secretmanager.secretAccessor` (never administrator), `aiplatform.user`, `storage.objectAdmin`,
   `cloudsql.client`, and `cloudbuild.builds.builder` (source deploys).
 - **Cloud SQL tier**: new gcloud defaults to ENTERPRISE_PLUS edition;
   `db-f1-micro` needs `--edition=ENTERPRISE`.
@@ -92,9 +92,11 @@ python scripts/seed_demo.py   # profile seeded under user / eval_founder / demo 
 | Cloud SQL | Postgres 16, `db-f1-micro`, private IP optional | ADK sessions in prod |
 | GCS bucket | `gs://<project>-artifacts` | artifact service URI |
 | Secret Manager | `mock-portal-creds`, `portal-webhook-token` | |
-| Pub/Sub topics | `discovery-tick`, `deadline-tick` | **no distill topic** — the distiller runs inline on the interactive path (07) by design |
-| Scheduler jobs | `discovery-daily` (`0 7 * * *`), `deadline-scan-6h` (`0 */6 * * *`) | OIDC service account `scheduler-invoker@` |
-| Cloud Run ×2 | `co-founder`, `mock-portal` | `co-founder`: `--min-instances 0 --max-instances 1` (**single browser-owning instance**, 18), 2 GiB for Playwright; `mock-portal`: `--min-instances 0 --max-instances 2`, 1 GiB / 1 CPU |
+| Pub/Sub topics | `deadline-tick` | Discovery is founder-invoked through Cloud Tasks; **no discovery or distill topic** |
+| Scheduler jobs | `deadline-scan-6h` (`0 */6 * * *`) | OIDC service account `scheduler-invoker@`; discovery is never scheduled. The Pub/Sub push fast-enqueues Cloud Tasks and uses a 600-second ack deadline to cover cold starts without duplicate delivery. |
+| Cloud Tasks queue | `co-founder-events` | Durable HTTP dispatch for portal-event/agent wakes; OIDC-authenticated as `scheduler-invoker@`, max concurrency 1, max attempts 8. Browser expiry does not share this queue. The post-v1 expansion into general run-step/timer dispatch is specified in 21. |
+| Cloud Tasks queue | `co-founder-browser-expiry` | Generation-safe `/tasks/browser_expire` dispatch only (22); OIDC-authenticated, max concurrency 4, max attempts 8 (pinned on every deploy so an existing queue cannot drift). Separating it prevents an agent wake or retry from delaying resource release. |
+| Cloud Run ×2 | `co-founder`, `mock-portal` | `co-founder`: `--min-instances 0 --max-instances 1` (**single browser-owning instance**, 18), `--timeout=3600s`, 2 GiB for Playwright; Browser SSE rotates before 55 minutes and reconnects snapshot-first. `mock-portal`: `--min-instances 0 --max-instances 2`, 1 GiB / 1 CPU |
 
 Reference commands (`scripts/deploy.sh` implements them idempotently):
 
@@ -106,16 +108,31 @@ gcloud sql databases create adk_sessions --instance=co-founder-sessions
 # prod SESSION_SERVICE_URI:
 # postgresql+asyncpg://adk:<pw>@/adk_sessions?host=/cloudsql/<proj>:<region>:co-founder-sessions
 
+gcloud tasks queues create co-founder-events --location="$REGION" \
+  --max-concurrent-dispatches=1 --max-attempts=8
+gcloud tasks queues create co-founder-browser-expiry --location="$REGION" \
+  --max-concurrent-dispatches=10 --max-attempts=5
+
 gcloud run deploy mock-portal --source ./mock_portal --region=$REGION \
   --allow-unauthenticated --min-instances 0
 
 gcloud run deploy co-founder --source . --region=$REGION \
-  --allow-unauthenticated --min-instances 0 --max-instances 1 --memory 2Gi \
+  --allow-unauthenticated --min-instances 0 --max-instances 1 --timeout=3600s --memory 2Gi \
   --add-cloudsql-instances <proj>:<region>:co-founder-sessions \
   --set-env-vars-from-file .env.prod   # contains PORTAL_SECRET_NAME=mock-portal-creds
 # .env.prod must NOT set BROWSE_OPEN_WEB (or must set it false) — production
 # browsing is fail-closed to the allowlist (18). scripts/deploy.sh asserts this
 # and --max-instances 1 before deploying.
+
+# Before any migration or Cloud Run rollout, deploy.sh installs every composite
+# index in infra/firestore.indexes.json and verifies each is READY. It fails the
+# deployment if a declared query shape is absent or still building:
+python3 scripts/deploy_firestore_indexes.py --project "$GOOGLE_CLOUD_PROJECT"
+
+# GCS lifecycle: browserframe_*.jpg objects expire after seven days; milestone
+# PNG/page-text/form artifacts retain the application-artifact policy (02/22).
+# scripts/deploy.sh applies and verifies a reviewed bucket lifecycle JSON with a
+# matchesPrefix rule for the browser-frame object prefix.
 
 # secrets are fetched BY NAME via the API at execution time (12), never injected
 # as env values — grant the service account accessor instead:
@@ -123,13 +140,11 @@ gcloud secrets add-iam-policy-binding mock-portal-creds \
   --role=roles/secretmanager.secretAccessor \
   --member="serviceAccount:<run-sa>@<proj>.iam.gserviceaccount.com"
 
-gcloud pubsub topics create discovery-tick
 gcloud pubsub topics create deadline-tick
-gcloud scheduler jobs create pubsub discovery-daily --schedule="0 7 * * *" \
-  --topic=discovery-tick --message-body="{}"
 gcloud scheduler jobs create pubsub deadline-scan-6h --schedule="0 */6 * * *" \
   --topic=deadline-tick --message-body="{}"
-# push subscriptions -> /tasks/discover and /tasks/deadline_scan with OIDC SA
+# push subscription -> /webhooks/deadline with OIDC SA
+# founder-invoked discovery -> Cloud Tasks -> /tasks/discover
 ```
 
 Dockerfile notes: Playwright needs system Chromium — use
@@ -160,10 +175,24 @@ redelivery happens; derived idempotency keys are why it is safe.
 
 ## Verification checklist (post-deploy)
 
+Before the first revision that reads canonical docs/24 data-source rows, run the
+migration without flags and retain its `plan_hash`, target counts, parity field,
+and rollback manifest. Only then run it with `--apply`. The apply path is
+additive/idempotent, creates unverified legacy connections as `DEGRADED`, never
+copies credential values, never synthesizes historical provider events, and
+never deletes legacy records. A rollback keeps legacy reads enabled and removes
+only the separately reviewed exact canonical paths from the report; the script
+does not perform rollback deletion.
+
+```bash
+.venv/bin/python scripts/migrate_data_sources.py
+.venv/bin/python scripts/migrate_data_sources.py --apply
+```
+
 - [ ] `GET https://co-founder-<hash>.run.app/healthz` → 200
 - [ ] UI loads at the `.run.app` URL; chat round-trip works
 - [ ] Mock portal reachable; full demo sequence runs in the cloud
-- [ ] `gcloud scheduler jobs run discovery-daily` → opportunities appear in Firestore console
+- [ ] Founder clicks **Run discovery sweep** → Cloud Task runs once and opportunities appear in Firestore
 - [ ] Kill/restart proof: Cloud Run revision swap mid-workflow → session resumes
 - [ ] Vertex AI: model calls visible in console (video proof source)
 - [ ] Cloud Trace shows end-to-end runs (screenshot for README)
@@ -177,7 +206,7 @@ redelivery happens; derived idempotency keys are why it is safe.
   rolling; still ~$0 at idle traffic.
 - Cloud SQL `db-f1-micro` is the only always-on cost (~$9/mo — fits in credits);
   alternative if needed: stop the instance between demo days, sessions persist.
-- Playwright runs are seconds-long; Scheduler fires 1+4 times/day.
+- Playwright runs are seconds-long; the deadline Scheduler fires 4 times/day.
 - Budget alert at $20; teardown script: `gcloud run services delete ...`,
   `gcloud sql instances patch --no-activation-policy` etc. (list in README).
 
@@ -196,5 +225,12 @@ redelivery happens; derived idempotency keys are why it is safe.
 
 - [ ] Fresh clone → `./scripts/setup.sh` → local demo works in ≤ 15 min (time it).
 - [ ] `./scripts/deploy.sh` from clean state → both services live, demo sequence passes in cloud.
-- [ ] Production verification: deployed `co-founder` revision has `--max-instances 1` and no `BROWSE_OPEN_WEB=true` (deploy script asserts both; 18).
+- [ ] Production verification: deployed `co-founder` revision has
+  `--max-instances 1`, `--timeout=3600s`, no `BROWSE_OPEN_WEB=true`, and passes
+  `scripts/check_browser_invariants.py` (deploy/CI assert all four; 18/22).
+- [ ] `co-founder-browser-expiry` exists separately from `co-founder-events`;
+  expiry task delivery and portal-wake delivery cannot head-of-line block each
+  other in an integration test.
+- [ ] GCS lifecycle verification shows the seven-day browser-frame rule without
+  applying that TTL to milestone PNG, page text, fill report, or form-map data.
 - [ ] 48 h idle → next month's projected bill < $10 beyond credits.

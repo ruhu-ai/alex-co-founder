@@ -13,7 +13,9 @@ import re
 from typing import Any, Optional
 
 from google.adk.agents.callback_context import CallbackContext
+from google.adk.models import LlmResponse
 from google.adk.tools import BaseTool, ToolContext
+from google.genai import types
 
 from . import state_schema as ss
 
@@ -25,12 +27,192 @@ _DEFAULTS = {
     ss.K_CHECKLIST_STATUS: {},
     ss.K_PENDING_SIGNALS: [],
     ss.K_CURRENT_SECTION: "",
+    ss.K_ACTIVE_ATTACHMENTS: [],
+    ss.K_OPPORTUNITY_READINESS: {},
     ss.K_BROWSER_STATUS: {
         "active": False, "kind": None, "run_id": None, "url": None,
         "goal": None, "last_action": None,
     },
     ss.K_USER_PREFS: {},
 }
+
+_SPECIALIST_STEPS = {
+    "interviewer_agent": frozenset({ss.ApplicationStep.INTERVIEWING}),
+    "drafter_agent": frozenset({
+        ss.ApplicationStep.DRAFTING,
+        # APPROVED is intentionally allowed for founder-requested document
+        # production; save_draft_section still admits DRAFTING only.
+        ss.ApplicationStep.APPROVED,
+    }),
+    "form_filler_agent": frozenset({
+        ss.ApplicationStep.APPROVED,
+        ss.ApplicationStep.FORM_FILLING,
+        ss.ApplicationStep.AWAITING_SUBMIT_APPROVAL,
+    }),
+    "scout_agent": frozenset({ss.ApplicationStep.IDLE, ss.ApplicationStep.TRIAGE}),
+    "matchmaker_agent": frozenset({ss.ApplicationStep.IDLE, ss.ApplicationStep.TRIAGE}),
+}
+
+_EFFECTFUL_TOOLS = frozenset({
+    "save_opportunity", "shortlist", "archive_with_reason",
+    "choose_opportunity", "record_answer", "ingest_document",
+    "complete_interview", "save_draft_section", "complete_drafting",
+    "record_feedback", "produce_document", "fill_fields", "submit_form",
+    "transfer_to_agent",
+})
+_FAILURES_KEY = "temp:effect_failures"
+_RECEIPTS_KEY = "temp:completion_receipts"
+_PIPELINE_SUMMARY_KEY = "temp:pipeline_summary"
+
+
+async def guard_specialist_entry(callback_context: CallbackContext):
+    """Fail closed when ADK resumes or transfers into the wrong specialist.
+
+    Agent handoff is routing, never a business-state transition. Returning
+    Content ends this invocation before the specialist model receives tools.
+    """
+    allowed = _SPECIALIST_STEPS.get(callback_context.agent_name)
+    if not allowed:
+        return None
+    current = callback_context.state.get(ss.K_CURRENT_STEP, ss.ApplicationStep.IDLE)
+    if current in allowed:
+        return None
+    return types.Content(
+        role="model",
+        parts=[types.Part.from_text(text=(
+            "I couldn't continue that workflow step because the required state "
+            f"was not committed (current step: {current}). No work was saved. "
+            "I'll retry the preceding step or tell you what is blocking it."
+        ))],
+    )
+
+
+async def enforce_workflow_tool_contract(
+    tool: BaseTool, args: dict[str, Any], tool_context: ToolContext
+) -> Optional[dict[str, Any]]:
+    """Block invalid specialist handoffs before ADK changes agent ownership."""
+    if tool.name != "transfer_to_agent":
+        return None
+    target = str(args.get("agent_name") or "")
+    allowed = _SPECIALIST_STEPS.get(target)
+    if not allowed:  # parent/orchestrator transfers and unknowns use ADK's checks
+        return None
+    current = tool_context.state.get(ss.K_CURRENT_STEP, ss.ApplicationStep.IDLE)
+    if current in allowed:
+        return None
+    return {
+        "status": "error",
+        "error": True,
+        "error_code": "invalid_agent_handoff",
+        "message": (
+            f"Cannot transfer to {target}: its workflow state was not committed "
+            f"(current step: {current}). Report the preceding failure and stop."
+        ),
+    }
+
+
+def track_tool_outcome(
+    tool: BaseTool, args: dict[str, Any], tool_context: ToolContext,
+    tool_response: dict[str, Any],
+) -> None:
+    """Keep invocation-scoped completion evidence for the final response.
+
+    These ``temp:`` values are deliberately not workflow truth; they disappear
+    after the invocation. They only prevent the same invocation from turning a
+    rejected capability call into polished success prose.
+    """
+    name = tool.name
+    response = tool_response if isinstance(tool_response, dict) else {}
+    if name == "get_pipeline" and response.get("status") == "success":
+        opportunities = response.get("opportunities") or {}
+        tool_context.state[_PIPELINE_SUMMARY_KEY] = {
+            "shortlisted": len(opportunities.get("SHORTLISTED") or []),
+            "discovered": len(opportunities.get("DISCOVERED") or []),
+            "archived": len(opportunities.get("ARCHIVED") or []),
+            "applications": len(response.get("applications") or []),
+        }
+    if name not in _EFFECTFUL_TOOLS:
+        return None
+    failures = dict(tool_context.state.get(_FAILURES_KEY) or {})
+    receipts = dict(tool_context.state.get(_RECEIPTS_KEY) or {})
+    if response.get("error") is True or response.get("status") == "error":
+        failures[name] = {
+            "message": str(response.get("message") or f"{name} failed")[:300],
+            "error_code": str(response.get("error_code") or ""),
+        }
+        receipts.pop(name, None)
+    elif response.get("status") == "success" or name == "transfer_to_agent":
+        failures.pop(name, None)
+        receipts[name] = {
+            key: response.get(key) for key in (
+                "application_id", "section_id", "current_step", "feedback_id",
+                "artifact_name", "download_url", "message") if response.get(key)
+        }
+    tool_context.state[_FAILURES_KEY] = failures
+    tool_context.state[_RECEIPTS_KEY] = receipts
+    return None
+
+
+_DRAFT_OUTPUT = re.compile(
+    r"(?:^|\n)\s*(?:revised\s+)?(?:section\s+\d+\s+)?draft\s*:", re.I)
+_LOCKED_SECTION = re.compile(
+    r"\bsection\s+(?:\d+|[a-z][\w-]*)\s+(?:is\s+)?(?:locked|approved)\b", re.I)
+_SHORTLIST_COUNT = re.compile(r"\b(\d+)\s+shortlisted\b", re.I)
+
+
+def enforce_effect_claims(
+    callback_context: CallbackContext, llm_response: LlmResponse
+) -> Optional[LlmResponse]:
+    """Replace ungrounded success prose with an evidence-backed response.
+
+    This is intentionally narrow: it validates workflow-effect claims, not
+    general language. A tool failure is always reported; draft/approval claims
+    require their invocation receipt; and pipeline counts must equal the last
+    board snapshot.
+    """
+    content = llm_response.content
+    parts = list(content.parts or []) if content else []
+    if not parts or any(getattr(part, "function_call", None) for part in parts):
+        return None
+    text = "\n".join(part.text or "" for part in parts if getattr(part, "text", None))
+    if not text:
+        return None
+
+    failures = dict(callback_context.state.get(_FAILURES_KEY) or {})
+    receipts = dict(callback_context.state.get(_RECEIPTS_KEY) or {})
+    replacement = ""
+    if failures:
+        name, failure = next(reversed(failures.items()))
+        replacement = (
+            f"I couldn't complete {name.replace('_', ' ')}: "
+            f"{failure.get('message', 'the operation failed')}. No later workflow "
+            "step was committed."
+        )
+    elif _DRAFT_OUTPUT.search(text) and "save_draft_section" not in receipts:
+        replacement = (
+            "I couldn't present that draft because it has not been saved to the "
+            "active application. No draft or review state was committed."
+        )
+    elif _LOCKED_SECTION.search(text) and "record_feedback" not in receipts:
+        replacement = (
+            "I couldn't mark that section approved because no persisted section "
+            "feedback receipt exists. The section remains unchanged."
+        )
+    else:
+        summary = callback_context.state.get(_PIPELINE_SUMMARY_KEY) or {}
+        match = _SHORTLIST_COUNT.search(text)
+        if match and summary and int(match.group(1)) != int(summary.get("shortlisted", -1)):
+            replacement = (
+                f"The current board has {summary['shortlisted']} shortlisted, "
+                f"{summary['discovered']} newly discovered, and "
+                f"{summary['applications']} active applications."
+            )
+    if not replacement:
+        return None
+    return llm_response.model_copy(update={
+        "content": types.Content(
+            role="model", parts=[types.Part.from_text(text=replacement)])
+    })
 
 
 async def initialize_session_state(callback_context: CallbackContext) -> None:

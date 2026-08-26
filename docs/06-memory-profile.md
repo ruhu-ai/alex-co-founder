@@ -99,7 +99,10 @@ profile autonomously — asking the founder only about conflicts.
 
 **Sources (behind a `DocSourceAdapter` interface):**
 - `upload` (v1): founder drops files in the UI → artifact storage. Demo-safe,
-  no OAuth.
+  no OAuth. The default is **Use in conversation** (`reference_only`); **Add to
+  Founder Profile** is an explicit choice. Upload registration is brief, then
+  chat remains usable while extraction runs. Only a server-issued opaque id
+  enters session state.
 - `google_drive` (built): OAuth `drive.readonly`, founder-selected
   files only — no blanket indexing. Managed from the Connections panel;
   one-time consent via `scripts/oauth_setup.py`.
@@ -108,31 +111,71 @@ profile autonomously — asking the founder only about conflicts.
 
 ```
 document (upload or Drive)
-  └─ artifact companydoc_{ts}
-       └─ Gemini document understanding (same multimodal stack; decks, DOCX,
-          PDFs, Sheets for traction numbers)
-             └─ structured extraction → ingestions doc with PROPOSED updates:
+  └─ byte/type/OOXML safety validation
+       └─ scoped artifact + QUEUED ingestion (HTTP returns; no blocked chat)
+            └─ idempotent Cloud Tasks worker
+                 └─ structured pages/slides/sections → cited chunks
+                      └─ retrieval index + Gemini document understanding
+                           └─ profile scope only: PROPOSED updates:
                   facts (company, product, traction, team, market),
                   canonical-answer candidates (from past applications),
                   voice-rule candidates (from the founder's own writing),
                   rejection-history entries (from past rejection letters)
                   — each proposal tagged confidence high (verbatim) / low (inferred)
                   └─ auto_apply_profile_updates (autonomous, deterministic):
-                       ├─ confident + non-conflicting → apply_profile_update
-                       │    (versioned, evidenced, audited — no founder prompt)
-                       └─ conflicts / low-confidence → needs_founder:
+                       ├─ exact quote/hash citation + profile-scoped source
+                       │    + fact/canonical-answer + non-conflicting
+                       │    → EVIDENCE_VERIFIED profile update
+                       └─ conflicts / low-confidence / missing citation /
+                            voice-rule or decision-pattern → needs_founder:
                             founder confirms or rejects each flagged item (UI/chat)
                             ├─ approved → apply_profile_update
                             └─ rejected → feedback rows with reasons → distiller
 ```
 
+Every upload records owner, origin session, explicit scope, content type, byte
+size, SHA-256, randomized artifact name, and ingestion status. Chat resolves
+those ids server-side; raw filenames have no authority. A profile-scoped upload
+returns exact `auto_applied` and `needs_founder` counts, and the UI never claims
+completion while the ingestion is `QUEUED`, `VALIDATING`, `EXTRACTING`, or
+`INDEXING`.
+
+Upload completion and extraction completion are distinct. The upload endpoint
+returns an opaque attachment id with `QUEUED`; the client observes status changes
+without holding the upload request open. A worker claims the ingestion with a
+lease, commits chunks before profile proposals, and may be retried without
+duplicating chunks or mutations. A generation pointer keeps readers on the
+previous complete index if a multi-batch re-index is interrupted. Cloud Tasks
+redelivers transient worker/model failures up to the bounded attempt cap. Zero
+extracted content is `NO_TEXT`; malformed or unsafe content is
+`FAILED`/`UNSUPPORTED`; none is described as success.
+Profile proposals have deterministic ids, and each applied mutation writes a
+transactional idempotency receipt. A crash after the profile write but before
+the worker's terminal status therefore cannot bump the profile twice on retry.
+This asynchronous contract is the Cloud Run path. Local development, where no
+durable Cloud Tasks transport exists, deliberately completes extraction inside
+the upload request instead of creating an orphan background coroutine.
+
+PDF, DOCX, PPTX, XLSX, UTF-8 TXT, and CSV have native structured readers. Page,
+slide, paragraph/section, table, speaker-note, sheet, and cell-range locators are
+retained for citations. New upload extraction never invokes LibreOffice; that
+external process is restricted to optional produced-document preview/conversion.
+Legacy `.doc`, `.ppt`, and `.xls` are rejected with an export instruction.
+
+`reference_only` artifacts can be searched through `search_attachment` when the
+founder explicitly includes their ids in the current session. They cannot propose
+or apply Founder Profile mutations. `profile` is an explicit UI choice, not the
+default interpretation of every upload.
+
 Two deliberate design choices:
 
 1. **Autonomous application, deterministic escalation.** Extraction is
-   auto-applied only when it is both confident (stated verbatim in the
-   document) and non-conflicting against the current profile — the conflict
-   check is code, not model judgment. Anything else (a contradicted fact, an
-   inferred number) is held for the founder with both values shown, and every
+   auto-applied only for `fact_update` and `canonical_answer_update` when the
+   claim has an exact hash-matching quote/locator in a founder-designated
+   profile source and is non-conflicting. It is stored as `EVIDENCE_VERIFIED`,
+   never founder-confirmed. Voice rules and decision patterns always wait for
+   founder review until deterministic conflict/supersession semantics exist.
+   Anything else is held with both values shown, and every
    rejection is *another verbatim feedback record*, so ingestion still
    produces adaptation evidence. All writes stay versioned and reversible;
    the only irreversible action in the system (submission) remains gated by
@@ -157,6 +200,14 @@ Keep it deterministic and inspectable. Optional stretch (Best Architectural Desi
 fodder, only if core is done): Vertex text-embeddings over canonical answers,
 cosine top-k; store embedding vectors in the same doc. Do not block v1 on this.
 
+Attachment retrieval is separate from canonical profile authority. Every hit
+returns `source_type`, `source_id`, `source_title`, a bounded `excerpt`, an exact
+quote/hash/locator citation, and `authority=unconfirmed_evidence`. An incomplete
+citation fails the result contract instead of synthesizing a successful-looking
+answer. Revoked or deleted Drive sources keep historical provenance but render
+`source_available=false`; high-impact facts then require revalidation for a new
+consequential action.
+
 ## Context window discipline
 
 - Source pages / PDFs → artifacts; only ≤300-char summaries in conversation.
@@ -170,3 +221,10 @@ cosine top-k; store embedding vectors in the same doc. Do not block v1 on this.
 - [ ] Feedback with reason "too buzzwordy, drop 'revolutionary'" results in an active voice_rule within one distiller run; the next `save_draft_section` notes cite `vr_*`.
 - [ ] Approving a section replaces the canonical answer for its question_key (`version` bumps, `times_used` resets preserved history).
 - [ ] Profile survives: delete session, new session, `user:profile_id` resolves, `get_profile` returns prior rules.
+- [ ] A PDF/DOCX/PPTX upload returns `QUEUED`, becomes `READY` or
+      `NEEDS_FOUNDER` asynchronously, and remains searchable by cited page/slide/
+      paragraph chunks after a worker retry.
+- [ ] Empty, corrupt, encrypted, type-mismatched, legacy Office, and archive-bomb
+      fixtures terminate honestly without model invocation or profile mutation.
+- [ ] `reference_only` never mutates the profile; a foreign-session attachment id
+      returns not-found from both resolution and search.

@@ -16,9 +16,14 @@ ENV PIP_DEFAULT_TIMEOUT=120 PIP_RETRIES=5
 COPY requirements.txt .
 RUN pip install --no-cache-dir --retries 5 --timeout 120 -r requirements.txt
 COPY . .
-ENV PORT=8080
+ENV PORT=8080 LIBREOFFICE_CONVERSION_ENABLED=true
 
 # Non-root execution. The base image ships `pwuser` and browsers land in the
 # world-readable /ms-playwright, so Chromium and soffice both run unprivileged.
 USER pwuser
-CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port $PORT"]
+# --timeout-graceful-shutdown: SSE streams run for up to 55 minutes, and
+# uvicorn waits for open connections before running lifespan shutdown. Without
+# a bound, Cloud Run SIGKILLs at ~10 s and the browser shutdown/reconcile hook
+# never runs whenever the founder has the Browser panel open. Two seconds leaves
+# the reviewed 5.5-second browser cleanup budget inside that platform window.
+CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port $PORT --timeout-graceful-shutdown 2"]

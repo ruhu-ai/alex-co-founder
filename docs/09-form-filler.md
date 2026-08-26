@@ -95,8 +95,8 @@ TIER 2 — VISION RECOVERY & FILL (escalation only)
    `needs_human` (same partial-success semantics as DOM fills). The demo shows
    the cached artifact + a truncated live segment, never a full silent wait
    (a pause on camera reads as "broken").
-3. **Every vision action is evidenced:** screenshot before/after saved as
-   artifacts + an `audit` row per action (`action=vision_step`, detail =
+3. **Every vision action is evidenced:** bounded before/after viewport JPEG
+   frames saved under 22's ordered frame contract + an `audit` row per action (`action=vision_step`, detail =
    proposed action + target). The UI audit tail shows the agent "looking."
 4. **Staleness fence and derived idempotency keys wrap the vision path exactly
    as the DOM path** — recovery re-maps first, never guesses.
@@ -131,16 +131,52 @@ Programs accept applications three ways; v1 covers each deliberately:
 
 ## Browser session
 
-- One module-level Playwright Chromium instance per server process; a new
-  browser **context** per fill run (isolated cookies), closed after.
+- One single-flight Playwright-managed Chromium instance per server process,
+  literal `headless=True`; a new browser **context** per fill run (isolated
+  cookies), owned only by 22's `ContextSupervisor` and closed after.
 - **Every fill run is recorded in Firestore `browser_runs` with `kind="fill"`**
-  (18 §BrowserRun contract): created at `open_portal` (`status=active`),
+  (18 §BrowserRun contract): created before portal bootstrap at `open_portal`
+  (`status=opening`, `application_id` required), projected immediately, then
+  promoted to `active` only after the primary page and first frame commit.
+  Credential resolution, login, verification, filling, approval wait, and
+  submission are visible phases on that same foreground run,
   updated with `current_url` / `screenshot_artifact` / `last_action` through
   the run, and closed (`agent_close` | `error`) when the run ends — this is
   what lets the UI Browser panel (18) watch fills live with the same payload
   shape as browse runs.
-- Playwright is always headless; development and Cloud Run both mirror progress in the in-app Browser panel.
+- Playwright is always headless; development and Cloud Run both mirror progress
+  only in the in-app Browser panel. There is no headed, CDP-attach, persistent
+  profile, or OS-browser mode.
+- Fill registration supersedes any research run for the same session. All fill
+  contexts install 22's common download, popup, and JavaScript-dialog
+  watchdogs before their first page. Popups/SSO and consequential dialogs
+  become `needs_human`; they are never silently adopted or auto-confirmed.
+- The founder Stop control closes a fill context idempotently without submitting
+  or advancing application state. All page ownership lives in the shared
+  supervisor; form-filler modules keep no second page registry.
 - Every fill run: screenshots after fill and after submit → artifacts.
+
+**Recovery is durable:** a stop during `FORM_FILLING` leaves that workflow state
+unchanged. Reopen loads the application by the BrowserRun's `application_id`,
+recreates the page, remaps/revalidates the portal, and reapplies
+`applications.last_fill_mapping` idempotently before writing a new fill report.
+Only that report lets the form-filler own the transition to
+`AWAITING_SUBMIT_APPROVAL`. If a stopped browser is reopened while already
+`AWAITING_SUBMIT_APPROVAL`, the live portal signature and durable mapping hash
+must still match the report bound to the grant. A mismatch expires the grant and
+requires a new fill report and founder approval; an unchanged report may use the
+existing unexpired grant. No recovery path depends on an in-memory `Page`.
+
+**The comparison fails closed, never open.** `mapping_hash` is the canonical
+hash of the intended mapping: sorted field names plus a domain-separated
+SHA-256 per value (`sha256(name || NUL || value)`), never the value, a prefix,
+or a length — the founder's answers are PII and the report and approval rows are
+read back by the UI and quoted in the audit tail. `subject_hash` on the approval
+is `hash(application_id + portal_state_hash + mapping_hash)`. A report missing
+either hash, or a grant carrying no `subject_hash`, is refused
+(`approval_binding_missing`) and the founder re-approves — an absent hash is
+never treated as a match. Recovery re-derives the mapping hash after the re-fill
+and refuses (`mapping_changed`) if it moved.
 
 ## Fill report (`applications.form_fill_report`)
 
@@ -149,6 +185,7 @@ Programs accept applications three ways; v1 covers each deliberately:
  "needs_human": [{"field": "deck_upload", "reason": "file upload"},
                  {"field": "referral_source", "reason": "not in approved answers"}],
  "portal_state_hash": "sha256:...",
+ "mapping_hash": "sha256:...",
  "screenshot_artifact": "fillshot_app123_20260825T1012Z.png",
  "ran_at": "..."}
 ```
@@ -200,7 +237,15 @@ shared secret; the agent verifies it (cheap stand-in for real signature schemes)
 - [ ] **Vision recon coverage:** `map_form_requirements` on the mock portal produces a `form_map` artifact covering all 16 fields across steps (including the dynamic select and the file upload) plus the page's stated requirements; artifact is inspectable in the console.
 - [ ] **Vision cannot submit:** the `vision_step` allowlist provably excludes submit controls (attempt returns `{"error": true, "message": "action not permitted"}` + audit row); submission occurs only through `submit_form` with a valid token.
 - [ ] Step budget: a recon loop capped at 20 actions; exhaustion yields partial `form_map` + `needs_human`, never a hang.
-- [ ] Every vision action has before/after screenshot artifacts + an `audit` `vision_step` row.
+- [ ] Every vision action has ordered before/after JPEG frame artifacts + an `audit` `vision_step` row; PNG is emitted only for blocked/final and fill/submit milestones.
 - [ ] `submit_form` with an expired/denied/consumed token refuses and writes `audit` `result=refused`.
 - [ ] Screenshots saved as artifacts on both fill and submit.
+- [ ] Stop during `FORM_FILLING` leaves workflow state unchanged; reopen/refill
+  writes a fresh report before approval is requested. Stop/reopen from
+  `AWAITING_SUBMIT_APPROVAL` uses an existing grant only when the portal and
+  mapping hashes still match; a mismatch expires it and requires reapproval.
+- [ ] An approval with no `subject_hash`, or a fill report with no
+  `portal_state_hash`/`mapping_hash`, refuses the submit
+  (`approval_binding_missing`) instead of passing; a re-fill that changes either
+  hash expires every open `submit_application` approval before requesting a new one.
 - [ ] `GET /admin/reset` restores a clean demo in < 5 s.
