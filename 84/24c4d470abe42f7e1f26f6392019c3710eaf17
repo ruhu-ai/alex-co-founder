@@ -1,0 +1,34 @@
+scripts/run_local.sh
+  s_0d88913a591014::t_d482018b45c151 19-20
+  s_f9240fe607c610::t_d9480f9f2805a0 1-18,24-41
+  s_0d88913a591014::t_7dc9f9a0596c8a 21-23
+app/main.py
+  s_0d88913a591014::t_7dc9f9a0596c8a 2558-2562
+  s_0d88913a591014::t_e7d74b7d6a96fa 2563,2565-2573
+tests/unit/test_app_server.py
+  s_0d88913a591014::t_51290f49769079 893-910
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "8424c4d470abe42f7e1f26f6392019c3710eaf17",
+  "prompts": {},
+  "sessions": {
+    "s_0d88913a591014": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a024b4-0838-7aa2-b12f-fefddbe84fe4",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Ijidai Lassa <ijidai@cued.app>"
+    },
+    "s_f9240fe607c610": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0f530e56-43c7-4947-994b-31e20d0ccde4",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Ijidai Lassa <ijidai@cued.app>"
+    }
+  }
+}
