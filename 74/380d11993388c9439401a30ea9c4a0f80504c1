@@ -1,0 +1,41 @@
+tests/unit/test_app_server.py
+  s_0d88913a591014::t_a6da95a6bb23dd 755,757,764-765
+  s_0d88913a591014::t_c475f600ef7261 766-767
+docs/01-architecture.md
+  s_0d88913a591014::t_c047bf8526bcf9 227
+docs/07-server-webhooks.md
+  s_0d88913a591014::t_c047bf8526bcf9 162,164
+docs/21-alex-platform-north-star.md
+  s_0d88913a591014::t_c047bf8526bcf9 1760-1761,1881-1882
+app/static/index.html
+  s_0d88913a591014::t_a6da95a6bb23dd 2513-2514
+docs/23-session-resources-and-global-search.md
+  s_0d88913a591014::t_c047bf8526bcf9 492,521-522,1095-1096
+docs/08-discovery-pipeline.md
+  s_0d88913a591014::t_c047bf8526bcf9 10
+tests/unit/test_search_ui_contract.py
+  s_0d88913a591014::t_a6da95a6bb23dd 162
+docs/13-deployment.md
+  s_0d88913a591014::t_c047bf8526bcf9 195
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "74380d11993388c9439401a30ea9c4a0f80504c1",
+  "prompts": {},
+  "humans": {
+    "h_137cc690990511": {
+      "author": "Ijidai Lassa <ijidai@cued.app>"
+    }
+  },
+  "sessions": {
+    "s_0d88913a591014": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a024b4-0838-7aa2-b12f-fefddbe84fe4",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Ijidai Lassa <ijidai@cued.app>"
+    }
+  }
+}
