@@ -320,6 +320,9 @@ def test_login_page_signs_in_by_current_tab_redirect_not_a_popup():
     assert check_paths([login]) == []
     for banned in guard.SDK_POPUP_CALLS:
         assert banned not in source, f"{banned} is back in the sign-in page"
-    # The redirect pair: leave the tab, and consume the result on the way back.
-    assert "signInWithRedirect(" in source
-    assert "getRedirectResult(" in source
+    # The current tab enters the server-owned authorization-code flow. Firebase
+    # popup/redirect helpers are both absent, so no cross-origin browser storage
+    # is needed to hand the result back.
+    assert 'location.assign("/auth/google/start")' in source
+    assert "signInWithRedirect(" not in source
+    assert "getRedirectResult(" not in source

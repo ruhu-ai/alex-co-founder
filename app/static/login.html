@@ -102,7 +102,7 @@ button.secondary { background: var(--surface-2); border-color: var(--border); co
     </div>
   </form>
 
-  <div class="split">or</div>
+  <div class="split" id="split">or</div>
   <button class="secondary" id="googleBtn" type="button">
     <!-- Official Google "G" — sign-in buttons are the sanctioned use of this
          mark (Google Identity branding guidelines); colors never re-themed. -->
@@ -126,15 +126,6 @@ const busy = (on) => ["signinBtn", "googleBtn"].forEach(id => $(id).disabled = o
 const GOOGLE_LABEL = "Continue with Google";
 const googleLabel = text => { $("googleLabel").textContent = text; };
 
-// Google sign-in is a CURRENT-TAB redirect — docs/22: human OAuth may replace
-// this tab but never opens a window — so the browser leaves this page and comes
-// back as a fresh load. This tab-scoped flag survives that round trip so the
-// page returns in its pending state instead of looking like an idle form that
-// silently ate the click.
-const GOOGLE_PENDING = "cofounder-google-pending";
-const resuming = sessionStorage.getItem(GOOGLE_PENDING) === "1";
-if (resuming) { busy(true); googleLabel("Finishing sign-in…"); }
-
 // Match the app's stored theme choice so the two pages never disagree.
 const stored = localStorage.getItem("cofounder-theme");
 if (stored) document.documentElement.dataset.theme = stored;
@@ -145,143 +136,116 @@ const cfg = await fetch("/auth/config").then(r => r.json()).catch(() => null);
 // Already signed in (or dev-open)? Straight to the app.
 const me = await fetch("/auth/me").then(r => r.ok ? r.json() : null).catch(() => null);
 if (me?.authenticated) {
-  sessionStorage.removeItem(GOOGLE_PENDING);
   location.replace("/");
 } else if (!cfg || !cfg.enabled) {
-  sessionStorage.removeItem(GOOGLE_PENDING);
   $("tagline").textContent = "Sign-in isn't configured for this deployment.";
   show("Set FIREBASE_WEB_API_KEY, FIREBASE_PROJECT_ID and ALLOWED_LOGIN_EMAILS "
      + "to enable email + Google sign-in — or open the app with your access key "
      + "(/?key=…).", "danger");
   for (const id of ["emailForm", "googleBtn"]) $(id).style.display = "none";
 } else {
-  const { initializeApp } = await import("https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js");
-  const { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword,
-          sendEmailVerification, sendPasswordResetEmail,
-          GoogleAuthProvider, signInWithRedirect, getRedirectResult, signOut } =
-    await import("https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js");
-
-  const auth = getAuth(initializeApp({
-    apiKey: cfg.apiKey, authDomain: cfg.authDomain, projectId: cfg.projectId }));
-
-  // A Firebase sign-in only counts once the SERVER accepts it: it verifies
-  // the ID token, requires a verified email, and checks the allowlist.
-  // BOTH sign-in paths — email/password and the Google redirect return — finish
-  // here, so what the server is handed can never differ between them.
-  async function establishSession(user) {
-    const idToken = await user.getIdToken();
-    const r = await fetch("/auth/session", {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id_token: idToken }) });
-    if (r.ok) { location.replace("/"); return; }
-    const j = await r.json().catch(() => ({}));
-    await signOut(auth);  // no half-signed-in state
-    show(j.error || "Sign-in was rejected.", "danger");
-  }
-
-  const FRIENDLY = {
-    "auth/invalid-credential": "Wrong email or password.",
-    "auth/wrong-password": "Wrong email or password.",
-    "auth/user-not-found": "No account with that email — create one below.",
-    "auth/too-many-requests": "Too many attempts — wait a minute, or reset your password.",
-    "auth/email-already-in-use": "That email already has an account — sign in instead.",
-    "auth/weak-password": "Password must be at least 6 characters.",
-    "auth/invalid-email": "That doesn't look like an email address.",
-    // Redirect outcomes. The popup-only codes (popup-closed-by-user,
-    // popup-blocked, cancelled-popup-request) can no longer happen.
-    "auth/account-exists-with-different-credential":
-      "That email already signs in with a password — use the form above instead.",
-    "auth/user-cancelled": "Google sign-in was cancelled.",
-    "auth/network-request-failed":
-      "Couldn't reach Google — check your connection and try again.",
-    "auth/web-storage-unsupported":
-      "This browser is blocking the storage Google sign-in needs — allow cookies for this site.",
-    "auth/unauthorized-domain": "This domain isn't authorized for Google sign-in.",
+  const firebaseEnabled = Boolean(cfg.firebaseEnabled);
+  const googleEnabled = Boolean(cfg.googleEnabled);
+  const googleErrors = {
+    not_configured: "Google sign-in isn't configured for this deployment.",
+    start_failed: "Google sign-in couldn't start — check the deployment configuration.",
+    invalid_state: "That sign-in attempt expired or was already used — try again.",
+    cancelled: "Google sign-in was cancelled.",
+    exchange_failed: "Google couldn't complete sign-in — try again.",
+    unverified_email: "Google did not return a verified email address.",
+    not_authorized: "That Google account isn't authorized for this workspace.",
   };
-  const friendly = e => FRIENDLY[e && e.code] || (e && e.message) || String(e);
-
-  // The Google return trip. getRedirectResult() consumes the credential the
-  // provider handed back to THIS tab; from there it is the same server exchange
-  // the email path uses. Runs on every load: cheap and null when idle.
-  async function completeGoogleRedirect() {
-    let result = null;
-    try {
-      result = await getRedirectResult(auth);
-    } catch (e) {
-      sessionStorage.removeItem(GOOGLE_PENDING);
-      busy(false); googleLabel(GOOGLE_LABEL);
-      show(friendly(e), "danger");
-      return;
-    }
-    sessionStorage.removeItem(GOOGLE_PENDING);
-    if (result) {
-      clear();
-      try { await establishSession(result.user); }
-      catch (e) { show(friendly(e), "danger"); }
-    } else if (resuming) {
-      // Back from Google with no credential: consent declined, or this tab
-      // reloaded after the result was already consumed.
-      show("Google sign-in didn't finish — try again.", "danger");
-    }
-    busy(false); googleLabel(GOOGLE_LABEL);
+  const errorCode = new URL(location.href).searchParams.get("google_error");
+  if (errorCode) {
+    show(googleErrors[errorCode] || "Google sign-in failed — try again.", "danger");
+    history.replaceState({}, "", "/login.html");
   }
 
-  $("emailForm").addEventListener("submit", async () => {
-    clear(); busy(true);
-    try {
-      const cred = await signInWithEmailAndPassword(auth, $("email").value.trim(), $("password").value);
-      if (!cred.user.emailVerified) {
+  if (!firebaseEnabled) $("emailForm").style.display = "none";
+  if (!googleEnabled) $("googleBtn").style.display = "none";
+  if (!firebaseEnabled || !googleEnabled) $("split").style.display = "none";
+
+  // Google login uses a confidential server-side authorization-code flow.
+  // The browser only follows current-tab redirects; no popup API or
+  // cross-origin Firebase storage participates in the result hand-off.
+  if (googleEnabled) {
+    $("googleBtn").onclick = () => {
+      clear(); busy(true); googleLabel("Redirecting to Google…");
+      location.assign("/auth/google/start");
+    };
+  }
+
+  if (firebaseEnabled) {
+    const { initializeApp } = await import("https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js");
+    const { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword,
+            sendEmailVerification, sendPasswordResetEmail, signOut } =
+      await import("https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js");
+
+    const auth = getAuth(initializeApp({
+      apiKey: cfg.apiKey, authDomain: cfg.authDomain, projectId: cfg.projectId }));
+
+    async function establishSession(user) {
+      const idToken = await user.getIdToken();
+      const r = await fetch("/auth/session", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id_token: idToken }) });
+      if (r.ok) { location.replace("/"); return; }
+      const j = await r.json().catch(() => ({}));
+      await signOut(auth);
+      show(j.error || "Sign-in was rejected.", "danger");
+    }
+
+    const FRIENDLY = {
+      "auth/invalid-credential": "Wrong email or password.",
+      "auth/wrong-password": "Wrong email or password.",
+      "auth/user-not-found": "No account with that email — create one below.",
+      "auth/too-many-requests": "Too many attempts — wait a minute, or reset your password.",
+      "auth/email-already-in-use": "That email already has an account — sign in instead.",
+      "auth/weak-password": "Password must be at least 6 characters.",
+      "auth/invalid-email": "That doesn't look like an email address.",
+      "auth/network-request-failed": "Couldn't reach Firebase — check your connection and try again.",
+    };
+    const friendly = e => FRIENDLY[e && e.code] || (e && e.message) || String(e);
+
+    $("emailForm").addEventListener("submit", async () => {
+      clear(); busy(true);
+      try {
+        const cred = await signInWithEmailAndPassword(auth, $("email").value.trim(), $("password").value);
+        if (!cred.user.emailVerified) {
+          await sendEmailVerification(cred.user).catch(() => {});
+          await signOut(auth);
+          show("Verify your email first — a fresh verification link is on its way to your inbox.", "ok");
+          return;
+        }
+        await establishSession(cred.user);
+      } catch (e) { show(friendly(e), "danger"); }
+      busy(false);
+    });
+
+    $("createLink").onclick = async () => {
+      clear();
+      const email = $("email").value.trim(), password = $("password").value;
+      if (!email || !password) { show("Enter the email and a password to create the account with.", "danger"); return; }
+      busy(true);
+      try {
+        const cred = await createUserWithEmailAndPassword(auth, email, password);
         await sendEmailVerification(cred.user).catch(() => {});
         await signOut(auth);
-        show("Verify your email first — a fresh verification link is on its way to your inbox.", "ok");
-        return;
-      }
-      await establishSession(cred.user);
-    } catch (e) { show(friendly(e), "danger"); }
-    busy(false);
-  });
+        show("Account created. Click the verification link in your inbox, then sign in here.", "ok");
+      } catch (e) { show(friendly(e), "danger"); }
+      busy(false);
+    };
 
-  $("createLink").onclick = async () => {
-    clear();
-    const email = $("email").value.trim(), password = $("password").value;
-    if (!email || !password) { show("Enter the email and a password to create the account with.", "danger"); return; }
-    busy(true);
-    try {
-      const cred = await createUserWithEmailAndPassword(auth, email, password);
-      await sendEmailVerification(cred.user).catch(() => {});
-      await signOut(auth);
-      show("Account created. Click the verification link in your inbox, then sign in here.", "ok");
-    } catch (e) { show(friendly(e), "danger"); }
-    busy(false);
-  };
-
-  $("resetLink").onclick = async () => {
-    clear();
-    const email = $("email").value.trim();
-    if (!email) { show("Enter your email above first, then click reset.", "danger"); return; }
-    try {
-      await sendPasswordResetEmail(auth, email);
-      show("Password reset email sent — check your inbox.", "ok");
-    } catch (e) { show(friendly(e), "danger"); }
-  };
-
-  $("googleBtn").onclick = async () => {
-    clear(); busy(true); googleLabel("Redirecting to Google…");
-    try {
-      // Set the flag BEFORE navigating: this call normally never returns
-      // because the tab is already on its way to Google.
-      sessionStorage.setItem(GOOGLE_PENDING, "1");
-      await signInWithRedirect(auth, new GoogleAuthProvider());
-    } catch (e) {
-      sessionStorage.removeItem(GOOGLE_PENDING);
-      busy(false); googleLabel(GOOGLE_LABEL);
-      show(friendly(e), "danger");
-    }
-  };
-
-  // Last, so a credential waiting from the previous page load lands on a fully
-  // wired page. The buttons are already disabled while `resuming` is true.
-  await completeGoogleRedirect();
+    $("resetLink").onclick = async () => {
+      clear();
+      const email = $("email").value.trim();
+      if (!email) { show("Enter your email above first, then click reset.", "danger"); return; }
+      try {
+        await sendPasswordResetEmail(auth, email);
+        show("Password reset email sent — check your inbox.", "ok");
+      } catch (e) { show(friendly(e), "danger"); }
+    };
+  }
 }
 </script>
 </body>

@@ -34,7 +34,8 @@ the request "the founder":
 | Path | Mechanism | Notes |
 |---|---|---|
 | Access key (ops/e2e) | `APP_AUTH_TOKEN` via `/?key=` bootstrap → HttpOnly cookie, or Bearer/`X-App-Key` | unchanged; what scripts and curl use |
-| Sign-in (founder) | `/login.html` → Firebase Auth (email+password or Google) → ID token POSTed to `/auth/session` → server verifies against Google certs (`google-auth`, no Admin SDK), then mints its own signed HttpOnly cookie (HMAC, 14 d) | client never becomes trusted: the server re-verifies the ID token and re-checks policy |
+| Email sign-in (founder) | `/login.html` → Firebase Auth email/password → ID token POSTed to `/auth/session` → server verifies against Google certs (`google-auth`, no Admin SDK), then mints its own signed HttpOnly cookie (HMAC, 14 d) | client never becomes trusted: the server re-verifies the ID token and re-checks policy |
+| Google sign-in (founder) | current-tab `/auth/google/start` → Google web-server authorization-code flow with state + PKCE + OIDC nonce → `/auth/google/callback` exchanges the one-time code, verifies the ID token, and mints the same signed cookie | no popup, refresh-token persistence, or cross-origin Firebase redirect storage; verified email + allowlist remain mandatory |
 
 Policy enforced in `/auth/session`, all server-side:
 

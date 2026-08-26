@@ -68,8 +68,13 @@ def firebase_config() -> dict:
     project = (os.environ.get("FIREBASE_PROJECT_ID")
                or os.environ.get("GOOGLE_CLOUD_PROJECT", ""))
     api_key = os.environ.get("FIREBASE_WEB_API_KEY", "")
+    firebase_enabled = bool(api_key and project)
+    google_enabled = bool(os.environ.get("GOOGLE_OAUTH_CLIENT_ID")
+                          and os.environ.get("GOOGLE_OAUTH_CLIENT_SECRET"))
     return {
-        "enabled": bool(api_key and project),
+        "enabled": firebase_enabled or google_enabled,
+        "firebaseEnabled": firebase_enabled,
+        "googleEnabled": google_enabled,
         "apiKey": api_key,
         "authDomain": os.environ.get("FIREBASE_AUTH_DOMAIN",
                                      f"{project}.firebaseapp.com" if project else ""),
@@ -113,15 +118,24 @@ def _sign(payload: str, secret: str) -> str:
     return hmac.new(secret.encode(), payload.encode(), "sha256").hexdigest()
 
 
-def mint_session(email: str, name: str = "") -> str:
+def mint_session(email: str, name: str = "", *, subject: str = "",
+                 auth_time: int | None = None) -> str:
     """Signed, self-contained session value: base64url(claims).hmac."""
     secret = _session_secret()
     if not secret:
         raise RuntimeError("no session signing secret configured")
-    payload = _b64url(json.dumps({
+    claims = {
         "email": email, "name": name,
         "exp": int(time.time()) + SESSION_TTL_SECONDS,
-    }, separators=(",", ":")).encode())
+    }
+    # Hiring requires both values and rejects legacy/token sessions. The
+    # identity provider's original auth_time is preserved; refreshing this
+    # application cookie never makes authentication newer.
+    if subject:
+        claims["sub"] = subject
+    if isinstance(auth_time, int):
+        claims["auth_time"] = auth_time
+    payload = _b64url(json.dumps(claims, separators=(",", ":")).encode())
     return f"{payload}.{_sign(payload, secret)}"
 
 
@@ -144,6 +158,27 @@ def read_session(value: str) -> dict | None:
 
 def _session_claims(cookies) -> dict | None:
     return read_session(cookies.get(SESSION_COOKIE, ""))
+
+
+def session_claims(request) -> dict | None:
+    """Verified signed-session claims for server-side identity resolution."""
+    return _session_claims(request.cookies)
+
+
+def csrf_token(request) -> str:
+    """Session-bound CSRF token for hiring mutations; empty for token auth."""
+    value = request.cookies.get(SESSION_COOKIE, "")
+    secret = _session_secret()
+    if not value or not secret or read_session(value) is None:
+        return ""
+    return hmac.new(secret.encode(), f"hiring-csrf-v1\x1f{value}".encode(),
+                    "sha256").hexdigest()
+
+
+def csrf_is_valid(request) -> bool:
+    expected = csrf_token(request)
+    presented = request.headers.get("X-CSRF-Token", "")
+    return bool(expected and presented and hmac.compare_digest(expected, presented))
 
 
 # ---------------------------------------------------------------------------
@@ -225,8 +260,10 @@ async def _verify_firebase_id_token(id_token: str) -> dict:
 def install(app) -> None:
     """Gate every non-exempt route; register the /auth/* routes."""
     from fastapi import Request
-    from fastapi.responses import JSONResponse, RedirectResponse
+    from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
     from pydantic import BaseModel
+
+    from app import google_login
 
     def _cookie_kwargs() -> dict:
         # HttpOnly so JS can't read it; it rides the SPA's fetches and the
@@ -242,13 +279,28 @@ def install(app) -> None:
     class SessionRequest(BaseModel):
         id_token: str
 
+    @app.get("/login.html", include_in_schema=False)
+    async def login_page():
+        # Auth flows and their error handling are security-sensitive and change
+        # independently of the main static bundle. Never let a browser's memory
+        # cache or back-forward cache resurrect an obsolete OAuth implementation.
+        return FileResponse(
+            "app/static/login.html",
+            media_type="text/html",
+            headers={
+                "Cache-Control": "no-store, max-age=0",
+                "Pragma": "no-cache",
+                "Referrer-Policy": "no-referrer",
+            },
+        )
+
     @app.get("/auth/config")
     async def auth_config():
         return firebase_config()
 
     @app.post("/auth/session")
     async def auth_session(payload: SessionRequest):
-        if not firebase_config()["enabled"]:
+        if not firebase_config()["firebaseEnabled"]:
             return JSONResponse({"error": "sign-in is not configured"}, status_code=503)
         if not _session_secret():
             return JSONResponse(
@@ -271,7 +323,11 @@ def install(app) -> None:
                 status_code=403)
         resp = JSONResponse({"status": "success", "email": email})
         resp.set_cookie(SESSION_COOKIE,
-                        mint_session(email, claims.get("name", "")),
+                        mint_session(email, claims.get("name", ""),
+                                     subject=str(claims.get("sub") or ""),
+                                     auth_time=(int(claims["auth_time"])
+                                                if isinstance(claims.get("auth_time"),
+                                                              (int, float)) else None)),
                         **_cookie_kwargs())
         return resp
 
@@ -304,6 +360,8 @@ def install(app) -> None:
         return {"status": "success", "authenticated": False,
                 "mode": "anonymous", "email": "", "name": "",
                 "sign_in_enabled": firebase_config()["enabled"]}
+
+    google_login.register(app)
 
     # ---- the gate ----------------------------------------------------------
 

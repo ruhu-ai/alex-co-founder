@@ -14,6 +14,8 @@ from app import auth
 ENV_VARS = ("APP_AUTH_TOKEN", "APP_SESSION_SECRET", "K_SERVICE",
             "FIREBASE_WEB_API_KEY", "FIREBASE_PROJECT_ID",
             "FIREBASE_AUTH_DOMAIN", "GOOGLE_CLOUD_PROJECT",
+            "GOOGLE_OAUTH_CLIENT_ID", "GOOGLE_OAUTH_CLIENT_SECRET",
+            "GOOGLE_LOGIN_REDIRECT_URI",
             "ALLOWED_LOGIN_EMAILS")
 
 
@@ -157,6 +159,28 @@ def test_auth_config_is_reachable_without_credentials(env, client):
     r = client.get("/auth/config")
     assert r.status_code == 200
     assert r.json()["enabled"] is False
+
+
+def test_login_page_is_never_cached(client):
+    response = client.get("/login.html")
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "no-store, max-age=0"
+    assert response.headers["pragma"] == "no-cache"
+    assert response.headers["referrer-policy"] == "no-referrer"
+
+
+def test_auth_config_reports_email_and_google_independently(env, client):
+    env.setenv("GOOGLE_OAUTH_CLIENT_ID", "web-client")
+    env.setenv("GOOGLE_OAUTH_CLIENT_SECRET", "secret")
+    google_only = client.get("/auth/config").json()
+    assert google_only["enabled"] is True
+    assert google_only["googleEnabled"] is True
+    assert google_only["firebaseEnabled"] is False
+
+    env.setenv("FIREBASE_WEB_API_KEY", "AIza-public")
+    env.setenv("FIREBASE_PROJECT_ID", "proj-1")
+    both = client.get("/auth/config").json()
+    assert both["firebaseEnabled"] is True
 
 
 def test_auth_session_disabled_without_firebase(client):

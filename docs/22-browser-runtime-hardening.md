@@ -32,10 +32,12 @@ The resulting invariant is precise:
 Human OAuth consent is a separate first-party authentication flow. A provider
 may redirect the current app tab when embedding is prohibited; that flow never
 uses agent browser tools, never launches a new window, and never exposes OAuth
-tokens to the agent browser. Concretely, `app/static/login.html` signs the
-founder in with `signInWithRedirect` and consumes the credential on the way back
-with `getRedirectResult` — never a popup sign-in call. "No new window" binds the
-SDK that opens one for you exactly as it binds `window.open`.
+tokens to the agent browser. Concretely, `app/static/login.html` navigates the
+current tab to `/auth/google/start`; the server performs the authorization-code
+exchange, verifies the OIDC identity, and returns with the existing signed app
+session. Firebase remains the email/password provider but no Firebase popup or
+cross-origin redirect-result storage participates in Google login. "No new
+window" binds an SDK that opens one exactly as it binds `window.open`.
 
 ## Reference patterns adopted and rejected
 
