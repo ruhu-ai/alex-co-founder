@@ -1,0 +1,55 @@
+docs/22-browser-runtime-hardening.md
+  s_0d88913a591014::t_e2cb0770aeeb68 35-40
+docs/12-security.md
+  s_0d88913a591014::t_e2cb0770aeeb68 37-38
+.env.example
+  s_0d88913a591014::t_8fda9f2aca1310 72-75
+app/static/login.html
+  s_0d88913a591014::t_133ec5cc578f27 105,147-161,164-176,178-195,198-231,234-237,239-248
+tests/unit/test_auth.py
+  s_0d88913a591014::t_e07487ee23c3e6 164-171
+  s_0d88913a591014::t_aab1a840526bae 17-18,172-183
+  s_0d88913a591014::t_d8e12fde245588 184-185
+app/auth.py
+  s_0d88913a591014::t_8fda9f2aca1310 71-73,75-77,303,364
+  s_0d88913a591014::t_e07487ee23c3e6 263,282-295
+  s_0642a2f54e6bd7::t_faa5fce558d7c5 163-183
+  s_0642a2f54e6bd7::t_a7308bf45af909 121-122,127,130-138,326-330
+  s_0d88913a591014::t_fa464d999abdbe 266
+  s_0d88913a591014::t_6f64875d6197d9 267,296,365
+tests/unit/test_google_login.py
+  s_0d88913a591014::t_aab1a840526bae 1-163
+app/google_login.py
+  s_0d88913a591014::t_8fda9f2aca1310 1-246
+tests/unit/test_browser_invariants.py
+  s_0d88913a591014::t_e2cb0770aeeb68 323-328
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "185937ee7807f2ef5e65a78ea291de7048cc1fa3",
+  "prompts": {},
+  "humans": {
+    "h_137cc690990511": {
+      "author": "Ijidai Lassa <ijidai@cued.app>"
+    }
+  },
+  "sessions": {
+    "s_0642a2f54e6bd7": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a036cf-3895-7c12-a442-6f9ec6774d98",
+        "model": "gpt-5.6-terra"
+      },
+      "human_author": "Ijidai Lassa <ijidai@cued.app>"
+    },
+    "s_0d88913a591014": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a024b4-0838-7aa2-b12f-fefddbe84fe4",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Ijidai Lassa <ijidai@cued.app>"
+    }
+  }
+}
