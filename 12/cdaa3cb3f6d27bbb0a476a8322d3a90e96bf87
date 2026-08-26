@@ -1,0 +1,27 @@
+tests/unit/test_deploy_firestore_indexes.py
+  s_0d88913a591014::t_3d2d0e21b7310a 32,36,44,81-83
+  s_0d88913a591014::t_c1d85b73bf7976 80
+scripts/deploy_firestore_indexes.py
+  s_0d88913a591014::t_3d2d0e21b7310a 4-6,14-15,90,107-109,119-149
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "12cdaa3cb3f6d27bbb0a476a8322d3a90e96bf87",
+  "prompts": {},
+  "humans": {
+    "h_137cc690990511": {
+      "author": "Ijidai Lassa <ijidai@cued.app>"
+    }
+  },
+  "sessions": {
+    "s_0d88913a591014": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a024b4-0838-7aa2-b12f-fefddbe84fe4",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Ijidai Lassa <ijidai@cued.app>"
+    }
+  }
+}
