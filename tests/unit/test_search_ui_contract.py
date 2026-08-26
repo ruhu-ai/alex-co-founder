@@ -1,4 +1,4 @@
-"""Top-left global search UI contract (docs/23 §8, WI-7).
+"""Top-left session-picker UI contract (docs/23 §8, WI-7).
 
 Static contracts over app/static/index.html, matching the established style
 of test_browser_ui_contract / test_attachment_ui_contract. These lock the
@@ -14,26 +14,25 @@ UI = (pathlib.Path(__file__).resolve().parents[2]
 
 
 class TestSurface:
-    def test_button_is_search_not_search_sessions(self):
-        assert 'title="Search (⌘K)"' in UI
-        assert 'aria-label="Search conversations and Alex&#39;s work"' in UI
-        assert "Search sessions" not in UI
+    def test_button_and_dialog_are_sessions_only(self):
+        assert 'title="Sessions (⌘K)"' in UI
+        assert 'aria-label="Find a session"' in UI
+        assert '<div class="conn-title">Sessions</div>' in UI
 
-    def test_dialog_copy_does_not_claim_sessions_own_work(self):
-        assert "Search conversations and Alex&#39;s work." in UI
-        # The old copy asserted drafts/approvals belong to a session.
-        assert "Approvals and drafts stay with their session" not in UI
+    def test_dialog_explains_the_session_workbench_preview(self):
+        assert "Choose a session to preview everything linked to it." in UI
+        assert 'placeholder="Search sessions"' in UI
 
     def test_uses_the_server_search_endpoint(self):
         assert '"/api/search?"' in UI
+        assert 'params.set("types", "session")' in UI
         # The old client-side substring filter over previews is gone.
         assert "s.preview || \"\").toLowerCase().includes(q)" not in UI
 
-    def test_groups_cover_every_founder_visible_type(self):
-        for kind in ("session", "discovery_request", "opportunity",
-                     "application", "document", "artifact",
-                     "browser_report", "evidence_report"):
-            assert f'"{kind}"' in UI
+    def test_resource_filters_and_groups_are_removed(self):
+        assert 'id="searchChips"' not in UI
+        assert "data-search-type" not in UI
+        assert "SEARCH_GROUPS" not in UI
 
 
 class TestBehaviour:
@@ -58,11 +57,6 @@ class TestBehaviour:
         assert "viewSession(" in block
         assert "data-session-resume" in UI
 
-    def test_opening_a_previous_search_never_relaunches_it(self):
-        block = UI.split("function focusResource")[1].split("\n}")[0]
-        assert "/api/discovery-requests" not in block
-        assert "doesn't run it again" in block
-
     def test_focus_targets_are_closed_enum_not_urls(self):
         block = UI.split("function focusResource")[1].split("\n}")[0]
         assert "focus.kind" in block
@@ -77,11 +71,8 @@ class TestBehaviour:
         assert "narrow your search to see more" in UI
 
     def test_blank_and_empty_states_exist(self):
-        assert "Nothing yet — say something to your co-founder" in UI
-        assert "Nothing matches." in UI
-
-    def test_deleted_origin_renders_a_tombstone(self):
-        assert "Origin conversation unavailable" in UI
+        assert "No sessions yet — start one" in UI
+        assert "No session matches that search." in UI
 
 
 class TestVoiceGuards:
@@ -121,11 +112,8 @@ class TestAccessibility:
         # The active row also carries a text marker.
         assert '.connrow[aria-selected="true"] .grow b::before' in UI
 
-    def test_touch_targets_and_tokens(self):
+    def test_touch_targets_remain_on_session_rows(self):
         assert "min-height: 44px" in UI
-        chips = UI.split(".chiprow {")[1].split("}")[0]
-        assert "var(--sp-" in chips
-        assert "#" not in chips  # no raw hex colours
 
 
 class TestNoRemoteContent:
@@ -136,19 +124,18 @@ class TestNoRemoteContent:
         assert "esc(" in block  # every interpolation is escaped
 
 
-class TestSameSessionFocus:
-    """A result already in the open conversation focuses in place; it must
-    not route through viewSession, which refuses with a toast (docs/23 §8.2)."""
+class TestSessionSelection:
+    """The picker changes session context; work is focused from its Work strip."""
 
     def test_current_session_results_focus_in_place(self):
         block = UI.split("function openSearchResult")[1].split("\n}")[0]
         assert "const here = contextSessionId();" in block
         assert "row.session_id !== here" in block
 
-    def test_transcript_swap_is_awaited_before_focus(self):
+    def test_selection_only_opens_the_session(self):
         block = UI.split("function openSearchResult")[1].split("\n}")[0]
         assert "await viewSession(" in block
-        assert block.index("await viewSession(") < block.index("focusResource(row)")
+        assert "focusResource(row)" not in block
 
 
 class TestSessionWorkbenchContext:

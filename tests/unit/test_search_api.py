@@ -49,6 +49,10 @@ async def _search(**kwargs):
 
 
 class TestResultUnit:
+    def test_legacy_empty_conversation_label_is_presented_as_a_session(self):
+        result = sr._session_result({"session_id": "s-a", "title": "New conversation"})
+        assert result["title"] == "New session"
+
     async def test_one_opportunity_two_sessions_is_one_grouped_row(self, wired):
         await _register(session="s-a", occurrence="req_a:opp_42")
         await _register(session="s-b", occurrence="req_b:opp_42")
@@ -187,6 +191,22 @@ class TestQueryHandling:
                     if r["result_type"] == "opportunity")
         assert work["session_id"] == "s-a"
         assert work["occurrence_count"] == 1
+
+    async def test_session_only_filter_never_returns_recent_resources(self, wired):
+        await _register()
+        await sr.catalog_session_event(founder_id=FOUNDER, session_id="s-a",
+                                       text="Africa accelerator planning", author="user")
+        result = await _search(q="", types=["session"])
+        assert result["results"]
+        assert {row["result_type"] for row in result["results"]} == {"session"}
+
+    async def test_session_only_filter_never_returns_matching_resources(self, wired):
+        await _register(title="Africa accelerator")
+        await sr.catalog_session_event(founder_id=FOUNDER, session_id="s-a",
+                                       text="Africa accelerator planning", author="user")
+        result = await _search(q="africa", types=["session"])
+        assert result["results"]
+        assert {row["result_type"] for row in result["results"]} == {"session"}
 
     async def test_single_character_query_refused(self, wired):
         result = await _search(q="a")

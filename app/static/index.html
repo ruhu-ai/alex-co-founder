@@ -1395,7 +1395,7 @@ body[data-offline="true"] #offline { display: flex; }
   </div>
   <button class="btn" data-variant="ghost" data-shape="icon" id="sessionsBtn"
           onclick="openSessions()" aria-haspopup="dialog"
-          title="Search (⌘K)" aria-label="Search conversations and Alex's work">
+          title="Sessions (⌘K)" aria-label="Find a session">
     <svg class="ico" aria-hidden="true"><use href="#i-search"/></svg>
   </button>
   <button class="btn" data-variant="ghost" id="inboxBtn"
@@ -1814,26 +1814,25 @@ body[data-offline="true"] #offline { display: flex; }
   </div>
 </div>
 
-<!-- Session history (grounded from the header search icon). Viewing is
+<!-- Session picker (grounded from the header search icon). Viewing is
      read-through (provenance path); Resume makes a session active again —
-     approvals and drafts are session-scoped, so resuming is how an old
-     approval stays actionable. -->
-<div id="sessions" class="dialog" role="dialog" aria-modal="true" aria-label="Search"
+     every linked work product previews across the workbench, while resuming
+     is how an old approval becomes actionable again. -->
+<div id="sessions" class="dialog" role="dialog" aria-modal="true" aria-label="Sessions"
      onclick="if(event.target===this)closeSessions()">
   <div class="sheet">
     <div style="display:flex;align-items:center;margin-bottom:4px;gap:10px">
       <div>
-        <div class="conn-title">Search</div>
-        <div class="conn-sub">Search conversations and Alex&#39;s work.</div>
+        <div class="conn-title">Sessions</div>
+        <div class="conn-sub">Choose a session to preview everything linked to it.</div>
       </div>
       <span style="flex:1"></span>
-      <input class="textin" id="sessSearch" placeholder="Search everything"
+      <input class="textin" id="sessSearch" placeholder="Search sessions"
              style="max-width:240px" oninput="onSearchInput()"
              role="combobox" aria-expanded="true" aria-controls="sessGroups"
-             aria-autocomplete="list" aria-label="Search conversations and Alex&#39;s work">
+             aria-autocomplete="list" aria-label="Search sessions">
       <button class="x" onclick="closeSessions()" aria-label="Close"><svg class="ico" aria-hidden="true"><use href="#i-close"/></svg></button>
     </div>
-    <div id="searchChips" class="chiprow" role="group" aria-label="Filter by type"></div>
     <div id="sessGroups" role="listbox" aria-label="Results"></div>
     <div id="searchStatus" class="conn-sub" aria-live="polite" style="margin-top:6px"></div>
   </div>
@@ -3600,13 +3599,6 @@ document.addEventListener("click", (e) => {
     markSeen();
     return;
   }
-  const chip = e.target.closest("[data-search-type]");
-  if (chip) {
-    const t = chip.dataset.searchType;
-    searchTypes.has(t) ? searchTypes.delete(t) : searchTypes.add(t);
-    runSearch({ reset: true });
-    return;
-  }
   const more = e.target.closest("[data-search-more]");
   if (more) { runSearch({ reset: false }); return; }
   const resume = e.target.closest("[data-session-resume]");
@@ -4187,33 +4179,17 @@ function renderLiveTranscript({ who, text, finished }) {
   $("chatlog").scrollTop = $("chatlog").scrollHeight;
 }
 
-// ---------- global search (header search icon) — docs/23 §8 ----------
-// Server-side, founder-scoped, typed search over conversations AND Alex's
-// durable work. Replaces the old client-side substring filter over the
-// newest sessions' opening lines.
+// ---------- session picker (header search icon) — docs/23 §8 ----------
+// Search returns sessions only. Selecting one changes the read context for
+// the entire workbench, whose panels and Work strip preview its linked work.
 let searchRows = [];
 let searchActive = -1;
 let searchGeneration = 0;      // stale-response suppression
 let searchCursor = null;
-let searchTypes = new Set();
 let searchDebounce = null;
-
-const SEARCH_GROUPS = [
-  ["session", "Conversations", "chat"],
-  ["discovery_request", "Searches", "search"],
-  ["opportunity", "Opportunities & Leads", "target"],
-  ["application", "Applications", "compass"],
-  ["document", "Documents & Artifacts", "file"],
-  ["artifact", "Documents & Artifacts", "file"],
-  ["browser_report", "Evidence", "globe"],
-  ["evidence_report", "Evidence", "globe"],
-];
-const GROUP_TITLE = t => (SEARCH_GROUPS.find(g => g[0] === t) || [, "Results"])[1];
-const GROUP_ICON = t => (SEARCH_GROUPS.find(g => g[0] === t) || [, , "file"])[2];
 
 async function openSessions() {
   openDialog("sessions", "#sessSearch");
-  renderSearchChips();
   await runSearch({ reset: true });
 }
 function closeSessions() { closeDialog("sessions"); }
@@ -4302,15 +4278,6 @@ async function dismissFounderInbox(inboxId) {
   } catch (error) { toast(error.message || "The message could not be dismissed.", "danger"); }
 }
 
-function renderSearchChips() {
-  const types = [["session", "Conversations"], ["discovery_request", "Searches"],
-                 ["opportunity", "Opportunities"], ["application", "Applications"],
-                 ["document", "Documents"]];
-  $("searchChips").innerHTML = types.map(([t, label]) =>
-    `<button class="btn" data-variant="quiet" data-size="sm" data-search-type="${t}"
-             aria-pressed="${searchTypes.has(t)}">${esc(label)}</button>`).join("");
-}
-
 function onSearchInput() {
   clearTimeout(searchDebounce);
   searchDebounce = setTimeout(() => runSearch({ reset: true }), 200);
@@ -4327,7 +4294,7 @@ async function runSearch({ reset = false } = {}) {
   }
   const params = new URLSearchParams();
   if (q) params.set("q", q);
-  if (searchTypes.size) params.set("types", [...searchTypes].join(","));
+  params.set("types", "session");
   if (searchCursor && !reset) params.set("cursor", searchCursor);
   let r;
   try {
@@ -4355,50 +4322,33 @@ async function runSearch({ reset = false } = {}) {
 }
 
 function resultRow(row, index) {
-  const active = row.result_type === "session" && row.session_id === sessionId;
-  const viewed = row.result_type === "session" && row.session_id === viewingSession;
-  const orphan = row.result_type !== "session" && !row.session_id;
-  const where = row.result_type === "session"
-    ? `${row.occurrence_count || 0} item${row.occurrence_count === 1 ? "" : "s"}`
-    : orphan
-      ? `<span class="res-orphan">Origin conversation unavailable</span>`
-      : `in ${esc(row.latest_occurrence ? row.latest_occurrence.relationship : "")} conversation`;
-  const times = row.occurrence_count > 1
-    ? ` · <span class="tnum">${row.occurrence_count}</span> conversations` : "";
+  const active = row.session_id === sessionId;
+  const viewed = row.session_id === viewingSession;
+  const count = Number(row.occurrence_count || 0);
   return `<button class="crow connrow" role="option" id="sres-${index}"
     aria-selected="${index === searchActive}" data-search-open="${index}">
-    <span class="cbadge sm">${ico(GROUP_ICON(row.result_type))}</span>
-    <span class="grow"><b>${esc(row.title || "Untitled")}</b>
+    <span class="cbadge sm">${ico("chat")}</span>
+    <span class="grow"><b>${esc(row.title || "New session")}</b>
       <div class="conn-sub res-meta"><span>${esc(row.subtitle || "")}</span></div>
-      <div class="conn-sub">${where}${times}${
+      <div class="conn-sub">${count} linked item${count === 1 ? "" : "s"}${
         row.occurred_at ? ` · ${timeAgo(row.occurred_at) || "just now"}` : ""}</div></span>
-    ${row.status ? `<span class="chip">${esc(row.status)}</span>` : ""}
     ${active ? `<span class="chip-ok">Active</span>`
               : viewed ? `<span class="badge" data-tone="info">Viewing</span>`
-              : row.session_id ? `<span class="btn" data-variant="quiet" data-size="sm"
-                       data-session-resume="${esc(row.session_id)}">Resume</span>` : ""}
+              : `<span class="btn" data-variant="quiet" data-size="sm"
+                       data-session-resume="${esc(row.session_id)}">Resume</span>`}
   </button>`;
 }
 
 function renderSessionsList() {
-  renderSearchChips();
   if (!searchRows.length) {
     const q = ($("sessSearch").value || "").trim();
     $("sessGroups").innerHTML = `<div class="grp"><div class="crow"><span class="grow conn-sub">${
-      q ? "Nothing matches. Search covers conversations, previous searches, opportunities, applications, documents and artifacts."
-        : "Nothing yet — say something to your co-founder and it appears here."}</span></div></div>`;
+      q ? "No session matches that search."
+        : "No sessions yet — start one by asking your co-founder for help."}</span></div></div>`;
     return;
   }
-  const order = [];
-  const byGroup = new Map();
-  searchRows.forEach((row, index) => {
-    const title = GROUP_TITLE(row.result_type);
-    if (!byGroup.has(title)) { byGroup.set(title, []); order.push(title); }
-    byGroup.get(title).push(resultRow(row, index));
-  });
-  $("sessGroups").innerHTML = order.map(title =>
-    `<div class="grp-h">${esc(title)}</div><div class="grp">${byGroup.get(title).join("")}</div>`
-  ).join("") + (searchCursor
+  $("sessGroups").innerHTML = `<div class="grp-h">Sessions</div><div class="grp">${
+    searchRows.map(resultRow).join("")}</div>` + (searchCursor
     ? `<div class="grp"><button class="crow connrow" data-search-more="1">
          <span class="grow conn-sub">Show more</span></button></div>`
     : "");
@@ -4419,15 +4369,7 @@ async function openSearchResult(index) {
   if (!row) return;
   const here = contextSessionId();
   closeSessions();
-  if (row.result_type === "session") {
-    if (row.session_id && row.session_id !== here) await viewSession(row.session_id);
-    return;
-  }
-  // A result already in this conversation focuses in place; only a result
-  // from another conversation opens read-through (docs/23 §8.2). Awaiting
-  // the transcript swap keeps focus from landing before the panel updates.
   if (row.session_id && row.session_id !== here) await viewSession(row.session_id);
-  focusResource(row);
 }
 
 // The server returns a closed focus enum, never a URL or JavaScript.

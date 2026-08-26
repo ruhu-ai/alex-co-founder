@@ -750,8 +750,10 @@ work.
 
 ## 8. UI contract
 
-The existing top-left magnifying-glass button becomes **Search**, not “Search
-sessions”. It opens one accessible command/search dialog.
+The top-left magnifying-glass opens a **Sessions** picker. Canonical resource
+search remains a server-side indexing capability, but it is not exposed as a
+second founder-facing navigation model: the session is the workspace context,
+and its linked work is previewed after the session is selected.
 
 ### 8.1 Behavior
 
@@ -759,29 +761,28 @@ sessions”. It opens one accessible command/search dialog.
 - typing is debounced 200 ms and cancels/ignores stale responses by request
   generation;
 - Up/Down moves active result, Enter opens it, Escape closes;
-- blank state shows recent conversations and work;
-- non-empty results group into Conversations, Searches, Opportunities & Leads,
-  Applications, and Documents & Artifacts;
-- type chips filter without changing the query;
+- blank state shows recent sessions only;
+- non-empty results contain sessions only, with transcript preview, linked-work
+  count, relative time, and active/viewing state;
 - loading retains the prior results and marks them stale instead of flashing an
   empty dialog;
 - pagination uses “Show more” or sentinel-on-user-scroll only; no background
   polling;
-- every row shows type, title, bounded context, status, relative time, and the
-  origin session label;
+- no opportunity, application, document, artifact, browser report, evidence
+  report, migration tombstone, or type-filter chip appears in this picker;
 - no third-party logos or remote content render in results.
 
 ### 8.2 Navigation
 
-Selecting a result defaults to **read-through**:
+Selecting a session defaults to **read-through**:
 
-1. validate/fetch the origin session;
+1. validate/fetch the selected session;
 2. open its transcript without changing `localStorage` or the active-session
    pointer;
-3. load the canonical resource through its authorized endpoint;
-4. focus the matching pipeline card, review application, document preview, or
-   request summary;
-5. provide an explicit `Resume` control to make that conversation active.
+3. load its linked resource occurrences;
+4. refresh Pipeline, Browser, Review, Documents, Activity, approvals, waiting
+   state, and the Work-in-this-session preview from that same session context;
+5. provide an explicit `Resume` control to make that session active.
 
 The selected conversation is the read context for the **entire workbench**,
 not only the transcript. Pipeline shows only linked opportunities and
@@ -792,7 +793,9 @@ session's resource occurrences. The active/write-bound session ID remains
 separate. Mutating controls in a historical read-through are disabled until
 the founder explicitly resumes that conversation.
 
-If the result belongs to the current session, focus it in place.
+If the selected row is already the visible session, leave the workbench in
+place. Individual linked-work cards in the Work strip focus their matching
+panel without returning to the session picker.
 
 **Live voice locks the active-session binding on every path.** While a live
 voice call is active: Resume is refused; creating a new session is refused;
@@ -805,11 +808,10 @@ pattern) without reassigning the active identifier, or is refused. The
 implementation MUST close all three switch paths (`resumeSession`,
 `viewSession`, `newSession`), not only the one guarded today.
 
-A missing/deleted origin session shows the resource with “Origin conversation
-unavailable”; it never turns a resource 404 into an existence oracle.
+A missing/deleted session is omitted or returns the same generic not-found
+behavior as every foreign session; the picker is never an existence oracle.
 
-The dialog copy says: “Search conversations and Alex's work.” It MUST NOT claim
-that applications or drafts are owned by a session.
+The dialog copy says: “Choose a session to preview everything linked to it.”
 
 ### 8.3 Visual rules
 

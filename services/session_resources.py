@@ -767,10 +767,11 @@ async def search(*, founder_id: str, q: str = "",
 
     want_sessions = (not requested or "session" in requested) and not session_id
     resource_types = [t for t in requested if t != "session"]
+    want_resources = not requested or bool(resource_types)
 
     if not normalized:
         return await _recent(founder_id, limit, want_sessions, session_id,
-                             resource_types)
+                             resource_types, want_resources)
 
     probe = choose_probe_prefix(q_terms)
     if not probe:
@@ -812,7 +813,7 @@ async def search(*, founder_id: str, q: str = "",
     # pages. Occurrences are attached afterwards by bounded per-resource
     # lookup, which is also what makes occurrence_count correct rather than
     # "however many happened to fall inside the scan window".
-    if session_id:
+    if want_resources and session_id:
         # Session-scoped mode: the unit IS the occurrence, and one session
         # cannot produce cross-page duplicates of the same resource.
         for resource_type in (resource_types or [None]):
@@ -831,7 +832,7 @@ async def search(*, founder_id: str, q: str = "",
                     "stream": stream, "kind": "link", "row": row,
                     "key": (row.get("occurred_at", ""), row.get("link_id", "")),
                 })
-    else:
+    elif want_resources:
         for resource_type in (resource_types or [None]):
             stream = f"resources:{resource_type or 'all'}"
             spec = RESOURCE_REGISTRY.get(resource_type or "")
@@ -934,12 +935,15 @@ def _accumulate(grouped: dict[str, dict[str, Any]], link: dict[str, Any]) -> Non
 
 
 def _session_result(row: dict[str, Any]) -> dict[str, Any]:
+    title = str(row.get("title") or "").strip()
+    if not title or title == "New conversation":
+        title = "New session"
     return {
         "result_id": row.get("session_id", ""),
         "result_type": "session",
         "resource_id": None,
         "canonical_ref": None,
-        "title": row.get("title") or "New conversation",
+        "title": title,
         "subtitle": row.get("preview") or "",
         "status": row.get("status", "active"),
         "occurrence_count": int(row.get("resource_count") or 0),
@@ -996,7 +1000,7 @@ def _public(row: dict[str, Any]) -> dict[str, Any]:
 
 async def _recent(founder_id: str, limit: int, want_sessions: bool,
                   session_id: str | None,
-                  resource_types: list[str]) -> dict[str, Any]:
+                  resource_types: list[str], want_resources: bool) -> dict[str, Any]:
     """Blank state: recent conversations and primary resources, single page."""
     from services import firestore
 
@@ -1016,17 +1020,19 @@ async def _recent(founder_id: str, limit: int, want_sessions: bool,
             for row in await firestore.list_recent_session_catalog(
                     founder_id, limit=limit):
                 results.append(_session_result(row))
-        for row in await firestore.list_recent_resources(
-                founder_id, limit=limit):
-            if resource_types and row.get("resource_type") not in resource_types:
-                continue
-            # Recent resources are logical rows, but provenance lives on the
-            # many-to-many links. Join a bounded occurrence set so the blank
-            # Search view does not falsely label linked work as originless.
-            occurrences = await firestore.list_resource_links(
-                founder_id, str(row.get("resource_id") or ""),
-                limit=MAX_OCCURRENCES)
-            results.append(_resource_result(row, occurrences))
+        if want_resources:
+            for row in await firestore.list_recent_resources(
+                    founder_id, limit=limit):
+                if resource_types and row.get("resource_type") not in resource_types:
+                    continue
+                # Recent resources are logical rows, but provenance lives on
+                # the many-to-many links. Join a bounded occurrence set so the
+                # blank Search view does not falsely label linked work as
+                # originless.
+                occurrences = await firestore.list_resource_links(
+                    founder_id, str(row.get("resource_id") or ""),
+                    limit=MAX_OCCURRENCES)
+                results.append(_resource_result(row, occurrences))
     results.sort(key=lambda r: _invert(r.get("occurred_at") or ""))
     return {"status": "success", "query": "",
             "results": [_public(r) for r in results[:limit]],
