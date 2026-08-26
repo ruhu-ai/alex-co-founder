@@ -95,6 +95,26 @@ class TestValidation:
 
 
 class TestProjection:
+    async def test_legacy_resource_is_findable_without_fabricating_a_link(
+            self, wired, monkeypatch):
+        from services import firestore
+
+        captured = {}
+
+        async def _upsert(row):
+            captured.update(row)
+            return {"resource_created": True, "replayed": False}
+
+        monkeypatch.setattr(firestore, "upsert_unlinked_resource", _upsert)
+        result = await sr.register_legacy_unlinked_resource(
+            founder_id=FOUNDER, resource_type=sr.ResourceType.DOCUMENT,
+            canonical_id="app:pack", title="Legacy application pack",
+            status="v1")
+        assert result["legacy_unlinked"] is True
+        assert captured["origin"]["first_session_id"] is None
+        assert captured["producer"]["kind"] == "migration"
+        assert not wired.session_resource_links
+
     async def test_status_update_creates_no_link(self, wired):
         await _register()
         result = await sr.update_resource_status(

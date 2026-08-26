@@ -783,6 +783,15 @@ Selecting a result defaults to **read-through**:
    request summary;
 5. provide an explicit `Resume` control to make that conversation active.
 
+The selected conversation is the read context for the **entire workbench**,
+not only the transcript. Pipeline shows only linked opportunities and
+applications; Browser reads that session's durable run/evidence state; Review
+loads only a linked application and its evidence; Documents shows produced
+documents and source artifacts from the session; Activity is derived from the
+session's resource occurrences. The active/write-bound session ID remains
+separate. Mutating controls in a historical read-through are disabled until
+the founder explicitly resumes that conversation.
+
 If the result belongs to the current session, focus it in place.
 
 **Live voice locks the active-session binding on every path.** While a live
@@ -944,6 +953,9 @@ on a relevant session/resource wake, or through an operator command.
 
 Run an idempotent, resumable script with dry-run and bounded pages:
 
+Implementation entry point: `scripts/backfill_session_resources.py` (dry-run
+by default; `--apply` is required for deterministic writes).
+
 - direct: documents, uploaded artifacts, ingestions, browser runs, approvals;
 - exact inference only: discovery receipts whose `client_request_id` appears in
   exactly one founder ADK session invocation; applications with one exact
@@ -1088,6 +1100,9 @@ projection and dual writes first, backfill, switch reads, then remove the old
 - [ ] Search is server-side, founder-scoped, indexed, paginated, candidate-
       bounded, model-free, and does not scan ADK histories per query.
 - [ ] Opening a result is read-through; resuming a session remains explicit.
+- [ ] Pipeline, Browser, Review, Documents, Activity, and the transcript all
+      resolve from the viewed session; read-through never changes the active
+      write/voice binding and exposes no mutating controls until Resume.
 - [ ] System-only work is run/event-correlated and never assigned to a global
       latest session merely to satisfy linkage.
 - [ ] Legacy backfill links only exact evidence and reports ambiguous rows as

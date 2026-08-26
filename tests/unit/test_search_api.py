@@ -183,6 +183,10 @@ class TestQueryHandling:
         result = await _search(q="")
         assert result["results"]
         assert result["next_cursor"] is None  # blank state does not paginate
+        work = next(r for r in result["results"]
+                    if r["result_type"] == "opportunity")
+        assert work["session_id"] == "s-a"
+        assert work["occurrence_count"] == 1
 
     async def test_single_character_query_refused(self, wired):
         result = await _search(q="a")
@@ -215,6 +219,25 @@ class TestSessionResourcesEndpoint:
                         canonical_id="opp_99", title="Other")
         result = await sr.session_resources_for(FOUNDER, "s-a")
         assert [r["canonical_ref"]["id"] for r in result["resources"]] == ["opp_42"]
+
+    async def test_bounded_list_reports_truncation_instead_of_silent_omission(self, wired):
+        for index in range(3):
+            await _register(session="s-a", occurrence=f"occ-{index}",
+                            canonical_id=f"opp_{index}", title=f"Opportunity {index}")
+        result = await sr.session_resources_for(FOUNDER, "s-a", limit=2)
+        assert len(result["resources"]) == 2
+        assert result["truncated"] is True
+
+    async def test_workbench_context_pages_until_every_resource_is_loaded(self, wired):
+        for index in range(3):
+            await _register(session="s-a", occurrence=f"page-{index}",
+                            canonical_id=f"opp_page_{index}",
+                            title=f"Paged opportunity {index}")
+        result = await sr.all_session_resources_for(
+            FOUNDER, "s-a", page_size=1, max_items=10)
+        assert {r["canonical_ref"]["id"] for r in result["resources"]} == {
+            "opp_page_0", "opp_page_1", "opp_page_2"}
+        assert result["truncated"] is False
 
 
 class TestCursorWalkExhaustive:

@@ -967,3 +967,62 @@ class TestSessionHistory:
         assert by_id["s-empty"]["preview"] == ""
         assert by_id["s-empty"]["messages"] == 0
         assert by_id["s-new"]["updated_at"].startswith("1970-01-01T00:33:20")
+
+
+class TestSessionScopedPipeline:
+    def test_pipeline_contains_only_work_linked_to_the_requested_session(
+            self, appmod, client, monkeypatch):
+        async def _exists(session_id):
+            return session_id == "s-context"
+
+        async def _board(founder_id):
+            assert founder_id == appmod.FOUNDER_ID
+            return {
+                "status": "success",
+                "opportunities": {
+                    "SHORTLISTED": [{"id": "opp-linked"}, {"id": "opp-other"}],
+                    "DISCOVERED": [], "ARCHIVED": [],
+                },
+                "applications": [{"id": "app-linked"}, {"id": "app-other"}],
+            }
+
+        async def _resources(founder_id, session_id, **_kwargs):
+            assert founder_id == appmod.FOUNDER_ID
+            assert session_id == "s-context"
+            return {"status": "success", "resources": [
+                {"result_type": "opportunity",
+                 "canonical_ref": {"id": "opp-linked"}},
+                {"result_type": "application",
+                 "canonical_ref": {"id": "app-linked"}},
+            ], "truncated": False}
+
+        monkeypatch.setattr(appmod, "_founder_session_exists", _exists)
+        monkeypatch.setattr(appmod.pipeline_service, "board", _board)
+        monkeypatch.setattr(
+            appmod.session_resources, "all_session_resources_for", _resources)
+
+        response = client.get("/api/pipeline?session_id=s-context")
+        assert response.status_code == 200
+        payload = response.json()
+        assert [row["id"] for row in payload["opportunities"]["SHORTLISTED"]] == [
+            "opp-linked"]
+        assert [row["id"] for row in payload["applications"]] == ["app-linked"]
+        assert payload["session_id"] == "s-context"
+
+    def test_unknown_session_does_not_reveal_pipeline(self, appmod, client, monkeypatch):
+        async def _missing(_session_id):
+            return False
+
+        board_called = False
+
+        async def _board(_founder_id):
+            nonlocal board_called
+            board_called = True
+            return {"status": "success", "opportunities": {}, "applications": []}
+
+        monkeypatch.setattr(appmod, "_founder_session_exists", _missing)
+        monkeypatch.setattr(appmod.pipeline_service, "board", _board)
+        response = client.get("/api/pipeline?session_id=foreign")
+        assert response.status_code == 404
+        assert response.json() == {"error": "not found"}
+        assert board_called is False

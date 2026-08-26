@@ -2220,6 +2220,34 @@ async def upsert_resource_and_link(resource: dict[str, Any],
     return await _commit(transaction)
 
 
+async def upsert_unlinked_resource(resource: dict[str, Any]) -> dict[str, Any]:
+    """Create an evidence-supported legacy resource without inventing origin.
+
+    Migration may know that a canonical founder-owned work product exists but
+    have no exact session evidence.  Such a resource remains globally
+    findable with an unavailable-origin tombstone; timestamp proximity is
+    never used to fabricate a ``session_resource_links`` row (docs/23 WI-5).
+    Existing projections are left semantically intact so a backfill rerun
+    cannot downgrade a resource that a live producer has already linked.
+    """
+    from google.cloud import firestore as gc_firestore
+
+    ref = get_client().collection("resource_index").document(
+        resource["resource_id"])
+    transaction = get_client().transaction()
+
+    @gc_firestore.async_transactional
+    async def _commit(txn):
+        snapshot = await ref.get(transaction=txn)
+        if snapshot.exists:
+            return {"resource_created": False, "replayed": True}
+        now = _now()
+        txn.set(ref, {**resource, "created_at": now, "updated_at": now})
+        return {"resource_created": True, "replayed": False}
+
+    return await _commit(transaction)
+
+
 async def update_resource_projection(resource_id: str,
                                      fields: dict[str, Any]) -> bool:
     """Update the CURRENT projection of an existing resource (title/status/

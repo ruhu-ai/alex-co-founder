@@ -528,6 +528,64 @@ async def register_session_resource(
             "tombstoned": bool(result.get("tombstoned"))}
 
 
+async def register_legacy_unlinked_resource(
+    *, founder_id: str, resource_type: str, canonical_id: str,
+    title: str, summary: str = "", status: str = "",
+    visibility: str | None = None,
+    representation_refs: tuple[RepresentationRef, ...] = (),
+) -> dict[str, Any]:
+    """Index a legacy work product when no exact origin session is provable.
+
+    This seam is operator-only and intentionally cannot create a session link.
+    It exists so migration reports ambiguity truthfully while keeping retained
+    work discoverable.  Live producers must use ``register_session_resource``.
+    """
+    from services import firestore
+
+    spec = RESOURCE_REGISTRY.get(resource_type)
+    if spec is None or not spec.enabled:
+        return {"status": "error", "error": True,
+                "message": f"unknown resource type: {resource_type!r}"}
+    visibility = visibility or spec.default_visibility
+    if visibility not in VISIBILITIES or not founder_id or not canonical_id:
+        return {"status": "error", "error": True,
+                "message": "valid founder, canonical id, and visibility are required"}
+    for ref in representation_refs:
+        if "://" in ref.ref or ref.ref.startswith("/"):
+            return {"status": "error", "error": True,
+                    "message": "representation refs must be opaque record ids, not URLs"}
+
+    title = _clip(title, MAX_TITLE)
+    summary = _clip(summary, MAX_SUMMARY)
+    terms, prefs = search_fields(title, summary)
+    resource_id = resource_id_for(
+        founder_id, resource_type, spec.collection, canonical_id)
+    row = {
+        "schema_version": SCHEMA_VERSION,
+        "resource_id": resource_id,
+        "founder_id": founder_id,
+        "resource_type": resource_type,
+        "canonical_ref": {"collection": spec.collection, "id": canonical_id},
+        "producer": {"kind": "migration", "id": "session_resource_backfill",
+                     "output_key": "legacy_resource"},
+        "origin": {"first_session_id": None, "run_id": None,
+                   "journey_id": None, "request_id": None, "message_id": None},
+        "title": title, "summary": summary, "status": status,
+        "visibility": visibility, "content_hash": None,
+        "search_terms": terms, "search_prefixes": prefs,
+        "representation_refs": [
+            {"kind": ref.kind, "ref": ref.ref}
+            for ref in representation_refs[:MAX_REPRESENTATION_REFS]],
+    }
+    try:
+        result = await firestore.upsert_unlinked_resource(row)
+    except Exception as exc:  # noqa: BLE001 — operator receives bounded data
+        return {"status": "error", "error": True,
+                "message": f"legacy resource registration failed: {exc}"[:240]}
+    return {"status": "success", "resource_id": resource_id,
+            "replayed": bool(result.get("replayed")), "legacy_unlinked": True}
+
+
 async def update_resource_status(*, founder_id: str, resource_type: str,
                                  canonical_id: str,
                                  status: str = "", title: str = "",
@@ -962,7 +1020,13 @@ async def _recent(founder_id: str, limit: int, want_sessions: bool,
                 founder_id, limit=limit):
             if resource_types and row.get("resource_type") not in resource_types:
                 continue
-            results.append(_resource_result(row, []))
+            # Recent resources are logical rows, but provenance lives on the
+            # many-to-many links. Join a bounded occurrence set so the blank
+            # Search view does not falsely label linked work as originless.
+            occurrences = await firestore.list_resource_links(
+                founder_id, str(row.get("resource_id") or ""),
+                limit=MAX_OCCURRENCES)
+            results.append(_resource_result(row, occurrences))
     results.sort(key=lambda r: _invert(r.get("occurred_at") or ""))
     return {"status": "success", "query": "",
             "results": [_public(r) for r in results[:limit]],
@@ -971,16 +1035,78 @@ async def _recent(founder_id: str, limit: int, want_sessions: bool,
 
 async def session_resources_for(founder_id: str, session_id: str, *,
                                 limit: int = 100) -> dict[str, Any]:
-    """One conversation's resource occurrences, newest first (docs/23 WI-6)."""
+    """One conversation's resource occurrences, newest first (docs/23 WI-6).
+
+    The result is deliberately occurrence-based: the same logical resource can
+    appear more than once in one conversation for different trusted producer
+    occurrences.  Fetch one extra row so the UI can say when its bounded view
+    is incomplete instead of silently implying that it displayed everything.
+    """
     from services import firestore
 
+    limit = max(1, min(int(limit or 100), 250))
     links = await firestore.list_session_links(founder_id, session_id,
-                                               limit=limit)
+                                               limit=limit + 1)
+    truncated = len(links) > limit
+    links = links[:limit]
     out: list[dict[str, Any]] = []
+    resources_by_id: dict[str, dict[str, Any] | None] = {}
     for link in links:
-        row = await firestore.get_resource(link["resource_id"])
+        resource_id = str(link["resource_id"])
+        if resource_id not in resources_by_id:
+            resources_by_id[resource_id] = await firestore.get_resource(resource_id)
+        row = resources_by_id[resource_id]
         if row is None:
             continue
         result = _resource_result(row, [link])
         out.append(_public(result))
-    return {"status": "success", "session_id": session_id, "resources": out}
+    return {"status": "success", "session_id": session_id,
+            "resources": out, "truncated": truncated}
+
+
+async def all_session_resources_for(
+    founder_id: str,
+    session_id: str,
+    *,
+    page_size: int = 250,
+    max_items: int = 2000,
+) -> dict[str, Any]:
+    """Page through one session's complete bounded workbench context.
+
+    Interactive panels need a shared resource set, rather than each panel
+    independently taking the first page and silently disagreeing. The hard
+    ceiling prevents malformed catalogs from causing unbounded Firestore
+    reads; callers receive ``truncated`` when that ceiling is hit.
+    """
+    from services import firestore
+
+    page_size = max(1, min(int(page_size or 250), 250))
+    max_items = max(1, min(int(max_items or 2000), 2000))
+    links: list[dict[str, Any]] = []
+    cursor: tuple[str, str] | None = None
+    exhausted = False
+    while len(links) < max_items:
+        take = min(page_size, max_items - len(links))
+        page = await firestore.list_session_links(
+            founder_id, session_id, limit=take + 1, start_after=cursor)
+        if len(page) <= take:
+            exhausted = True
+            links.extend(page)
+            break
+        links.extend(page[:take])
+        last = links[-1]
+        cursor = (str(last.get("occurred_at") or ""),
+                  str(last.get("link_id") or last.get("id") or ""))
+
+    out: list[dict[str, Any]] = []
+    resources_by_id: dict[str, dict[str, Any] | None] = {}
+    for link in links:
+        resource_id = str(link["resource_id"])
+        if resource_id not in resources_by_id:
+            resources_by_id[resource_id] = await firestore.get_resource(resource_id)
+        row = resources_by_id[resource_id]
+        if row is None:
+            continue
+        out.append(_public(_resource_result(row, [link])))
+    return {"status": "success", "session_id": session_id,
+            "resources": out, "truncated": not exhausted}

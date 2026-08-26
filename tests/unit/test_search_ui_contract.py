@@ -142,10 +142,44 @@ class TestSameSessionFocus:
 
     def test_current_session_results_focus_in_place(self):
         block = UI.split("function openSearchResult")[1].split("\n}")[0]
-        assert "const here = viewingSession || sessionId;" in block
+        assert "const here = contextSessionId();" in block
         assert "row.session_id !== here" in block
 
     def test_transcript_swap_is_awaited_before_focus(self):
         block = UI.split("function openSearchResult")[1].split("\n}")[0]
         assert "await viewSession(" in block
         assert block.index("await viewSession(") < block.index("focusResource(row)")
+
+
+class TestSessionWorkbenchContext:
+    def test_read_through_never_reassigns_the_active_session(self):
+        block = UI.split("async function viewSession")[1].split("\n}")[0]
+        assert "viewingSession = sid" in block
+        assert "sessionId = sid" not in block
+        assert "contextSessionId()" in block
+
+    def test_every_workbench_read_uses_the_visible_session_context(self):
+        assert '/api/pipeline?session_id=${encodeURIComponent(context)}' in UI
+        assert '/api/sessions/${encodeURIComponent(context)}/resources?limit=2000' in UI
+        assert '/api/documents?session_id=${encodeURIComponent(context)}' in UI
+        assert '/api/browser/state?session_id=${encodeURIComponent(session)}' in UI
+        assert '/api/waiting?session_id=${encodeURIComponent(context)}' in UI
+
+    def test_session_outputs_are_visible_and_focusable(self):
+        assert 'id="sessionWork"' in UI
+        assert 'data-session-resource="${index}"' in UI
+        assert "renderSessionWork();" in UI
+        assert "focusResource(row);" in UI
+
+    def test_read_through_blocks_mutating_actions(self):
+        for fn in ("send", "runSweep", "browseTo", "stopBrowsing", "feedback",
+                   "uploadDoc", "syncDrive", "ingestDrive", "toggleVoice",
+                   "showApproval", "resolveApproval"):
+            block = UI.split(f"function {fn}(")[1].split("\n}")[0]
+            assert "requireActiveContext(" in block, fn
+        assert 'function setReadThroughControls()' in UI
+        assert 'id="resumeViewedBtn"' in UI
+
+    def test_documents_and_attachments_are_session_scoped(self):
+        assert 'sessionResources.filter(row => row.result_type === "artifact")' in UI
+        assert "/source?session_id=${encodeURIComponent(contextSessionId())}" in UI

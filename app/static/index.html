@@ -832,6 +832,37 @@ a.cbtn { text-decoration: none; }
 .doc-tag { color: var(--accent-ink); cursor: pointer; }
 .doc-tag:hover { text-decoration: underline; }
 
+/* One session is the context for the whole workbench. This compact index sits
+   above its transcript and mirrors the same linked work rendered in Pipeline,
+   Browser, Review, and Documents; it is navigation/provenance, not a second
+   domain store (docs/23 §§0, 8). */
+.session-work {
+  border: 1px solid var(--border); border-radius: var(--r-3);
+  background: var(--surface-1); margin-bottom: var(--sp-3); overflow: hidden;
+  flex: none;
+}
+.session-work-head {
+  display: flex; align-items: center; gap: var(--sp-2);
+  min-height: 44px; padding: var(--sp-2) var(--sp-3);
+  border-bottom: 1px solid var(--divider);
+}
+.session-work-head b { font: 600 var(--fs-3)/var(--lh-3) var(--font-ui); }
+.session-work-list { display: flex; gap: var(--sp-2); overflow-x: auto; padding: var(--sp-2); }
+.session-resource {
+  display: flex; align-items: center; gap: var(--sp-2); flex: 0 0 min(260px, 78vw);
+  min-height: 44px; padding: var(--sp-2); border: 1px solid var(--divider);
+  border-radius: var(--r-2); background: var(--surface-2); color: var(--ink-1);
+  font: 400 var(--fs-3)/var(--lh-3) var(--font-ui); text-align: left; cursor: pointer;
+}
+.session-resource:hover { border-color: var(--field); background: var(--surface-3); }
+.session-resource .grow { min-width: 0; }
+.session-resource .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.session-readonly {
+  color: var(--attn-ink); background: var(--attn-bg); border-radius: var(--r-full);
+  padding: 2px var(--sp-2); font: 600 var(--fs-1)/var(--lh-1) var(--font-ui);
+  letter-spacing: var(--tr-label); text-transform: uppercase;
+}
+
 /* ============================================================================
    Dialog — one primitive for the approval gate, the preview, the sheet
    ========================================================================= */
@@ -1455,11 +1486,21 @@ body[data-offline="true"] #offline { display: flex; }
 
   <section id="chat" aria-labelledby="chatTitle">
     <h2 id="chatTitle">Conversation</h2>
+    <section id="sessionWork" class="session-work" aria-labelledby="sessionWorkTitle" hidden>
+      <div class="session-work-head">
+        <svg class="ico" aria-hidden="true"><use href="#i-link"/></svg>
+        <b id="sessionWorkTitle">Work in this session</b>
+        <span class="badge" data-tone="info" id="sessionWorkCount">0</span>
+        <span class="session-readonly" id="sessionReadonly" hidden>Read only</span>
+      </div>
+      <div id="sessionWorkList" class="session-work-list"></div>
+      <div id="sessionWorkStatus" class="foot" aria-live="polite"></div>
+    </section>
     <div id="digestSlot"></div>
     <div id="chatlog" role="log" aria-live="polite" aria-relevant="additions"></div>
     <div id="composer">
       <div class="pillbar">
-        <button class="cbtn" title="Attach a document"
+        <button class="cbtn" id="attachBtn" title="Attach a document"
                 aria-label="Attach a document"
                 onclick="document.getElementById('docUpload').click()">
           <svg class="ico" aria-hidden="true"><use href="#i-paperclip"/></svg>
@@ -1869,6 +1910,10 @@ matchMedia("(prefers-color-scheme: light)").addEventListener("change", () => {
 // ---------- state ----------
 let sessionId = null, activeApp = null, pendingApproval = null, thinking = false;
 let pipelineApps = [], founderInboxRows = [];
+// sessionId is always the explicitly active/write-bound conversation.
+// viewingSession is a read-through context only and must never replace it.
+let viewingSession = null, sessionResources = [], sessionResourcesTruncated = false;
+let refreshGeneration = 0;
 let chatCount = 0;
 let browserSnapshot = null;
 let browserEventSource = null, browserEventSession = null;
@@ -1886,6 +1931,33 @@ const SESSION_KEY = "cofounder-session";
 
 // ---------- helpers ----------
 const $ = id => document.getElementById(id);
+const contextSessionId = () => viewingSession || sessionId;
+const readThrough = () => !!viewingSession;
+
+function setReadThroughControls() {
+  const locked = readThrough();
+  for (const id of ["attachBtn", "attachmentScope", "msg", "micBtn"]) {
+    $(id).disabled = locked;
+  }
+  if (locked) {
+    $("talkBtn").disabled = true;
+    $("sendBtn").disabled = true;
+    $("sweepBtn").disabled = true;
+    $("msg").placeholder = "Resume this session to continue working here";
+  } else {
+    $("talkBtn").disabled = $("talkBtn").classList.contains("connecting");
+    $("sendBtn").disabled = thinking || pendingUploads || !$("msg").value.trim();
+    if ($("sweepBtn").querySelector("span").textContent !== "Sweeping…") {
+      $("sweepBtn").disabled = false;
+    }
+    $("msg").placeholder = "Ask your co-founder…";
+  }
+}
+function requireActiveContext(action = "do that") {
+  if (!viewingSession) return true;
+  toast(`Resume this session before asking Alex to ${action}.`, "attn");
+  return false;
+}
 // Every icon comes from the sprite (docs/16 §5) — never an emoji or symbol glyph.
 const ico = (name, cls = "") => `<svg class="ico ${cls}" aria-hidden="true"><use href="#i-${name}"/></svg>`;
 const emptyState = (icon, head, body, action = "") =>
@@ -2199,11 +2271,12 @@ function renderDigest(data) {
 }
 
 async function refreshWaiting() {
-  if (!sessionId) return;
+  const context = contextSessionId();
+  if (!context) return;
   const since = localStorage.getItem(SEEN_KEY) || "";
   let data;
   try {
-    data = await api(`/api/waiting?session_id=${encodeURIComponent(sessionId)}`
+    data = await api(`/api/waiting?session_id=${encodeURIComponent(context)}`
       + (since ? `&since=${encodeURIComponent(since)}` : ""));
   } catch (e) { return; }          // waiting never breaks the page
   renderDigest(data);
@@ -2230,6 +2303,8 @@ async function newSession() {
   closeBrowserEvents();
   const r = await api("/session/new", { method: "POST", body: "{}" });
   sessionId = r.session_id;
+  viewingSession = null;
+  setReadThroughControls();
   localStorage.setItem(SESSION_KEY, sessionId);
   $("sessionTag").textContent = "session " + sessionId;
   chatCount = 0;
@@ -2237,6 +2312,8 @@ async function newSession() {
   resetBrowserView();
   chatPlaceholder();
   connectBrowserEvents();
+  await refresh();
+  await refreshWaiting();
 }
 // Reuse a stored session across reloads; only mint a fresh one when there is
 // none or it no longer exists server-side (e.g. the session store was reset).
@@ -2278,7 +2355,7 @@ async function send() {
     toast("Wait for the attachment to finish processing before sending.", "attn");
     return;
   }
-  if (viewingSession) backToSession();
+  if (!requireActiveContext("send a message")) return;
   if (!sessionId) await newSession();
   addMsg("you", text); input.value = "";
   $("sendBtn").disabled = true;
@@ -2315,6 +2392,7 @@ async function send() {
 
 // ---------- board ----------
 async function runSweep() {
+  if (!requireActiveContext("run discovery")) return;
   const b = $("sweepBtn");
   b.disabled = true; b.querySelector("span").textContent = "Sweeping…";
   try {
@@ -2350,11 +2428,75 @@ function setOffline(down) {
   if (!down && offlineSince) { offlineSince = 0; toast("Back online.", "ok"); }
 }
 
+const SESSION_RESOURCE_ICON = {
+  discovery_request: "search", opportunity: "target", application: "compass",
+  document: "file-doc", artifact: "paperclip", browser_report: "globe",
+  evidence_report: "shield",
+};
+
+function renderSessionWork() {
+  const host = $("sessionWork");
+  const visible = sessionResources.filter(row => row.result_type !== "session");
+  host.hidden = !visible.length && !viewingSession;
+  $("sessionWorkCount").textContent = String(visible.length);
+  $("sessionReadonly").hidden = !readThrough();
+  $("sessionWorkStatus").textContent = sessionResourcesTruncated
+    ? "This session has more linked work. Narrow it from Search to see older items."
+    : visible.length ? "Select an item to focus it in the matching panel."
+      : "New work created here will appear in this session."
+  $("sessionWorkList").innerHTML = visible.map((row, index) => {
+    const relationship = row.latest_occurrence && row.latest_occurrence.relationship;
+    return `<button class="session-resource" data-session-resource="${index}"
+                    aria-label="Show ${esc(row.title || row.result_type)}">
+      <span class="cbadge sm">${ico(SESSION_RESOURCE_ICON[row.result_type] || "file-doc")}</span>
+      <span class="grow"><span class="name">${esc(row.title || "Untitled work")}</span>
+        <span class="conn-sub">${esc(relationship || "linked")} · ${esc(row.status || row.result_type)}</span></span>
+    </button>`;
+  }).join("");
+}
+
+function renderSessionActivity() {
+  const rows = sessionResources.slice(0, 30);
+  setTabState("audit", rows.length || null, false);
+  $("audit").innerHTML = rows.map(row => {
+    const occurrence = row.latest_occurrence || {};
+    return `<div class="audit-item">
+      <span><span class="who">${esc(row.result_type || "work")}</span>
+        ${esc(occurrence.relationship || "linked")}
+        <span class="badge" data-tone="info">${esc(row.status || "recorded")}</span></span>
+      <time class="when" datetime="${esc(occurrence.occurred_at || row.occurred_at || "")}">
+        ${timeAgo(occurrence.occurred_at || row.occurred_at)}</time>
+      <span class="detail">${esc(row.title || "Untitled work")}</span>
+    </div>`;
+  }).join("") || emptyState("shield", "No linked activity yet",
+    "Searches, applications, documents, browser reports and evidence created in this session appear here.");
+}
+
+function clearReview() {
+  $("approvalSlot").innerHTML = "";
+  $("stepperSlot").innerHTML = "";
+  $("evidenceSlot").innerHTML = "";
+  $("reconSlot").innerHTML = "";
+  $("fillReport").innerHTML = "";
+  $("sections").innerHTML = emptyState("clipboard", "Nothing to review in this session",
+    "Select an application linked to this conversation to see its drafts and evidence.");
+  formTabState.gapCount = 0;
+  formTabState.partialMap = false;
+  publishFormTab();
+}
+
 async function refresh() {
+  const context = contextSessionId();
+  if (!context) return;
+  const generation = ++refreshGeneration;
   refreshGateBanner();
-  let board;
+  let board, resourceResult;
   try {
-    board = await api("/api/pipeline");
+    [board, resourceResult] = await Promise.all([
+      api(`/api/pipeline?session_id=${encodeURIComponent(context)}`),
+      api(`/api/sessions/${encodeURIComponent(context)}/resources?limit=2000`),
+    ]);
+    if (generation !== refreshGeneration || context !== contextSessionId()) return;
     setOffline(false);
   } catch {
     setOffline(true);
@@ -2373,6 +2515,9 @@ async function refresh() {
     return;
   }
   markLoaded();
+  sessionResources = resourceResult.resources || [];
+  sessionResourcesTruncated = !!resourceResult.truncated;
+  renderSessionWork();
   const groups = board.opportunities || {};
   const LANE_COPY = { SHORTLISTED: "Worth applying to", DISCOVERED: "Found, not yet scored",
                       ARCHIVED: "Ruled out, with reasons" };
@@ -2386,18 +2531,24 @@ async function refresh() {
       const why = o.archive_reason
         ? `<div class="why arch">Ruled out — ${esc(o.archive_reason)}</div>`
         : (o.fit_rationale ? `<div class="why">${esc(o.fit_rationale)}</div>` : "");
-      html += `<article class="card">
+      html += `<article class="card" id="opportunity-${esc(o.id || "")}">
         <div class="name">${esc(o.name || "Untitled programme")}</div>
         <div class="meta">${o.award ? `<span>${esc(o.award)}</span>` : ""}${deadlineChip(o)}</div>
         ${fitMeter(o.fit_score)}${why}</article>`;
     }
   }
   $("boardCols").innerHTML = html || emptyState("compass", "Nothing found yet",
-    "Alex sweeps your sources for grants, accelerators and programmes that fit your profile.",
-    `<button class="btn" data-size="sm" onclick="runSweep()">${ico("refresh")}Run a sweep</button>`);
+    readThrough()
+      ? "No opportunities were linked to this conversation."
+      : "Alex sweeps your sources for grants, accelerators and programmes that fit your profile.",
+    readThrough() ? "" : `<button class="btn" data-size="sm" onclick="runSweep()">${ico("refresh")}Run a sweep</button>`);
 
   const apps = board.applications || [];
   pipelineApps = apps;
+  if (activeApp && !apps.some(app => app.id === activeApp.id)) {
+    activeApp = null;
+    clearReview();
+  }
   $("apps").innerHTML = apps.map(a =>
     `<article class="card appcard ${activeApp && activeApp.id === a.id ? "active" : ""}"
        tabindex="0" role="button" data-app-id="${esc(a.id)}"
@@ -2406,28 +2557,16 @@ async function refresh() {
        <div class="meta"><span class="badge" data-tone="info">${stateLabel(a.state)}</span>${deadlineChip(a)}</div>
      </article>`).join("")
     || emptyState("clipboard", "No applications in flight",
-         "Pick a shortlisted programme above and tell Alex to start — it interviews you, then drafts.");
+         readThrough()
+           ? "No applications were linked to this conversation."
+           : "Pick a shortlisted programme above and tell Alex to start — it interviews you, then drafts.");
+  if (!apps.length) clearReview();
   if (!activeApp && apps.length) loadApp(apps[0].id);
-  if (activeApp) loadApp(activeApp.id, true);
+  else if (activeApp) loadApp(activeApp.id, true);
   refreshFounderInbox();
   syncChat();
-  loadDocuments();
-
-  const audit = await api("/api/audit");
-  const rows = (audit.audit || []).slice(0, 15);
-  // A refusal is the safety gate working; it should be findable from a closed tab.
-  setTabState("audit", rows.length || null, rows.some(r => r.result !== "success"));
-  $("audit").innerHTML = rows.map(r => {
-    const ok = r.result === "success";
-    const detail = String(r.detail || "");
-    return `<div class="audit-item">
-      <span><span class="who">${esc(r.actor || "")}</span> ${esc(r.action || "")}
-        <span class="badge" data-tone="${ok ? "ok" : "danger"}">${esc(r.result || "")}</span></span>
-      <time class="when" datetime="${esc(r.created_at || "")}">${timeAgo(r.created_at)}</time>
-      ${detail ? `<span class="detail">${esc(detail.slice(0, 140))}${detail.length > 140 ? "…" : ""}</span>` : ""}
-    </div>`;
-  }).join("") || emptyState("shield", "No activity yet",
-    "Every action Alex takes — searches, drafts, form fills, submissions — is recorded here.");
+  loadDocuments(context);
+  renderSessionActivity();
 }
 
 // ---------- left surface: Pipeline ⇄ Browser + drag resize (docs/10, 18) ----------
@@ -2502,6 +2641,7 @@ wireSplit({ handleId: "splitHandleRight", varName: "--right-w",
 function resetBrowserView() {
   browserSnapshot = null; browserFrames = [];
   browserVersions.clear(); browserFrameSeqs.clear();
+  renderBrowserPanel();
 }
 
 function pickBrowserRun(state) {
@@ -2592,8 +2732,8 @@ function reduceBrowserFrame(event) {
 // bounded retries, then the next reconnect's snapshot heals it — never a loop.
 const BROWSER_RESYNC_BACKOFF = [2000, 5000];
 async function loadBrowserState(attempt = 0) {
-  if (!sessionId || browserResyncing) return;
-  const session = sessionId;
+  const session = contextSessionId();
+  if (!session || browserResyncing) return;
   browserResyncing = true;
   try {
     const state = await api(`/api/browser/state?session_id=${encodeURIComponent(session)}`);
@@ -2602,7 +2742,7 @@ async function loadBrowserState(attempt = 0) {
   } catch {
     const wait = BROWSER_RESYNC_BACKOFF[attempt];
     if (wait !== undefined) setTimeout(() => {
-      if (sessionId === session) loadBrowserState(attempt + 1);
+      if (contextSessionId() === session) loadBrowserState(attempt + 1);
     }, wait);
   }
   finally { browserResyncing = false; }
@@ -2631,12 +2771,13 @@ function closeBrowserEvents() {
 // visibilitychange or session switch can try again.
 const BROWSER_STREAM_BACKOFF = [2000, 6000, 15000];
 function connectBrowserEvents(isRetry = false) {
-  if (!sessionId || document.visibilityState === "hidden") { closeBrowserEvents(); return; }
-  if (browserEventSource && browserEventSession === sessionId) return;
+  const context = contextSessionId();
+  if (!context || document.visibilityState === "hidden") { closeBrowserEvents(); return; }
+  if (browserEventSource && browserEventSession === context) return;
   closeBrowserEvents();
   if (!isRetry) browserEventTries = 0;  // founder-driven attempt: fresh budget
-  browserEventSession = sessionId;
-  const source = new EventSource(`/api/browser/events?session_id=${encodeURIComponent(sessionId)}`);
+  browserEventSession = context;
+  const source = new EventSource(`/api/browser/events?session_id=${encodeURIComponent(context)}`);
   browserEventSource = source;
   source.addEventListener("open", () => { browserEventTries = 0; });
   source.addEventListener("error", () => {
@@ -2649,7 +2790,7 @@ function connectBrowserEvents(isRetry = false) {
     browserEventTries += 1;
     browserEventTimer = setTimeout(() => {
       browserEventTimer = 0;
-      if (sessionId === session) connectBrowserEvents(true);
+      if (contextSessionId() === session) connectBrowserEvents(true);
     }, wait);
   });
   ["browser.snapshot", "browser.started", "browser.frame", "browser.status",
@@ -2665,8 +2806,12 @@ function renderBrowserPanel() {
   liveBadge.hidden = !run;
   liveBadge.dataset.tone = run && run.status === "blocked" ? "danger" : "info";
   liveBadge.textContent = run ? ({active:"live"}[run.status] || run.status || "closed") : "";
-  $("browserStopBtn").hidden = !nonterminal;
+  $("browserStopBtn").hidden = !nonterminal || readThrough();
   const urlEl = $("browserUrl");
+  urlEl.disabled = readThrough();
+  urlEl.placeholder = readThrough()
+    ? "Resume this session to ask Alex to browse"
+    : "Type a URL — Alex opens it";
   if (document.activeElement !== urlEl) {  // never clobber a URL being typed
     urlEl.value = run ? (run.url || "") : "";
     urlEl.title = run && run.url ? run.url : "";
@@ -2691,7 +2836,9 @@ function renderBrowserPanel() {
     stage.innerHTML = emptyState("globe",
       run ? "Waiting for the first frame" : "Alex isn't browsing",
       run ? "The next screenshot lands here within a few seconds."
-          : "Type a URL above or paste a link in chat — watch Alex read it here.");
+          : readThrough()
+            ? "No browser work was linked to this conversation."
+            : "Type a URL above or paste a link in chat — watch Alex read it here.");
   }
   $("browserLast").textContent = run
     ? (run.last_action
@@ -2708,6 +2855,7 @@ function renderBrowserPanel() {
 // Typing a URL asks Alex to open it — through chat, so the request stays on
 // the agent's policy + audit path; this surface never navigates directly.
 async function browseTo(raw) {
+  if (!requireActiveContext("browse")) return;
   let url = (raw || "").trim();
   if (!url) return;
   if (!/^https?:\/\//i.test(url)) url = `https://${url}`;
@@ -2717,6 +2865,7 @@ async function browseTo(raw) {
 }
 
 async function stopBrowsing() {
+  if (!requireActiveContext("stop browser work")) return;
   if (!sessionId || !browserSnapshot) return;
   if (browserSnapshot.kind === "fill" && !confirm("Stop form work? Unsaved portal entries may be discarded. Nothing will be submitted.")) return;
   const result = await api("/api/browser/stop", {
@@ -2815,8 +2964,12 @@ const STATE_COPY = {
 };
 const stateLabel = st => esc(STATE_COPY[st] || String(st || "").replaceAll("_", " "));
 async function loadApp(id, silent) {
-  try { activeApp = await api(`/api/applications/${id}?session_id=${encodeURIComponent(sessionId)}`); }
+  const context = contextSessionId();
+  let loaded;
+  try { loaded = await api(`/api/applications/${id}?session_id=${encodeURIComponent(context)}`); }
   catch { return; }
+  if (context !== contextSessionId()) return;
+  activeApp = loaded;
   if (!activeApp || activeApp.error) return;
 
   const idx = STEPS.indexOf(activeApp.state);
@@ -2832,7 +2985,8 @@ async function loadApp(id, silent) {
       <p>The form is filled and checked. Nothing is sent until you approve — and submitting cannot be undone.</p>
       <div class="row">
         <button class="btn" data-size="sm"
-          onclick="showApproval('${activeApp.pending_approval_id}')">Review &amp; approve</button>
+          onclick="showApproval('${activeApp.pending_approval_id}')" ${readThrough() ? "disabled" : ""}>
+          ${readThrough() ? "Resume to review" : "Review &amp; approve"}</button>
       </div>
     </div>` : "";
 
@@ -2847,15 +3001,15 @@ async function loadApp(id, silent) {
       </div>
       <div class="preview">${esc((s.content || "").slice(0, 260))}${(s.content || "").length > 260 ? "…" : ""}</div>
       ${s.notes ? `<div class="notes">${ico("sparkle", "ico-sm")}<span>${esc(s.notes)}</span></div>` : ""}
-      <textarea class="field" aria-label="Edit ${esc(s.section_key)}">${esc(s.content || "")}</textarea>
+      <textarea class="field" aria-label="Edit ${esc(s.section_key)}" ${readThrough() ? "disabled" : ""}>${esc(s.content || "")}</textarea>
       <div class="row">
-        <button class="btn" data-size="sm" onclick="feedback('${s.section_id}','approve',this)">
+        <button class="btn" data-size="sm" onclick="feedback('${s.section_id}','approve',this)" ${readThrough() ? "disabled" : ""}>
           ${ico("check", "ico-sm")}Approve</button>
-        <button class="btn" data-variant="secondary" data-size="sm" onclick="toggleEdit(this)">
+        <button class="btn" data-variant="secondary" data-size="sm" onclick="toggleEdit(this)" ${readThrough() ? "disabled" : ""}>
           ${ico("pencil", "ico-sm")}Edit</button>
-        <button class="btn" data-variant="danger" data-size="sm" onclick="feedback('${s.section_id}','reject',this)">
+        <button class="btn" data-variant="danger" data-size="sm" onclick="feedback('${s.section_id}','reject',this)" ${readThrough() ? "disabled" : ""}>
           Reject</button>
-        <input class="field reason" aria-label="Reason" placeholder="Why? Alex learns from this." />
+        <input class="field reason" aria-label="Reason" placeholder="Why? Alex learns from this." ${readThrough() ? "disabled" : ""}/>
       </div>
     </div>`).join("") || emptyState("chat", "Nothing drafted yet",
       "Alex interviews you first, then drafts each section in your voice for you to approve.");
@@ -2987,6 +3141,7 @@ function toggleEdit(btn) {
   if (show) ta.focus();
 }
 async function feedback(sectionId, type, btn) {
+  if (!requireActiveContext("change a draft")) return;
   const box = btn.closest(".section");
   const reasonEl = box.querySelector(".reason");
   if (type !== "approve") reasonEl.style.display = "block";
@@ -3047,8 +3202,10 @@ let gateItems = {};  // approval_id → record (global inbox: submit + send_emai
 
 async function refreshGateBanner() {
   try {
-    if (!sessionId) return;
-    const j = await api(`/api/approvals/pending?session_id=${encodeURIComponent(sessionId)}`);
+    const context = contextSessionId();
+    if (!context) return;
+    const j = await api(`/api/approvals/pending?session_id=${encodeURIComponent(context)}`);
+    if (context !== contextSessionId()) return;
     const pending = (j || {}).pending || [];
     gateItems = Object.fromEntries(pending.map(a => [a.id, a]));
     const shown = pending.filter(a => !activeApp || a.id !== activeApp.pending_approval_id);
@@ -3061,13 +3218,15 @@ async function refreshGateBanner() {
       return `<div class="approval-banner">
         <div class="hd">${ico("pause")}Waiting on you</div>
         <p class="grow">${label}</p>
-        <button class="btn" data-size="sm" onclick="showApproval('${a.id}')">Review &amp; approve</button>
+        <button class="btn" data-size="sm" onclick="showApproval('${a.id}')" ${readThrough() ? "disabled" : ""}>
+          ${readThrough() ? "Resume to review" : "Review &amp; approve"}</button>
       </div>`;
     }).join("");
   } catch { /* banner is best-effort; the per-app banner still works */ }
 }
 
 function showApproval(approvalId) {
+  if (!requireActiveContext("review an approval")) return;
   pendingApproval = approvalId;
   const a = gateItems[approvalId];
   const det = (a && a.details) || {};
@@ -3094,6 +3253,7 @@ function showApproval(approvalId) {
 }
 function closeApproval() { pendingApproval = null; closeDialog("modal"); }
 async function resolveApproval(decision) {
+  if (!requireActiveContext("resolve an approval")) return;
   if (!pendingApproval) return;
   const id = pendingApproval;
   const gate = gateItems[id] && gateItems[id].gate;
@@ -3125,6 +3285,7 @@ function showPane(which) {
 // ---------- voice + docs ----------
 let recorder = null;
 $("micBtn").onclick = async () => {
+  if (!requireActiveContext("record a voice note")) return;
   if (recorder && recorder.state === "recording") { recorder.stop(); return; }
   const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
   recorder = new MediaRecorder(stream);
@@ -3173,6 +3334,7 @@ $("micBtn").onclick = async () => {
 async function uploadDoc(input) {
   const f = input.files[0]; if (!f) return;
   input.value = "";  // allow re-uploading the same file
+  if (!requireActiveContext("attach a document")) return;
   if (!sessionId) await newSession();
   const attachmentSessionId = sessionId;
   const scope = $("attachmentScope").value || "reference_only";
@@ -3359,10 +3521,11 @@ function pdfZoomBy(d) { pdfZoom = Math.min(3, Math.max(0.5, pdfZoom + d)); rende
 function closePdf() { closeDialog("pdfModal"); pdfDoc = null; }
 
 // ---------- documents (docs/15) ----------
-let allDocs = [], viewingSession = null;
+let allDocs = [];
 
-async function loadDocuments() {
-  const r = await api("/api/documents");
+async function loadDocuments(context = contextSessionId()) {
+  const r = await api(`/api/documents?session_id=${encodeURIComponent(context)}`);
+  if (context !== contextSessionId()) return;
   allDocs = r.documents || [];
   renderDocuments();
   renderSessionDocCards();
@@ -3374,7 +3537,7 @@ const DOC_ICONS = { docx: "file-doc", xlsx: "file-sheet", pptx: "file-slides", p
 // into inline handlers. Actions ride data-* attributes; one delegated
 // listener below dispatches them.
 function docCardHtml(d, showApp) {
-  return `<div class="doc-card">
+  return `<div class="doc-card" id="document-${esc(d.doc_key || d.id || "")}">
     <span class="doc-badge ${esc(d.kind)}">${ico(DOC_ICONS[d.kind] || DOC_ICONS.docx)}</span>
     <div style="min-width:0;flex:1">
       <div class="name" title="${esc(d.title)}">${esc(d.title)}</div>
@@ -3387,8 +3550,22 @@ function docCardHtml(d, showApp) {
             data-doc-action="preview" data-artifact="${esc(d.artifact_name)}" data-title="${esc(d.title)}">
       ${ico("eye")}</button>
     <button class="cbtn" title="Copy to Drive" aria-label="Copy to Drive"
-            data-doc-action="drive" data-artifact="${esc(d.artifact_name)}">
+            data-doc-action="drive" data-artifact="${esc(d.artifact_name)}" ${readThrough() ? "disabled" : ""}>
       ${ico("cloud-up")}</button>
+  </div>`;
+}
+
+function artifactCardHtml(row) {
+  const id = (row.canonical_ref || {}).id || "";
+  return `<div class="doc-card" id="artifact-${esc(id)}">
+    <span class="doc-badge pdf">${ico("paperclip")}</span>
+    <div style="min-width:0;flex:1">
+      <div class="name" title="${esc(row.title || "Attachment")}">${esc(row.title || "Attachment")}</div>
+      <div class="sub">${esc(row.subtitle || row.status || "Session attachment")} · ${timeAgo(row.occurred_at)}</div>
+    </div>
+    <a class="cbtn" title="Download source" aria-label="Download source"
+       href="/api/ingest/${encodeURIComponent(id)}/source?session_id=${encodeURIComponent(contextSessionId())}" download>
+      ${ico("download")}</a>
   </div>`;
 }
 document.addEventListener("click", (e) => {
@@ -3436,6 +3613,12 @@ document.addEventListener("click", (e) => {
   if (resume) { resumeSession(resume.dataset.sessionResume); return; }
   const hit = e.target.closest("[data-search-open]");
   if (hit) { openSearchResult(Number(hit.dataset.searchOpen)); return; }
+  const resource = e.target.closest("[data-session-resource]");
+  if (resource) {
+    const row = sessionResources[Number(resource.dataset.sessionResource)];
+    if (row) focusResource(row);
+    return;
+  }
   const sess = e.target.closest("[data-session-open]");
   if (sess) {
     closeSessions();
@@ -3483,18 +3666,24 @@ document.addEventListener("keydown", (e) => {
 });
 
 function renderDocuments() {
-  setTabState("docs", allDocs.length || null, false);
+  const artifacts = sessionResources.filter(row => row.result_type === "artifact");
+  const total = allDocs.length + artifacts.length;
+  setTabState("docs", total || null, false);
   const el = $("documents");
-  if (!allDocs.length) {
+  if (!total) {
     el.innerHTML = emptyState("file-doc", "No documents yet",
-      "Ask Alex for an application pack, a budget, or a deck — finished files land here.");
+      "Documents and attachments linked to this session land here.");
     return;
   }
   const groups = {};
   for (const d of allDocs) (groups[d.opportunity_name || "General"] ||= []).push(d);
-  el.innerHTML = Object.entries(groups).map(([name, docs]) =>
+  const produced = Object.entries(groups).map(([name, docs]) =>
     `<div class="lane-label DISCOVERED">${esc(name)} · ${docs.length}</div>` +
     docs.map(d => docCardHtml(d, false)).join("")).join("");
+  const sources = artifacts.length
+    ? `<div class="lane-label DISCOVERED">Session attachments · ${artifacts.length}</div>`
+      + artifacts.map(artifactCardHtml).join("") : "";
+  el.innerHTML = produced + sources;
 }
 
 // Documents produced in THIS session also appear as in-chat cards (Chainlit
@@ -3515,36 +3704,51 @@ function renderSessionDocCards() {
 // provenance navigation: doc → the conversation that produced it
 async function viewSession(sid) {
   actStop();
-  if (!sid || sid === sessionId) { toast("You're already viewing this session."); return; }
-  // Read-through reassigns the global sessionId that the live WebSocket and
-  // mid-call typed input are bound to. Refuse while a call is active so a
-  // search result can never silently re-route the founder's speech or typing
-  // (docs/23 §8.2).
+  if (!sid || sid === contextSessionId()) { toast("You're already viewing this session."); return; }
+  // Read-through never mutates sessionId: live voice, typed input and every
+  // write remain bound to the explicitly active conversation (docs/23 §8.2).
   if (voice) { toast("Hang up the live call before opening another conversation.", "attn"); return; }
   const h = await api("/api/chat/" + sid);
   if (h.error) { toast("That session no longer exists.", "danger"); return; }
-  if (!viewingSession) viewingSession = sessionId;
-  sessionId = sid;
+  viewingSession = sid;
+  setReadThroughControls();
+  ++refreshGeneration; // invalidate reads that began for the previous context
+  closeBrowserEvents();
   resetBrowserView();
   connectBrowserEvents();
-  chatCount = (h.messages || []).length;
-  $("sessionTag").innerHTML = `viewing ${sid} — <a href="#" class="doc-tag" onclick="backToSession();return false">‹ back to your session</a>`;
+  loadBrowserState();
+  $("sessionTag").innerHTML = `viewing ${esc(sid)} —
+    <button class="doc-tag" id="resumeViewedBtn">Resume this session</button>
+    · <a href="#" class="doc-tag" onclick="backToSession();return false">back to active</a>`;
+  $("resumeViewedBtn").onclick = () => resumeSession(sid);
   const log = $("chatlog");
   log.innerHTML = "";
+  if (!(h.messages || []).length) {
+    log.innerHTML = emptyState("chat", "No transcript in this session",
+      "Its linked work still appears across Pipeline, Browser, Review and Documents.");
+  }
   for (const m of h.messages || []) addMsg(m.role, m.text);
+  await refresh();
+  await refreshWaiting();
 }
-function backToSession() {
+async function backToSession() {
   actStop();
   if (!viewingSession) return;
-  sessionId = viewingSession;
   viewingSession = null;
+  setReadThroughControls();
+  ++refreshGeneration;
   $("sessionTag").textContent = "session " + sessionId;
   chatCount = 0;
+  closeBrowserEvents();
   resetBrowserView();
   connectBrowserEvents();
-  syncChat();
+  loadBrowserState();
+  await refresh();
+  await syncChat();
+  await refreshWaiting();
 }
 async function syncDrive(name) {
+  if (!requireActiveContext("copy a document to Drive")) return;
   toast("Copying to Drive…");
   const r = await api(`/api/documents/${name}/sync_drive`, { method: "POST", body: "{}" });
   toast(r.status === "success" ? "Copied to your Drive." : (r.message || "Couldn't copy to Drive."),
@@ -3803,6 +4007,7 @@ async function removeDriveFile(id) {
   loadConnections();
 }
 async function ingestDrive(sourceGrantId) {
+  if (!requireActiveContext("ingest a Drive document")) return;
   toast("Fetching from Drive and extracting…");
   if (!sessionId) await newSession();
   const r = await api("/api/ingest/drive", { method: "POST", body: JSON.stringify({
@@ -3842,6 +4047,7 @@ let liveCaptions = { you: "", agent: "" };
 
 async function toggleVoice() {
   if (voice) { stopVoice(); return; }
+  if (!requireActiveContext("start a live conversation")) return;
   if (!sessionId) await newSession();
   const btn = $("talkBtn");
   btn.classList.add("connecting"); btn.disabled = true;
@@ -4149,8 +4355,8 @@ async function runSearch({ reset = false } = {}) {
 }
 
 function resultRow(row, index) {
-  const current = row.result_type === "session"
-    && row.session_id === (viewingSession || sessionId);
+  const active = row.result_type === "session" && row.session_id === sessionId;
+  const viewed = row.result_type === "session" && row.session_id === viewingSession;
   const orphan = row.result_type !== "session" && !row.session_id;
   const where = row.result_type === "session"
     ? `${row.occurrence_count || 0} item${row.occurrence_count === 1 ? "" : "s"}`
@@ -4167,7 +4373,8 @@ function resultRow(row, index) {
       <div class="conn-sub">${where}${times}${
         row.occurred_at ? ` · ${timeAgo(row.occurred_at) || "just now"}` : ""}</div></span>
     ${row.status ? `<span class="chip">${esc(row.status)}</span>` : ""}
-    ${current ? `<span class="chip-ok">Current</span>`
+    ${active ? `<span class="chip-ok">Active</span>`
+              : viewed ? `<span class="badge" data-tone="info">Viewing</span>`
               : row.session_id ? `<span class="btn" data-variant="quiet" data-size="sm"
                        data-session-resume="${esc(row.session_id)}">Resume</span>` : ""}
   </button>`;
@@ -4210,7 +4417,7 @@ function moveSearchActive(delta) {
 async function openSearchResult(index) {
   const row = searchRows[index];
   if (!row) return;
-  const here = viewingSession || sessionId;
+  const here = contextSessionId();
   closeSessions();
   if (row.result_type === "session") {
     if (row.session_id && row.session_id !== here) await viewSession(row.session_id);
@@ -4229,18 +4436,25 @@ function focusResource(row) {
   switch (focus.kind) {
     case "opportunity":
       showSurface("pipeline");
+      document.getElementById(`opportunity-${focus.id}`)?.scrollIntoView({ block: "center" });
       toast(`Showing ${row.title} on the board.`, "ok");
-      refresh();
       break;
     case "application":
       loadApp(focus.id);
       break;
     case "document":
-    case "artifact":
       selectTab("docs");
+      document.getElementById(`document-${focus.id}`)?.scrollIntoView({ block: "center" });
       toast(`${row.title} is in Documents.`, "ok");
       break;
+    case "artifact":
+      selectTab("docs");
+      document.getElementById(`artifact-${focus.id}`)?.scrollIntoView({ block: "center" });
+      toast(`${row.title} is in session attachments.`, "ok");
+      break;
     case "browser_report":
+      if (window.innerWidth < 960) showPane("browser"); else showSurface("browser");
+      break;
     case "evidence_report":
       selectTab("form");
       break;
@@ -4255,20 +4469,25 @@ function focusResource(row) {
 // Resume = make it the active session again (localStorage + tag + polling),
 // exactly the state a reload restores. Distinct from viewSession(), which is
 // a read-through visit that keeps your real session parked.
-function resumeSession(sid) {
+async function resumeSession(sid) {
   actStop();
   closeSessions();
   if (voice) { toast("Hang up the live call before switching sessions.", "attn"); return; }
-  if (sid === (viewingSession || sessionId)) { backToSession(); return; }
+  if (sid === sessionId) { await backToSession(); return; }
   sessionId = sid;
   viewingSession = null;
+  setReadThroughControls();
+  ++refreshGeneration;
   localStorage.setItem(SESSION_KEY, sid);
   $("sessionTag").textContent = "session " + sid;
   chatCount = 0;
+  closeBrowserEvents();
   resetBrowserView();
   connectBrowserEvents();
-  syncChat();
-  refresh();
+  loadBrowserState();
+  await refresh();
+  await syncChat();
+  await refreshWaiting();
   toast("Session resumed — new messages continue here.", "ok");
 }
 

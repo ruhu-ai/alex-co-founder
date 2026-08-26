@@ -701,8 +701,8 @@ async def api_session_resources(session_id: str, limit: int = 100):
     """One conversation's durable outputs, newest first (docs/23 WI-6)."""
     if not await _founder_session_exists(session_id):
         return JSONResponse({"error": "not found"}, status_code=404)
-    return await session_resources.session_resources_for(
-        FOUNDER_ID, session_id, limit=limit)
+    return await session_resources.all_session_resources_for(
+        FOUNDER_ID, session_id, max_items=limit)
 
 
 @app.get("/api/sessions")
@@ -1201,8 +1201,44 @@ async def api_config():
 
 
 @app.get("/api/pipeline")
-async def api_pipeline():
-    return await pipeline_service.board(FOUNDER_ID)
+async def api_pipeline(session_id: str = ""):
+    """Return the founder pipeline, optionally scoped to one conversation.
+
+    Session scoping is resolved from the durable many-to-many resource links,
+    never from a mutable ``session_id`` field on an opportunity/application.
+    That keeps a deduplicated opportunity visible in every conversation that
+    discovered or selected it without assigning ownership to chat history.
+    """
+    if session_id and not await _founder_session_exists(session_id):
+        return JSONResponse({"error": "not found"}, status_code=404)
+    board = await pipeline_service.board(FOUNDER_ID)
+    if not session_id:
+        return board
+
+    linked = await session_resources.all_session_resources_for(
+        FOUNDER_ID, session_id)
+    ids_by_type: dict[str, set[str]] = {}
+    for resource in linked.get("resources", []):
+        canonical_id = str((resource.get("canonical_ref") or {}).get("id") or "")
+        if canonical_id:
+            ids_by_type.setdefault(str(resource.get("result_type") or ""), set()).add(
+                canonical_id)
+
+    opportunity_ids = ids_by_type.get(session_resources.ResourceType.OPPORTUNITY, set())
+    application_ids = ids_by_type.get(session_resources.ResourceType.APPLICATION, set())
+    scoped = dict(board)
+    scoped["opportunities"] = {
+        state: [row for row in rows if str(row.get("id") or "") in opportunity_ids]
+        for state, rows in (board.get("opportunities") or {}).items()
+    }
+    scoped["applications"] = [
+        row for row in (board.get("applications") or [])
+        if str(row.get("id") or "") in application_ids
+    ]
+    scoped["session_id"] = session_id
+    scoped["resource_count"] = len(linked.get("resources", []))
+    scoped["resources_truncated"] = bool(linked.get("truncated"))
+    return scoped
 
 
 @app.get("/api/audit")

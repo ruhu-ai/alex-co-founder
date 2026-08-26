@@ -7,7 +7,8 @@ HTML = (Path(__file__).parents[2] / "app/static/index.html").read_text()
 
 def test_browser_uses_one_visibility_scoped_eventsource_without_refresh_poll():
     assert "new EventSource(`/api/browser/events?session_id=" in HTML
-    assert "if (browserEventSource && browserEventSession === sessionId) return" in HTML
+    assert "if (browserEventSource && browserEventSession === context) return" in HTML
+    assert "const context = contextSessionId();" in HTML
     assert 'document.visibilityState === "hidden"' in HTML
     assert "else closeBrowserEvents()" in HTML
     refresh_body = HTML.split("async function refresh() {", 1)[1].split("\n}", 1)[0]
