@@ -1,0 +1,34 @@
+app/static/index.html
+  s_0d88913a591014::t_eb4ff29148eb4e 1398,1817,1819-1821,1826-1827,1830,1833,4182-4184,4297,4325-4327,4330-4331,4333,4337-4338,4346-4347
+services/session_resources.py
+  s_0d88913a591014::t_96ff460b1ef0ee 770,774,816,835,1003,1023-1035
+  s_0d88913a591014::t_2681c15047a501 938-940,946
+tests/unit/test_search_ui_contract.py
+  s_0d88913a591014::t_8b32216a091afe 1,17-20,22-24,28,32-35,74-75,115,127-128,135,138
+docs/23-session-resources-and-global-search.md
+  s_0d88913a591014::t_4c6ba7bfdf2a1a 753-756,764-766,771-772,777,779,782-785,796-798,811-812,814
+tests/unit/test_search_api.py
+  s_0d88913a591014::t_96ff460b1ef0ee 195-210
+  s_0d88913a591014::t_7c6bb5bec0017f 52-55
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "27fe814e4ff3c0c0b00da1484918c8779ff828e2",
+  "prompts": {},
+  "humans": {
+    "h_137cc690990511": {
+      "author": "Ijidai Lassa <ijidai@cued.app>"
+    }
+  },
+  "sessions": {
+    "s_0d88913a591014": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a024b4-0838-7aa2-b12f-fefddbe84fe4",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Ijidai Lassa <ijidai@cued.app>"
+    }
+  }
+}
