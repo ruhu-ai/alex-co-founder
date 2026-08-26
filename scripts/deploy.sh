@@ -4,6 +4,9 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
+PYTHON="$ROOT/.venv/bin/python"
+[[ -x "$PYTHON" ]] \
+  || { echo "missing $PYTHON (run scripts/setup.sh before deploy)"; exit 1; }
 [[ -f .env ]] || { echo "missing .env (copy .env.example → .env, see docs/13)"; exit 1; }
 set -a; source .env; set +a
 : "${GOOGLE_CLOUD_PROJECT:?set GOOGLE_CLOUD_PROJECT in .env}"
@@ -15,14 +18,14 @@ grep -q "^BROWSE_OPEN_WEB=false" .env.prod \
 set -a; source .env.prod; set +a
 : "${DB_PASSWORD:?set DB_PASSWORD in .env.prod}"
 
-python3 scripts/check_browser_invariants.py
+"$PYTHON" scripts/check_browser_invariants.py
 
 
 echo "==> Firestore (native mode, idempotent)"
 gcloud firestore databases describe --database="(default)" >/dev/null 2>&1 \
   || gcloud firestore databases create --location="$REGION"
-python3 scripts/deploy_firestore_indexes.py --project "$GOOGLE_CLOUD_PROJECT"
-python3 scripts/migrate_browser_runs.py
+"$PYTHON" scripts/deploy_firestore_indexes.py --project "$GOOGLE_CLOUD_PROJECT"
+"$PYTHON" scripts/migrate_browser_runs.py
 
 echo "==> Secrets (idempotent)"
 for SECRET in mock-portal-creds portal-webhook-token app-auth-token; do
@@ -106,7 +109,7 @@ gcloud storage buckets update "gs://${GOOGLE_CLOUD_PROJECT}-artifacts" \
 # Verify the applied rule's SEMANTICS (age + action + prefix), not just that
 # the word appears somewhere in the config we wrote a line earlier.
 gcloud storage buckets describe "gs://${GOOGLE_CLOUD_PROJECT}-artifacts" \
-  --format=json | python3 -c '
+  --format=json | "$PYTHON" -c '
 import json,sys
 rules=(json.load(sys.stdin).get("lifecycle_config") or {}).get("rule") or []
 ok=any(r.get("action",{}).get("type")=="Delete"
@@ -140,7 +143,7 @@ SA="scheduler-invoker@${GOOGLE_CLOUD_PROJECT}.iam.gserviceaccount.com"
 # the file, and no BSD-vs-GNU `sed -i` portability trap.
 EXCLUDE_KEYS="${SECRET_ENV_KEYS[*]} ${RUNTIME_SECRET_KEYS[*]} ${FIXED_SECRET_BINDING_KEYS[*]}" TASKS_INVOKER_SA="$SA" \
   MOCK_PORTAL_URL="$MOCK_URL" GOOGLE_CLOUD_REGION="$REGION" \
-  python3 - <<'PY' > /tmp/co_founder_env.yaml
+  "$PYTHON" - <<'PY' > /tmp/co_founder_env.yaml
 import json, os, re
 exclude = set(os.environ["EXCLUDE_KEYS"].split())
 vals = {}

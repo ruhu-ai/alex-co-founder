@@ -97,3 +97,12 @@ def test_deploy_uses_least_privilege_and_never_duplicates_fixed_secrets():
     assert "secretmanager.admin" not in deploy
     assert "FIXED_SECRET_BINDING_KEYS=(APP_AUTH_TOKEN PORTAL_WEBHOOK_TOKEN)" in deploy
     assert '${FIXED_SECRET_BINDING_KEYS[*]}' in deploy
+
+
+def test_deploy_uses_the_verified_virtualenv_interpreter_only():
+    deploy = (ROOT / "scripts" / "deploy.sh").read_text(encoding="utf-8")
+    assert 'PYTHON="$ROOT/.venv/bin/python"' in deploy
+    assert "python3" not in deploy
+    for script in ("check_browser_invariants.py", "deploy_firestore_indexes.py",
+                   "migrate_browser_runs.py"):
+        assert f'"$PYTHON" scripts/{script}' in deploy
