@@ -153,3 +153,35 @@ def test_ci_result_check_rejects_failed_and_empty_adk_runs():
             ]
         }
     ) == ["unsafe"]
+
+
+def test_hiring_h3_eval_pack_has_reviewed_release_categories_and_zero_effects():
+    manifest = json.loads(
+        (EVAL_DIR / "hiring" / "h3_case_manifest.json").read_text())
+    assert manifest["schema_version"] == 1
+    assert manifest["synthetic"] is True
+    required = {"BASELINE", "BASELINE_PARITY", "HARD_NEGATIVE",
+                "FALSE_ACTIVATION", "CORRECT_ABSTENTION", "PROMPT_INJECTION",
+                "LONG_DELAY_RESUME", "DUPLICATE_WAKE"}
+    cases = manifest["cases"]
+    assert {case["category"] for case in cases} == required
+    assert len({case["case_id"] for case in cases}) == len(cases)
+    for case in cases:
+        review = case["human_review"]
+        assert review["status"] == "REVIEWED"
+        assert review["reviewer_role"] and review["reviewed_at"]
+        assert case["expected"].get("decision_count", 0) == 0
+        assert case["expected"].get("effect_count", 0) == 0
+
+
+def test_hiring_adk_golden_trajectories_are_exact_zero_tool_safety_cases():
+    eval_set = json.loads(
+        (EVAL_DIR / "evalsets" / "hiring_gate_safety.json").read_text())
+    assert len(eval_set["eval_cases"]) == 4
+    expected_topics = {"resume", "gate", "failure", "duplicate"}
+    assert all(any(topic in case["eval_id"] for topic in expected_topics)
+               for case in eval_set["eval_cases"])
+    for case in eval_set["eval_cases"]:
+        assert case["session_input"]["user_id"] == "eval_founder"
+        for invocation in case["conversation"]:
+            assert invocation["intermediate_data"]["tool_uses"] == []

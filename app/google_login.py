@@ -186,6 +186,11 @@ def register(app) -> None:
                 "nonce": nonce,
                 "verifier": verifier,
                 "redirect_uri": redirect_uri,
+                # This is validated before it enters the signed state. It is
+                # deliberately a local path so completing sign-in can resume a
+                # connector-consent request without creating an open redirect.
+                "return_path": auth.safe_local_return_path(
+                    request.query_params.get("next", "/")),
             })
         except Exception:
             return _error_response("start_failed", secure=secure)
@@ -229,7 +234,10 @@ def register(app) -> None:
         if not auth.email_may_log_in(email):
             return _error_response("not_authorized", secure=secure)
 
-        response = RedirectResponse("/", status_code=303)
+        response = RedirectResponse(
+            auth.safe_local_return_path(str(pending.get("return_path") or "/")),
+            status_code=303,
+        )
         response.set_cookie(
             auth.SESSION_COOKIE,
             auth.mint_session(

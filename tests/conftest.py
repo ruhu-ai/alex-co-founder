@@ -1409,7 +1409,7 @@ def fake_store(monkeypatch):
             founder_id, connection_id, action_kind, idempotency_key,
             request_hash, *, session_id=None, application_id=None,
             resource_id=None, subject_hash=None, approval_id=None,
-            lease_seconds=120):
+            sandbox_context=None, lease_seconds=120):
         from services import data_source_contracts as dsc
 
         if not await _get_data_connection(founder_id, connection_id):
@@ -1421,6 +1421,18 @@ def fake_store(monkeypatch):
         except ValueError:
             return {"status": "error", "error": True,
                     "error_code": "invalid_contract", "message": "invalid action"}
+        # Mirror the production sandbox-context contract so a test can never
+        # pass an action shape the real store would refuse.
+        context = dict(sandbox_context or {})
+        if action_kind in dsc.SANDBOX_ONLY_ACTION_KINDS:
+            if not context:
+                return {"status": "error", "error": True,
+                        "error_code": "invalid_contract",
+                        "message": "sandbox action context required"}
+        elif context:
+            return {"status": "error", "error": True,
+                    "error_code": "invalid_contract",
+                    "message": "sandbox context is not valid for this action"}
         existing = store.external_actions.get(aid)
         if existing:
             if existing.get("request_hash") != request_hash:
@@ -1454,7 +1466,8 @@ def fake_store(monkeypatch):
             "application_id": application_id, "resource_id": resource_id,
             "action_kind": action_kind, "idempotency_key": idempotency_key,
             "request_hash": request_hash, "subject_hash": subject_hash,
-            "approval_id": approval_id, "status": "PREPARED",
+            "approval_id": approval_id, "sandbox_context": context or None,
+            "status": "PREPARED",
             "provider_effect_id": None, "result_ref": {},
             "uncertainty_reason": None, "error_code": None,
             "lease_owner": owner, "lease_started_at": now,

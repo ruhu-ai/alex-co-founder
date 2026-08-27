@@ -132,11 +132,17 @@ if (stored) document.documentElement.dataset.theme = stored;
 else delete document.documentElement.dataset.theme;
 
 const cfg = await fetch("/auth/config").then(r => r.json()).catch(() => null);
+const requestedNext = new URL(location.href).searchParams.get("next") || "/";
+// Mirror the server's strict same-origin rule. The server validates again
+// before the Google redirect state is sealed.
+const nextPath = requestedNext.startsWith("/") && !requestedNext.startsWith("//")
+  && !requestedNext.includes("\\") ? requestedNext : "/";
+const finishLogin = () => location.replace(nextPath);
 
 // Already signed in (or dev-open)? Straight to the app.
 const me = await fetch("/auth/me").then(r => r.ok ? r.json() : null).catch(() => null);
 if (me?.authenticated) {
-  location.replace("/");
+  finishLogin();
 } else if (!cfg || !cfg.enabled) {
   $("tagline").textContent = "Sign-in isn't configured for this deployment.";
   show("Set FIREBASE_WEB_API_KEY, FIREBASE_PROJECT_ID and ALLOWED_LOGIN_EMAILS "
@@ -158,7 +164,7 @@ if (me?.authenticated) {
   const errorCode = new URL(location.href).searchParams.get("google_error");
   if (errorCode) {
     show(googleErrors[errorCode] || "Google sign-in failed — try again.", "danger");
-    history.replaceState({}, "", "/login.html");
+    history.replaceState({}, "", "/login.html" + (nextPath === "/" ? "" : "?next=" + encodeURIComponent(nextPath)));
   }
 
   if (!firebaseEnabled) $("emailForm").style.display = "none";
@@ -171,7 +177,7 @@ if (me?.authenticated) {
   if (googleEnabled) {
     $("googleBtn").onclick = () => {
       clear(); busy(true); googleLabel("Redirecting to Google…");
-      location.assign("/auth/google/start");
+      location.assign("/auth/google/start?next=" + encodeURIComponent(nextPath));
     };
   }
 
@@ -189,7 +195,7 @@ if (me?.authenticated) {
       const r = await fetch("/auth/session", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id_token: idToken }) });
-      if (r.ok) { location.replace("/"); return; }
+      if (r.ok) { finishLogin(); return; }
       const j = await r.json().catch(() => ({}));
       await signOut(auth);
       show(j.error || "Sign-in was rejected.", "danger");

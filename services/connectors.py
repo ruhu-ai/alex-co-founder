@@ -61,6 +61,11 @@ DESCRIPTORS: list[dict[str, Any]] = [
         "auth": "google_oauth", "aliases": ("email", "alex", "mailbox"),
     },
     {
+        "name": "alex_calendar", "title": "Alex's Calendar", "icon": "A", "brand": "#0f9d58",
+        "blurb": "alex@ruhu.ai — the role calendar for exact, founder-approved interview invitations and receipts.",
+        "auth": "google_oauth", "aliases": ("calendar", "alex", "interviews", "scheduling"),
+    },
+    {
         "name": "jira", "title": "Jira", "icon": "▣", "brand": "#0052cc",
         "blurb": "Search, summarize, create, and update issues.",
         "auth": "token", "available": False, "aliases": ("tickets", "issues"),

@@ -73,7 +73,7 @@ form is what Cloud Run mounts with `--add-cloudsql-instances`.
 ./scripts/setup.sh && source .venv/bin/activate
 cp .env.example .env   # fill values
 # terminal 1
-uvicorn app.main:app --port 8090 --reload
+./scripts/run_local.sh
 # terminal 2
 uvicorn mock_portal.main:app --port 8091
 # optional dev inspector

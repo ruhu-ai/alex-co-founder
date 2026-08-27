@@ -16,9 +16,11 @@ Adapters degrade to errors-as-data when OAuth is not configured.
 
 from __future__ import annotations
 
+import hashlib
 import os
 import urllib.parse
 import urllib.request
+from datetime import datetime, timedelta, timezone
 
 SCOPE_MAP = {
     "drive": [
@@ -30,15 +32,21 @@ SCOPE_MAP = {
         "https://www.googleapis.com/auth/calendar.readonly",
         "https://www.googleapis.com/auth/calendar.events",  # booking is
         # approval-gated in code (services/calendar_adapter.py) — docs/adr/002
+        "openid", "https://www.googleapis.com/auth/userinfo.email",
     ],
     "alex_mail": [
         "https://www.googleapis.com/auth/gmail.readonly",
         "https://www.googleapis.com/auth/gmail.send",  # gated in code, never autonomous
+        "openid", "https://www.googleapis.com/auth/userinfo.email",
+    ],
+    "alex_calendar": [
+        "https://www.googleapis.com/auth/calendar.events",
+        "openid", "https://www.googleapis.com/auth/userinfo.email",
     ],
 }
 # Which Google account each connector auths as (adr/001: Alex's mailbox is a
 # separate Workspace user). Unlisted connectors use the founder account.
-CONNECTOR_ACCOUNT = {"alex_mail": "alex"}
+CONNECTOR_ACCOUNT = {"alex_mail": "alex", "alex_calendar": "alex"}
 ACCOUNT_ENV = {"founder": "GOOGLE_OAUTH_REFRESH_TOKEN",
                "alex": "ALEX_OAUTH_REFRESH_TOKEN"}
 
@@ -54,14 +62,28 @@ STATUS_SCOPES = {
 # Connect buttons request only their own scopes; Google merges them into one
 # grant (incremental authorization).
 # calendar.events (booking) ships only with approval-gated invites — docs/adr/002.
-SCOPES = [s for group in SCOPE_MAP.values() for s in group
-          if group != SCOPE_MAP["alex_mail"]]
+SCOPES = [scope for connector, group in SCOPE_MAP.items()
+          if CONNECTOR_ACCOUNT.get(connector, "founder") == "founder"
+          for scope in group]
 # Union including Alex's scopes — used only by the OAuth callback flow so
 # oauthlib's scope check never trips on an alex_mail consent.
 ALL_SCOPES = [s for group in SCOPE_MAP.values() for s in group]
 
-_creds: dict = {}          # per-account
+_creds: dict = {}          # per-account cached credential, refreshed on expiry
 _granted: dict = {}        # per-account frozenset of scopes the token carries
+
+# Refresh this far ahead of stated expiry so a token cannot lapse mid-call.
+_TOKEN_REFRESH_SKEW = timedelta(seconds=120)
+
+
+def _expires_within(creds, skew: timedelta) -> bool:
+    """True when the credential has no expiry or expires inside SKEW."""
+    expiry = getattr(creds, "expiry", None)
+    if expiry is None:
+        return True
+    if expiry.tzinfo is None:  # google-auth stores naive UTC
+        expiry = expiry.replace(tzinfo=timezone.utc)
+    return expiry - skew <= datetime.now(timezone.utc)
 
 
 _sm_missing: set = set()  # accounts whose token Secret Manager does NOT have —
@@ -153,22 +175,30 @@ def get_credentials(account: str = "founder"):
         and _refresh_token(account)
     ):
         return None
-    creds = _creds.get(account)
-    if creds is None or not creds.valid:
-        import google.auth.transport.requests
-        import google.oauth2.credentials
+    import google.auth.transport.requests
+    import google.oauth2.credentials
 
-        creds = google.oauth2.credentials.Credentials(
-            token=None,
-            refresh_token=_refresh_token(account),
-            token_uri="https://oauth2.googleapis.com/token",
-            client_id=os.environ["GOOGLE_OAUTH_CLIENT_ID"],
-            client_secret=os.environ["GOOGLE_OAUTH_CLIENT_SECRET"],
-            scopes=None,  # the access token inherits the grant's scopes; asking
-            # for MORE than granted fails the refresh with invalid_scope
-        )
-        creds.refresh(google.auth.transport.requests.Request())
-        _creds[account] = creds
+    # Access tokens are cached per account and reused only while they are
+    # comfortably unexpired, so a Drive/Gmail/Calendar call does not pay a
+    # token-endpoint round trip every time (docs/25 §7.8). The cache is keyed by
+    # the refresh token in use, so rotating or revoking a grant — or switching
+    # accounts — can never hand back the previous grant's access token.
+    refresh_token = _refresh_token(account)
+    cached = _creds.get(account)
+    if (cached is not None and cached.refresh_token == refresh_token
+            and cached.token and not _expires_within(cached, _TOKEN_REFRESH_SKEW)):
+        return cached
+    creds = google.oauth2.credentials.Credentials(
+        token=None,
+        refresh_token=refresh_token,
+        token_uri="https://oauth2.googleapis.com/token",
+        client_id=os.environ["GOOGLE_OAUTH_CLIENT_ID"],
+        client_secret=os.environ["GOOGLE_OAUTH_CLIENT_SECRET"],
+        scopes=None,  # the access token inherits the grant's scopes; asking
+        # for MORE than granted fails the refresh with invalid_scope
+    )
+    creds.refresh(google.auth.transport.requests.Request())
+    _creds[account] = creds
     return creds
 
 
@@ -204,6 +234,28 @@ def account_email(account: str = "founder") -> str:
         return _account_email
     _account_email = _account_email_for(account)
     return _account_email
+
+
+def account_subject_hash(account: str = "founder") -> str:
+    """Return the opaque Google OAuth subject hash, never the raw subject.
+
+    Provider effect lanes use this to pin an account before an irreversible
+    action.  It deliberately returns an empty value rather than falling back
+    to an email address: an email is mutable account metadata, while the
+    provider subject is the stable identity being approved.
+    """
+    creds = get_credentials(account)
+    if creds is None:
+        return ""
+    try:
+        from googleapiclient.discovery import build
+
+        identity = build("oauth2", "v2", credentials=creds,
+                         cache_discovery=False).userinfo().get().execute()
+        subject = str(identity.get("id") or "")
+        return "sha256:" + hashlib.sha256(subject.encode()).hexdigest() if subject else ""
+    except Exception:
+        return ""
 
 
 def _account_email_for(account: str) -> str:

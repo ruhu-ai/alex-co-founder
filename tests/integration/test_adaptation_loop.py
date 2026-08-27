@@ -55,6 +55,7 @@ async def test_adaptation_loop(fake_store, monkeypatch):
 
     assert result["status"] == "success"
     assert result["distillation"]["status"] == "success"  # synchronous, not queued
+    assert result["distillation_succeeded"] is True
 
     # 1. verbatim reason stored
     fb = await firestore.get_feedback(result["feedback_id"])

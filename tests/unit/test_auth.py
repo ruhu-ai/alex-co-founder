@@ -60,7 +60,15 @@ def test_unauthorized_browser_nav_redirects_to_login(env, client):
     r = client.get("/private", headers={"accept": "text/html"},
                    follow_redirects=False)
     assert r.status_code == 303
-    assert r.headers["location"] == "/login.html"
+    assert r.headers["location"] == "/login.html?next=%2Fprivate"
+
+
+def test_post_login_return_path_rejects_open_redirects():
+    assert auth.safe_local_return_path("/api/integrations/google/connect?connector=alex_calendar") \
+        == "/api/integrations/google/connect?connector=alex_calendar"
+    assert auth.safe_local_return_path("https://attacker.example") == "/"
+    assert auth.safe_local_return_path("//attacker.example") == "/"
+    assert auth.safe_local_return_path("/\\attacker.example") == "/"
 
 
 def test_key_bootstrap_strips_query_and_sets_cookie(env, client):

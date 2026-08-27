@@ -143,6 +143,7 @@ class TestApproveEdit:
         result = await feedback_service.record_feedback(
             "founder", app_id, "s1", "approve", edited_text="the edited answer")
         assert result["status"] == "success"
+        assert result["distillation_succeeded"] is True
         section = fake_store.applications[app_id]["draft_sections"][0]
         assert section["content"] == "the edited answer"
         assert section["status"] == SectionStatus.APPROVED

@@ -124,6 +124,28 @@ def test_callback_rejects_missing_or_mismatched_state(client, monkeypatch):
     assert flow.fetch_codes == []
 
 
+def test_callback_returns_only_to_signed_same_origin_path(client, monkeypatch):
+    flow = FakeFlow()
+    monkeypatch.setattr(google_login, "_flow", lambda *_args, **_kwargs: flow)
+
+    async def verify(_token, *, nonce):
+        assert nonce
+        return _successful_claims()
+
+    monkeypatch.setattr(google_login, "_verify_id_token", verify)
+    start = client.get(
+        "/auth/google/start?next=/api/integrations/google/connect%3Fconnector%3Dalex_calendar",
+        follow_redirects=False,
+    )
+    response = client.get(
+        "/auth/google/callback",
+        params={"code": "one-time-code", "state": flow.authorization_params["state"]},
+        follow_redirects=False,
+    )
+    assert start.status_code == 303
+    assert response.headers["location"] == "/api/integrations/google/connect?connector=alex_calendar"
+
+
 def test_callback_enforces_verified_email_allowlist(client, monkeypatch):
     flow = FakeFlow()
     monkeypatch.setattr(google_login, "_flow", lambda *_args, **_kwargs: flow)

@@ -33,6 +33,7 @@ import hmac
 import json
 import os
 import time
+from urllib.parse import urlencode
 
 COOKIE_NAME = "app_auth"
 SESSION_COOKIE = "app_session"
@@ -237,6 +238,27 @@ def _strip_key_query(url) -> str:
     return url.path + (f"?{remaining}" if remaining else "")
 
 
+def safe_local_return_path(candidate: str) -> str:
+    """Return a bounded same-origin path suitable for post-login navigation.
+
+    Authentication is a redirect boundary. ``next`` therefore accepts only a
+    path and query on this application, never an absolute or scheme-relative
+    URL. The access-key parameter is also removed before it can reach browser
+    history via a login round-trip.
+    """
+    from urllib.parse import parse_qsl, urlencode, urlsplit
+
+    if not isinstance(candidate, str) or len(candidate) > 2048:
+        return "/"
+    parsed = urlsplit(candidate)
+    if (not parsed.path.startswith("/") or parsed.path.startswith("//")
+            or parsed.scheme or parsed.netloc or "\\" in candidate):
+        return "/"
+    query = urlencode([(key, value) for key, value in parse_qsl(
+        parsed.query, keep_blank_values=True) if key != QUERY_PARAM])
+    return parsed.path + (f"?{query}" if query else "")
+
+
 async def _verify_firebase_id_token(id_token: str) -> dict:
     """Verify a Firebase ID token against Google's public certs. Returns the
     claims; raises ValueError on any failure. The cert fetch is blocking HTTP
@@ -381,7 +403,13 @@ def install(app) -> None:
             # ?key= flow when sign-in isn't configured); programmatic callers
             # always get the bare 401.
             if _wants_html(request):
-                return RedirectResponse("/login.html", status_code=303)
+                return RedirectResponse(
+                    "/login.html?" + urlencode({
+                        "next": safe_local_return_path(
+                            _strip_key_query(request.url)),
+                    }),
+                    status_code=303,
+                )
             return JSONResponse({"error": "unauthorized"}, status_code=401)
 
         # ?key= bootstrap: a valid token in the query and no cookie yet. Set the

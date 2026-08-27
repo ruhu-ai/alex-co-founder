@@ -1,0 +1,30 @@
+{
+  "schema_version": 2,
+  "policy_id": "hiring-internal-controlled-demo-v2",
+  "status": "INTERNAL_DEMO_ONLY",
+  "activation": {
+    "requires_deployment_flag": true,
+    "real_candidate_processing": false,
+    "gmail_reading": "fixture_message_only",
+    "gmail_watch": false,
+    "generic_agent_effect_tools": false,
+    "browser_writes": false
+  },
+  "effect_kinds": [
+    "INTERNAL_DEMO_SEND_RECAP",
+    "INTERNAL_DEMO_CREATE_CALENDAR_EVENT",
+    "INTERNAL_DEMO_UPDATE_CALENDAR_EVENT",
+    "INTERNAL_DEMO_CANCEL_CALENDAR_EVENT"
+  ],
+  "accounts": {
+    "alex_sender_address": "alex@ruhu.ai",
+    "founder_recipient_address": "ijidai@ruhu.ai",
+    "fixture_sender_address": "ijidai.lassa@gmail.com"
+  },
+  "fixture": {
+    "fixture_id": "ruhu_fde_internal_demo_v1",
+    "expected_subject": "Demo application - Amira Okafor - Forward Deployment Engineer",
+    "required_body_marker": "[[COFOUNDER_INTERNAL_DEMO:ruhu_fde_v1]]",
+    "attachment_filename": "amira-okafor-fde-demo-application.pdf"
+  }
+}

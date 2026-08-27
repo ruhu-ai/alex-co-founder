@@ -204,7 +204,7 @@ framework (see 10).
 
 ```bash
 # terminal 1: agent server
-uvicorn app.main:app --host 127.0.0.1 --port 8090 --reload
+./scripts/run_local.sh
 # terminal 2: mock portal (see 09)
 uvicorn mock_portal.main:app --port 8091
 # dev chat surface (separate, never deployed)

@@ -57,6 +57,38 @@ TOP_LEVEL_COLLECTIONS: frozenset[str] = frozenset({
     "external_events",
     "founder_inbox",
     "external_actions",
+    # docs/25 H1-H3 durable hiring foundation
+    "workspace_members",
+    "workflow_runs",
+    "workflow_steps",
+    "step_attempts",
+    "waits",
+    "run_events",
+    "connector_credential_grants",
+    "hiring_roles",
+    "hiring_policy_versions",
+    "hiring_policy_impacts",
+    "candidate_identities",
+    "candidate_applications",
+    "hiring_candidate_artifacts",
+    "candidate_evidence",
+    "candidate_assessments",
+    "hiring_decisions",
+    "hiring_candidate_requests",
+    "candidate_data_rights_receipts",
+    "hiring_mailbox_state",
+    "hiring_mailbox_probe_receipts",
+    "hiring_fixture_messages",
+    "mailbox_fetch_batches",
+    "mailbox_fetch_batch_entries",
+    "hiring_cursor_receipts",
+    # docs/30 H4S sandbox envelope. Effects remain separately gated.
+    "hiring_sandbox_runs",
+    "hiring_sandbox_destinations",
+    "hiring_sandbox_connector_bindings",
+    "hiring_conversation_turns",
+    "hiring_process_retrospectives",
+    "hiring_reply_correlations",
 })
 
 SUBCOLLECTIONS: frozenset[str] = frozenset({
@@ -439,14 +471,22 @@ async def update_draft_section(application_id: str, founder_id: str,
 
 async def create_oauth_state(state: str, verifier: str, scopes: list[str] | None,
                              account: str, connector: str = "",
+                             redirect_uri: str = "",
                              ttl_minutes: int = 10) -> None:
-    """Persist one PKCE consent transaction across restarts and instances."""
+    """Persist one PKCE consent transaction across restarts and instances.
+
+    ``redirect_uri`` is stored because Google requires the token exchange to
+    present the byte-identical URI the authorization request used. The callback
+    cannot re-derive it: it may run on a different instance, and the loopback
+    origin can differ from AGENT_BASE_URL.
+    """
     expires = datetime.now(timezone.utc) + timedelta(minutes=ttl_minutes)
     await get_client().collection("oauth_states").document(state).set({
         "verifier": verifier,
         "scopes": scopes,
         "account": account,
         "connector": connector,
+        "redirect_uri": redirect_uri,
         "expires_at": expires.isoformat(),
         "created_at": _now(),
     })
@@ -3397,6 +3437,7 @@ async def prepare_external_action(
         idempotency_key: str, request_hash: str, *, session_id: str | None = None,
         application_id: str | None = None, resource_id: str | None = None,
         subject_hash: str | None = None, approval_id: str | None = None,
+        sandbox_context: dict[str, Any] | None = None,
         lease_seconds: int = 120) -> dict[str, Any]:
     """Create/claim PREPARED before a provider effect; never overwrite drift."""
     from google.cloud import firestore as gc_firestore
@@ -3414,6 +3455,26 @@ async def prepare_external_action(
             raise ValueError("invalid hash")
     except ValueError:
         return _contract_error("invalid external action")
+    context = dict(sandbox_context or {})
+    # H4S effect kinds exist only inside a provisioned sandbox: the context is
+    # mandatory for them and forbidden for every other kind, so neither an
+    # omission nor a stray context can widen an action's authority.
+    if kind.value in dsc.SANDBOX_ONLY_ACTION_KINDS:
+        if not context:
+            return _contract_error("sandbox action context required")
+    elif context:
+        return _contract_error("sandbox context is not valid for this action")
+    if context:
+        required_context = {"sandbox_run_id", "connector_binding_id",
+                            "destination_ids", "fixture_id"}
+        if (set(context) != required_context
+                or not all(isinstance(context[key], str) and context[key]
+                           for key in ("sandbox_run_id", "connector_binding_id", "fixture_id"))
+                or not isinstance(context["destination_ids"], list)
+                or not context["destination_ids"]
+                or any(not isinstance(item, str) or not item
+                       for item in context["destination_ids"])):
+            return _contract_error("invalid sandbox action context")
     ref = get_client().collection("external_actions").document(action_id)
     transaction = get_client().transaction()
 
@@ -3461,6 +3522,7 @@ async def prepare_external_action(
             "idempotency_key": str(idempotency_key)[:512],
             "request_hash": request_hash, "subject_hash": subject_hash,
             "approval_id": approval_id,
+            "sandbox_context": context or None,
             "status": dsc.ExternalActionStatus.PREPARED.value,
             "provider_effect_id": None, "result_ref": {},
             "uncertainty_reason": None, "error_code": None,

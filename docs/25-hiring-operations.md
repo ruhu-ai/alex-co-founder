@@ -2,9 +2,12 @@
 
 ## Status and decision
 
-**Status:** proposed product and architecture specification; review before build.
-This document does not authorize implementation, production use, candidate
-processing, job posting, outreach, or an automated employment decision.
+**Status:** accepted engineering contract. H0–H3 are implemented behind a
+deployment-owned synthetic-fixture allowlist. H4–H7, production use, real
+candidate processing, provider writes, automated job posting/outreach, and any
+automated employment decision remain disabled and unauthorized. Qualified
+employment/privacy/accessibility/destination reviews remain `PENDING` in the
+code-owned H0 policy and are live-activation blockers, not implied approvals.
 
 **Decision:** build hiring as a curated, human-controlled outcome pack on the
 shared Alex runtime. A role may remain open for months. One durable parent role
@@ -61,17 +64,21 @@ The attached assessment is directionally correct on the important points:
 - production use requires a dedicated policy, retention, evaluation, and
   qualified employment/privacy review.
 
-### 1.2 Corrections that are binding in this specification
+### 1.2 Pre-implementation corrections that remain binding
 
-The response overstates how much is reusable **today**:
+The response overstated how much was reusable at the review baseline. H0–H3
+now implement the named dependency slices; the constraints below remain the
+reason those implementations exist and are not authorization for H4–H7:
 
-1. Durable ADK sessions and the current `state_delta` wake path exist, but the
-   generic `WorkflowRun`, `RunEvent`, `Wait`, `StepAttempt`, lease, parent/child
-   run, and cancellation runtime in doc 21 is not implemented.
-2. Gmail push and generic durable mail receipts/inbox routing now exist for
-   Alex's mailbox, but hiring label identity, attachment ingestion, fetch-batch
-   checkpointing, and candidate-domain correlation do not. Subject/excerpt
-   matches remain suggestions only and are never safe candidate correlation.
+1. Durable ADK sessions and the current `state_delta` wake path were
+   insufficient alone; H1 adds generic `WorkflowRun`, `RunEvent`, `Wait`,
+   `StepAttempt`, lease, pause/resume, parent/child run, and cancellation
+   contracts independent of chat history.
+2. Gmail push and generic durable mail receipts/inbox routing remain
+   insufficient alone; H3 adds synthetic trusted-route/label identity,
+   fetch-batch checkpointing, and candidate-domain correlation. Real Gmail and
+   attachment activation remain blocked. Subject/excerpt matches remain
+   suggestions only and are never safe candidate correlation.
 3. Email sending and Calendar creation already implement useful exact-binding,
    deterministic idempotency, `UNCERTAIN`, and provider reconciliation
    semantics. Doc 24's generic `external_events`, `founder_inbox`, and
@@ -88,11 +95,11 @@ The response overstates how much is reusable **today**:
    links, and global search exist. Candidate evidence needs a stricter identity,
    visibility, search, retention, and model-context boundary; it must never flow
    into the Founder Profile or company-knowledge retrieval by default.
-7. The current Pipeline, Review, Connections, Browser, Activity, document, and
-   approval UI supply reusable components, not a hiring product surface. A role
-   cockpit, candidate board, evidence passport, hiring decision surface, policy
-   impact view, event inbox, reference view, offer view, and onboarding view are
-   missing.
+7. The existing general surfaces supplied reusable components, not a hiring
+   product surface. H3 adds the role cockpit, candidate board, evidence
+   passport, human-decision controls, policy impact, inbox, causal timeline,
+   and data-rights controls. Interview, reference, offer, and onboarding views
+   remain H4–H7 work and are intentionally absent.
 8. A passing current test suite demonstrates current primitives, not hiring
    correctness, fairness, privacy, event correlation, or months-long recovery.
 9. Current authentication answers only “is this an allowed founder?” and then
@@ -180,6 +187,48 @@ The review's suggestion that zero applications for a configured number of days
 proves mailbox failure is rejected. A quiet role may be healthy. Binding health
 comes from watch expiry, cursor lag, complete reconciliation checkpoints, and
 controlled positive/negative probes—not the presence or absence of candidates.
+
+### 1.5 Google ADK new-hire-onboarding pattern disposition
+
+The GoogleCloudPlatform `new-hire-onboarding` reference was reviewed as a
+demonstration pattern, not a production dependency. Five compatible patterns
+are accepted and made binding below:
+
+1. backend-authoritative surfaces with no optimistic workflow advancement;
+2. causal receipt-before-derived-artifact presentation;
+3. a two-sided founder/candidate interaction visualization without an owned
+   candidate portal or candidate-side control plane;
+4. versioned ADK golden trajectories for long-delay resume and gate safety, in
+   addition to deterministic runtime tests;
+5. a demonstration read from ordinary durable projections, with no independent
+   mutable demo case store.
+
+Its process-memory cases, local artifact authority, UI interval polling,
+caller-selected webhook session identity, direct tool state mutation,
+prompt-only transition enforcement, and simulated provisioning secrets are
+explicitly rejected for this product. Optional Agent Runtime packaging remains
+a deployment decision and is not required to satisfy H0–H3.
+
+### 1.6 Broader GoogleCloudPlatform/generative-ai disposition
+
+A repository-wide, risk-weighted review of the other agent, Gemini Enterprise,
+Computer Use, RAG/evaluation, MCP, document-extraction, multimodal, and sample-
+application projects at commit `3f34fcf0c3ab1777f1a1420ee7e2f6fde04111d7`
+accepted four additional production patterns:
+
+1. strict, versioned model-to-code envelopes with deterministic validation;
+2. authenticated workload identity distinct from human actor identity;
+3. request-scoped connector credentials that cannot cross sessions or workers;
+4. baseline-parity, hard-negative, false-activation, and correct-abstention
+   evaluation with human-reviewed synthetic cases.
+
+The review explicitly rejects sample shortcuts including unauthenticated task,
+viewer, browser-decision, or mutation routes; process-global user OAuth tokens;
+tokens in logs, task prompts, session state, Firestore, or object storage;
+prompt-only approval/policy enforcement; unrestricted browser navigation;
+dynamic code-generated agents; generic tool/MCP import; polling memory; and
+non-idempotent event workers. GoogleCloudPlatform sample provenance does not
+make those patterns production-authoritative.
 
 ---
 
@@ -314,7 +363,7 @@ LinkedIn/browser-publication proposal:
 
 ```mermaid
 flowchart TB
-    F["Founder: Hire a founding sales lead"] --> RC["Alex creates Role Brief,<br/>Hiring Scorecard, Interview Plan<br/>and Public Job Description"]
+    F["Ruhu: Hire a Forward Deployment Engineer"] --> RC["Alex creates Role Brief,<br/>Hiring Scorecard, Interview Plan<br/>and Public Job Description"]
     RC --> AP{"Founder approves exact<br/>Role Contract and publication package?"}
 
     AP -- "Revise" --> RC
@@ -421,6 +470,7 @@ It returns only a validated schema:
 
 ```json
 {
+  "schema_version": "hiring_evidence_passport.v1",
   "policy_version_id": "hpv_...",
   "candidate_application_id": "ca_...",
   "criteria": [
@@ -442,14 +492,28 @@ It returns only a validated schema:
 score and no rank. Schema validation rejects free-form recommendations such as
 “hire,” “reject,” “best,” “culture fit,” or personality judgments.
 
+Both the analyst input and output use closed, versioned schemas with
+`additionalProperties: false`, closed enums, bounded strings/arrays, and no
+free-form extension map. Model JSON is never persisted directly. A
+deterministic validator first verifies the schema version, invocation-bound
+workspace/role/application/policy ids, every evidence reference against the
+authorized input set and immutable evidence hash, citation ownership, size
+limits, and forbidden fields/phrases. Unknown fields, an unsupported version,
+an invented or cross-application citation, or an invocation-id mismatch returns
+a safe validation error, commits no assessment, and routes the step to its
+review/failure contract. JSON response MIME type alone is not validation.
+
 ### 4.4 Responsibilities that are not agents
 
 | Responsibility | Owner |
 |---|---|
 | run/step/wait/event state | durable runtime |
 | webhook authentication and normalization | connector adapter |
+| internal task/push identity verification | workload-principal verifier |
 | event deduplication and correlation | deterministic event service |
 | protected-field removal and context assembly | code-owned redaction service |
+| model envelope/citation validation | code-owned schema validator |
+| connector credential resolution | request-scoped credential broker |
 | state-transition decision | deterministic transition guard |
 | approval mint/resolve/consume | server-side approval service |
 | action idempotency/reconciliation | external-action service |
@@ -658,7 +722,8 @@ The contract has four named, immutable, linked artifacts with their own hashes:
 
 Together they include:
 
-- role title, mission, employment type, headcount, target date;
+- company identity, role title, mission, employment type, headcount, target
+  date;
 - location, time-zone, travel, work authorization, and physical requirements
   only when validated as lawful and genuinely job-related;
 - compensation range and approved public wording;
@@ -886,6 +951,63 @@ refresh, page reload, or ordinary token refresh cannot extend freshness. An
 expired high-authority request returns a step-up-required response without
 revealing the protected record or mutating state. The production founder token
 and compatibility `FOUNDER_ID` path cannot satisfy hiring step-up.
+
+### 7.7 Authenticated workload principal
+
+Human authority and compute authority are separate. Every Cloud Tasks,
+Pub/Sub, scheduler, webhook-to-worker, or internal-service request resolves a
+server-derived `WorkloadPrincipal` before reading task payload identifiers:
+
+```json
+{
+  "principal_kind": "CLOUD_TASKS|PUBSUB|INTERNAL_SERVICE",
+  "service_account": "hiring-worker@project.iam.gserviceaccount.com",
+  "issuer": "https://accounts.google.com",
+  "audience": "https://co-founder.example/tasks/hiring/execute_step",
+  "delivery_id": "provider-delivery-id"
+}
+```
+
+The verifier validates the signed token, issuer, exact route audience,
+expiration, verified service-account identity, and a route-specific allowlist.
+Cloud Tasks/Pub/Sub informational headers are not authentication and cannot
+construct this principal. Missing, expired, forged, wrong-audience, or wrong-
+service-account requests are refused before task/run existence is disclosed.
+Local development uses an explicit test principal/dispatcher that cannot be
+enabled in production.
+
+`WorkloadPrincipal` authorizes only bounded internal delivery. It never
+substitutes for `ActorPrincipal`, approves an effect, reveals candidate
+identity, or supplies a human decision. Step attempts, event receipts and
+external-action attempts record the workload principal and originating human
+actor/approval as separate provenance. Direct clients and founder-facing UI
+cannot invoke internal worker routes.
+
+### 7.8 Request-scoped connector credentials
+
+Provider credentials are resolved at execution time by a code-owned
+`ConnectorCredentialBroker` from the connector grant, workspace, actor or
+approved delegated-action authority, run/action id, provider account, and exact
+required scopes. The adapter receives the shortest-lived usable credential
+inside the request/task call scope; the model receives only typed capability
+descriptors and safe adapter results.
+
+User or provider tokens, refresh tokens, signed URLs, and secret material must
+never be placed in process-global/module-global variables, ADK session state,
+workflow/event/action records, Firestore, artifacts, task bodies/prompts,
+browser state, model context, or logs—not even prefixes. Background and resumed
+tasks carry an opaque grant/action reference, re-resolve authorization and
+credentials at execution, and enter `REAUTH_REQUIRED` when no valid credential
+exists. They never reuse another request's or user's token and never copy a
+token into object storage to extend a long-running job. Secret Manager may hold
+server-managed provider secrets under least privilege; user OAuth storage must
+use the reviewed encrypted connector store and remain inaccessible to agents.
+
+Concurrent requests for different actors/workspaces are isolation-tested at
+the adapter boundary. A cache may contain only non-user configuration or a
+credential object keyed and access-controlled by the complete immutable
+principal/grant/account/scope tuple, with expiry and revocation enforcement;
+there is no process-wide fallback credential.
 
 ---
 
@@ -1393,6 +1515,12 @@ This domain depends on generic collections from docs 21/24:
 - `external_events`, `founder_inbox`, `external_actions`, `approvals`, `audit`;
 - `artifacts`, `ingestions`, `resource_index`, `session_resource_links`.
 
+Generic `step_attempts`, `external_events`, and `external_actions` persist the
+verified WorkloadPrincipal fields required by §7.7 alongside—not instead of—the
+originating actor/approval provenance. Connector grants store encrypted
+credential authority and provider account/scope metadata under doc 24; workflow
+records store only their opaque references and never credential material.
+
 Hiring adds the following reviewed collections. Every collection and
 subcollection must enter the closed collection registry, export/deletion
 inventory, fake-store/emulator support, index manifest, and owner-scoped query
@@ -1598,17 +1726,18 @@ remain indexed and resumable.
 | document preview/download | exists | reuse with candidate authorization and search isolation |
 | session resources/global search | exists | role/run only; candidate data excluded in v1 |
 | founder ambiguity inbox | generic event/inbox primitives exist | extend with hiring schemas, actor authorization, and cockpit projections |
-| role/candidate run hierarchy | not implemented | prerequisite/runtime + UI |
-| hiring role cockpit | missing | build |
-| candidate board and evidence passport | missing | build |
-| policy version/diff/impact view | missing | build |
+| role/candidate run hierarchy | implemented for synthetic H1–H3 | durable state, pause/resume, waits, recursive cancellation; H4–H7 transitions remain gated |
+| hiring role cockpit | implemented for synthetic H3 | renders committed role/runtime/mailbox/publication state |
+| candidate board and evidence passport | implemented for synthetic H3 | unranked, cited, identity-separated, backend-authoritative |
+| policy version/diff/impact view | implemented for synthetic H2–H3 | approved role brief, scorecard, interview plan, job post, version and impact |
 | interview/reference/offer/onboarding views | missing | build |
-| application-mailbox operations | generic push/event primitives exist | build trusted route binding/probes, unfiltered cursor batches/recovery, attachments, DSN handling, notice/consent, and exact-correlation projections |
+| application-mailbox operations | synthetic trusted-route/cursor flow implemented | real Gmail, attachments, DSN handling, and H4 communication remain disabled |
 | candidate-facing application portal | intentionally absent | not required in v1; static notice page + email/human contact only |
 
-**Answer:** the product has many reusable primitives and visual components, but
-it does not yet have all surfaces needed for an honest end-to-end hiring
-operation.
+**Answer:** H0–H3 now have the surfaces required for an honest synthetic
+application-to-human-decision demonstration. The product still does not have
+the H4–H7 communication, interview, reference, offer, and onboarding surfaces
+required for the complete hiring operation.
 
 ### 12.2 Backend-authoritative surface contract
 
@@ -1798,6 +1927,13 @@ Watch renewal and controlled probes are code-owned connector maintenance, not
 reasoning-agent or candidate-wait polling. Probe sending is separately audited
 and recognizes its opaque probe token before candidate ingestion.
 
+Every `/tasks/hiring/*` route requires the route-specific `WorkloadPrincipal`
+from §7.7 before parsing identifiers or returning existence-sensitive errors.
+Queue or message names, `X-CloudTasks-*` headers, query parameters, and possession
+of a task id are never authority. Connector work follows §7.8 and resolves an
+execution-scoped credential from an opaque grant/action reference rather than
+accepting a credential in the request.
+
 ### 13.3 Closed capability examples
 
 Read/prepare capabilities:
@@ -1873,6 +2009,9 @@ not determine applicability for a specific deployment:
 - all identity/evidence reads are founder/role/run authorized and audited;
 - every human decision, approval, scorecard, waiver, identity reveal, export,
   and manual publication receipt uses a server-derived ActorPrincipal;
+- every internal delivery uses a verified route-scoped WorkloadPrincipal,
+  recorded separately from the human actor/approval, and internal routes reveal
+  nothing to missing/forged/wrong-audience callers;
 - high-authority operations enforce the signed authentication-age policy at
   approval and execution; a compatibility founder token cannot satisfy it;
 - mail routing authority is derived from a verified trusted-ingress/provider
@@ -1880,6 +2019,10 @@ not determine applicability for a specific deployment:
 - logs, metrics, audit, inbox, and URLs contain ids/safe codes, not candidate
   names, emails, raw bodies, résumé text, interview text, references, terms,
   protected data, signed URLs, tokens, or secrets;
+- connector credentials are request-scoped, never model-visible or stored in
+  process globals, sessions, workflow records, task payloads/prompts, artifacts,
+  object storage, browser state, or logs; background expiry becomes
+  `REAUTH_REQUIRED` without a cross-user fallback;
 - access and model traces use minimum context and configured retention;
 - no public demo uses real candidate PII.
 
@@ -1991,6 +2134,8 @@ Required behavior:
 | allowed human lacks role/assignment | refuse without existence leak; audit actor id and safe reason |
 | stale authentication on high-authority operation | step-up required; no protected read, approval resolution, effect, or state mutation |
 | credential expires after months | connection `REAUTH_REQUIRED`; affected branches wait; no silent fallback account |
+| forged/direct internal worker call | reject before task/run lookup using signed-token issuer, exact audience, expiry, and route service-account allowlist |
+| concurrent users invoke the same connector | request-scoped broker and complete grant/account/scope key prevent credential crossover; no process-global fallback |
 | worker/model version changes | existing plan/policy provenance preserved; compatible redispatch or reviewed migration |
 | two candidates share email/name | identity conflict inbox; never merge automatically |
 | one candidate applies to two roles | two role-scoped applications/runs; no cross-role evidence, decision, or existence signal in either context |
@@ -2064,6 +2209,14 @@ No metric label contains candidate identity or source text.
   export, offer approval/send, membership change, and role cancellation while
   ordinary authorized reads remain available; client timestamps cannot extend
   freshness;
+- direct, missing-token, forged-token, wrong-issuer, wrong-audience, expired,
+  and wrong-service-account calls to every hiring worker route are refused
+  before task/run lookup; Cloud Tasks/Pub/Sub headers alone confer no authority,
+  while a valid delivery records the expected WorkloadPrincipal;
+- run concurrent connector calls for two actors/workspaces with distinct fake
+  credentials and assert the adapter receives only the matching credential;
+  session/process/task/artifact/log inspection contains neither credential, and
+  an expired resumed task enters `REAUTH_REQUIRED` rather than borrowing one;
 - changing any approved effect field invalidates approval;
 - `UNCERTAIN` blocks re-execution until reconciliation/founder resolution;
 - restart after months preserves run, waits, policy, decisions, and provenance;
@@ -2085,6 +2238,9 @@ No metric label contains candidate identity or source text.
   is available through an authorized candidate query;
 - adversarial image-only, footer, watermark, and non-Latin protected fields are
   withheld when safe redaction cannot be proven;
+- wrong/unknown evidence-envelope versions, additional fields, invalid enums,
+  invocation-id drift, invented evidence ids, cross-application citations, and
+  stale evidence hashes are rejected before an assessment row is committed;
 - no wait uses a model call, websocket, process, browser, or polling loop.
 
 ### 17.3 Mandatory hiring evals
@@ -2107,9 +2263,63 @@ No metric label contains candidate identity or source text.
 - no candidate data enters profile, company knowledge, global search, logs,
   metrics, generic inbox, or unrelated runs.
 
+The release eval also includes a fixed baseline-parity suite. The candidate
+model/prompt change and baseline run with the same deterministic inputs,
+capabilities, policy and tool/result fixtures; differences are attributed to
+the component under test rather than changed context. The suite contains
+non-hiring and role-ambiguous hard negatives and reports conversational false-
+activation rate. Any hiring-only tool attempt, candidate-data access, effect,
+decision, or fabricated prior hiring context on a non-hiring case is a hard
+failure; the acceptable benign routing/clarification threshold is versioned and
+accepted in H0.
+
+Unanswerable, insufficient, contradictory, redaction-uncertain, and out-of-
+policy criterion cases measure correct `UNKNOWN`/`WITHHELD` abstention and
+coverage by criterion. A forced supported/negative answer on a safety-critical
+abstention case is a hard failure. These internal quality measures never become
+a candidate confidence score, rank, or UI signal.
+
+If models generate or expand synthetic eval cases, no generated case enters a
+release pack automatically. Each promoted case stores generator model/prompt/
+schema versions, source seed, immutable content hash, expected safety contract,
+reviewer identity/time, and human-review disposition. Reviewers inspect for
+label leakage, protected-attribute invention, unrealistic shortcuts, and
+duplicate cases before versioning the pack.
+
 Fairness/adverse-impact evaluation design and demographic-data handling require
 qualified review. The product team must not invent sensitive demographic labels
 or collect them merely to produce a dashboard.
+
+### 17.4 ADK golden trajectory pack
+
+Deterministic runtime tests prove authority, persistence, and convergence. ADK
+golden evals separately prove that the conversational coordinator remains
+grounded when it is invoked around those records. They are complementary: an
+eval transcript can never substitute for a committed event/receipt test, and a
+runtime transaction test does not prove safe model behavior.
+
+H1 creates the reusable long-running-workflow eval harness; H3 ships versioned,
+synthetic-only hiring eval sets under `tests/eval/evalsets/` covering at least:
+
+1. resume after 72 hours and after a simulated multi-month delay from the exact
+   durable RoleRun/CandidateRun projection, with no dependency on prior chat;
+2. resume from a different founder session while preserving the run, wait,
+   policy, actor authorization, and pending decision—session provenance may
+   change but workflow truth may not;
+3. founder or injected-content attempts to skip application validation,
+   evidence redaction, a human decision, or an exact approval, with no forbidden
+   tool use or fabricated completion claim;
+4. an event receipt committed before a downstream model failure: the model
+   truthfully reports the received event and failed/pending derived work rather
+   than rolling back the receipt or claiming the next state;
+5. duplicate/replayed wake notices and stale projections: the coordinator
+   rehydrates the committed projection, performs no duplicate effect, and
+   directs the founder to the authoritative receipt or reconciliation state.
+
+Each case pins the expected tool trajectory, forbidden tools, required state
+inputs, policy/plan versions, and minimum safe response semantics. Golden cases
+contain only labelled synthetic identities and artifacts. Model upgrades require
+the hiring pack plus the deterministic H1–H3 suite to pass before promotion.
 
 ---
 
@@ -2120,6 +2330,22 @@ uses synthetic candidates and an event ledger spanning approximately 30–60
 days. Every historical screen is backed by the same records and transitions a
 live operation would use; timestamps may be seeded only by the documented demo
 fixture and are visibly labelled synthetic.
+
+The demo has no parallel case store. Its only writable input is an idempotent
+fixture seeder that appends valid synthetic records through the same schema and
+transition boundaries as production. Hiring home, role cockpit, candidate
+detail, interaction-boundary, inbox, and audit views read the ordinary durable
+projections. Deleting browser storage, restarting every process, or rebuilding
+all projections from the ordered run/event/action/decision ledgers MUST produce
+the same screen state and causal ordering. Local HTML/JSON, module globals, and
+frontend fixtures may supply static presentation assets but cannot own run
+state, receipts, artifact authority, or expected outcomes.
+
+Fixture creation and projection building are separate operations. The seeder
+persists source events, waits, decisions, approvals, actions, artifacts, and
+their immutable links; normal projection code derives the UI read models. A
+fixture is invalid if it writes a final cockpit/candidate projection that could
+not be rebuilt from those source records.
 
 Synthetic status is durable data, not styling. Every seeded run, domain record,
 event, wait, action fixture, artifact, projection, and receipt carries
@@ -2214,12 +2440,20 @@ decisions are accepted. It remains post-v1 work under doc 14.
   foundations needed by hiring;
 - implement server-derived ActorPrincipal/workspace membership and role/
   candidate assignment authorization;
+- implement route-specific WorkloadPrincipal verification for every internal
+  dispatch path, separate human/workload provenance, production-disableable
+  local test dispatch, and negative issuer/audience/service-account tests;
 - implement server-derived step-up authentication and versioned freshness
   policy for high-authority operations;
+- implement the request-scoped ConnectorCredentialBroker, opaque grant/action
+  task references, `REAUTH_REQUIRED` behavior, credential non-persistence/log
+  checks, and concurrent cross-user isolation tests;
 - extend approvals with run/policy/action/actor binding and remove session
   equality from hiring resolution;
 - add sensitivity-aware resource/search registry and a non-searchable
   `HIRING_RESTRICTED` ingestion scope;
+- add the reusable ADK long-delay/session-switch golden-eval harness, keeping
+  model trajectory assertions separate from deterministic runtime contracts;
 - prove months-long checkpoint, cancellation, crash, and uncertainty behavior.
 
 **Exit:** generic synthetic workflow passes runtime contracts before candidate
@@ -2230,6 +2464,8 @@ data exists.
 - collection registry, schemas, owner/auth queries, indexes, export/deletion;
 - Role Contract/policy versions, diff, impact, and approval;
 - candidate identity/evidence/decision separation and context builder;
+- closed versioned Evidence Analyst input/output schemas and deterministic
+  invocation/citation/hash/forbidden-field validation before persistence;
 - protected/prohibited-field redaction and evaluation.
 
 **Exit:** identity-free synthetic Evidence Passport and policy re-evaluation
@@ -2247,13 +2483,31 @@ pass without external effects.
   disabled for LinkedIn pending qualified review;
 - safe ingestion, evidence assessment, Hiring cockpit, candidate detail;
 - human decision APIs/UI; candidate notice/accommodation/withdrawal by email or
-  named human contact; no owned candidate portal or LinkedIn automation.
+  named human contact; no owned candidate portal or LinkedIn automation;
+- enforce the backend-authoritative/no-optimistic-advancement surface contract,
+  the founder/candidate read-only interaction visualization, and causal
+  receipt-before-derived-artifact ordering;
+- build the synthetic walkthrough only by seeding durable source records and
+  rebuilding ordinary projections—no mutable demo case/read-model shortcut;
+- ship the H3 hiring ADK golden trajectory pack for delayed/session-switched
+  resume, gate-skipping pressure, downstream failure, and duplicate wakes;
+- ship baseline-parity, non-hiring/ambiguous hard-negative, false-activation,
+  correct-abstention, and human-reviewed synthetic-case provenance gates.
 
 **Exit:** application → evidence → human decision works with duplicates,
 read/archived mail, expired cursors, every fetch/cursor crash point, forged
-headers/labels, injection, restart, deletion, and no email/Calendar write.
+headers/labels, injection, restart, deletion, and no email/Calendar write. UI
+state is reproducible from committed ledgers after browser/process reset, never
+advances optimistically, and the deterministic plus golden-eval suites pass.
 
 ### Phase H4 — communications and interviews
+
+**Sandbox sequencing decision:** before considering this phase for live hiring,
+the bounded synthetic H4S contract in
+[doc 30](30-hiring-h4-sandbox-and-run-intelligence.md) may be reviewed and
+implemented. H4S is additive, requires distinct test identities/destinations
+and its own policy gate, and does not relax this document's H4/H7 production
+authorization boundary.
 
 - exact causal Gmail role-token/thread correlation and inbox;
 - external-action ledger migration for email/Calendar;
@@ -2306,6 +2560,9 @@ exact approval; duplicates and uncertain effects converge.
       preserve the operation.
 - [ ] Human identity and authority come from a server-derived ActorPrincipal;
       the process-wide `FOUNDER_ID` cannot attribute or authorize hiring work.
+- [ ] Internal delivery identity comes from a signed, route-scoped
+      WorkloadPrincipal with verified issuer/audience/expiry/service account;
+      it is recorded separately and never substitutes for a human actor.
 - [ ] High-authority identity/export/offer/membership/cancellation operations
       require server-derived recent authentication at resolution/execution;
       client input and ordinary cookie refresh cannot extend it.
@@ -2321,6 +2578,9 @@ exact approval; duplicates and uncertain effects converge.
       state/candidate/connector was added.
 - [ ] Evidence Analyst uses `include_contents="none"`, identity-free input, and
       has no external effect, decision, profile, or unrelated-run access.
+- [ ] Evidence Analyst input/output envelopes are closed and versioned; code
+      rejects unknown fields/versions, invocation drift, unauthorized or stale
+      citations, invalid enums, and forbidden output before persistence.
 - [ ] Agents cannot mutate state, decisions, approvals, policy, audit, event
       correlation, or action receipts directly.
 - [ ] Role Contract/policy is immutable/versioned and exact-approved.
@@ -2337,6 +2597,10 @@ exact approval; duplicates and uncertain effects converge.
       and counterfactual evals pass.
 - [ ] Unclassifiable or conflicting redaction blocks fail closed to WITHHELD +
       UNKNOWN and create an inbox item.
+- [ ] Baseline-parity, non-hiring hard-negative, false-activation, and correct-
+      abstention gates pass; safety-critical forced answers or forbidden hiring
+      tool calls are hard failures, and generated eval cases require recorded
+      human review before promotion.
 - [ ] Every material claim has an authorized immutable citation and evidence
       authority; unknown is not zero.
 - [ ] Human decisions are explicit, authenticated, version-bound, reasoned,
@@ -2381,6 +2645,17 @@ exact approval; duplicates and uncertain effects converge.
 
 ### Data, UI, and operations
 
+- [ ] Every hiring surface renders a versioned server projection with its last
+      committed run-event sequence; pending requests never advance domain
+      state, claim effects/decisions, or reveal derived artifacts optimistically.
+- [ ] Conflict, timeout, failed wake, browser reload, process restart, and
+      session switch preserve/reconstruct the prior committed UI state without
+      browser-local or in-memory workflow truth.
+- [ ] Timelines render causal receipt → committed transition/wait resolution →
+      derived artifact/work, and never use an artifact as proof of its cause.
+- [ ] The founder/candidate two-sided view is a bounded read-only visualization:
+      v1 has no candidate login, data-submission portal, internal assessment
+      exposure, or candidate-side control capability.
 - [ ] Candidate identity/evidence/decision zones are enforced in code and
       tested for cross-candidate/founder/run leakage.
 - [ ] One person may have multiple role applications, but evidence,
@@ -2388,6 +2663,10 @@ exact approval; duplicates and uncertain effects converge.
       never cross role/application context.
 - [ ] Candidate data never enters Founder Profile, company knowledge, generic
       memory, general global search, logs, metrics, or unsafe inbox text.
+- [ ] Connector credentials are execution-scoped and absent from models,
+      process globals, sessions, workflow/task records and prompts, artifacts,
+      object storage, browser state, and logs; concurrent-user isolation and
+      expired-background-task `REAUTH_REQUIRED` tests pass.
 - [ ] Hiring-restricted ingestion creates zero resource-index/session-link rows
       and is retrievable only through authorized hiring queries.
 - [ ] Role closure is refused while any candidate communication obligation is
@@ -2399,8 +2678,15 @@ exact approval; duplicates and uncertain effects converge.
       satisfy docs 16 design/accessibility checks.
 - [ ] A synthetic 30–60 day history can be reviewed screen by screen and every
       displayed outcome resolves to committed evidence/event/action receipts.
+- [ ] The synthetic walkthrough has no parallel mutable case/read-model store;
+      clearing clients, restarting processes, and rebuilding projections from
+      ordered durable source records reproduces the same screens and ordering.
 - [ ] Every synthetic record carries `is_synthetic` + `fixture_set_id`, live
       connector seeding is refused, and synthetic runs cannot execute effects.
+- [ ] Versioned hiring ADK golden evals cover long-delay and cross-session
+      resume, gate-skipping pressure, downstream model failure after receipt,
+      duplicate wake notices, required/forbidden tools, and safe response
+      semantics; deterministic H1–H3 runtime tests also pass.
 - [ ] Existing funding, browser, datasource, approval, document, auth, search,
       and deployment suites remain green.
 
@@ -2435,8 +2721,9 @@ Reviewers must accept or revise these before implementation:
     communication policy?
 11. Is an e-signature fixture sufficient for the reviewed demonstration, with
     real signature/HRIS/access provisioning deferred?
-12. Are the twelve hiring collections (including recoverable mailbox fetch
-    batches) plus shared `workspace_members` collection justified, or should any
+12. Are the closed H0–H3 hiring/runtime collections (including recoverable
+    mailbox batches and data-rights receipts) plus shared `workspace_members`
+    justified, or should any
     be merged without weakening intake completeness, actor attribution,
     identity isolation, append-only decisions, retention, or query safety?
 13. Is the synthetic 30–60 day historical walkthrough an honest demonstration

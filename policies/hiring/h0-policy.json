@@ -1,0 +1,61 @@
+{
+  "schema_version": 1,
+  "policy_id": "hiring-h0-v1",
+  "status": "SYNTHETIC_ONLY",
+  "decision_model": "NON_SCORING_NON_RANKING",
+  "activation": {
+    "real_candidate_processing": false,
+    "external_email_writes": false,
+    "external_calendar_writes": false,
+    "linkedin_automation": false,
+    "public_url_verification": false
+  },
+  "required_qualified_reviews": {
+    "employment": "PENDING",
+    "privacy": "PENDING",
+    "accessibility": "PENDING",
+    "destination_terms": "PENDING"
+  },
+  "jurisdictions": [],
+  "notice": {
+    "required_before_processing": true,
+    "public_static_notice": true,
+    "candidate_portal": false,
+    "human_contact_required": true
+  },
+  "retention": {
+    "candidate_days": null,
+    "legal_hold_supported": true,
+    "production_blocked_until_reviewed": true
+  },
+  "auth_freshness": {
+    "policy_version": 1,
+    "max_age_seconds": 900,
+    "operations": [
+      "IDENTITY_REVEAL",
+      "CANDIDATE_EXPORT",
+      "DATA_RIGHTS_RESOLUTION",
+      "OFFER_APPROVAL",
+      "OFFER_EXECUTION",
+      "MEMBERSHIP_CHANGE",
+      "ROLE_CANCEL_WITH_ACTIVE_CANDIDATES"
+    ]
+  },
+  "synthetic": {
+    "namespace_prefix": "synthetic_hiring_",
+    "fixture_connectors_only": true,
+    "persist_marker_on_every_record": true,
+    "generated_cases_require_human_review": true
+  },
+  "prohibited_outputs": [
+    "TOTAL_SCORE",
+    "RANK",
+    "CUTOFF",
+    "HIRE_RECOMMENDATION",
+    "REJECT_RECOMMENDATION",
+    "PERSONALITY_INFERENCE",
+    "CULTURE_FIT",
+    "PROTECTED_CHARACTERISTIC_INFERENCE",
+    "COMPARATIVE_CANDIDATE_PROSE"
+  ]
+}

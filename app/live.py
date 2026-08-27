@@ -173,3 +173,59 @@ def register_live(app, session_service, founder_id: str) -> None:
                             parts=[types.Part.from_text(text=text.strip())])))
             except Exception as exc:
                 logger.warning("voice transcript persist failed: %s", exc)
+
+
+def register_hiring_live(app) -> None:
+    """Mount H4S voice: token-scoped turns never enter generic Live/ADK chat."""
+    @app.websocket("/live/hiring")
+    async def hiring_live_ws(websocket: WebSocket) -> None:
+        from app import auth
+        from services.actor_identity import resolve_actor_from_claims
+        from services.durable_store import production_store
+        from services.hiring_run_answer import HiringRunAnswerService
+
+        # H4S requires a signed login session for an ActorPrincipal; the legacy
+        # founder token intentionally cannot authorize restricted hiring data.
+        claims = auth.session_claims(websocket)
+        if not claims:
+            await websocket.close(code=4401)
+            return
+        principal = await resolve_actor_from_claims(claims)
+        if isinstance(principal, dict):
+            await websocket.close(code=4403)
+            return
+        await websocket.accept()
+        service = HiringRunAnswerService(production_store())
+        token = ""
+        try:
+            while True:
+                frame = json.loads(await websocket.receive_text())
+                if frame.get("close"):
+                    return
+                if not token:
+                    token = str(frame.get("conversation_token") or "")
+                    if not token:
+                        await websocket.send_text(json.dumps({
+                            "error": "A scoped Hiring Run conversation is required."}))
+                        return
+                    continue
+                question = str(frame.get("text") or "")
+                result = await service.answer(
+                    principal=principal, conversation_token=token, question=question,
+                    client_turn_id=str(frame.get("client_turn_id") or "")[:128])
+                if result.get("error"):
+                    await websocket.send_text(json.dumps({
+                        "error": result.get("message", "Hiring voice turn failed.")}))
+                    continue
+                await websocket.send_text(json.dumps({
+                    "transcript": {"who": "agent", "text": result["answer"],
+                                   "finished": True},
+                    "record_refs": result["record_refs"], "turn_complete": True}))
+        except WebSocketDisconnect:
+            return
+        except Exception as exc:  # errors as data on this distinct wire protocol
+            logger.warning("H4S voice error: %s", exc)
+            try:
+                await websocket.send_text(json.dumps({"error": "Hiring voice session ended."}))
+            except Exception:
+                pass

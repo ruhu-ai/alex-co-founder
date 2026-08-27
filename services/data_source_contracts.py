@@ -23,6 +23,7 @@ class ConnectorId(ClosedValue):
     DRIVE = "drive"
     FOUNDER_GMAIL = "founder_gmail"
     ALEX_MAIL = "alex_mail"
+    ALEX_CALENDAR = "alex_calendar"
     CALENDAR = "calendar"
     BROWSER = "browser"
 
@@ -130,6 +131,16 @@ class ExternalActionKind(ClosedValue):
     EXPORT_DRIVE_FILE = "export_drive_file"
     CREATE_PORTAL_ACCOUNT = "create_portal_account"
     SUBMIT_APPLICATION = "submit_application"
+    H4S_SEND_EMAIL = "h4s_send_email"
+    H4S_CREATE_CALENDAR_EVENT = "h4s_create_calendar_event"
+
+
+# Effect kinds that may only ever be prepared inside a provisioned H4S sandbox.
+# prepare_external_action requires a sandbox context for exactly these values.
+SANDBOX_ONLY_ACTION_KINDS: frozenset[str] = frozenset({
+    ExternalActionKind.H4S_SEND_EMAIL.value,
+    ExternalActionKind.H4S_CREATE_CALENDAR_EVENT.value,
+})
 
 
 class ExternalActionStatus(ClosedValue):
@@ -200,6 +211,11 @@ CONNECTOR_REGISTRY: dict[ConnectorId, ConnectorContract] = {
         frozenset({DataSourceRole.EVENT, DataSourceRole.ACTION_DESTINATION}),
         ConnectionAuthKind.GOOGLE_OAUTH,
         "role mailbox reads/events; exact approval-gated send"),
+    ConnectorId.ALEX_CALENDAR: ConnectorContract(
+        ConnectorId.ALEX_CALENDAR,
+        frozenset({DataSourceRole.ACTION_DESTINATION}),
+        ConnectionAuthKind.GOOGLE_OAUTH,
+        "Alex role calendar; exact approval-gated interview invite create/update/cancel; no general calendar browsing"),
     ConnectorId.CALENDAR: ConnectorContract(
         ConnectorId.CALENDAR,
         frozenset({DataSourceRole.CONTEXT,

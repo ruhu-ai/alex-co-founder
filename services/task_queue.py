@@ -16,6 +16,7 @@ def enqueue(
     *,
     queue_name: str = "co-founder-events",
     schedule_at: str | None = None,
+    audience: str | None = None,
 ) -> dict:
     """Create one authenticated HTTP task; errors are returned as data."""
     project = os.environ.get("GOOGLE_CLOUD_PROJECT", "")
@@ -43,7 +44,7 @@ def enqueue(
                 "headers": {"Content-Type": "application/json"},
                 "body": body,
                 "oidcToken": {"serviceAccountEmail": service_account,
-                              "audience": base_url},
+                              "audience": audience or base_url},
             },
         }
         if schedule_at:
@@ -64,3 +65,18 @@ def enqueue(
     except Exception as exc:
         return {"status": "error", "error": True,
                 "message": f"task enqueue failed: {exc}"[:200]}
+
+
+def enqueue_hiring(path: str, payload: dict, dedupe_key: str, *,
+                   schedule_at: str | None = None) -> dict:
+    """Enqueue a hiring delivery with the exact route as OIDC audience."""
+    if not path.startswith("/tasks/hiring/") or "?" in path or "#" in path:
+        return {"status": "error", "error": True,
+                "error_code": "invalid_contract",
+                "message": "Invalid hiring worker route."}
+    base_url = os.environ.get("AGENT_BASE_URL", "").rstrip("/")
+    if not base_url:
+        return {"status": "error", "error": True,
+                "message": "Cloud Tasks is not fully configured"}
+    return enqueue(path, payload, dedupe_key, queue_name="co-founder-events",
+                   schedule_at=schedule_at, audience=f"{base_url}{path}")

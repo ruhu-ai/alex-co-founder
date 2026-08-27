@@ -72,5 +72,8 @@ async def record_feedback(founder_id: str, application_id: str, section_id: str,
         "status": "success",
         "feedback_id": feedback_id,
         "distillation": distill_result,
+        # The UI must use this explicit boolean rather than treating a returned
+        # error envelope as proof that a durable learning rule exists.
+        "distillation_succeeded": distill_result.get("status") == "success",
         "application_step": transitioned or app_state,
     }

@@ -53,10 +53,13 @@ def _clean_env(monkeypatch):
     monkeypatch.delenv("APP_AUTH_TOKEN", raising=False)
     monkeypatch.delenv("K_SERVICE", raising=False)
     # app.main loads the developer's .env during module import. Keep server
-    # gate tests independent of whether that file enables Firebase sign-in;
-    # tests that need Firebase configuration live in test_auth.py.
+    # gate tests independent of whether that file enables Firebase or Google
+    # sign-in; tests that need either configuration live in test_auth.py.
     monkeypatch.delenv("FIREBASE_WEB_API_KEY", raising=False)
+    monkeypatch.delenv("GOOGLE_OAUTH_CLIENT_ID", raising=False)
+    monkeypatch.delenv("GOOGLE_OAUTH_CLIENT_SECRET", raising=False)
     monkeypatch.delenv("DISCOVER_COMMAND_ENABLED", raising=False)
+    monkeypatch.delenv("HIRING_ENABLE_SYNTHETIC_DEMO", raising=False)
 
 
 class TestAdminRoutesStripped:
@@ -585,6 +588,31 @@ class TestFounderInboxApi:
 
 
 class TestDiscoverCommandAdapter:
+    def test_hiring_command_uses_its_own_deployment_gate(
+            self, appmod, client, monkeypatch):
+        """A protected /hiring command must not depend on /discover being on."""
+        monkeypatch.setenv("HIRING_ENABLE_SYNTHETIC_DEMO", "1")
+        launches = []
+
+        async def _launch(**kwargs):
+            launches.append(kwargs)
+            return {"status": "success", "role": {
+                "role_id": "role_hiring_command", "role_title": "Forward Deployment Engineer",
+                "company_name": "Ruhu", "role_code": "FDEDEMO",
+            }}
+
+        monkeypatch.setattr(appmod, "_launch_hiring_command", _launch)
+        response = client.post("/wake", json={
+            "message": "/hiring Forward Deployment Engineer for Ruhu in Nigeria, remote",
+            "session_id": f"s-hiring-{uuid.uuid4().hex}",
+            "client_request_id": "req_hiringcommand",
+        })
+
+        assert response.status_code == 200
+        assert response.json()["launched"] is True
+        assert response.json()["role_id"] == "role_hiring_command"
+        assert launches[0]["context"] == "Forward Deployment Engineer for Ruhu in Nigeria, remote"
+
     def test_exact_command_launches_without_invoking_chat_runner(
             self, appmod, client, monkeypatch):
         monkeypatch.setenv("DISCOVER_COMMAND_ENABLED", "true")
@@ -800,6 +828,18 @@ class TestSessionDeleteAPI:
 
 
 class TestOAuthState:
+    def test_loopback_connector_redirect_uses_current_app_origin(
+            self, appmod, monkeypatch):
+        """A stale local base URL must not strand the consent callback."""
+        from types import SimpleNamespace
+
+        monkeypatch.setenv("AGENT_BASE_URL", "http://127.0.0.1:8098")
+        request = SimpleNamespace(
+            url=SimpleNamespace(hostname="127.0.0.1"),
+            base_url="http://127.0.0.1:8090/")
+        assert appmod._connector_oauth_redirect_uri(request) == (
+            "http://127.0.0.1:8090/api/integrations/google/callback")
+
     def test_callback_rejects_unknown_or_replayed_state(
             self, appmod, client, monkeypatch):
         async def _missing(_state):

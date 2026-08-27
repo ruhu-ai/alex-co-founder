@@ -12,12 +12,13 @@ pytestmark = pytest.mark.asyncio
 
 
 async def _connection(founder: str, connector: str, scopes=None):
+    is_alex = connector in {"alex_mail", "alex_calendar"}
     return await firestore.upsert_data_connection(
         founder, connector,
-        account_ref=("alex-role-mailbox" if connector == "alex_mail"
+        account_ref=("alex-role-mailbox" if is_alex
                      else "default"),
         auth_kind="google_oauth",
-        credential_ref=("ALEX_OAUTH_REFRESH_TOKEN" if connector == "alex_mail"
+        credential_ref=("ALEX_OAUTH_REFRESH_TOKEN" if is_alex
                         else "GOOGLE_OAUTH_REFRESH_TOKEN"),
         granted_scopes=scopes or google_oauth.SCOPE_MAP[connector],
         status="CONNECTED")
@@ -39,6 +40,19 @@ async def test_verified_consent_projects_each_scope_without_render_probe(fake_st
     projection = await connection_registry.list_connection_status("founder")
     catalog = connectors.catalog(projection["connections"])
     assert next(row for row in catalog if row["name"] == "drive")["connected"]
+
+
+async def test_alex_calendar_is_a_separate_role_account_connector(fake_store):
+    result = await connection_registry.project_verified_consent(
+        "founder", "alex_calendar", "alex", account_hint="a***@ruhu.ai",
+        granted_scopes=google_oauth.SCOPE_MAP["alex_calendar"])
+
+    assert result["status"] == "success"
+    assert [row["connector_id"] for row in result["connections"]] == ["alex_calendar"]
+    projection = await connection_registry.list_connection_status("founder")
+    catalog = connectors.catalog(projection["connections"])
+    calendar = next(row for row in catalog if row["name"] == "alex_calendar")
+    assert calendar["connected"] is True
 
 
 async def test_stale_failure_cannot_overwrite_later_reconnect(fake_store):

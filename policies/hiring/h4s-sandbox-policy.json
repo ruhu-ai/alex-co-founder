@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "policy_id": "hiring-h4s-sandbox-v1",
+  "status": "SANDBOX_ONLY",
+  "activation": {
+    "requires_deployment_flag": true,
+    "real_candidate_processing": false,
+    "live_connector_selection": false,
+    "generic_agent_effect_tools": false,
+    "browser_writes": false
+  },
+  "synthetic": {
+    "namespace_prefix": "synthetic_hiring_",
+    "fixture_connectors_only": true,
+    "team_owned_test_accounts_only": true,
+    "persist_marker_on_every_record": true
+  },
+  "effect_kinds": [
+    "H4S_SEND_EMAIL",
+    "H4S_CREATE_CALENDAR_EVENT",
+    "H4S_UPDATE_CALENDAR_EVENT",
+    "H4S_CANCEL_CALENDAR_EVENT"
+  ]
+}

@@ -36,7 +36,8 @@ async def prepare(
         idempotency_key: str, request_metadata: dict[str, Any], *,
         session_id: str | None = None, application_id: str | None = None,
         resource_id: str | None = None, subject_hash: str | None = None,
-        approval_id: str | None = None) -> dict[str, Any]:
+        approval_id: str | None = None,
+        sandbox_context: dict[str, Any] | None = None) -> dict[str, Any]:
     """Persist PREPARED before an effect and return any original receipt."""
     try:
         dsc.require_closed(action_kind, dsc.ExternalActionKind)
@@ -52,7 +53,8 @@ async def prepare(
         founder_id, connection["connection_id"], action_kind,
         idempotency_key, request_hash, session_id=session_id,
         application_id=application_id, resource_id=resource_id,
-        subject_hash=subject_hash, approval_id=approval_id)
+        subject_hash=subject_hash, approval_id=approval_id,
+        sandbox_context=sandbox_context)
     outcome = ("success" if result.get("status") == "success" else
                "refused")
     detail = ("duplicate" if result.get("duplicate") else

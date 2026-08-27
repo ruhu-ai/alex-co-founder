@@ -43,7 +43,7 @@ echo "==> Sensitive env → Secret Manager (never plaintext env vars, docs/12)"
 # These keys are stripped from the env-vars file below and bound with
 # --set-secrets instead. SESSION_SERVICE_URI carries the DB password inside
 # the URL, so it is secret-managed too.
-SECRET_ENV_KEYS=(DB_PASSWORD SESSION_SERVICE_URI GOOGLE_OAUTH_CLIENT_SECRET ALEX_MAIL_WEBHOOK_TOKEN)
+SECRET_ENV_KEYS=(DB_PASSWORD SESSION_SERVICE_URI GOOGLE_OAUTH_CLIENT_SECRET ALEX_MAIL_WEBHOOK_TOKEN APP_SESSION_SECRET HIRING_SYNTHETIC_ENCRYPTION_KEY HIRING_TEST_DISPATCH_SECRET)
 RUNTIME_SECRET_KEYS=(GOOGLE_OAUTH_REFRESH_TOKEN ALEX_OAUTH_REFRESH_TOKEN)
 # These names are bound to existing, canonical Secret Manager secrets below.
 # They must never also appear in the generated plain env-vars file: Cloud Run
@@ -167,6 +167,9 @@ for line in open(".env.prod"):
 vals["TASKS_INVOKER_SA"] = os.environ["TASKS_INVOKER_SA"]
 vals["MOCK_PORTAL_URL"] = os.environ["MOCK_PORTAL_URL"]  # override with live URL
 vals["GOOGLE_CLOUD_REGION"] = os.environ["GOOGLE_CLOUD_REGION"]
+vals["HIRING_WORKLOAD_ALLOWLIST_JSON"] = json.dumps({
+    "/tasks/hiring/process_mailbox_batch": [os.environ["TASKS_INVOKER_SA"]],
+}, separators=(",", ":"))
 for key, val in vals.items():
     print(f"{key}: {json.dumps(val)}")
 PY

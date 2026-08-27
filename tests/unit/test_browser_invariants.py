@@ -323,6 +323,6 @@ def test_login_page_signs_in_by_current_tab_redirect_not_a_popup():
     # The current tab enters the server-owned authorization-code flow. Firebase
     # popup/redirect helpers are both absent, so no cross-origin browser storage
     # is needed to hand the result back.
-    assert 'location.assign("/auth/google/start")' in source
+    assert 'location.assign("/auth/google/start?next="' in source
     assert "signInWithRedirect(" not in source
     assert "getRedirectResult(" not in source

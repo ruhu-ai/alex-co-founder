@@ -414,7 +414,7 @@ python scripts/seed_demo.py
 Run the founder app:
 
 ```bash
-uvicorn app.main:app --host 127.0.0.1 --port 8090
+./scripts/run_local.sh
 ```
 
 Run the mock program portal in another terminal:
@@ -424,9 +424,17 @@ source .venv/bin/activate
 uvicorn mock_portal.main:app --host 127.0.0.1 --port 8091
 ```
 
-Open [http://127.0.0.1:8090](http://127.0.0.1:8090). Local development is open
+Open [http://127.0.0.1:8090](http://127.0.0.1:8090). `run_local.sh` makes this
+the single canonical founder-app origin: it starts Uvicorn on the same address
+it exports as `AGENT_BASE_URL`, so OAuth callbacks and task targets cannot
+silently drift to a second port. Local development is open
 when `APP_AUTH_TOKEN` is unset; production always fails closed. Portal
 automation remains headless and is visible through the app's Browser panel.
+
+For Google founder sign-in, register this exact **Authorized redirect URI** on
+the configured Web OAuth client before the first local sign-in:
+`http://127.0.0.1:8090/auth/google/callback`. This must match
+`GOOGLE_LOGIN_REDIRECT_URI` exactly; do not register a rotating local port.
 
 Founder sign-in (email + Google) is optional and off until configured: set
 `FIREBASE_WEB_API_KEY`, `FIREBASE_PROJECT_ID`, and `ALLOWED_LOGIN_EMAILS` in

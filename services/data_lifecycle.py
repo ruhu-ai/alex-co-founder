@@ -69,6 +69,60 @@ TOP_LEVEL_LIFECYCLE: dict[str, CollectionLifecycle] = {
     "external_events": CollectionLifecycle("external_events", _FIELD),
     "founder_inbox": CollectionLifecycle("founder_inbox", _FIELD),
     "external_actions": CollectionLifecycle("external_actions", _FIELD),
+    # docs/25 uses workspace ownership rather than the legacy founder id.
+    "workspace_members": CollectionLifecycle("workspace_members", _FIELD, "workspace_id"),
+    "workflow_runs": CollectionLifecycle("workflow_runs", _FIELD, "workspace_id"),
+    "workflow_steps": CollectionLifecycle("workflow_steps", _FIELD, "workspace_id"),
+    "step_attempts": CollectionLifecycle("step_attempts", _FIELD, "workspace_id"),
+    "waits": CollectionLifecycle("waits", _FIELD, "workspace_id"),
+    "run_events": CollectionLifecycle("run_events", _FIELD, "workspace_id"),
+    "connector_credential_grants": CollectionLifecycle(
+        "connector_credential_grants", _FIELD, "workspace_id"),
+    "hiring_roles": CollectionLifecycle("hiring_roles", _FIELD, "workspace_id"),
+    "hiring_policy_versions": CollectionLifecycle(
+        "hiring_policy_versions", _FIELD, "workspace_id"),
+    "hiring_policy_impacts": CollectionLifecycle(
+        "hiring_policy_impacts", _FIELD, "workspace_id"),
+    "candidate_identities": CollectionLifecycle(
+        "candidate_identities", _FIELD, "workspace_id"),
+    "candidate_applications": CollectionLifecycle(
+        "candidate_applications", _FIELD, "workspace_id"),
+    "hiring_candidate_artifacts": CollectionLifecycle(
+        "hiring_candidate_artifacts", _FIELD, "workspace_id"),
+    "candidate_evidence": CollectionLifecycle(
+        "candidate_evidence", _FIELD, "workspace_id"),
+    "candidate_assessments": CollectionLifecycle(
+        "candidate_assessments", _FIELD, "workspace_id"),
+    "hiring_decisions": CollectionLifecycle(
+        "hiring_decisions", _FIELD, "workspace_id"),
+    "hiring_candidate_requests": CollectionLifecycle(
+        "hiring_candidate_requests", _FIELD, "workspace_id"),
+    "candidate_data_rights_receipts": CollectionLifecycle(
+        "candidate_data_rights_receipts", _FIELD, "workspace_id"),
+    "hiring_mailbox_state": CollectionLifecycle(
+        "hiring_mailbox_state", _FIELD, "workspace_id"),
+    "hiring_mailbox_probe_receipts": CollectionLifecycle(
+        "hiring_mailbox_probe_receipts", _FIELD, "workspace_id"),
+    "hiring_fixture_messages": CollectionLifecycle(
+        "hiring_fixture_messages", _FIELD, "workspace_id"),
+    "mailbox_fetch_batches": CollectionLifecycle(
+        "mailbox_fetch_batches", _FIELD, "workspace_id"),
+    "mailbox_fetch_batch_entries": CollectionLifecycle(
+        "mailbox_fetch_batch_entries", _FIELD, "workspace_id"),
+    "hiring_cursor_receipts": CollectionLifecycle(
+        "hiring_cursor_receipts", _FIELD, "workspace_id"),
+    "hiring_sandbox_runs": CollectionLifecycle(
+        "hiring_sandbox_runs", _FIELD, "workspace_id"),
+    "hiring_sandbox_destinations": CollectionLifecycle(
+        "hiring_sandbox_destinations", _FIELD, "workspace_id"),
+    "hiring_sandbox_connector_bindings": CollectionLifecycle(
+        "hiring_sandbox_connector_bindings", _FIELD, "workspace_id"),
+    "hiring_conversation_turns": CollectionLifecycle(
+        "hiring_conversation_turns", _FIELD, "workspace_id"),
+    "hiring_process_retrospectives": CollectionLifecycle(
+        "hiring_process_retrospectives", _FIELD, "workspace_id"),
+    "hiring_reply_correlations": CollectionLifecycle(
+        "hiring_reply_correlations", _FIELD, "workspace_id"),
 }
 
 SUBCOLLECTION_LIFECYCLE: dict[str, CollectionLifecycle] = {

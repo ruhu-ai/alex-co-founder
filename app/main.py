@@ -41,7 +41,7 @@ from agents.co_founder.agent import app as agent_app
 from agents.co_founder.config import PERSONA_NAME
 from agents.co_founder.state_schema import ApplicationStep as Step
 from agents.co_founder.sub_agents import distiller as distiller_subagent
-from app import browser_routes
+from app import browser_routes, hiring_routes
 from app.app_utils.telemetry import setup_telemetry
 from app.resume_handler import SYSTEM_NOTICE_MARKER, ResumeHandler
 from services import (
@@ -52,6 +52,7 @@ from services import (
     distill_service,
     feedback_service,
     firestore,
+    hiring_policy_service,
     pipeline_service,
     session_deletion,
     session_resources,
@@ -59,6 +60,7 @@ from services import (
     voice_service,
     waiting,
 )
+from services.actor_identity import resolve_actor_from_claims
 
 setup_telemetry()
 
@@ -116,6 +118,7 @@ app.router.routes = [
 from app import auth  # noqa: E402
 
 auth.install(app)
+hiring_routes.register(app)
 
 # Surface 2: webhooks/tasks
 db_session_service = DatabaseSessionService(db_url=SESSION_SERVICE_URI)
@@ -130,8 +133,9 @@ distill_service.attach(distill_runner, db_session_service)
 FOUNDER_ID = os.environ.get("FOUNDER_ID", "founder")
 
 # Surface 4: real-time voice (Gemini Live bidi) — same orchestrator, same sessions
-from app.live import register_live  # noqa: E402
+from app.live import register_hiring_live, register_live  # noqa: E402
 
+register_hiring_live(app)
 register_live(app, db_session_service, FOUNDER_ID)
 
 # Production Gemini backends (search, extraction, doc understanding, vision,
@@ -238,11 +242,24 @@ _SLASH_COMMAND = re.compile(r"^/([a-z][a-z0-9_-]*)(?:\s+(.*))?$", re.DOTALL)
 _REQUEST_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$")
 _ATTACHMENT_REFERENCE = re.compile(r"(?:^|\s)@[A-Za-z0-9_.-]+(?:\s|$)")
 _DISCOVER_CONTEXT_MAX = 500
+_HIRING_CONTEXT_MAX = 700
 _INGESTION_REF = re.compile(r"^[a-f0-9]{32}$")
 
 
 def _discover_command_enabled() -> bool:
     return os.environ.get("DISCOVER_COMMAND_ENABLED", "false").lower() \
+        in {"1", "true", "yes", "on"}
+
+
+def _hiring_command_enabled() -> bool:
+    """Whether the isolated synthetic hiring command is available at all.
+
+    The command has its own deployment guard inside `_launch_hiring_command`.
+    Keeping parser availability separate from the older discovery compatibility
+    flag prevents a safe, enabled `/hiring` operation from being silently
+    treated as ordinary chat merely because `/discover` remains off.
+    """
+    return os.environ.get("HIRING_ENABLE_SYNTHETIC_DEMO", "false").lower() \
         in {"1", "true", "yes", "on"}
 
 
@@ -441,6 +458,54 @@ async def _launch_discovery_command(*, context: str, request_id: str,
     return merged
 
 
+async def _launch_hiring_command(*, request: Request, context: str,
+                                  request_id: str) -> dict:
+    """Create the closed synthetic Ruhu FDE role from a founder chat command.
+
+    This is deliberately a fixture-backed command, not a prompt-to-production
+    hiring generator. It requires the same signed workspace principal and
+    deployment allowlist as the Hiring API, creates only a DRAFT role, and
+    grants no publication or provider-effect authority.
+    """
+    normalized = re.sub(r"\s+", " ", context).strip()
+    if len(normalized) > _HIRING_CONTEXT_MAX:
+        return {"error": True, "message": "Hiring context is too long."}
+    required = ("forward deployment engineer", "ruhu", "nigeria", "remote")
+    if not all(term in normalized.casefold() for term in required):
+        return {"error": True, "message": (
+            "This protected demo command supports the Ruhu Forward Deployment Engineer "
+            "fixture: include Ruhu, Forward Deployment Engineer, Nigeria, and remote.")}
+    principal = await resolve_actor_from_claims(auth.session_claims(request))
+    if isinstance(principal, dict):
+        return principal
+    fixture_id = "fixture_ruhu_fde_walkthrough"
+    allowed = {value.strip() for value in os.environ.get(
+        "HIRING_SYNTHETIC_FIXTURE_IDS", "").split(",") if value.strip()}
+    if (os.environ.get("HIRING_ENABLE_SYNTHETIC_DEMO") != "1"
+            or fixture_id not in allowed):
+        return {"error": True, "message": "The synthetic hiring demo is not enabled by deployment."}
+    services = hiring_routes._services()
+    if not services:
+        return {"error": True, "message": "Synthetic hiring encryption is not configured."}
+    from scripts.seed_hiring_fde_demo import _contract
+    created = await services[0].create_role(
+        principal=principal, contract=_contract(), client_request_id=request_id,
+        synthetic_guard={"synthetic": True, "fixture_id": fixture_id,
+                         "synthetic_namespace": "synthetic_hiring_ruhu_fde"})
+    if created.get("error"):
+        return created
+    proposed = await hiring_policy_service.propose_policy(
+        principal=principal, role_id=created["role"]["role_id"],
+        contract=_contract(),
+        change_reason=("Founder-started protected synthetic Ruhu FDE hiring "
+                       "operation from /hiring."),
+        client_request_id=f"{request_id}:role-brief")
+    if proposed.get("error"):
+        return proposed
+    return {"status": "success", "role": created["role"], "policy": proposed,
+            "duplicate": created.get("duplicate", False)}
+
+
 # In-process cache of the founder's latest chat session. It is ALSO persisted
 # to Firestore (founder_state/{founder_id}) so proactive reports still find the
 # session after a restart or scale-to-zero — an in-process-only global would
@@ -486,7 +551,7 @@ async def _notify_founder(notice: str, session_id: str | None = None) -> None:
 
 
 @app.post("/wake")
-async def wake(payload: WakePayload) -> dict:
+async def wake(payload: WakePayload, request: Request) -> dict:
     session_id = payload.session_id or f"s-{uuid.uuid4().hex}"
     await _set_founder_session(session_id)
     existing = await db_session_service.get_session(
@@ -495,7 +560,8 @@ async def wake(payload: WakePayload) -> dict:
         existing = await db_session_service.create_session(
             app_name=agent_app.name, user_id=FOUNDER_ID, session_id=session_id)
 
-    command = _parse_slash_command(payload.message) if _discover_command_enabled() else None
+    command = (_parse_slash_command(payload.message)
+               if (_discover_command_enabled() or _hiring_command_enabled()) else None)
     if command is not None:
         name, context = command
         request_id = payload.client_request_id or f"req_{uuid.uuid4().hex}"
@@ -505,9 +571,30 @@ async def wake(payload: WakePayload) -> dict:
                 session_id, payload.message, reply, f"command-{uuid.uuid4().hex}")
             return {"session_id": session_id, "replies": [reply],
                     "launched": False}
+        if name == "hiring":
+            if payload.attachment_refs or _ATTACHMENT_REFERENCE.search(context):
+                reply = "The protected hiring command accepts role context only; no attachment was read."
+                await _append_chat_exchange(session_id, payload.message, reply, f"command-{request_id}")
+                return {"session_id": session_id, "replies": [reply], "launched": False,
+                        "client_request_id": request_id}
+            launch = await _launch_hiring_command(request=request, context=context, request_id=request_id)
+            if launch.get("error"):
+                reply = f"I couldn't start the hiring operation safely: {launch.get('message', 'request refused')}"
+                await _append_chat_exchange(session_id, payload.message, reply, f"command-{request_id}")
+                return {"session_id": session_id, "replies": [reply], "launched": False,
+                        "client_request_id": request_id}
+            role = launch["role"]
+            reply = (f"I created the durable draft hiring operation for {role['role_title']} at "
+                     f"{role['company_name']} and prepared its role brief, scorecard, interview "
+                     f"plan, and exact job-post draft. Open Hiring Operations to review and approve "
+                     f"role {role['role_code']}. No post or email was sent.")
+            await _append_chat_exchange(session_id, payload.message, reply, f"command-{request_id}")
+            return {"session_id": session_id, "replies": [reply], "launched": not launch.get("duplicate", False),
+                    "duplicate": launch.get("duplicate", False), "role_id": role["role_id"],
+                    "client_request_id": request_id}
         if name != "discover":
             reply = (f"I don't recognize /{name}. The available workflow command "
-                     "is /discover followed by optional context.")
+                     "is /discover or the protected synthetic /hiring FDE command.")
             await _append_chat_exchange(
                 session_id, payload.message, reply, f"command-{request_id}")
             return {"session_id": session_id, "replies": [reply],
@@ -1646,7 +1733,21 @@ async def _read_upload(file: UploadFile, max_bytes: int,
 # integrations (Drive + Gmail + Calendar — read-only OAuth, docs/12, adr/002)
 # ---------------------------------------------------------------------------
 
-def _oauth_flow(scopes: list[str] | None = None):
+def _connector_oauth_redirect_uri(request: Request | None = None) -> str:
+    """Return the callback URI for a connector consent.
+
+    A loopback server is reachable only through the origin the founder is
+    currently using. Prefer that origin locally so an old ``AGENT_BASE_URL``
+    cannot send consent back to a stopped port. Deployed instances remain
+    pinned to their configured public base URL.
+    """
+    if request and request.url.hostname in {"127.0.0.1", "localhost", "::1"}:
+        return f"{str(request.base_url).rstrip('/')}/api/integrations/google/callback"
+    base = os.environ.get("AGENT_BASE_URL", "http://127.0.0.1:8090").rstrip("/")
+    return f"{base}/api/integrations/google/callback"
+
+
+def _oauth_flow(scopes: list[str] | None = None, *, redirect_uri: str | None = None):
     """Loopback/web flow for the Connectors panel (docs/12).
 
     Client type comes from GOOGLE_OAUTH_CLIENT_TYPE: "installed" (Desktop app
@@ -1660,8 +1761,8 @@ def _oauth_flow(scopes: list[str] | None = None):
 
     from services import google_oauth
 
-    base = os.environ.get("AGENT_BASE_URL", "http://127.0.0.1:8090")
     client_type = os.environ.get("GOOGLE_OAUTH_CLIENT_TYPE", "installed")
+    callback_uri = redirect_uri or _connector_oauth_redirect_uri()
     return Flow.from_client_config(
         {client_type: {
             "client_id": os.environ.get("GOOGLE_OAUTH_CLIENT_ID", ""),
@@ -1670,16 +1771,16 @@ def _oauth_flow(scopes: list[str] | None = None):
             "token_uri": "https://oauth2.googleapis.com/token",
             "redirect_uris": ["http://localhost"]}},
         scopes=scopes or google_oauth.SCOPES,
-        redirect_uri=f"{base}/api/integrations/google/callback",
+        redirect_uri=callback_uri,
     )
 
 
 @app.get("/api/integrations/google/connect")
-async def api_google_connect(connector: str = ""):
+async def api_google_connect(request: Request, connector: str = ""):
     """Connect button target: redirect the browser to Google consent.
     ?connector=drive|founder_gmail|calendar requests only that connector's scopes on
-    the founder account; ?connector=alex_mail consents AS alex@ruhu.ai (sign
-    in as that account on the consent screen) — adr/001."""
+    the founder account; ?connector=alex_mail or alex_calendar consents AS
+    alex@ruhu.ai (sign in as that account on the consent screen) — adr/001."""
     from fastapi.responses import RedirectResponse
 
     from services import google_oauth
@@ -1690,7 +1791,8 @@ async def api_google_connect(connector: str = ""):
     requested_connector = connector or "drive"
     account = google_oauth.CONNECTOR_ACCOUNT.get(requested_connector, "founder")
     scopes = google_oauth.SCOPE_MAP.get(connector) if connector else None
-    flow = _oauth_flow(scopes)
+    redirect_uri = _connector_oauth_redirect_uri(request)
+    flow = _oauth_flow(scopes, redirect_uri=redirect_uri)
     # Unique state per consent (still carries the account for the callback), so
     # two in-flight consents never share a verifier slot.
     state = f"{account}:{uuid.uuid4().hex}"
@@ -1698,10 +1800,13 @@ async def api_google_connect(connector: str = ""):
         prompt="consent", access_type="offline", include_granted_scopes="true",
         state=state)  # NB: string "true" — Google rejects the Python bool's "True"
     # PKCE state is durable and single-use: consent can survive a cold start,
-    # while an unknown, expired, or replayed callback is rejected.
+    # while an unknown, expired, or replayed callback is rejected. The exact
+    # redirect URI travels with it — the token exchange must present the same
+    # value this authorization request used or Google returns
+    # redirect_uri_mismatch.
     await firestore.create_oauth_state(
         state, flow.code_verifier or "", scopes, account,
-        connector=requested_connector)
+        connector=requested_connector, redirect_uri=redirect_uri)
     return RedirectResponse(url)
 
 
@@ -1721,9 +1826,11 @@ async def api_google_callback(code: str = "", state: str = ""):
         return JSONResponse({"status": "error", "error": True,
                              "message": "OAuth state is unknown, expired, or already used"},
                             status_code=400)
-    # Exchange with the exact scopes this consent requested.
+    # Exchange with the exact scopes AND the exact redirect URI this consent
+    # requested. Re-deriving the URI here would use AGENT_BASE_URL and break
+    # the exchange whenever consent ran on a different loopback origin.
     scopes = entry["scopes"] or google_oauth.SCOPES
-    flow = _oauth_flow(scopes)
+    flow = _oauth_flow(scopes, redirect_uri=entry.get("redirect_uri") or None)
     if entry.get("verifier"):
         flow.code_verifier = entry["verifier"]
     try:

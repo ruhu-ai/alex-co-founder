@@ -55,7 +55,15 @@ founder's voice and thinking through explicit feedback capture.
 | `23-session-resources-review-prompt.md` | Adversarial architecture review prompt for spec 23 | Review only |
 | `24-data-source-reliability.md` | Current datasource hardening: connection health, source grants, safe Drive ingestion, event correlation/inbox, evidence authority, and external-action receipts | Proposed; review before build |
 | `24-data-source-review-prompt.md` | Adversarial implementation-readiness review prompt for spec 24 | Review only |
-| `25-hiring-operations.md` | Proposed months-long hiring outcome pack: email-first applications, manual LinkedIn publication, role/candidate/onboarding runs, human decisions, evidence/identity boundaries, surfaces, retention, evals, and build gates | Proposed; review before build |
+| `25-hiring-operations.md` | Months-long hiring outcome pack: email-first applications, manual LinkedIn publication, role/candidate/onboarding runs, human decisions, evidence/identity boundaries, surfaces, retention, evals, and build gates | H0–H3 synthetic-only implemented; H4–H7 gated |
+| `26-hiring-h0-h3-verification.md` | Implementation map and deterministic verification evidence for the synthetic-only hiring foundation | H0–H3 verification |
+| `27-ruhu-fde-walkthrough.md` | Durable synthetic Ruhu Forward Deployment Engineer walkthrough and recording order | Synthetic demo only |
+| `28-hiring-qualified-review-packet.md` | External employment, privacy, accessibility, retention, terms, and security review decisions required before any pilot | Pending qualified sign-off |
+| `29-h0-h3-independent-implementation-review.md` | Independent H0–H3 review record, verified remediation, and H4 authorization boundary | H0–H3 review complete; H4 not authorized |
+| `30-hiring-h4-sandbox-and-run-intelligence.md` | Controlled synthetic H4 sandbox: run-scoped Alex conversation/voice, explicitly approved test Gmail/Calendar effects, receipts, and demo gates | Proposed; review before build; does not authorize live H4 |
+| `31-h4s-test-account-operations.md` | Test-account provisioning, deployment isolation, and manual proof required for H4S provider effects | Required before effect enablement |
+| `32-internal-controlled-demo.md` | Separate, disabled, two-account Ruhu demo lane for real internal Gmail/Calendar receipts; never hiring or H4S | Proposed; separate review required |
+| `33-founder-first-hiring-demo.md` | Founder-first synthetic Ruhu FDE demo: durable command, controlled mailbox event, candidate Evidence Passport, and internal receipt runbook | Implementation/demo runbook; provider proof requires the listed local configuration |
 
 ## Design principles (binding on all implementation)
 

@@ -1407,6 +1407,8 @@ body[data-offline="true"] #offline { display: flex; }
       <hr>
       <button class="menu-item" role="menuitem" onclick="toggleAcctMenu();openConnections()">
         <svg class="ico" aria-hidden="true"><use href="#i-plug"/></svg>Connectors</button>
+      <button class="menu-item" role="menuitem" onclick="location.href='/hiring.html'">
+        <svg class="ico" aria-hidden="true"><use href="#i-board"/></svg>Hiring operations</button>
       <button class="menu-item" role="menuitem" onclick="toggleAcctMenu();openSettings()">
         <svg class="ico" aria-hidden="true"><use href="#i-gear"/></svg>Settings</button>
       <hr>
@@ -1681,6 +1683,27 @@ body[data-offline="true"] #offline { display: flex; }
         <div class="crow"><span class="grow"><b>Read &amp; search the whole mailbox</b></span><span class="tag tag-quiet">read-only</span></div>
         <div class="crow"><span class="grow"><b>Send mail</b></span><span class="tag tag-warn">approval-gated — every send needs your approval</span></div>
         <div class="crow"><span class="grow"><b>Delete / modify mail</b></span><span class="tag tag-warn">never</span></div>
+      </div>
+    </div>
+
+    <div id="connAlexCalendar" style="display:none">
+      <button class="x" style="float:right" onclick="closeConnections()" aria-label="Close"><svg class="ico" aria-hidden="true"><use href="#i-close"/></svg></button>
+      <button class="btn" data-variant="quiet" data-size="sm" onclick="showConn('list')"><svg class="ico ico-sm" aria-hidden="true"><use href="#i-chev-left"/></svg>Connectors</button>
+      <div style="display:flex;align-items:center;gap:12px;margin:12px 0 4px">
+        <span class="cbadge big"><svg class="ico" aria-hidden="true"><use href="#i-calendar"/></svg></span>
+        <div class="grow">
+          <div class="conn-title">Alex's Calendar</div>
+          <div class="status-line" id="alexCalendarStatusLine"></div>
+        </div>
+      </div>
+      <div class="foot">alex@ruhu.ai — a separate Workspace calendar operated by Alex. When connecting,
+        sign in <b>as alex@ruhu.ai</b> on the consent screen. This is distinct from the founder's
+        Calendar and is used only for exact, approved interview invitations in the internal demo.</div>
+      <div class="grp-h">Bounded access</div>
+      <div class="grp">
+        <div class="crow"><span class="grow"><b>Read the general calendar</b></span><span class="tag tag-warn">never</span></div>
+        <div class="crow"><span class="grow"><b>Create, update, or cancel an interview invite</b></span><span class="tag tag-warn">exact approval required</span></div>
+        <div class="crow"><span class="grow"><b>Reconcile an approved invitation</b></span><span class="tag tag-quiet">receipt only</span></div>
       </div>
     </div>
 
@@ -3143,10 +3166,21 @@ async function feedback(sectionId, type, btn) {
   }
   const r = await api("/api/feedback", { method: "POST", body: JSON.stringify({
     session_id: sessionId, application_id: activeApp.id, section_id: sectionId,
-    type, reason, edited_text: type === "edit" ? edited : "" }) });
-  toast(type === "approve" ? "Approved." : "Rejected. Alex will avoid this next time.", "ok");
+    // An edited section is approved as the founder's exact replacement. A
+    // requested revision remains an explicit edit feedback action, but
+    // approving after using Edit must never silently drop the typed text.
+    type, reason, edited_text: type === "reject" ? "" : edited }) });
+  if (!r || r.error || r.status !== "success") {
+    toast((r && r.message) || "Feedback could not be saved. Nothing changed.", "danger");
+    return;
+  }
+  const feedbackCopy = type === "approve" ? "Approved."
+    : type === "edit" ? "Revision request recorded."
+    : "Rejected. Alex will avoid this next time.";
+  toast(feedbackCopy, "ok");
   addMsg("agent", `Noted — feedback on **${sectionId}** recorded (${type}).` +
-    (r.distillation ? " I distilled your reason into a rule that shapes future drafts." : ""));
+    (r.distillation_succeeded
+      ? " I distilled your reason into a rule that shapes future drafts." : ""));
   refresh();
 }
 
@@ -3756,7 +3790,8 @@ function closeConnections() { closeDialog("connections"); }
 
 const CONN_PANES = { list: "connList", drive: "connDrive", gmail: "connGmail",
                      calendar: "connCalendar", browser: "connBrowser",
-                     founder_gmail: "connGmail", alex_mail: "connAlex", soon: "connSoon" };
+                     founder_gmail: "connGmail", alex_mail: "connAlex",
+                     alex_calendar: "connAlexCalendar", soon: "connSoon" };
 function showConn(which) {
   const c = connectorCatalog.find(x => x.name === which);
   // The pane's hero badge takes its hue from the catalog, not a CSS table —
@@ -3802,6 +3837,7 @@ const CONN_ICON = {
   slack: "hash",           // Slack's own channel convention, generically drawn
   telegram: "paper-plane", // `send` belongs to the composer button
   alex_mail: "sparkle",    // Alex's own inbox — ours, so the agent mark fits
+  alex_calendar: "calendar",
   jira: "board",
 };
 const connMark = c => CONN_ICON[c.name] ? ico(CONN_ICON[c.name]) : esc(c.icon || "");
@@ -3906,6 +3942,8 @@ async function loadConnections() {
   $("calendarStatusLine").innerHTML = durableStatus("calendar", "read + approval-gated create");
 
   $("alexStatusLine").innerHTML = durableStatus("alex_mail", "read + approval-gated send");
+  $("alexCalendarStatusLine").innerHTML = durableStatus(
+    "alex_calendar", "exact approval-gated interview invitations");
   const alexLast = (connState.alex_mail || {}).last_scan;
   $("alexLastScan").innerHTML = alexLast && !alexLast.error
     ? (alexLast.events || []).map(e => `
@@ -4559,6 +4597,20 @@ function renderThemeSeg() {
 loadIdentity();
 restoreSession().then(() => {
   connectBrowserEvents(); refresh(); refreshWaiting();
+  // Hiring and other first-party surfaces hand public URLs back here. The URL
+  // is opened only through the audited embedded Browser flow; never a new OS
+  // browser window or direct top-level navigation to an external origin.
+  const launchUrl = new URLSearchParams(location.search).get("browser_url");
+  if (launchUrl) {
+    history.replaceState(null, "", location.pathname);
+    try {
+      const parsed = new URL(launchUrl);
+      if (parsed.protocol !== "https:") throw new Error("HTTPS is required");
+      browseTo(parsed.href);
+    } catch {
+      toast("That Browser URL is not allowed.", "danger");
+    }
+  }
 });
 // Read on the same triggers the rest of the page already uses: focus and
 // visibility restore. There is no periodic poll (docs/24 §3 invariant 10).
