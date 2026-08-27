@@ -1,0 +1,302 @@
+docs/27-ruhu-fde-walkthrough.md
+  s_0642a2f54e6bd7::t_b07ed06da27a89 23-25,54-56
+  s_f9240fe607c610::t_a5e64f6609e970 1-15,27-28,30,32,34-35,37,39-40,42-53,57-58
+  s_0642a2f54e6bd7::t_c177f3a572946e 16-22,26,29,31,33,36,38,41
+services/hiring_approval_service.py
+  s_0642a2f54e6bd7::t_1631740b586776 27-28
+  s_f9240fe607c610::t_a5e64f6609e970 1-26,29-158
+tests/unit/test_hiring_h0_h3.py
+  s_f9240fe607c610::t_a5e64f6609e970 1-749
+scripts/seed_hiring_membership.py
+  s_f9240fe607c610::t_a5e64f6609e970 1-31
+docs/13-deployment.md
+  s_f9240fe607c610::t_a5e64f6609e970 76
+policies/hiring/h0-policy.json
+  s_f9240fe607c610::t_a5e64f6609e970 1-61
+services/hiring_policy_service.py
+  s_f9240fe607c610::t_a5e64f6609e970 1-206
+services/hiring_service.py
+  s_f9240fe607c610::t_a5e64f6609e970 1-698
+services/workflow_runtime.py
+  s_f9240fe607c610::t_a5e64f6609e970 1-430
+services/internal_controlled_demo_google.py
+  s_0642a2f54e6bd7::t_3d722281bc0e7b 1-19,21,25,28-29,31-32,39,92-109,177
+  s_0642a2f54e6bd7::t_20d9c618ce98dd 33-36,38,40-41
+  s_0642a2f54e6bd7::t_52dc82fc4a490e 56,58-69,73,182
+  s_0642a2f54e6bd7::t_22aa716f65dae9 178-181,183-220
+  s_0642a2f54e6bd7::t_80f1837e9400b7 20,22-24,26-27,30,37,42-55,57,70-72,74-91,110-176
+app/live.py
+  s_f9240fe607c610::t_a5e64f6609e970 176-231
+services/hiring_mailbox.py
+  s_f9240fe607c610::t_a5e64f6609e970 1-450
+services/data_source_contracts.py
+  s_0642a2f54e6bd7::t_9cf18d14771858 26,214-218
+  s_f9240fe607c610::t_a5e64f6609e970 134-143
+tests/unit/test_auth.py
+  s_0642a2f54e6bd7::t_a823fc45eedbda 63-71
+tests/unit/test_connection_registry.py
+  s_0642a2f54e6bd7::t_a823fc45eedbda 15,18,21,45-55
+  s_0642a2f54e6bd7::t_bcc2bcca0c9336 56-57
+tests/unit/test_internal_controlled_demo.py
+  s_0642a2f54e6bd7::t_2e3afc6ca19a27 17,147-182,185-186
+  s_0642a2f54e6bd7::t_9a9b079925c46b 5,7,9-15,18-34,51,59-63,68-78
+  s_0642a2f54e6bd7::t_11bfc8a246a65f 105-111,114-146
+  s_0642a2f54e6bd7::t_94480744119152 57
+  s_0642a2f54e6bd7::t_85d376079e5e72 1-4,6,8,45-50,52-56,58
+  s_0642a2f54e6bd7::t_55a974e5ca890c 16,79-85,88-104
+  s_0642a2f54e6bd7::t_d5b32d4696c8f1 35-39,41-44,64-67,86-87,112-113
+  s_0642a2f54e6bd7::t_fec0ba2bcdd9e4 183-184
+  s_0642a2f54e6bd7::t_4debe37871d553 40
+docs/28-hiring-qualified-review-packet.md
+  s_f9240fe607c610::t_a5e64f6609e970 1-63
+.env.example
+  s_0642a2f54e6bd7::t_11f4eb931efdf2 90
+  s_0642a2f54e6bd7::t_cca21a09db43b5 77-81
+  s_0642a2f54e6bd7::t_2053e80efe5272 86-87,91-93,95
+  s_0642a2f54e6bd7::t_5e8b1d8da1fdf2 88-89,94
+  s_f9240fe607c610::t_a5e64f6609e970 52-76,82-85
+services/external_action_service.py
+  s_f9240fe607c610::t_a5e64f6609e970 39-40,56-57
+services/actor_identity.py
+  s_f9240fe607c610::t_a5e64f6609e970 1-198
+policies/hiring/internal-controlled-demo-policy.json
+  s_0642a2f54e6bd7::t_5e8b1d8da1fdf2 2-3,8,21-28
+  s_0642a2f54e6bd7::t_2053e80efe5272 1,4-7,9-20,29-30
+services/hiring_sandbox.py
+  s_f9240fe607c610::t_a5e64f6609e970 1-21,23-199,233-249,252-256,259,262,266-270,287-301,303-306,333-335,338-346,349-352,355-361,363-387,390-396,398-470
+  s_0642a2f54e6bd7::t_cdb07ddfca12ae 22,219-232
+  s_0642a2f54e6bd7::t_29a49e0481fbba 250-251,263-265,271-286,336-337,347-348,353-354,362,388-389,397
+  s_0642a2f54e6bd7::t_1631740b586776 257-258,302,307-332
+  s_0642a2f54e6bd7::t_4fdffae9e3cd31 260-261
+  s_0642a2f54e6bd7::t_9ec13af5c1bb61 200-218
+services/hiring_h4s_google.py
+  s_0642a2f54e6bd7::t_a91729a7078eb1 1-13,16-27,32-47,69-81,87,91-101,106,153-162,166,168-232,235-243,274-279,294-310,315-322,326-327,345
+  s_0642a2f54e6bd7::t_385f08a511b3e8 82-86,102-105,233-234,244-273,280-293,311-314,323-325,328-344
+  s_0642a2f54e6bd7::t_4347bc0f8393c6 15,107-149
+  s_0642a2f54e6bd7::t_b94816783acc86 14,28-31,48-68,88-90,150-152,163-165,167
+app/static/hiring-notice.html
+  s_f9240fe607c610::t_a5e64f6609e970 1-3
+docs/README.md
+  s_0642a2f54e6bd7::t_8dd24b06ee45d9 66
+  s_0642a2f54e6bd7::t_5d67acc4ded7f7 65
+  s_f9240fe607c610::t_a5e64f6609e970 58-64
+agents/co_founder/sub_agents/hiring_operator.py
+  s_f9240fe607c610::t_a5e64f6609e970 1-23
+services/connector_credential_broker.py
+  s_f9240fe607c610::t_a5e64f6609e970 1-95
+services/google_oauth.py
+  s_0642a2f54e6bd7::t_b08d3a09f505be 35,40,44
+  s_0642a2f54e6bd7::t_7d11f0e2e65eff 19,239-258
+  s_f9240fe607c610::t_a5e64f6609e970 23,72,75-87,178-201
+  s_0642a2f54e6bd7::t_e160cb43c75b53 42-43,49,65-67
+  s_0642a2f54e6bd7::t_9cc9622e7845e0 41
+  s_0642a2f54e6bd7::t_5e548ca6930de0 259-260
+services/hiring_data_rights.py
+  s_f9240fe607c610::t_a5e64f6609e970 1-283
+tests/eval/hiring/h3_case_manifest.json
+  s_f9240fe607c610::t_a5e64f6609e970 1-58
+services/internal_controlled_demo.py
+  s_0642a2f54e6bd7::t_54a06565abf079 289-299,307
+  s_0642a2f54e6bd7::t_2053e80efe5272 1-12,14-17,21-38,40-41,44-97,105-119,137-139
+  s_0642a2f54e6bd7::t_4fb32a7c9e559c 159,166-169,172,174-176,190
+  s_0642a2f54e6bd7::t_936f639765e007 170-171,173
+  s_0642a2f54e6bd7::t_74a60751a34fe7 13,18-20,39,42-43,140-158,160-165,177-181,187-189,191-192,194-210,214-273
+  s_0642a2f54e6bd7::t_09f67fd788321d 98-104,120-136,182-186,193,211-213
+  s_0642a2f54e6bd7::t_f1ab033e451d5e 274-288,300-306
+app/static/index.html
+  s_f9240fe607c610::t_a5e64f6609e970 1410-1411,3169-3180,3182-3183,4600-4613
+  s_0642a2f54e6bd7::t_a823fc45eedbda 1689-1709,3793-3794,3840,3945-3946
+docs/31-h4s-test-account-operations.md
+  s_0642a2f54e6bd7::t_cca21a09db43b5 17-23,32-33,36-39
+  s_f9240fe607c610::t_a5e64f6609e970 1-16,24-31,34-35,40-49,54-56
+  s_0642a2f54e6bd7::t_bd7467e089fe72 50-53
+app/main.py
+  s_f9240fe607c610::t_a5e64f6609e970 44,121,136,138,1736-1750,1765,1774,1779,1794-1795,1803-1806,1809,1829-1831,1833
+  s_0642a2f54e6bd7::t_9cf18d14771858 1782-1783
+  s_0642a2f54e6bd7::t_74a203c8e2e23d 63,245,461-496,506-508,554,574-587,591-594,597
+  s_0642a2f54e6bd7::t_a501669272700c 55,254-265,497-505,563-564,588-590
+tests/unit/test_google_login.py
+  s_0642a2f54e6bd7::t_a823fc45eedbda 127-148
+tests/unit/test_review_fixes_services.py
+  s_f9240fe607c610::t_a5e64f6609e970 146
+services/durable_store.py
+  s_0642a2f54e6bd7::t_2dc779740dd8a1 95
+  s_0642a2f54e6bd7::t_749979f01a4f6d 94
+  s_f9240fe607c610::t_a5e64f6609e970 1-91,96-240
+  s_0642a2f54e6bd7::t_74a60751a34fe7 92-93
+policies/hiring/h4s-sandbox-policy.json
+  s_f9240fe607c610::t_a5e64f6609e970 1-19,23-24
+  s_0642a2f54e6bd7::t_1631740b586776 20-22
+scripts/deploy.sh
+  s_f9240fe607c610::t_a5e64f6609e970 46,170-172
+docs/26-hiring-h0-h3-verification.md
+  s_f9240fe607c610::t_a5e64f6609e970 1-107
+tests/unit/test_eval_contracts.py
+  s_f9240fe607c610::t_a5e64f6609e970 156-187
+tests/unit/test_app_server.py
+  s_f9240fe607c610::t_a5e64f6609e970 56-57,59-60,831-842
+  s_0642a2f54e6bd7::t_c668746a07e49e 62,591-615
+services/task_queue.py
+  s_f9240fe607c610::t_a5e64f6609e970 19,47,68-82
+app/hiring_routes.py
+  s_0642a2f54e6bd7::t_fec40d2e797a61 40
+  s_0642a2f54e6bd7::t_54eccebd15a0d9 33-34,200-205,222-223,659-707
+  s_0642a2f54e6bd7::t_0ec617c0ab21de 210,355,441-446
+  s_0642a2f54e6bd7::t_1631740b586776 184-185,195-196
+  s_0642a2f54e6bd7::t_e33141636a1946 230-233,396-407
+  s_0642a2f54e6bd7::t_4337dc78b1b16b 206-209,211-221
+  s_0642a2f54e6bd7::t_30b9dc0d9848b4 476-506
+  s_0642a2f54e6bd7::t_ab600d0b94e0bf 42,238-241,431-440
+  s_0642a2f54e6bd7::t_9ec13af5c1bb61 579
+  s_0642a2f54e6bd7::t_f64e089a242597 422-424,426-427,430
+  s_f9240fe607c610::t_a5e64f6609e970 1-31,35-39,43-181,183,186-192,194,197-199,242-340,460-475,507-563,565-578,580-596,598-615,617-619,708-1214
+  s_0642a2f54e6bd7::t_f1ab033e451d5e 234-237,408-421,425,447-458
+  s_0642a2f54e6bd7::t_82e57a66af66a6 341-354,356-382,459
+  s_0642a2f54e6bd7::t_a9aee640faff3d 428-429
+  s_0642a2f54e6bd7::t_29a49e0481fbba 182,193,597,616,641
+  s_0642a2f54e6bd7::t_f48907b17f83e6 41,224-229,383-395
+  s_0642a2f54e6bd7::t_cdb07ddfca12ae 564
+  s_0642a2f54e6bd7::t_c16ec30c179587 32,620-640,642-658
+docs/32-internal-controlled-demo.md
+  s_0642a2f54e6bd7::t_5e8b1d8da1fdf2 31-34,45-48
+  s_0642a2f54e6bd7::t_5d67acc4ded7f7 1-2,5-30,41,49-100
+  s_0642a2f54e6bd7::t_8a343a15b936d6 42-44
+  s_0642a2f54e6bd7::t_df160af95a38a5 3-4,35-40
+services/feedback_service.py
+  s_f9240fe607c610::t_a5e64f6609e970 75-77
+services/hiring_h4s_effects.py
+  s_0642a2f54e6bd7::t_a91729a7078eb1 57-62
+  s_0642a2f54e6bd7::t_29a49e0481fbba 70-71,82,167
+  s_0642a2f54e6bd7::t_418add996a869c 1-16,18-56,63-69,72-81,83-87,104-108,111-133,136-143,180-187,189-269,271-272,275-279
+  s_0642a2f54e6bd7::t_03b7a1236e2838 17,109-110,134-135,270,273-274,280-300
+  s_0642a2f54e6bd7::t_b94816783acc86 88-103,144-166,168-179,188
+tests/integration/test_adaptation_loop.py
+  s_f9240fe607c610::t_a5e64f6609e970 58
+tests/unit/test_browser_invariants.py
+  s_0642a2f54e6bd7::t_a823fc45eedbda 326
+docs/33-founder-first-hiring-demo.md
+  s_0642a2f54e6bd7::t_c442d12ff9a5cb 1-9,17-95,97-104
+  s_0642a2f54e6bd7::t_d476e5954e4c72 10-16
+  s_0642a2f54e6bd7::t_297dbeb6728cd4 96
+agents/co_founder/sub_agents/hiring_evidence_analyst.py
+  s_f9240fe607c610::t_a5e64f6609e970 1-23
+services/internal_controlled_demo_effects.py
+  s_0642a2f54e6bd7::t_749979f01a4f6d 1-27,29,31-34,38-47,52-57,61-62,73-100,102-135
+  s_0642a2f54e6bd7::t_cea75f918cb8fe 28,30,35-37,136-173
+  s_0642a2f54e6bd7::t_3d722281bc0e7b 48-51
+  s_0642a2f54e6bd7::t_6787936f26aad6 58-60,63,65-72,101
+  s_0642a2f54e6bd7::t_076824cfeb4d31 64
+services/connectors.py
+  s_0642a2f54e6bd7::t_9cf18d14771858 64-67
+  s_0642a2f54e6bd7::t_42ee64b23445e6 63
+services/hiring_activation.py
+  s_f9240fe607c610::t_a5e64f6609e970 1-47
+docs/29-h0-h3-independent-implementation-review.md
+  s_f9240fe607c610::t_a5e64f6609e970 1-71
+app/google_login.py
+  s_0642a2f54e6bd7::t_9cf18d14771858 189-193,237-240
+services/hiring_contracts.py
+  s_f9240fe607c610::t_a5e64f6609e970 1-355
+services/hiring_identity_vault.py
+  s_f9240fe607c610::t_a5e64f6609e970 1-166
+.gitattributes
+  s_0642a2f54e6bd7::t_e471f1da5f93ca 1-2
+docs/30-hiring-h4-sandbox-and-run-intelligence.md
+  s_0642a2f54e6bd7::t_bd7467e089fe72 311-317
+  s_f9240fe607c610::t_a5e64f6609e970 1-310,318-460
+services/internal_controlled_demo_intake.py
+  s_0642a2f54e6bd7::t_2dc779740dd8a1 1-8,10-15,17,19-36,39-41,43-51,59-60,64-78,124-131,134-137,140-141,143-155,158,160,163-184
+  s_0642a2f54e6bd7::t_a2b10d2fb9ea52 9,18,52-58,61-63,142,156-157,159,161-162
+  s_0642a2f54e6bd7::t_32732ff2f7a8c1 16,37-38,42,79-115,132-133
+  s_0642a2f54e6bd7::t_23f0d435e8e336 116-123
+  s_0642a2f54e6bd7::t_9ce3636770528c 138-139
+README.md
+  s_f9240fe607c610::t_a5e64f6609e970 417,427-430
+  s_0642a2f54e6bd7::t_48d7eef99500e2 434-438
+services/firestore.py
+  s_f9240fe607c610::t_a5e64f6609e970 60-91,474,476-482,489,3440,3458-3477,3525
+services/data_lifecycle.py
+  s_f9240fe607c610::t_a5e64f6609e970 72-125
+scripts/seed_hiring_fde_demo.py
+  s_f9240fe607c610::t_a5e64f6609e970 1-284
+scripts/preflight_hiring_internal_demo.py
+  s_0642a2f54e6bd7::t_c0e5f4f442adf5 1-13,15-19,26-79
+  s_0642a2f54e6bd7::t_cf5a7dd5c4412d 14,20-25
+docs/07-server-webhooks.md
+  s_f9240fe607c610::t_a5e64f6609e970 207
+services/hiring_sandbox_config.py
+  s_0642a2f54e6bd7::t_9ec13af5c1bb61 1-51,57,59-84
+  s_0642a2f54e6bd7::t_cdb07ddfca12ae 52-56,58,85-97
+app/static/hiring.html
+  s_0642a2f54e6bd7::t_a08ef9904c5c30 28,39
+  s_0642a2f54e6bd7::t_068082301b5980 16
+  s_0642a2f54e6bd7::t_d73b674ea9cb25 42
+  s_0642a2f54e6bd7::t_6c249a1aee19ac 41
+  s_0642a2f54e6bd7::t_873b8670beb3d7 34
+  s_0642a2f54e6bd7::t_76a574babe79a5 23
+  s_0642a2f54e6bd7::t_512b9f8759f3d0 32
+  s_f9240fe607c610::t_a5e64f6609e970 1-13,15,17-18,20-22,24-27,43-53
+  s_0642a2f54e6bd7::t_759e05c76bb19e 14
+  s_0642a2f54e6bd7::t_62d42e06e20fe6 29
+  s_0642a2f54e6bd7::t_9b00a068904591 19
+  s_0642a2f54e6bd7::t_684e5be3dd6e75 30-31,33,35-38
+  s_0642a2f54e6bd7::t_f85d2d935dff47 40
+services/workload_identity.py
+  s_f9240fe607c610::t_a5e64f6609e970 1-128
+docs/25-hiring-operations.md
+  s_f9240fe607c610::t_a5e64f6609e970 5-10,67-81,98-102,191-232,366,473,495-505,512,515-516,725-726,955-1011,1518-1523,1729-1732,1734,1737-1740,1930-1936,2012-2014,2022-2025,2137-2138,2212-2219,2241-2243,2266-2288,2293-2323,2334-2349,2443-2445,2448-2450,2455-2456,2467-2468,2486-2495,2499-2501,2505-2511,2563-2565,2581-2583,2600-2603,2648-2658,2666-2669,2681-2683,2686-2689,2724-2726
+tests/eval/evalsets/hiring_gate_safety.json
+  s_f9240fe607c610::t_a5e64f6609e970 1-47
+tests/unit/test_hiring_sandbox.py
+  s_f9240fe607c610::t_a5e64f6609e970 1-11,15-16,18-41,76-137,139-162,164-167,189-191,208-211,213-225,227-235,237-245,247-295
+  s_0642a2f54e6bd7::t_9ec13af5c1bb61 17,168-188
+  s_0642a2f54e6bd7::t_d96cd9c1bc7966 42-75,138,163,212,226,236,246,343,357,363,371,377,392,397,413,419,434,439,445,462
+  s_0642a2f54e6bd7::t_7ef3b2762096a5 14,319-337,466-489,491-502
+  s_0642a2f54e6bd7::t_660d31b4f8e1cb 13,296-312,338-342,344-356,358-362,364-370,372-376,378-391,393-396,398-403,503
+  s_0642a2f54e6bd7::t_048dbfef671356 504-542
+  s_0642a2f54e6bd7::t_2f7bbe329913cf 192-207
+  s_0642a2f54e6bd7::t_6bcccee8f914a0 313-318,404-412,414-418,420-433,435-438,440-444,446-461,463-465
+  s_0642a2f54e6bd7::t_96689257dbb6af 12,490
+services/resource_sensitivity.py
+  s_f9240fe607c610::t_a5e64f6609e970 1-46
+app/auth.py
+  s_0642a2f54e6bd7::t_a823fc45eedbda 36
+  s_0642a2f54e6bd7::t_9cf18d14771858 241-261,406-412
+app/static/login.html
+  s_0642a2f54e6bd7::t_9cf18d14771858 135-140,145,167,180,198
+services/hiring_h4s_reply.py
+  s_0642a2f54e6bd7::t_24a864e4a82647 1-56,62-180
+  s_0642a2f54e6bd7::t_1c46cfbdb14d95 57-61
+services/hiring_evidence.py
+  s_f9240fe607c610::t_a5e64f6609e970 1-136
+services/hiring_run_answer.py
+  s_f9240fe607c610::t_a5e64f6609e970 1-189
+tests/conftest.py
+  s_f9240fe607c610::t_a5e64f6609e970 1412,1424-1435,1469-1470
+infra/firestore.indexes.json
+  s_f9240fe607c610::t_a5e64f6609e970 133-268
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "d40a3bccf7485723e29b6f7d4c8ea504c4231645",
+  "prompts": {},
+  "sessions": {
+    "s_0642a2f54e6bd7": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a036cf-3895-7c12-a442-6f9ec6774d98",
+        "model": "gpt-5.6-terra"
+      },
+      "human_author": "Ijidai Lassa <ijidai@cued.app>"
+    },
+    "s_f9240fe607c610": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0f530e56-43c7-4947-994b-31e20d0ccde4",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Ijidai Lassa <ijidai@cued.app>"
+    }
+  }
+}
