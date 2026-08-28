@@ -1,7 +1,7 @@
 # Document 40 — Gate A/B foundation evidence
 
-**Recorded:** 2026-08-28  
-**Scope:** dark, additive foundation only  
+**Recorded:** 2026-08-28
+**Scope:** dark, additive foundation only
 **Release state:** no background-work gate is approved or enabled
 
 This note records the first implementation slice of
