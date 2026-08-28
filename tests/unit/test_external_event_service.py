@@ -3,16 +3,23 @@
 from __future__ import annotations
 
 import asyncio
+import time
 
 import pytest
 
 from services import external_event_service, firestore
+from services.actor_identity import ActorPrincipal, WorkspaceRole, create_membership
+from services.durable_store import InMemoryDurableStore
+from services.investor_outreach_service import InvestorOutreachService
+from services.platform_approval_service import PlatformApprovalService
 
 pytestmark = pytest.mark.asyncio
 
 
 def _app(fake_store, app_id="app-1", name="Acme Accelerator"):
-    fake_store.opportunities["opp-1"] = {"id": "opp-1", "name": name}
+    fake_store.opportunities["opp-1"] = {
+        "id": "opp-1", "name": name, "workspace_id": "founder",
+        "founder_id": "founder"}
     fake_store.applications[app_id] = {
         "id": app_id, "founder_id": "founder", "opportunity_id": "opp-1",
         "state": "SUBMITTED", "followups": [],
@@ -44,6 +51,9 @@ async def test_subject_name_match_never_mutates_application_or_active_session(
     assert result["settled"] is True
     assert fake_store.applications["app-1"]["followups"] == []
     assert len(fake_store.founder_inbox) == 1
+    receipt = next(iter(fake_store.external_events.values()))
+    assert receipt["verification_status"] == "VERIFIED"
+    assert receipt["business_disposition"] == "INBOXED"
     inbox = next(iter(fake_store.founder_inbox.values()))
     assert inbox["item_kind"] == "AMBIGUOUS_EVENT"
     assert inbox["candidate_refs"][0]["reason_code"] == "subject_name_only"
@@ -139,3 +149,107 @@ async def test_crash_after_receipt_reclaims_and_converges_to_one_inbox(
     assert second["settled"] is True
     assert len(fake_store.external_events) == 1
     assert len(fake_store.founder_inbox) == 1
+
+
+async def test_external_event_wake_uses_drainable_dead_letter(
+        fake_store, monkeypatch):
+    _app(fake_store)
+    await firestore.save_pending_portal_registration(
+        "program.example", "founder", "session-origin",
+        "https://program.example/apply", "alex@ruhu.ai", "app-1")
+    original_create = firestore.create_wake_delivery
+
+    async def one_attempt(*args, **kwargs):
+        created = await original_create(*args, **kwargs)
+        fake_store.wake_deliveries[created["delivery_id"]]["max_attempts"] = 1
+        return created
+
+    async def fail(*_args):
+        raise RuntimeError("session unavailable")
+
+    monkeypatch.setattr(firestore, "create_wake_delivery", one_attempt)
+    result = await external_event_service.process_mail_event(
+        "founder", "alex_mail", _event(message_id="dead-letter"), wake=fail)
+
+    assert result["settled"] is False
+    delivery = next(iter(fake_store.wake_deliveries.values()))
+    assert delivery["source_kind"] == "external_event"
+    assert delivery["status"] == "DEAD_LETTER"
+    assert any(row.get("delivery_id") == delivery["delivery_id"]
+               for row in fake_store.founder_inbox.values())
+    requeued = await firestore.requeue_wake_delivery(
+        "founder", delivery["delivery_id"])
+    assert requeued["delivery_status"] == "FAILED"
+
+
+async def test_exact_provider_thread_wakes_and_advances_investor_vertical(
+        fake_store, monkeypatch):
+    """The real inbound-event seam, not a direct service call, resumes outreach."""
+    durable = InMemoryDurableStore()
+    membership = await create_membership(
+        actor_id="actor_owner", workspace_id="founder",
+        auth_subject="subject_owner", role=WorkspaceRole.OWNER,
+        created_by="test", store=durable)
+    principal = ActorPrincipal(
+        actor_id="actor_owner", workspace_id="founder",
+        role=WorkspaceRole.OWNER, role_grants=frozenset(),
+        candidate_assignments=frozenset(), interview_assignments=frozenset(),
+        session_auth_time=int(time.time()),
+        membership_version=membership["version"],
+        membership_id=membership["membership_id"])
+
+    async def search(_query, _limit):
+        return {"status": "success", "results": [{
+            "title": "Exact Thread Ventures", "url": "https://fund.example",
+            "snippet": "African AI seed investor", "email": "p@fund.example"}]}
+
+    async def send(**_kwargs):
+        return {"status": "success", "provider_effect_id": "gmail-message-i1",
+                "provider_thread_id": "gmail-thread-i1",
+                "rfc822_message_id": "<i1@ruhu.ai>"}
+
+    service = InvestorOutreachService(durable, search_fn=search, send_fn=send)
+    started = await service.start(
+        principal=principal, objective="Find African AI seed investors",
+        origin_session_id="session-investor-origin",
+        client_request_id="investor-event-bridge")
+    outreach_id = started["outreach"]["outreach_id"]
+    await service.research(workspace_id="founder", outreach_id=outreach_id)
+    await service.rank(workspace_id="founder", outreach_id=outreach_id)
+    drafted = await service.draft(
+        workspace_id="founder", outreach_id=outreach_id, limit=1)
+    approval = await service.request_send_approval(
+        principal=principal, draft_id=drafted["drafts"][0]["draft_id"],
+        client_request_id="investor-event-approval")
+    await PlatformApprovalService(durable).decide(
+        principal=principal, approval_id=approval["approval"]["approval_id"],
+        decision="GRANT")
+    sent = await service.send_approved(
+        workspace_id="founder", draft_id=drafted["drafts"][0]["draft_id"])
+    fake_store.external_actions[sent["action"]["action_id"]] = {
+        **sent["action"], "founder_id": "founder"}
+
+    from services import durable_store
+
+    monkeypatch.setattr(durable_store, "production_store", lambda: durable)
+    wakes = []
+
+    async def wake(*args):
+        wakes.append(args)
+
+    result = await external_event_service.process_mail_event(
+        "founder", "alex_mail", _event(
+            message_id="gmail-reply-i1", thread_id="gmail-thread-i1",
+            sender="p@fund.example", subject="Re: Introduction",
+            excerpt="Let us meet."), wake=wake)
+
+    assert result["settled"] is True
+    assert len(await durable.list(
+        "investor_replies", filters={"workspace_id": "founder"})) == 1
+    outreach = await durable.get("investor_outreach", outreach_id)
+    assert outreach["domain_state"] == "MEETING_PREP"
+    event = next(row for row in fake_store.external_events.values()
+                 if row["provider_event_id"] == "gmail-reply-i1")
+    assert event["correlation_status"] == "EXACT"
+    assert event["session_id"] == "session-investor-origin"
+    assert len(wakes) == 1 and wakes[0][1] == "session-investor-origin"

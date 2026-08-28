@@ -12,6 +12,12 @@ in independently shippable phases.
 north-star document describes a future replacement boundary, the current spec
 remains binding until that migration phase is implemented and accepted.
 
+**Implementation and convergence overlay:**
+[34](34-platform-architecture-and-convergence.md) makes the authority hierarchy,
+state/session/memory boundaries, generic-runtime extraction, approval/action
+protocol, delivery topology, operational controls, and gated migration phases
+explicit. It does not independently authorize implementation.
+
 **Decision this document makes:** Alex is a stable conversational coordinator
 over many independently durable workflow runs. A workflow is not an agent, a
 chat, or a prompt. It is a versioned process with explicit state, policies,

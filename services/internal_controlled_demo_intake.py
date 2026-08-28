@@ -19,8 +19,9 @@ from services.internal_controlled_demo_google import InternalDemoGoogleAdapter
 
 
 def _error(code: str, message: str, http_status: int = 409) -> dict[str, Any]:
+    del http_status
     return {"status": "error", "error": True, "error_code": code,
-            "message": message, "http_status": http_status}
+            "message": message}
 
 
 def _parts(payload: dict[str, Any]) -> list[dict[str, Any]]:

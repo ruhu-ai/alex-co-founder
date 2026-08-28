@@ -39,9 +39,11 @@ pypdf==6.1.1
 # than through transitive luck
 python-multipart==0.0.32
 
-# pinned <50 originally because 50.0.0 builds from source without a Rust
-# toolchain (see docs/verification-notes.md); now hard-pinned to the installed 49.0.0
-cryptography==49.0.0
+# 49.0.0 removed x86_64 macOS wheels. Our documented Python 3.11 local runtime
+# may run under Rosetta, where that release builds against ambient OpenSSL and
+# can abort during Google ID-token certificate verification. 48.0.1 is the
+# final release with a supported x86_64 macOS wheel.
+cryptography==48.0.1
 
 # runtime: tools/_common.py re-enters the event loop for sync ADK tools
 nest-asyncio==1.6.0

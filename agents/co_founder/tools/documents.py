@@ -7,7 +7,7 @@ invocation context and session state, never from the model.
 from google.adk.tools import ToolContext
 
 from .. import state_schema as ss
-from ._common import run
+from ._common import run, workspace_id
 
 
 def produce_document(kind: str, title: str, spec: dict, tool_context: ToolContext) -> dict:
@@ -30,7 +30,7 @@ def produce_document(kind: str, title: str, spec: dict, tool_context: ToolContex
     """
     from services import document_service, firestore
 
-    founder = tool_context.state.get(ss.K_USER_PROFILE_ID, "founder")
+    founder = workspace_id(tool_context)
     session_id = getattr(getattr(tool_context, "session", None), "id", "") or ""
     app_id = tool_context.state.get(ss.K_ACTIVE_APPLICATION_ID, "")
 
@@ -44,9 +44,10 @@ def produce_document(kind: str, title: str, spec: dict, tool_context: ToolContex
             return produced
         opp_name = ""
         if app_id:
-            app = await firestore.get_application(app_id)
+            app = await firestore.get_application(app_id, founder)
             if app and app.get("opportunity_id"):
-                opp = await firestore.get_opportunity(app["opportunity_id"])
+                opp = await firestore.get_opportunity(
+                    app["opportunity_id"], founder)
                 opp_name = opp.get("name", "") if opp else ""
         document_id = await firestore.create_document_record(
             founder, artifact_name, kind, title, session_id, app_id, opp_name,
@@ -85,7 +86,7 @@ def produce_document(kind: str, title: str, spec: dict, tool_context: ToolContex
             target=f"artifacts/{artifact_name}", result="success",
             detail=f"{kind} '{title}' v{version} document={document_id}")
         return {"status": "success", "artifact_name": artifact_name,
-                "download_url": f"/api/artifacts/{artifact_name}/download",
+                "download_url": f"/api/v1/artifacts/{artifact_name}/download",
                 "version": version, "bytes": produced["bytes"],
                 "note": "Reply to the founder with ONLY: the title, version, "
                         "and download_url. Never paste the document's content "

@@ -13,7 +13,7 @@ from urllib.parse import urlparse
 from google.adk.tools import ToolContext
 
 from .. import state_schema as ss
-from ._common import add_pending_signal, failed, run
+from ._common import actor_id, add_pending_signal, failed, run, workspace_id
 
 
 def _session_key(tool_context: ToolContext) -> dict[str, str]:
@@ -22,7 +22,7 @@ def _session_key(tool_context: ToolContext) -> dict[str, str]:
         "app_name": getattr(session, "app_name", "") or "co_founder",
         "user_id": getattr(tool_context, "user_id", "")
         or getattr(session, "user_id", "")
-        or tool_context.state.get(ss.K_USER_PROFILE_ID, "founder"),
+        or workspace_id(tool_context),
         "session_id": getattr(session, "id", "")
         or getattr(session, "session_id", ""),
     }
@@ -52,7 +52,7 @@ def _remember_questions(app_id: str, fields: list[dict]) -> None:
 
 
 def _register_fill(result: dict, app_id: str, tool_context: ToolContext) -> dict:
-    from services import browser_service
+    from services import browser_gateway as browser_service
 
     # browser_service created/projected the durable fill run before credentials
     # were entered. Do not register a second page owner here.
@@ -68,20 +68,20 @@ def _register_fill(result: dict, app_id: str, tool_context: ToolContext) -> dict
 
 def _portal_session(app_id: str) -> dict | None:
     """Resolve the live fill page from the single owning supervisor."""
-    from services import browser_service
+    from services import browser_gateway as browser_service
 
     return browser_service.fill_session_for_application(app_id)
 
 
 def _remember_signature(app_id: str, signature: str) -> None:
-    from services import browser_service
+    from services import browser_gateway as browser_service
 
     browser_service.set_fill_signature(app_id, signature)
 
 
 def _close_result(result: dict, reason: str = "agent_close") -> None:
     """Close a fill through durable run ordering, never through raw context."""
-    from services import browser_service
+    from services import browser_gateway as browser_service
 
     run_id = result.get("run_id")
     if run_id:
@@ -139,7 +139,15 @@ def register_account(portal_url: str, email: str, tool_context: ToolContext) -> 
         or SSO-only pages return a clean blocker — never worked around. Every
         registration is audited.
     """
-    from services import alex_mailbox, approval_service, browser_service, firestore, portal_accounts
+    from services import (
+        alex_mailbox,
+        approval_service,
+        browser_service,
+        external_action_service,
+        firestore,
+        pipeline_service,
+        portal_accounts,
+    )
 
     host = urlparse(portal_url).netloc
     application_id = tool_context.state.get(ss.K_ACTIVE_APPLICATION_ID, "")
@@ -154,7 +162,9 @@ def register_account(portal_url: str, email: str, tool_context: ToolContext) -> 
     if existing:
         mail = run(alex_mailbox.wait_for_email(
             from_contains=host.split(":")[0], timeout_s=0, poll_s=0,
-            mailbox_url=_mock_mailbox_url(portal_url, email)))
+            mailbox_url=_mock_mailbox_url(portal_url, email),
+            workspace_id=tool_context.state.get(
+                "user:profile_id", "founder")))
         if mail.get("status") != "success":
             add_pending_signal(tool_context, "portal_verification")
             return {"status": "waiting", "verified": False,
@@ -182,16 +192,40 @@ def register_account(portal_url: str, email: str, tool_context: ToolContext) -> 
         return {"status": "success", "host": host, "verified": True,
                 "note": "account verified; credentials remain stored server-side"}
     target = f"portal:{host}"
-    approval = run(firestore.find_valid_approval(
-        target, gate="create_portal_account", founder_id=identity["user_id"],
-        session_id=identity["session_id"]))
-    if failed(approval):  # a lookup ERROR is not "no approval" — surface it
-        return approval
-    if not approval:
+    details = {"portal_url": portal_url, "email": email}
+    subject_hash = approval_service.action_subject_hash(
+        "create_portal_account", target, details)
+    idempotency_key = (
+        f"portal-account-v1:{pipeline_service.derive_submit_key(identity['user_id'], application_id)}:"
+        f"{subject_hash}")
+    existing_action = run(external_action_service.get_by_idempotency_key(
+        identity["user_id"], "create_portal_account", idempotency_key))
+    if existing_action:
+        if existing_action.get("status") in {"SUCCEEDED", "FAILED"}:
+            return external_action_service.duplicate_result(existing_action)
+        return {"status": "error", "error": True,
+                "error_code": ("reconciliation_required"
+                               if existing_action.get("status") == "UNCERTAIN"
+                               else "version_conflict"),
+                "action_id": existing_action.get("action_id"),
+                "message": ("Portal-account creation requires reconciliation."
+                            if existing_action.get("status") == "UNCERTAIN"
+                            else "Portal-account creation is already in progress.")}
+    approval = run(approval_service.claim_for_action(
+        target, "create_portal_account", founder_id=identity["user_id"],
+        session_id=identity["session_id"],
+        expected_subject_hash=subject_hash))
+    if approval.get("status") != "success":
+        if approval.get("error_code") in {
+                "approval_binding_mismatch", "approval_binding_missing"}:
+            return approval
         requested = run(approval_service.request_approval(
             target, gate="create_portal_account",
-            details={"portal_url": portal_url, "email": email},
-            founder_id=identity["user_id"], session_id=identity["session_id"]))
+            details=details, founder_id=identity["user_id"],
+            session_id=identity["session_id"], subject_hash=subject_hash,
+            requested_by_actor_id=actor_id(tool_context)))
+        if requested.get("status") != "success":
+            return requested
         run(firestore.audit(
             "agent:form_filler", "register_account", target, "refused",
             "no GRANTED approval — requested founder approval"))
@@ -201,18 +235,72 @@ def register_account(portal_url: str, email: str, tool_context: ToolContext) -> 
             "approval_id": requested.get("approval_id"),
             "message": "Creating this portal account requires founder approval.",
         }
-    claimed = run(firestore.claim_approval(approval["id"]))
-    if failed(claimed):  # claim ERROR must never read as "claimed" — the
-        return claimed   # single-use approval would leak unconsumed
-    if not claimed:
+    prepared = run(external_action_service.prepare(
+        identity["user_id"], "browser", "create_portal_account",
+        idempotency_key,
+        {"application_id": application_id, "host": host,
+         "subject_hash": subject_hash},
+        session_id=identity["session_id"], application_id=application_id,
+        resource_id=application_id, subject_hash=subject_hash,
+        approval_id=approval["approval_id"], consume_approval=True,
+        approval_gate="create_portal_account", approval_target=target))
+    if prepared.get("duplicate"):
+        return external_action_service.duplicate_result(prepared)
+    if prepared.get("error"):
+        return prepared
+    if not prepared.get("claimed"):
         return {"status": "error", "error": True,
-                "message": "Portal-account approval was already used or expired."}
+                "error_code": "version_conflict",
+                "message": "Portal-account creation is already in progress."}
     password = portal_accounts.generate_password()
     result = run(browser_service.register(
         portal_url, email, password, session_key=identity,
         application_id=application_id))
     if result.get("status") != "success":
-        return result
+        run(external_action_service.finish(
+            identity["user_id"], prepared["action_id"],
+            prepared["lease_owner"], "UNCERTAIN",
+            action_kind="create_portal_account",
+            idempotency_key=idempotency_key,
+            result_ref={"host": host, "application_id": application_id},
+            uncertainty_reason="provider_outcome_unconfirmed",
+            error_code="reconciliation_required"))
+        return {**result, "error_code": "reconciliation_required",
+                "uncertain": True, "action_id": prepared["action_id"],
+                "message": ("The portal did not confirm whether the account was "
+                            "created. It will not be retried until reconciled.")}
+
+    def _registration_uncertain(original: dict, reason: str) -> dict:
+        run(external_action_service.finish(
+            identity["user_id"], prepared["action_id"],
+            prepared["lease_owner"], "UNCERTAIN",
+            action_kind="create_portal_account",
+            idempotency_key=idempotency_key,
+            result_ref={"host": host, "application_id": application_id},
+            uncertainty_reason=reason,
+            error_code="reconciliation_required"))
+        return {**original, "status": "error", "error": True,
+                "error_code": "reconciliation_required", "uncertain": True,
+                "action_id": prepared["action_id"],
+                "message": ("The portal account may exist, but its usable state "
+                            "could not be confirmed. It will not be created again "
+                            "until this action is reconciled.")}
+
+    def _registration_succeeded(result_ref: dict) -> dict | None:
+        receipt = run(external_action_service.finish(
+            identity["user_id"], prepared["action_id"],
+            prepared["lease_owner"], "SUCCEEDED",
+            action_kind="create_portal_account",
+            idempotency_key=idempotency_key,
+            result_ref={"host": host, **result_ref}))
+        if receipt.get("error"):
+            return {"status": "error", "error": True,
+                    "error_code": "reconciliation_required",
+                    "uncertain": True, "action_id": prepared["action_id"],
+                    "message": ("The portal account exists, but its durable "
+                                "receipt could not be committed. Reconcile before retrying.")}
+        return None
+
     body = result.get("body", "")
     if "already exists" in body.lower():
         # Benign collision: the portal already has an account for this host. That
@@ -223,8 +311,13 @@ def register_account(portal_url: str, email: str, tool_context: ToolContext) -> 
         run(firestore.audit(
             "agent:form_filler", "register_account", target, "success",
             f"account already existed for {email}; no new account created"))
+        receipt_error = _registration_succeeded(
+            {"already_existed": True, "verified": False})
+        if receipt_error:
+            return receipt_error
         return {"status": "success", "host": host, "verified": False,
                 "already_existed": True,
+                "action_id": prepared["action_id"],
                 "note": f"{host} already has an account for {email}; if the founder "
                         "has the credential, share it once so I can sign in"}
     verified = True
@@ -234,14 +327,17 @@ def register_account(portal_url: str, email: str, tool_context: ToolContext) -> 
         mail = run(alex_mailbox.wait_for_email(
             from_contains=host.split(":")[0],
             timeout_s=0, poll_s=0,
-            mailbox_url=_mock_mailbox_url(portal_url, email)))
+            mailbox_url=_mock_mailbox_url(portal_url, email),
+            workspace_id=tool_context.state.get(
+                "user:profile_id", "founder")))
         if mail.get("status") != "success":
             stored = portal_accounts.store_credential(
                 host, email, password, verified=False, portal_url=portal_url,
                 session_id=identity["session_id"])
             _close_result(result)
             if stored.get("status") != "success":
-                return stored
+                return _registration_uncertain(
+                    stored, "credential_persistence_failed")
             run(firestore.save_pending_portal_registration(
                 host, identity["user_id"], identity["session_id"],
                 portal_url, email, application_id))
@@ -249,7 +345,12 @@ def register_account(portal_url: str, email: str, tool_context: ToolContext) -> 
             run(firestore.audit(
                 "agent:form_filler", "register_account", target, "waiting",
                 f"account created for {email}; waiting for verification event"))
+            receipt_error = _registration_succeeded(
+                {"verified": False, "verification_pending": True})
+            if receipt_error:
+                return receipt_error
             return {"status": "waiting", "verified": False,
+                    "action_id": prepared["action_id"],
                     "pending_signal": "portal_verification",
                     "message": "Account created; waiting for the verification email event."}
         if mail.get("link"):
@@ -258,7 +359,8 @@ def register_account(portal_url: str, email: str, tool_context: ToolContext) -> 
                 application_id=application_id))
             if verified_result.get("status") != "success":
                 _close_result(result)
-                return verified_result
+                return _registration_uncertain(
+                    verified_result, "verification_link_failed")
         elif mail.get("code"):
             page = result["page"]
             # Register the OTP with the log scrubber before it is typed: a
@@ -273,18 +375,20 @@ def register_account(portal_url: str, email: str, tool_context: ToolContext) -> 
             filled = run(page.fill("input[name='code'], input[type='text']", mail["code"]))
             if failed(filled):
                 _close_result(result)
-                return filled
+                return _registration_uncertain(
+                    filled, "verification_code_fill_failed")
             clicked = run(page.click("button[type='submit']"))
             if failed(clicked):
                 _close_result(result)
-                return clicked
+                return _registration_uncertain(
+                    clicked, "verification_code_submit_failed")
         verified = True
     stored = portal_accounts.store_credential(
         host, email, password, verified=verified, portal_url=portal_url,
         session_id=identity["session_id"])
     if stored.get("status") != "success":
         _close_result(result)
-        return stored
+        return _registration_uncertain(stored, "credential_persistence_failed")
     run(firestore.complete_portal_registration(host))
     _close_result(result)
 
@@ -292,7 +396,11 @@ def register_account(portal_url: str, email: str, tool_context: ToolContext) -> 
         actor="agent:form_filler", action="register_account", target=host,
         result="success",
         detail=f"account created for {email}; verified={verified}"))
+    receipt_error = _registration_succeeded({"verified": verified})
+    if receipt_error:
+        return receipt_error
     return {"status": "success", "host": host, "verified": verified,
+            "action_id": prepared["action_id"],
             "note": "account created and verified; credentials stored server-side"}
 
 
@@ -307,7 +415,8 @@ def sign_in(portal_url: str, tool_context: ToolContext) -> dict:
         dict with status, page title, and field count after landing. Error when
         no account exists (register_account first).
     """
-    from services import browser_service, portal_accounts
+    from services import browser_gateway as browser_service
+    from services import portal_accounts
 
     host = urlparse(portal_url).netloc
     cred = portal_accounts.get_credential(host)
@@ -352,7 +461,7 @@ def open_portal(application_url: str, tool_context: ToolContext) -> dict:
         return {"status": "error", "error": True,
                 "message": "Gate G3: portal access only after the application is APPROVED."}
 
-    from services import browser_service
+    from services import browser_gateway as browser_service
 
     credentials = _creds()
     if credentials is None:
@@ -384,7 +493,8 @@ def inspect_form(tool_context: ToolContext) -> dict:
         dict with status and a field summary; the full field list is saved as
         an artifact, never dumped into the conversation.
     """
-    from services import browser_service, storage
+    from services import browser_gateway as browser_service
+    from services import storage
 
     app_id = tool_context.state.get(ss.K_ACTIVE_APPLICATION_ID, "")
     session = _portal_session(app_id)
@@ -415,7 +525,7 @@ def verify_page_state(expected_signature: str, tool_context: ToolContext) -> dic
         dict with status, match (bool), and current_signature. A mismatch means
         the agent must stop — enforced in code by the fence callback (docs/09).
     """
-    from services import browser_service
+    from services import browser_gateway as browser_service
 
     app_id = tool_context.state.get(ss.K_ACTIVE_APPLICATION_ID, "")
     session = _portal_session(app_id)
@@ -485,9 +595,10 @@ def get_approved_sections(tool_context: ToolContext) -> dict:
     from services import firestore
 
     app_id = tool_context.state.get(ss.K_ACTIVE_APPLICATION_ID, "")
+    founder_id = workspace_id(tool_context)
     if not app_id:
         return {"status": "error", "error": True, "message": "no active application"}
-    app_doc = run(firestore.get_application(app_id))
+    app_doc = run(firestore.get_application(app_id, founder_id))
     if failed(app_doc):
         return app_doc
     if not app_doc:
@@ -520,6 +631,7 @@ def fill_fields(mapping: dict, tool_context: ToolContext) -> dict:
     from services import approval_service, browser_service, firestore, pipeline_service, storage
 
     app_id = tool_context.state.get(ss.K_ACTIVE_APPLICATION_ID, "")
+    founder_id = workspace_id(tool_context)
     session = _portal_session(app_id)
     if not session:
         return {"status": "error", "error": True, "message": "no open portal — call open_portal first"}
@@ -571,17 +683,19 @@ def fill_fields(mapping: dict, tool_context: ToolContext) -> dict:
     # as an idempotent success rather than attempted as an illegal same-state
     # transition — which would surface a misleading "state transition failed".
     # Failures on a real advance are still surfaced in the return.
-    app_doc = run(firestore.get_application(app_id))
+    app_doc = run(firestore.get_application(app_id, founder_id))
     current_state = app_doc.get("state") if app_doc else None
     if current_state == ss.ApplicationStep.APPROVED:
         run(pipeline_service.advance_application(
-            app_id, ss.ApplicationStep.FORM_FILLING, actor="agent:form_filler"))
+            app_id, ss.ApplicationStep.FORM_FILLING, actor="agent:form_filler",
+            founder_id=founder_id))
         current_state = ss.ApplicationStep.FORM_FILLING
     if current_state == ss.ApplicationStep.AWAITING_SUBMIT_APPROVAL:
         transition = {"status": "success", "already_armed": True}
     else:
         transition = run(pipeline_service.advance_application(
-            app_id, ss.ApplicationStep.AWAITING_SUBMIT_APPROVAL, actor="agent:form_filler"))
+            app_id, ss.ApplicationStep.AWAITING_SUBMIT_APPROVAL,
+            actor="agent:form_filler", founder_id=founder_id))
     approval_requested = None
     subject = approval_service.submit_subject_hash(
         app_id, portal_state_hash, fill_mapping_hash)
@@ -596,7 +710,8 @@ def fill_fields(mapping: dict, tool_context: ToolContext) -> dict:
             # must never leave a grant behind that authorizes the old one.
             approval_requested = run(approval_service.request_approval(
                 app_id, founder_id=identity["user_id"],
-                session_id=identity["session_id"], subject_hash=subject))
+                session_id=identity["session_id"], subject_hash=subject,
+                requested_by_actor_id=actor_id(tool_context)))
     out = {**result, "total": len(mapping), "form_fill_report": report}
     if transition.get("status") != "success":
         out["warning"] = (f"fill succeeded but the state transition failed: "
@@ -631,7 +746,8 @@ def capture_screenshot(label: str, tool_context: ToolContext) -> dict:
     """
     import time
 
-    from services import browser_service, storage
+    from services import browser_gateway as browser_service
+    from services import storage
 
     app_id = tool_context.state.get(ss.K_ACTIVE_APPLICATION_ID, "")
     session = _portal_session(app_id)
@@ -644,7 +760,8 @@ def capture_screenshot(label: str, tool_context: ToolContext) -> dict:
     return {"status": "success", "artifact": name}
 
 
-def _reopen_for_submit(app_id: str, tool_context: ToolContext) -> tuple[dict | None, dict | None]:
+def _reopen_for_submit(app_id: str, founder_id: str,
+                       tool_context: ToolContext) -> tuple[dict | None, dict | None]:
     """Recover the filled portal page after an instance restart.
 
     The founder already approved the filled form, but the live page lived only
@@ -656,7 +773,7 @@ def _reopen_for_submit(app_id: str, tool_context: ToolContext) -> tuple[dict | N
     """
     from services import approval_service, browser_service, firestore, portal_accounts
 
-    app_doc = run(firestore.get_application(app_id))
+    app_doc = run(firestore.get_application(app_id, founder_id))
     if failed(app_doc):
         return None, app_doc
     if not app_doc:
@@ -666,7 +783,7 @@ def _reopen_for_submit(app_id: str, tool_context: ToolContext) -> tuple[dict | N
     opp = None
     opp_id = app_doc.get("opportunity_id", "")
     if opp_id:
-        fetched = run(firestore.get_opportunity(opp_id))
+        fetched = run(firestore.get_opportunity(opp_id, founder_id))
         opp = fetched if not failed(fetched) else None
     application_url = ((app_doc.get("submission") or {}).get("portal_url")
                        or (opp or {}).get("application_url", ""))
@@ -794,7 +911,8 @@ def _reopen_for_submit(app_id: str, tool_context: ToolContext) -> tuple[dict | N
     return session, None
 
 
-def _submit_binding(app_id: str, session: dict | None) -> tuple[str, dict | None]:
+def _submit_binding(app_id: str, founder_id: str,
+                    session: dict | None) -> tuple[str, dict | None]:
     """The subject hash the founder's approval must carry, or a refusal.
 
     Derived from `applications.form_fill_report` — the authority (docs/22) —
@@ -804,7 +922,7 @@ def _submit_binding(app_id: str, session: dict | None) -> tuple[str, dict | None
     """
     from services import approval_service, browser_service, firestore
 
-    app_doc = run(firestore.get_application(app_id))
+    app_doc = run(firestore.get_application(app_id, founder_id))
     if failed(app_doc):
         return "", app_doc
     report = (app_doc or {}).get("form_fill_report") or {}
@@ -881,37 +999,63 @@ def submit_form(tool_context: ToolContext) -> dict:
     Returns:
         dict with status and the portal confirmation_id on success.
     """
-    from services import approval_service, browser_service, firestore, pipeline_service
+    from services import (
+        approval_service,
+        browser_service,
+        external_action_service,
+        firestore,
+        pipeline_service,
+    )
 
     state = tool_context.state
     app_id = state.get(ss.K_ACTIVE_APPLICATION_ID, "")
-    founder_id = state.get(ss.K_USER_PROFILE_ID, "founder")
+    identity = _session_key(tool_context)
+    founder_id = identity["user_id"]
+    key = pipeline_service.derive_submit_key(founder_id, app_id)
 
-    if state.get(ss.K_CURRENT_STEP) != ss.ApplicationStep.AWAITING_SUBMIT_APPROVAL:
+    existing_action = run(external_action_service.get_by_idempotency_key(
+        founder_id, "submit_application", key))
+    if existing_action:
+        if (existing_action.get("session_id") != identity["session_id"]
+                or existing_action.get("application_id") != app_id):
+            return {"status": "error", "error": True,
+                    "error_code": "owner_mismatch",
+                    "message": "Submission receipt does not belong to this session."}
+        if existing_action.get("status") in {"SUCCEEDED", "FAILED"}:
+            duplicate = external_action_service.duplicate_result(existing_action)
+            if duplicate.get("status") == "success":
+                state[ss.K_CURRENT_STEP] = ss.ApplicationStep.SUBMITTED
+            return duplicate
+        return {"status": "error", "error": True,
+                "error_code": ("reconciliation_required"
+                               if existing_action.get("status") == "UNCERTAIN"
+                               else "version_conflict"),
+                "action_id": existing_action.get("action_id"),
+                "message": ("Submission requires reconciliation before retrying."
+                            if existing_action.get("status") == "UNCERTAIN"
+                            else "Submission is already in progress; no second submit was sent.")}
+
+    application = run(firestore.get_application(app_id, founder_id))
+    durable_step = (application or {}).get("state")
+    if durable_step != ss.ApplicationStep.AWAITING_SUBMIT_APPROVAL:
         return {"status": "error", "error": True,
                 "message": f"Gate G2: submit only from AWAITING_SUBMIT_APPROVAL "
-                           f"(current: {state.get(ss.K_CURRENT_STEP)})"}
-
-    key = pipeline_service.derive_submit_key(founder_id, app_id)
-    prior = run(firestore.find_successful_action(key))
-    if failed(prior):  # cannot verify idempotency → fail closed, do NOT claim
-        return {"status": "error", "error": True,  # a prior submission exists
-                "message": f"Could not check submission idempotency: "
-                           f"{prior.get('message', '')}"[:300]}
-    if prior:
-        return {"status": "error", "error": True,
-                "message": "Already submitted", "confirmation_id": prior.get("detail", "")}
+                           f"(durable current: {durable_step or 'missing'})"}
+    # Session state is a projection. Repair it from durable authority before
+    # evaluating the consequence gate so a stale session cannot authorize (or
+    # incorrectly block) submission.
+    state[ss.K_CURRENT_STEP] = durable_step
 
     session = _portal_session(app_id)
     if not session:
         # The page lived only in memory and was lost to a restart — rebuild it
         # from the APPROVED mapping rather than dead-ending the granted submit.
-        session, recovery_error = _reopen_for_submit(app_id, tool_context)
+        session, recovery_error = _reopen_for_submit(
+            app_id, founder_id, tool_context)
         if recovery_error:
             return recovery_error
 
-    identity = _session_key(tool_context)
-    subject, binding_error = _submit_binding(app_id, session)
+    subject, binding_error = _submit_binding(app_id, founder_id, session)
     if binding_error:
         return binding_error
     approval = run(approval_service.resolve_for_submit(
@@ -919,6 +1063,28 @@ def submit_form(tool_context: ToolContext) -> dict:
         expected_subject_hash=subject))
     if approval.get("status") != "success":
         return approval
+
+    # Spend the exact approval and create the recovery row atomically, before
+    # the browser can transmit anything. The action row, not the audit log, is
+    # the idempotency index for every retry and concurrent tool call.
+    prepared = run(external_action_service.prepare(
+        identity["user_id"], "browser", "submit_application", key,
+        {"application_id": app_id, "subject_hash": subject},
+        session_id=identity["session_id"], application_id=app_id,
+        resource_id=app_id, subject_hash=subject,
+        approval_id=approval["approval_id"], consume_approval=True,
+        approval_gate="submit_application"))
+    if prepared.get("duplicate"):
+        duplicate = external_action_service.duplicate_result(prepared)
+        if duplicate.get("status") == "success":
+            state[ss.K_CURRENT_STEP] = ss.ApplicationStep.SUBMITTED
+        return duplicate
+    if prepared.get("error"):
+        return prepared
+    if not prepared.get("claimed"):
+        return {"status": "error", "error": True,
+                "error_code": "version_conflict",
+                "message": "Submission is already in progress; no second submit was sent."}
 
     page_host = urlparse(session["page"].url).netloc
     mock_host = urlparse(os.environ.get("MOCK_PORTAL_URL", "")).netloc
@@ -929,29 +1095,46 @@ def submit_form(tool_context: ToolContext) -> dict:
     run(browser_service.set_fill_phase(app_id, "submitting"))
     result = run(browser_service.submit(session["page"], key, routing=routing))
     if result.get("status") != "success":
-        # Failed attempts are audited too — and the approval stays unconsumed
-        # so the founder's grant survives a transient portal failure.
-        run(firestore.audit("agent:form_filler", "submit", f"applications/{app_id}",
-                            "error", str(result.get("message", ""))[:180],
-                            idempotency_key=key))
-        return result
+        # The browser call crossed the provider boundary. Even a timeout or a
+        # missing receipt may have submitted, so never release the approval or
+        # blindly retry; reconciliation must establish the outcome.
+        run(external_action_service.finish(
+            identity["user_id"], prepared["action_id"],
+            prepared["lease_owner"], "UNCERTAIN",
+            action_kind="submit_application", idempotency_key=key,
+            result_ref={"application_id": app_id},
+            uncertainty_reason="provider_outcome_unconfirmed",
+            error_code="reconciliation_required"))
+        return {"status": "error", "error": True,
+                "error_code": "reconciliation_required",
+                "action_id": prepared["action_id"],
+                "message": ("The portal outcome could not be confirmed. Nothing "
+                            "will be submitted again until this action is reconciled.")}
 
     confirmation = result["confirmation_id"]
 
-    async def _persist():
-        # Consume the single-use approval only now — the side effect succeeded.
-        await approval_service.consume(approval["approval_id"])
-        await firestore.update_application(
-            app_id, submission={"confirmation_id": confirmation, "portal_url": session["page"].url})
-        await firestore.audit("agent:form_filler", "submit", f"applications/{app_id}",
-                              "success", confirmation, idempotency_key=key)
+    receipt = run(external_action_service.finish(
+        identity["user_id"], prepared["action_id"], prepared["lease_owner"],
+        "SUCCEEDED", action_kind="submit_application", idempotency_key=key,
+        provider_effect_id=confirmation,
+        result_ref={"confirmation_id": confirmation,
+                    "application_id": app_id,
+                    "portal_url": session["page"].url}))
+    if receipt.get("error") or receipt.get("status") not in {
+            "success", "SUCCEEDED"}:
+        return {"status": "error", "error": True,
+                "error_code": "reconciliation_required",
+                "action_id": prepared["action_id"],
+                "message": ("The portal confirmed submission but its durable "
+                            "receipt could not be committed. Reconcile before retrying.")}
 
-    run(_persist())
-    transition = run(pipeline_service.advance_application(
-        app_id, ss.ApplicationStep.SUBMITTED, actor="agent:form_filler"))
-    if transition.get("status") == "success":
-        state[ss.K_CURRENT_STEP] = ss.ApplicationStep.SUBMITTED
-        state[ss.K_PENDING_SIGNALS] = ["portal_confirmation"]
+    run(firestore.audit(
+        "agent:form_filler", "submit", f"applications/{app_id}",
+        "success", confirmation, idempotency_key=key))
+    # T3 committed the provider receipt and authoritative application state in
+    # one Firestore transaction. Session state only mirrors that outcome.
+    state[ss.K_CURRENT_STEP] = ss.ApplicationStep.SUBMITTED
+    state[ss.K_PENDING_SIGNALS] = ["portal_confirmation"]
     if session.get("run_id"):
         run(browser_service.close_run(
             session["run_id"], "agent_close", "agent:form_filler"))

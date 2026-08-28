@@ -84,6 +84,20 @@ python scripts/seed_demo.py   # profile seeded under user / eval_founder / demo 
                               # (see 02), demo opportunities, seeded rejection
 ```
 
+Before enabling `/api/v1` mutations in a deployed workspace, provision the
+verified interactive owner. `WORKSPACE_OWNER_SUBJECT` is the Firebase/OIDC
+`sub` claim from the same identity provider used by `/auth/session`—never an
+email address and never the legacy founder token:
+
+```bash
+WORKSPACE_OWNER_SUBJECT="..." WORKSPACE_ID="founder" \
+  .venv/bin/python scripts/seed_workspace_owner.py
+```
+
+Re-running the command does not change an existing membership. Subsequent role,
+assignment, or revocation changes use the versioned workspace-members API and
+its audit receipt.
+
 ## Cloud resources
 
 | Resource | Choice | Notes |
@@ -93,10 +107,15 @@ python scripts/seed_demo.py   # profile seeded under user / eval_founder / demo 
 | GCS bucket | `gs://<project>-artifacts` | artifact service URI |
 | Secret Manager | `mock-portal-creds`, `portal-webhook-token` | |
 | Pub/Sub topics | `deadline-tick` | Discovery is founder-invoked through Cloud Tasks; **no discovery or distill topic** |
-| Scheduler jobs | `deadline-scan-6h` (`0 */6 * * *`) | OIDC service account `scheduler-invoker@`; discovery is never scheduled. The Pub/Sub push fast-enqueues Cloud Tasks and uses a 600-second ack deadline to cover cold starts without duplicate delivery. |
+| Scheduler jobs | `deadline-scan-6h` (`0 */6 * * *`), `command-outbox-recovery-1m` (`* * * * *`) | The first publishes the deadline tick. The second invokes the bounded command-outbox recovery worker as `timers-worker@`; it never runs a model or provider effect. Discovery is never scheduled. |
 | Cloud Tasks queue | `co-founder-events` | Durable HTTP dispatch for portal-event/agent wakes; OIDC-authenticated as `scheduler-invoker@`, max concurrency 1, max attempts 8. Browser expiry does not share this queue. The post-v1 expansion into general run-step/timer dispatch is specified in 21. |
 | Cloud Tasks queue | `co-founder-browser-expiry` | Generation-safe `/tasks/browser_expire` dispatch only (22); OIDC-authenticated, max concurrency 4, max attempts 8 (pinned on every deploy so an existing queue cannot drift). Separating it prevents an agent wake or retry from delaying resource release. |
-| Cloud Run ×2 | `co-founder`, `mock-portal` | `co-founder`: `--min-instances 0 --max-instances 1` (**single browser-owning instance**, 18), `--timeout=3600s`, 2 GiB for Playwright; Browser SSE rotates before 55 minutes and reconnects snapshot-first. `mock-portal`: `--min-instances 0 --max-instances 2`, 1 GiB / 1 CPU |
+| Cloud Tasks queue | `co-founder-timers` | Generation-fenced workflow timer checkpoints only; max concurrency 8, max attempts 8. Long waits roll through bounded 28-day checkpoints and the durable wait remains authority. |
+| Cloud Tasks queue | `co-founder-provider-events` | Verified connector events and durable founder wakes; route-scoped `provider-events-worker@` OIDC identity, max concurrency 8. |
+| Cloud Tasks queue | `co-founder-discovery-ingestion` | Crawling and document ingestion; route-scoped `discovery-ingestion-worker@` identity, max concurrency 4. |
+| Cloud Tasks queue | `co-founder-reconciliation` | Uncertain-effect reconciliation only; route-scoped `reconciliation-worker@` identity, max concurrency 4. |
+| Cloud Tasks queue | `co-founder-interactive` | Bounded founder-triggered reasoning/distillation; route-scoped `interactive-worker@` identity, max concurrency 4. |
+| Cloud Run ×3 | `co-founder`, `co-founder-browser-worker`, `mock-portal` | `co-founder` scales independently (`0..10`) and reaches browser work only through the typed OIDC gateway. `co-founder-browser-worker` is private, `0..1`, concurrency 1, owns every Playwright object, and accepts only the API service identity. `mock-portal` is a non-authoritative demo provider (`0..2`). |
 
 Reference commands (`scripts/deploy.sh` implements them idempotently):
 
@@ -111,18 +130,26 @@ gcloud sql databases create adk_sessions --instance=co-founder-sessions
 gcloud tasks queues create co-founder-events --location="$REGION" \
   --max-concurrent-dispatches=1 --max-attempts=8
 gcloud tasks queues create co-founder-browser-expiry --location="$REGION" \
-  --max-concurrent-dispatches=10 --max-attempts=5
+  --max-concurrent-dispatches=4 --max-attempts=8
+gcloud tasks queues create co-founder-timers --location="$REGION" \
+  --max-concurrent-dispatches=8 --max-attempts=8
 
 gcloud run deploy mock-portal --source ./mock_portal --region=$REGION \
   --allow-unauthenticated --min-instances 0
 
+gcloud run deploy co-founder-browser-worker --source . --region=$REGION \
+  --no-allow-unauthenticated --min-instances 0 --max-instances 1 \
+  --concurrency=1 --service-account=browser-worker@<proj>.iam.gserviceaccount.com \
+  --timeout=3600s --memory=2Gi
+
 gcloud run deploy co-founder --source . --region=$REGION \
-  --allow-unauthenticated --min-instances 0 --max-instances 1 --timeout=3600s --memory 2Gi \
+  --allow-unauthenticated --min-instances 0 --max-instances 10 --timeout=3600s --memory 2Gi \
   --add-cloudsql-instances <proj>:<region>:co-founder-sessions \
   --set-env-vars-from-file .env.prod   # contains PORTAL_SECRET_NAME=mock-portal-creds
 # .env.prod must NOT set BROWSE_OPEN_WEB (or must set it false) — production
 # browsing is fail-closed to the allowlist (18). scripts/deploy.sh asserts this
-# and --max-instances 1 before deploying.
+# on either service. The isolated worker, not the public API, owns the
+# single-instance/concurrency invariant.
 
 # Before any migration or Cloud Run rollout, deploy.sh installs every composite
 # index in infra/firestore.indexes.json and verifies each is READY. It fails the
@@ -224,13 +251,16 @@ does not perform rollback deletion.
 ## Acceptance checks
 
 - [ ] Fresh clone → `./scripts/setup.sh` → local demo works in ≤ 15 min (time it).
-- [ ] `./scripts/deploy.sh` from clean state → both services live, demo sequence passes in cloud.
-- [ ] Production verification: deployed `co-founder` revision has
-  `--max-instances 1`, `--timeout=3600s`, no `BROWSE_OPEN_WEB=true`, and passes
-  `scripts/check_browser_invariants.py` (deploy/CI assert all four; 18/22).
-- [ ] `co-founder-browser-expiry` exists separately from `co-founder-events`;
-  expiry task delivery and portal-wake delivery cannot head-of-line block each
-  other in an integration test.
+- [ ] `./scripts/deploy.sh` from clean state → all three services live, demo sequence passes in cloud.
+- [ ] Production verification: `co-founder-browser-worker` is private,
+  `--max-instances 1`, concurrency 1, runs as `browser-worker@`, and accepts an
+  audience-bound call from the API identity while rejecting another service
+  account. `co-founder` scales above one with `BROWSER_WORKER_URL` set. Neither
+  revision has `BROWSE_OPEN_WEB=true`; `scripts/check_browser_invariants.py`
+  passes (18/22/34).
+- [ ] `co-founder-browser-expiry` and `co-founder-timers` exist separately from
+  `co-founder-events`; expiry, timer checkpoint, and portal-wake delivery cannot
+  head-of-line block each other in an integration test.
 - [ ] GCS lifecycle verification shows the seven-day browser-frame rule without
   applying that TTL to milestone PNG, page text, fill report, or form-map data.
 - [ ] 48 h idle → next month's projected bill < $10 beyond credits.

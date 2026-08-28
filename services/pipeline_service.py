@@ -85,12 +85,14 @@ def initial_checklist(required_materials: list[str] | None) -> list[dict]:
 
 
 async def board(founder_id: str, limit: int = 40) -> dict:
-    opportunities = await firestore.list_opportunities(limit=limit)
+    opportunities = await firestore.list_opportunities(
+        limit=limit, founder_id=founder_id)
     applications = await firestore.list_inflight_applications(founder_id)
     by_id = {o.get("id"): o for o in opportunities}
     for app in applications:  # committed programs: name + deadline for the UI
         opp = by_id.get(app.get("opportunity_id")) or \
-            await firestore.get_opportunity(app.get("opportunity_id", ""))
+            await firestore.get_opportunity(
+                app.get("opportunity_id", ""), founder_id)
         if opp:
             app["opportunity_name"] = opp.get("name")
             app["deadline"] = opp.get("deadline")
@@ -118,11 +120,12 @@ async def board(founder_id: str, limit: int = 40) -> dict:
     return {"status": "success", "opportunities": grouped, "applications": applications}
 
 
-async def shortlist(opportunity_id: str, rationale: str, urgency_note: str, fit_score: int) -> dict:
+async def shortlist(opportunity_id: str, rationale: str, urgency_note: str,
+                    fit_score: int, founder_id: str = "") -> dict:
     if not isinstance(fit_score, int) or not 70 <= fit_score <= 100:
         return {"status": "error", "error": True,
                 "message": "shortlist fit_score must be an integer from 70 to 100"}
-    opp = await firestore.get_opportunity(opportunity_id)
+    opp = await firestore.get_opportunity(opportunity_id, founder_id)
     if not opp:
         return {"status": "error", "error": True, "message": f"opportunity {opportunity_id} not found"}
     if opp["state"] != OpportunityState.DISCOVERED:
@@ -132,6 +135,7 @@ async def shortlist(opportunity_id: str, rationale: str, urgency_note: str, fit_
     urgency["note"] = urgency_note or urgency["note"]
     await firestore.set_opportunity_state(
         opportunity_id, OpportunityState.SHORTLISTED,
+        founder_id=founder_id,
         fit_score=fit_score, fit_rationale=rationale[:280], urgency=urgency,
     )
     await firestore.audit("agent:matchmaker", "shortlist", f"opportunities/{opportunity_id}", "success",
@@ -139,20 +143,22 @@ async def shortlist(opportunity_id: str, rationale: str, urgency_note: str, fit_
     return {"status": "success", "opportunity_id": opportunity_id, "state": OpportunityState.SHORTLISTED}
 
 
-async def archive(opportunity_id: str, reason: str, fit_score: int) -> dict:
+async def archive(opportunity_id: str, reason: str, fit_score: int,
+                  founder_id: str = "") -> dict:
     if not reason.strip():
         return {"status": "error", "error": True, "message": "archive reason must be specific and non-empty"}
     if not isinstance(fit_score, int) or not 0 <= fit_score < 70:
         return {"status": "error", "error": True,
                 "message": "archive fit_score must be an integer from 0 to 69"}
-    opp = await firestore.get_opportunity(opportunity_id)
+    opp = await firestore.get_opportunity(opportunity_id, founder_id)
     if not opp:
         return {"status": "error", "error": True, "message": f"opportunity {opportunity_id} not found"}
     if opp["state"] != OpportunityState.DISCOVERED:
         return {"status": "error", "error": True,
                 "message": f"cannot archive from state {opp['state']} (guard: DISCOVERED only)"}
     await firestore.set_opportunity_state(
-        opportunity_id, OpportunityState.ARCHIVED, archive_reason=reason, fit_score=fit_score,
+        opportunity_id, OpportunityState.ARCHIVED, founder_id=founder_id,
+        archive_reason=reason, fit_score=fit_score,
     )
     await firestore.audit("agent:matchmaker", "archive", f"opportunities/{opportunity_id}", "success",
                           f"fit={fit_score}: {reason[:160]}")
@@ -161,7 +167,7 @@ async def archive(opportunity_id: str, reason: str, fit_score: int) -> dict:
 
 async def choose_opportunity(founder_id: str, opportunity_id: str) -> dict:
     """TRIAGE → INTERVIEWING, idempotently, across sessions and retries."""
-    opp = await firestore.get_opportunity(opportunity_id)
+    opp = await firestore.get_opportunity(opportunity_id, founder_id)
     if not opp:
         return {"status": "error", "error": True, "message": f"opportunity {opportunity_id} not found"}
     if opp["state"] != OpportunityState.SHORTLISTED:
@@ -188,6 +194,19 @@ async def choose_opportunity(founder_id: str, opportunity_id: str) -> dict:
         await firestore.audit(
             "agent:orchestrator", "state_transition", f"applications/{application_id}",
             "success", "TRIAGE → INTERVIEWING")
+    from services.workflow_projection_service import WorkflowProjectionService, shadow_enabled
+    workflow_run_id = str(application.get("workflow_run_id") or "")
+    if shadow_enabled() and not workflow_run_id:
+        shadow = await WorkflowProjectionService().ensure_grant_application(
+            workspace_id=founder_id, application_id=application_id,
+            originating_actor_id=founder_id)
+        if not shadow.get("error"):
+            workflow_run_id = shadow["run_id"]
+            await firestore.update_application(
+                application_id, workflow_run_id=workflow_run_id,
+                workflow_plan_hash=shadow.get("plan_hash"),
+                workflow_plan_version=shadow.get("plan_version"),
+                workflow_shadow_status="MATCHED")
     missing_metadata = [
         label for value, label in (
             (opp.get("application_url"), "verified application URL"),
@@ -197,6 +216,7 @@ async def choose_opportunity(founder_id: str, opportunity_id: str) -> dict:
     return {
         "status": "success",
         "application_id": application_id,
+        **({"workflow_run_id": workflow_run_id} if workflow_run_id else {}),
         "current_step": current_step,
         "already_active": not created and current_step != Step.CLOSED,
         "already_exists": not created,
@@ -217,9 +237,10 @@ async def choose_opportunity(founder_id: str, opportunity_id: str) -> dict:
     }
 
 
-async def advance_application(application_id: str, to_step: str, actor: str, **fields) -> dict:
+async def advance_application(application_id: str, to_step: str, actor: str, *,
+                              founder_id: str, **fields) -> dict:
     """Guarded application transition — the only way application state moves."""
-    app = await firestore.get_application(application_id)
+    app = await firestore.get_application(application_id, founder_id)
     if not app:
         return {"status": "error", "error": True, "message": f"application {application_id} not found"}
     if not can_transition(app["state"], to_step):

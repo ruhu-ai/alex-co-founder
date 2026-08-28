@@ -78,6 +78,8 @@ class FakeStore:
         self.external_events = {}
         self.founder_inbox = {}
         self.external_actions = {}
+        self.wake_deliveries = {}
+        self.portal_event_receipts = {}
         self.integrations = {}
         self.processed_gmail_ids = []
         self.processed_alex_ids = []
@@ -152,7 +154,9 @@ def fake_store(monkeypatch):
     async def _create_feedback(founder_id, application_id, section_id, feedback_type,
                                original, reason, edited_text, section_key=""):
         fid = uuid.uuid4().hex
-        store.feedback[fid] = {"id": fid, "founder_id": founder_id,
+        store.feedback[fid] = {"id": fid, "workspace_id": founder_id,
+                               "founder_id": founder_id,
+                               "feedback_domain": "FOUNDER_DRAFT",
                                "application_id": application_id, "section_id": section_id,
                                "section_key": section_key,
                                "type": feedback_type, "original": original, "reason": reason,
@@ -160,12 +164,19 @@ def fake_store(monkeypatch):
                                "distilled_rule_ids": [], "created_at": store._now()}
         return fid
 
-    async def _get_feedback(fid):
-        return store.feedback.get(fid)
+    async def _get_feedback(fid, founder_id=""):
+        row = store.feedback.get(fid)
+        return row if (row and (not founder_id
+                               or (row.get("workspace_id") == founder_id
+                                   and row.get("founder_id") == founder_id))) else None
 
-    async def _mark_distilled(fid, rule_ids):
+    async def _mark_distilled(fid, rule_ids, founder_id=""):
+        if founder_id and (store.feedback[fid].get("workspace_id") != founder_id
+                           or store.feedback[fid].get("founder_id") != founder_id):
+            return False
         store.feedback[fid]["distilled"] = True
         store.feedback[fid]["distilled_rule_ids"] = rule_ids
+        return True
 
     async def _find_application_by_founder_opportunity(founder_id, opportunity_id):
         matches = [app for app in store.applications.values()
@@ -182,7 +193,9 @@ def fake_store(monkeypatch):
         if existing:
             return {"application_id": aid, "created": False,
                     "application": existing}
-        record = {"id": aid, "founder_id": founder_id,
+        record = {"id": aid, "workspace_id": founder_id,
+                  "founder_id": founder_id,
+                  "application_domain": "GRANT_APPLICATION",
                   "opportunity_id": opportunity_id, "state": "INTERVIEWING",
                   "checklist": checklist, "interview_qa": [],
                   "draft_sections": [], "form_fill_report": None,
@@ -197,7 +210,11 @@ def fake_store(monkeypatch):
         return (await _get_or_create_application(
             founder_id, opportunity_id, checklist))["application_id"]
 
-    async def _get_application(aid):
+    async def _get_application(aid, founder_id):
+        row = store.applications.get(aid)
+        return row if row and row.get("founder_id") == founder_id else None
+
+    async def _get_application_for_provider_event(aid):
         return store.applications.get(aid)
 
     async def _append_application_followup(aid, entry, dedupe_key=""):
@@ -306,23 +323,35 @@ def fake_store(monkeypatch):
                 "section": section, "original": original, "sections": sections}
 
     async def _create_approval(application_id, gate, ttl_minutes, details=None,
-                               founder_id="", session_id="", subject_hash=""):
+                               founder_id="", session_id="", subject_hash="",
+                               bindings=None):
         from datetime import timedelta
         aid = uuid.uuid4().hex
         expires = datetime.now(timezone.utc) + timedelta(minutes=ttl_minutes)
         store.approvals[aid] = {"id": aid, "application_id": application_id, "gate": gate,
+                                "schema_version": 2 if bindings else 1,
+                                "approval_domain": "GRANT_APPLICATION",
+                                "workspace_id": founder_id,
                                 "founder_id": founder_id, "session_id": session_id,
-                                "details": details or {},
+                                "requested_by_actor_id": founder_id,
+                                "approving_actor_requirement": "INTERACTIVE_MEMBER",
+                                "details": details or {}, **dict(bindings or {}),
                                 "subject_hash": subject_hash or None,
+                                "claim_id": None, "claimed_action_id": None,
+                                "claimed_at": None, "voided_at": None,
+                                "void_reason": None,
                                 "token": None, "status": "PENDING",
                                 "expires_at": expires.isoformat(), "granted_by": None,
                                 "consumed_at": None, "created_at": store._now()}
         return aid
 
-    async def _list_pending_approvals(founder_id="", session_id=""):
-        now = store._now()
+    async def _list_pending_approvals(founder_id="", session_id="", *, now=None):
+        if isinstance(now, datetime):
+            now_stamp = now.astimezone(timezone.utc).isoformat()
+        else:
+            now_stamp = str(now or store._now())
         return sorted((a for a in store.approvals.values()
-                       if (a["status"] == "PENDING" and a["expires_at"] > now
+                       if (a["status"] == "PENDING" and a["expires_at"] > now_stamp
                            and (not founder_id or a.get("founder_id") == founder_id)
                            and (not session_id or a.get("session_id") == session_id))),
                       key=lambda a: a.get("created_at", ""), reverse=True)
@@ -330,12 +359,72 @@ def fake_store(monkeypatch):
     async def _get_approval(aid):
         return store.approvals.get(aid)
 
+    async def _get_approval_for_workspace(founder_id, aid):
+        row = store.approvals.get(aid)
+        if not row:
+            return None
+        return row if (row.get("workspace_id") or row.get("founder_id")) \
+            == founder_id else None
+
     async def _grant_approval(aid, founder_id):
         store.approvals[aid].update(token=uuid.uuid4().hex, status="GRANTED",
                                     granted_by=founder_id)
 
     async def _deny_approval(aid):
         store.approvals[aid]["status"] = "DENIED"
+
+    async def _resolve_approval_decision(aid, decision, founder_id, session_id):
+        approval = store.approvals.get(aid)
+        if decision not in {"grant", "deny"}:
+            return {"status": "error", "error": True,
+                    "error_code": "invalid_contract",
+                    "message": "decision must be grant|deny"}
+        if not approval:
+            return {"status": "error", "error": True,
+                    "error_code": "not_found", "message": "approval not found"}
+        if (approval.get("founder_id") != founder_id
+                or approval.get("session_id") != session_id):
+            return {"status": "error", "error": True,
+                    "error_code": "owner_mismatch",
+                    "message": "approval does not belong to this founder session"}
+        if approval.get("status") != "PENDING":
+            return {"status": "error", "error": True,
+                    "error_code": "approval_terminal",
+                    "message": f"approval already {approval.get('status')}"}
+        if approval.get("expires_at", "") <= store._now():
+            approval.update(status="EXPIRED", token=None,
+                            updated_at=store._now())
+            return {"status": "error", "error": True,
+                    "error_code": "approval_expired",
+                    "message": "approval request expired; request a new one"}
+        approval.update(status="GRANTED" if decision == "grant" else "DENIED",
+                        decided_at=store._now(), updated_at=store._now())
+        if decision == "grant":
+            approval.update(token=uuid.uuid4().hex, granted_by=founder_id)
+            delivery_id = "wake_" + hashlib.sha256(
+                f"approval\x1f{aid}\x1f{session_id}".encode()).hexdigest()[:32]
+            store.wake_deliveries[delivery_id] = {
+                "schema_version": 1, "delivery_id": delivery_id,
+                "founder_id": founder_id, "session_id": session_id,
+                "source_kind": "approval", "source_id": aid,
+                "notice": ("Resume: founder approved "
+                           f"{approval.get('gate', 'action')} at the approval gate."),
+                "state_delta": {"pending_signals": []}, "status": "PENDING",
+                "attempt": 0, "lease_owner": None, "lease_started_at": None,
+                "lease_seconds": 120, "last_error_code": None,
+                "created_at": store._now(), "updated_at": store._now(),
+                "delivered_at": None,
+            }
+        else:
+            delivery_id = None
+            approval.update(token=None, denied_by=founder_id)
+        await _audit(f"founder:{founder_id}", f"approval_{decision}",
+                     f"approvals/{aid}", "success")
+        return {"status": "success", "approval_id": aid,
+                "decision": decision, "gate": approval.get("gate", ""),
+                "application_id": approval.get("application_id", ""),
+                "session_id": approval.get("session_id", ""),
+                "wake_delivery_id": delivery_id}
 
     async def _find_valid_approval(application_id, gate="", founder_id="", session_id="",
                                    subject_hash=None):
@@ -468,6 +557,11 @@ def fake_store(monkeypatch):
     async def _get_artifact(iid):
         return store.artifacts.get(iid)
 
+    async def _get_artifact_by_storage_name(founder_id, storage_name):
+        return next((dict(row, id=iid) for iid, row in store.artifacts.items()
+                     if row.get("founder_id") == founder_id
+                     and row.get("storage_name") == storage_name), None)
+
     async def _update_artifact(iid, **fields):
         store.artifacts[iid].update(fields)
 
@@ -556,8 +650,10 @@ def fake_store(monkeypatch):
         return {"status": "success", "retryable": not terminal,
                 "ingestion_status": status, "attempt": attempt}
 
-    async def _get_opportunity(oid):
-        return store.opportunities.get(oid)
+    async def _get_opportunity(oid, founder_id=""):
+        row = store.opportunities.get(oid)
+        return row if (row and (not founder_id
+                                or row.get("workspace_id") == founder_id)) else None
 
     async def _get_evidence_check(report_id, founder_id, application_id):
         row = store.evidence_checks.get(report_id)
@@ -577,7 +673,10 @@ def fake_store(monkeypatch):
                 return {"claimed": False, "existing": None}
         owner = uuid.uuid4().hex
         store.evidence_checks[report_id] = {
-            **row, "report_id": report_id, "execution_status": "PREPARED",
+            **row,
+            "workspace_id": row.get("workspace_id") or row.get("founder_id"),
+            "evidence_domain": "APPLICATION_EVIDENCE",
+            "report_id": report_id, "execution_status": "PREPARED",
             "lease_owner": owner, "lease_started_epoch": now,
             "lease_seconds": lease_seconds,
         }
@@ -596,29 +695,41 @@ def fake_store(monkeypatch):
 
     async def _create_opportunity(record):
         for oid, opp in store.opportunities.items():
-            if opp.get("dedup_hash") == record.get("dedup_hash"):
+            if (opp.get("dedup_hash") == record.get("dedup_hash")
+                    and opp.get("workspace_id") == record.get("workspace_id")):
                 return oid
         oid = uuid.uuid4().hex
-        store.opportunities[oid] = {**record, "id": oid, "state": "DISCOVERED",
+        workspace_id = record.get("workspace_id") or record.get("founder_id")
+        store.opportunities[oid] = {
+            **record, "workspace_id": workspace_id, "founder_id": workspace_id,
+            "opportunity_domain": "OPPORTUNITY",
+            "id": oid, "state": "DISCOVERED",
                                     "created_at": store._now(), "updated_at": store._now()}
         return oid
 
-    async def _set_opportunity_state(oid, state, **fields):
+    async def _set_opportunity_state(oid, state, founder_id="", **fields):
+        if founder_id and store.opportunities[oid].get("workspace_id") != founder_id:
+            return
         store.opportunities[oid].update({"state": state, **fields, "updated_at": store._now()})
 
-    async def _list_opportunities(limit=40, start_after=None):
+    async def _list_opportunities(limit=40, start_after=None, founder_id=""):
         rows = sorted(store.opportunities.values(),
                       key=lambda o: o.get("created_at", ""), reverse=True)
+        if founder_id:
+            rows = [o for o in rows if o.get("workspace_id") == founder_id]
         if start_after is not None:
             rows = [o for o in rows if o.get("created_at", "") < start_after]
         return rows[:limit]
 
-    async def _list_unscored(limit=10):
-        return [o for o in store.opportunities.values() if o.get("state") == "DISCOVERED"][:limit]
+    async def _list_unscored(limit=10, founder_id=""):
+        return [o for o in store.opportunities.values()
+                if o.get("state") == "DISCOVERED"
+                and (not founder_id or o.get("workspace_id") == founder_id)][:limit]
 
-    async def _find_by_hash(digest):
+    async def _find_by_hash(digest, founder_id=""):
         for oid, opp in store.opportunities.items():
-            if opp.get("dedup_hash") == digest:
+            if (opp.get("dedup_hash") == digest
+                    and (not founder_id or opp.get("workspace_id") == founder_id)):
                 return oid
         return None
 
@@ -962,7 +1073,8 @@ def fake_store(monkeypatch):
     async def _upsert_data_connection(
             founder_id, connector_id, *, account_ref="default", account_hint="",
             roles=None, auth_kind="google_oauth", credential_ref=None,
-            granted_scopes=None, status="CONNECTED", expected_version=None):
+            granted_scopes=None, provider_account_hash="", status="CONNECTED",
+            expected_version=None):
         from services import data_source_contracts as dsc
 
         try:
@@ -988,10 +1100,13 @@ def fake_store(monkeypatch):
         now = store._now()
         row = {
             "schema_version": 1, "connection_id": cid,
-            "founder_id": founder_id, "connector_id": connector_id,
+            "workspace_id": founder_id, "founder_id": founder_id,
+            "connector_id": connector_id,
             "account_ref": account_ref, "account_hint": account_hint,
             "roles": sorted(role.value for role in closed_roles),
             "auth_kind": auth.value, "credential_ref": credential_ref,
+            "provider_account_hash": (provider_account_hash
+                                      or previous.get("provider_account_hash")),
             "granted_scopes": sorted(set(granted_scopes or [])),
             "status": state.value,
             "last_verified_at": previous.get("last_verified_at"),
@@ -1013,6 +1128,12 @@ def fake_store(monkeypatch):
     async def _list_data_connections(founder_id):
         return [row for row in store.data_connections.values()
                 if row.get("founder_id") == founder_id]
+
+    async def _find_data_connections_by_provider(connector_id, account_hash):
+        return [row for row in store.data_connections.values()
+                if row.get("connector_id") == connector_id
+                and row.get("provider_account_hash") == account_hash
+                and row.get("status") in {"CONNECTED", "DEGRADED"}]
 
     async def _transition_data_connection(
             founder_id, connection_id, *, status=None, expected_version=None,
@@ -1184,6 +1305,8 @@ def fake_store(monkeypatch):
             "provider_thread_id": provider_thread_id, "event_kind": event_kind,
             "payload_hash": payload_hash, "source_ref": source_ref or {},
             "safe_display": safe_display or {}, "content_risk": content_risk,
+            "verification_status": "VERIFIED", "verified_at": now,
+            "business_disposition": "RECEIVED",
             "processing_status": "RECEIVED", "lease_owner": None,
             "lease_started_at": None, "lease_seconds": 0,
             "correlation_status": "PENDING", "application_id": None,
@@ -1218,7 +1341,8 @@ def fake_store(monkeypatch):
             return {"status": "success", "in_progress": True,
                     "event_id": event_id}
         owner = lease_owner or uuid.uuid4().hex
-        row.update(processing_status="APPLYING", lease_owner=owner,
+        row.update(processing_status="APPLYING", business_disposition="APPLYING",
+                   lease_owner=owner,
                    lease_started_at=store._now(), lease_seconds=lease_seconds,
                    attempt_count=int(row.get("attempt_count") or 0) + 1,
                    updated_at=store._now())
@@ -1251,7 +1375,7 @@ def fake_store(monkeypatch):
                 "resolution": None, "created_at": now, "updated_at": now,
                 "resolved_at": None,
             }
-        event.update(processing_status="INBOXED",
+        event.update(processing_status="INBOXED", business_disposition="INBOXED",
                      correlation_status=("AMBIGUOUS" if item_kind == "AMBIGUOUS_EVENT"
                                          else "UNMATCHED"),
                      delivery_status="NOT_REQUIRED", lease_owner=None,
@@ -1314,7 +1438,8 @@ def fake_store(monkeypatch):
                 "external_event_id": event_id,
             })
         effect_ref = f"applications/{application_id}/followups/{event_id}"
-        event.update(processing_status="APPLIED", correlation_status="EXACT",
+        event.update(processing_status="APPLIED", business_disposition="APPLIED",
+                     correlation_status="EXACT",
                      correlation_basis="founder_resolution",
                      application_id=application_id, resource_id=resource_id,
                      session_id=session_id, effect_ref=effect_ref,
@@ -1360,7 +1485,8 @@ def fake_store(monkeypatch):
             app["followups"] = [*followups[-199:],
                                 {**followup, "external_event_id": event_id}]
         effect_ref = f"applications/{application_id}/followups/{event_id}"
-        event.update(processing_status="APPLIED", correlation_status="EXACT",
+        event.update(processing_status="APPLIED", business_disposition="APPLIED",
+                     correlation_status="EXACT",
                      application_id=application_id, session_id=session_id,
                      resource_id=application_id,
                      correlation_basis=correlation_basis, effect_ref=effect_ref,
@@ -1378,7 +1504,8 @@ def fake_store(monkeypatch):
             return {"status": "error", "error": True,
                     "error_code": "lease_conflict", "message": "lease changed"}
         effect_ref = f"signals/{event_id}"
-        event.update(processing_status="APPLIED", correlation_status="EXACT",
+        event.update(processing_status="APPLIED", business_disposition="APPLIED",
+                     correlation_status="EXACT",
                      session_id=session_id, resource_id=resource_id,
                      correlation_basis=correlation_basis, effect_ref=effect_ref,
                      lease_owner=None, lease_started_at=None,
@@ -1386,29 +1513,222 @@ def fake_store(monkeypatch):
         return {"status": "success", "duplicate": False,
                 "effect_ref": effect_ref, "session_id": session_id}
 
-    async def _claim_external_event_delivery(founder_id, event_id):
+    async def _claim_external_event_delivery(founder_id, event_id,
+                                              lease_seconds=120):
         event = await _get_external_event(founder_id, event_id)
         if not event:
             return {"status": "error", "error": True,
                     "error_code": "owner_mismatch", "message": "event not found"}
-        if event.get("delivery_status") in {"ENQUEUED", "DELIVERED", "NOT_REQUIRED"}:
+        if event.get("delivery_status") in {"DELIVERED", "NOT_REQUIRED"}:
             return {"status": "success", "duplicate": True,
                     "delivery_status": event.get("delivery_status")}
+        if event.get("delivery_status") == "ENQUEUED" and event.get("lease_owner"):
+            started = datetime.fromisoformat(event["lease_started_at"])
+            age = (datetime.now(timezone.utc) - started).total_seconds()
+            if age <= int(event.get("lease_seconds") or 1):
+                return {"status": "success", "duplicate": True,
+                        "delivery_status": "ENQUEUED"}
+        owner = uuid.uuid4().hex
         event["delivery_status"] = "ENQUEUED"
-        return {"status": "success", "claimed": True}
+        event.update(lease_owner=owner, lease_started_at=store._now(),
+                     lease_seconds=lease_seconds,
+                     delivery_attempt=int(event.get("delivery_attempt") or 0) + 1)
+        return {"status": "success", "claimed": True,
+                "lease_owner": owner}
 
-    async def _finish_external_event_delivery(founder_id, event_id, *, delivered):
+    async def _finish_external_event_delivery(founder_id, event_id,
+                                              lease_owner, *, delivered):
         event = await _get_external_event(founder_id, event_id)
         if not event:
             return {"status": "error", "error": True,
                     "error_code": "owner_mismatch", "message": "event not found"}
+        if event.get("delivery_status") == "DELIVERED":
+            return {"status": "success", "duplicate": True,
+                    "delivery_status": "DELIVERED"}
+        if (not lease_owner or event.get("lease_owner") != lease_owner
+                or event.get("delivery_status") != "ENQUEUED"):
+            return {"status": "error", "error": True,
+                    "error_code": "lease_conflict",
+                    "message": "wake delivery lease changed"}
         event["delivery_status"] = "DELIVERED" if delivered else "FAILED"
+        event.update(lease_owner=None, lease_started_at=None)
         return {"status": "success", "delivery_status": event["delivery_status"]}
+
+    async def _receive_portal_event(founder_id, application_id, event_kind,
+                                    confirmation_id, session_id=""):
+        payload_hash = hashlib.sha256(
+            f"{event_kind}\x1f{application_id}\x1f{confirmation_id}\x1f{session_id}".encode()
+        ).hexdigest()
+        receipt_id = "portal_" + hashlib.sha256(
+            f"{founder_id}\x1f{event_kind}\x1f{application_id}\x1f{confirmation_id}".encode()
+        ).hexdigest()[:32]
+        existing = store.portal_event_receipts.get(receipt_id)
+        if existing:
+            if existing.get("payload_hash") != payload_hash:
+                return {"status": "error", "error": True,
+                        "error_code": "version_conflict"}
+            return {"status": "success", "duplicate": True, **existing}
+        now = store._now()
+        row = {"schema_version": 1, "receipt_id": receipt_id,
+               "founder_id": founder_id, "application_id": application_id,
+               "session_id": session_id, "event_kind": event_kind,
+               "confirmation_id": confirmation_id, "payload_hash": payload_hash,
+               "status": "RECEIVED", "attempt": 0, "lease_owner": None,
+               "lease_started_at": None, "lease_seconds": 30,
+               "wake_delivery_id": None, "created_at": now, "updated_at": now}
+        store.portal_event_receipts[receipt_id] = row
+        return {"status": "success", "duplicate": False, **row}
+
+    async def _claim_portal_event(founder_id, receipt_id, lease_seconds=30):
+        row = store.portal_event_receipts.get(receipt_id)
+        if not row or row.get("founder_id") != founder_id:
+            return {"status": "error", "error": True,
+                    "error_code": "owner_mismatch"}
+        if row.get("status") == "APPLIED":
+            return {"status": "success", "duplicate": True, **row}
+        if row.get("status") == "APPLYING" and row.get("lease_owner"):
+            return {"status": "success", "in_progress": True,
+                    "receipt_id": receipt_id}
+        owner = uuid.uuid4().hex
+        row.update(status="APPLYING", lease_owner=owner,
+                   lease_started_at=store._now(), lease_seconds=lease_seconds,
+                   attempt=int(row.get("attempt") or 0) + 1,
+                   updated_at=store._now())
+        return {"status": "success", "claimed": True,
+                "lease_owner": owner, "receipt_id": receipt_id}
+
+    async def _finish_portal_event(founder_id, receipt_id, lease_owner, *,
+                                   notice="", state_delta=None):
+        row = store.portal_event_receipts.get(receipt_id)
+        if not row or row.get("founder_id") != founder_id:
+            return {"status": "error", "error": True,
+                    "error_code": "owner_mismatch"}
+        if row.get("status") == "APPLIED":
+            return {"status": "success", "duplicate": True, **row}
+        if row.get("status") != "APPLYING" or row.get("lease_owner") != lease_owner:
+            return {"status": "error", "error": True,
+                    "error_code": "lease_conflict"}
+        wake_id = None
+        if row.get("session_id"):
+            created = await _create_wake_delivery(
+                founder_id, row["session_id"], "portal_event", receipt_id,
+                notice[:300], state_delta or {})
+            wake_id = created["delivery_id"]
+        row.update(status="APPLIED", wake_delivery_id=wake_id,
+                   lease_owner=None, lease_started_at=None,
+                   applied_at=store._now(), updated_at=store._now())
+        return {"status": "success", "receipt_status": "APPLIED",
+                "receipt_id": receipt_id, "wake_delivery_id": wake_id}
+
+    async def _create_wake_delivery(founder_id, session_id, source_kind,
+                                    source_id, notice, state_delta):
+        delivery_id = "wake_" + hashlib.sha256(
+            f"{source_kind}\x1f{source_id}\x1f{session_id}".encode()).hexdigest()[:32]
+        existing = store.wake_deliveries.get(delivery_id)
+        if existing:
+            return {"status": "success", "duplicate": True,
+                    "delivery_id": delivery_id,
+                    "delivery_status": existing.get("status")}
+        now = store._now()
+        store.wake_deliveries[delivery_id] = {
+            "schema_version": 1, "delivery_id": delivery_id,
+            "founder_id": founder_id, "session_id": session_id,
+            "source_kind": source_kind, "source_id": source_id,
+            "notice": notice, "state_delta": dict(state_delta),
+            "status": "PENDING", "attempt": 0, "lease_owner": None,
+            "max_attempts": 8, "next_attempt_at": None,
+            "lease_started_at": None, "lease_seconds": 120,
+            "last_error_code": None, "created_at": now, "updated_at": now,
+            "delivered_at": None,
+        }
+        return {"status": "success", "duplicate": False,
+                "delivery_id": delivery_id, "delivery_status": "PENDING"}
+
+    async def _get_wake_delivery(founder_id, delivery_id):
+        row = store.wake_deliveries.get(delivery_id)
+        return row if row and row.get("founder_id") == founder_id else None
+
+    async def _claim_wake_delivery(founder_id, delivery_id,
+                                   lease_seconds=120):
+        row = await _get_wake_delivery(founder_id, delivery_id)
+        if not row:
+            return {"status": "error", "error": True,
+                    "error_code": "owner_mismatch",
+                    "message": "wake delivery not found"}
+        if row.get("status") == "DELIVERED":
+            return {"status": "success", "duplicate": True,
+                    "delivery_status": "DELIVERED"}
+        if row.get("status") == "DEAD_LETTER":
+            return {"status": "success", "duplicate": True,
+                    "delivery_status": "DEAD_LETTER"}
+        if row.get("status") == "ENQUEUED" and row.get("lease_owner"):
+            started = datetime.fromisoformat(row["lease_started_at"])
+            if ((datetime.now(timezone.utc) - started).total_seconds()
+                    <= int(row.get("lease_seconds") or 1)):
+                return {"status": "success", "duplicate": True,
+                        "delivery_status": "ENQUEUED"}
+        owner = uuid.uuid4().hex
+        row.update(status="ENQUEUED", lease_owner=owner,
+                   lease_started_at=store._now(), lease_seconds=lease_seconds,
+                   attempt=int(row.get("attempt") or 0) + 1,
+                   updated_at=store._now())
+        return {"status": "success", "claimed": True,
+                "lease_owner": owner, "delivery": dict(row)}
+
+    async def _finish_wake_delivery(founder_id, delivery_id, lease_owner, *,
+                                    delivered, error_code=None):
+        row = await _get_wake_delivery(founder_id, delivery_id)
+        if not row:
+            return {"status": "error", "error": True,
+                    "error_code": "owner_mismatch",
+                    "message": "wake delivery not found"}
+        if row.get("status") == "DELIVERED":
+            return {"status": "success", "duplicate": True,
+                    "delivery_status": "DELIVERED"}
+        if row.get("status") != "ENQUEUED" or row.get("lease_owner") != lease_owner:
+            return {"status": "error", "error": True,
+                    "error_code": "lease_conflict",
+                    "message": "wake delivery lease changed"}
+        exhausted = (not delivered and int(row.get("attempt") or 0)
+                     >= int(row.get("max_attempts") or 8))
+        row.update(status=("DELIVERED" if delivered else
+                           "DEAD_LETTER" if exhausted else "FAILED"),
+                   lease_owner=None, lease_started_at=None,
+                   last_error_code=None if delivered else (error_code or "dispatch_failed"),
+                   updated_at=store._now(),
+                   delivered_at=store._now() if delivered else None)
+        inbox_id = None
+        if exhausted:
+            inbox_id = "inbox-dead-letter-" + delivery_id
+            store.founder_inbox[inbox_id] = {
+                "inbox_item_id": inbox_id, "workspace_id": founder_id,
+                "founder_id": founder_id, "delivery_id": delivery_id,
+                "item_kind": "DELIVERY_DEAD_LETTER", "status": "UNREAD"}
+        return {"status": "success", "delivery_status": row["status"],
+                "inbox_item_id": inbox_id}
+
+    async def _requeue_wake_delivery(founder_id, delivery_id):
+        row = await _get_wake_delivery(founder_id, delivery_id)
+        if not row:
+            return {"status": "error", "error": True,
+                    "error_code": "owner_mismatch"}
+        if row.get("status") != "DEAD_LETTER":
+            return {"status": "error", "error": True,
+                    "error_code": "version_conflict"}
+        row.update(status="FAILED", attempt=0, lease_owner=None,
+                   lease_started_at=None, next_attempt_at=store._now(),
+                   updated_at=store._now())
+        return {"status": "success", "delivery_id": delivery_id,
+                "delivery_status": "FAILED"}
 
     async def _prepare_external_action(
             founder_id, connection_id, action_kind, idempotency_key,
             request_hash, *, session_id=None, application_id=None,
             resource_id=None, subject_hash=None, approval_id=None,
+            consume_approval=False, approval_gate=None,
+            approval_target=None,
+            capability_id=None, capability_version=None,
+            approval_bindings=None,
             sandbox_context=None, lease_seconds=120):
         from services import data_source_contracts as dsc
 
@@ -1435,7 +1755,14 @@ def fake_store(monkeypatch):
                     "message": "sandbox context is not valid for this action"}
         existing = store.external_actions.get(aid)
         if existing:
-            if existing.get("request_hash") != request_hash:
+            immutable = {
+                "request_hash": request_hash, "founder_id": founder_id,
+                "connection_id": connection_id, "session_id": session_id,
+                "application_id": application_id, "resource_id": resource_id,
+                "subject_hash": subject_hash,
+            }
+            if any(existing.get(key) != value
+                   for key, value in immutable.items()):
                 return {"status": "error", "error": True,
                         "error_code": "version_conflict", "message": "payload changed"}
             if existing.get("status") == "UNCERTAIN":
@@ -1444,39 +1771,170 @@ def fake_store(monkeypatch):
                         "message": "action requires reconciliation", "action_id": aid}
             if existing.get("status") in {"SUCCEEDED", "FAILED"}:
                 return {"status": "success", "duplicate": True, **existing}
+            if existing.get("status") == "EXECUTING":
+                started = datetime.fromisoformat(existing["lease_started_at"])
+                age = (datetime.now(timezone.utc) - started).total_seconds()
+                if age <= int(existing.get("lease_seconds") or 1):
+                    return {"status": "success", "in_progress": True,
+                            "action_id": aid}
+                existing.update(
+                    status="UNCERTAIN", uncertainty_reason="executing_lease_expired",
+                    error_code="reconciliation_required", lease_owner=None,
+                    lease_started_at=None, updated_at=store._now(),
+                    completed_at=store._now())
+                return {"status": "error", "error": True,
+                        "error_code": "reconciliation_required",
+                        "message": "action requires reconciliation",
+                        "action_id": aid, **existing}
             started = datetime.fromisoformat(existing["lease_started_at"])
             age = (datetime.now(timezone.utc) - started).total_seconds()
             if age <= int(existing.get("lease_seconds") or 1):
                 return {"status": "success", "in_progress": True,
                         "action_id": aid}
-            existing.update(
-                status="UNCERTAIN", uncertainty_reason="prepared_lease_expired",
-                error_code="reconciliation_required", lease_owner=None,
-                lease_started_at=None, updated_at=store._now(),
-                completed_at=store._now())
-            return {"status": "error", "error": True,
-                    "error_code": "reconciliation_required",
-                    "message": "action requires reconciliation",
-                    "action_id": aid, **existing}
+            approval = store.approvals.get(existing.get("approval_id"))
+            if existing.get("approval_consumed") and (
+                    not approval or approval.get("status") != "CLAIMED"
+                    or approval.get("claimed_action_id") != aid
+                    or approval.get("claim_id") != existing.get("claim_id")):
+                return {"status": "error", "error": True,
+                        "error_code": "approval_binding_mismatch",
+                        "message": "approval claim changed"}
+            owner = uuid.uuid4().hex
+            generation = int(existing.get("lease_generation") or 0) + 1
+            existing.update(lease_owner=owner, lease_started_at=store._now(),
+                            lease_generation=generation,
+                            updated_at=store._now())
+            if approval:
+                approval.update(claim_lease_generation=generation,
+                                claim_lease_started_at=store._now(),
+                                updated_at=store._now())
+            return {"status": "success", "claimed": True,
+                    "reclaimed": True, "action_id": aid,
+                    "lease_owner": owner}
+        approval = store.approvals.get(approval_id) if consume_approval else None
+        exact_bindings = dict(approval_bindings or {})
+        if consume_approval:
+            if (not approval or not approval_gate or not session_id
+                    or not (approval_target or application_id)
+                    or not subject_hash):
+                return {"status": "error", "error": True,
+                        "error_code": "approval_binding_missing",
+                        "message": "approved action binding is incomplete"}
+            if (approval.get("status") != "GRANTED"
+                    or approval.get("expires_at", "") <= store._now()):
+                return {"status": "error", "error": True,
+                        "error_code": "approval_terminal",
+                        "message": "approval is not granted and current"}
+            expected = {
+                "founder_id": founder_id, "session_id": session_id,
+                "application_id": approval_target or application_id,
+                "gate": approval_gate,
+                "subject_hash": subject_hash,
+            }
+            if int(approval.get("schema_version") or 1) >= 2:
+                required_binding_keys = {
+                    "action_kind", "capability_id", "capability_version",
+                    "target_hash", "normalized_payload_hash", "policy_id",
+                    "policy_version", "connector_id",
+                    "connector_binding_version",
+                }
+                if set(exact_bindings) != required_binding_keys:
+                    return {"status": "error", "error": True,
+                            "error_code": "approval_binding_missing",
+                            "message": "approved action binding is incomplete"}
+                expected.update(exact_bindings)
+            if any((approval.get(key) or "") != (value or "")
+                   for key, value in expected.items()):
+                return {"status": "error", "error": True,
+                        "error_code": "approval_binding_mismatch",
+                        "message": "approval does not cover this exact action"}
         now = store._now()
         owner = uuid.uuid4().hex
+        claim_id = dsc.canonical_hash({
+            "approval_id": approval_id or "", "action_id": aid,
+            "request_hash": request_hash})
         row = {
-            "schema_version": 1, "action_id": aid, "founder_id": founder_id,
+            "schema_version": 2, "action_id": aid,
+            "workspace_id": founder_id, "action_domain": "CONNECTOR_ACTION",
+            "founder_id": founder_id,
             "connection_id": connection_id, "session_id": session_id,
             "application_id": application_id, "resource_id": resource_id,
             "action_kind": action_kind, "idempotency_key": idempotency_key,
             "request_hash": request_hash, "subject_hash": subject_hash,
             "approval_id": approval_id, "sandbox_context": context or None,
+            "approval_target": approval_target,
+            "capability_id": capability_id,
+            "capability_version": capability_version,
+            "target_hash": exact_bindings.get("target_hash"),
+            "normalized_payload_hash": exact_bindings.get(
+                "normalized_payload_hash"),
+            "policy_id": exact_bindings.get("policy_id"),
+            "policy_version": exact_bindings.get("policy_version"),
+            "connector_id": exact_bindings.get("connector_id"),
+            "connector_binding_version": exact_bindings.get(
+                "connector_binding_version"),
+            "approval_consumed": bool(consume_approval), "claim_id": claim_id,
             "status": "PREPARED",
+            "provider_request_id": None,
+            "provider_idempotency_key": dsc.canonical_hash({
+                "workspace_id": founder_id, "action_id": aid}),
+            "consequence_start_committed_at": None,
             "provider_effect_id": None, "result_ref": {},
             "uncertainty_reason": None, "error_code": None,
             "lease_owner": owner, "lease_started_at": now,
+            "lease_generation": 1,
             "lease_seconds": lease_seconds, "created_at": now,
             "updated_at": now, "completed_at": None,
         }
+        if approval is not None:
+            approval.update(status="CLAIMED", claim_id=claim_id,
+                            claimed_action_id=aid, claimed_at=now,
+                            claim_lease_generation=1,
+                            claim_lease_started_at=now, updated_at=now)
         store.external_actions[aid] = row
         return {"status": "success", "claimed": True,
                 "action_id": aid, "lease_owner": owner}
+
+    async def _start_external_action(founder_id, action_id, lease_owner):
+        from services import data_source_contracts as dsc
+
+        row = store.external_actions.get(action_id)
+        if (not row or row.get("workspace_id") != founder_id
+                or row.get("founder_id") != founder_id):
+            return {"status": "error", "error": True,
+                    "error_code": "owner_mismatch", "message": "action not found"}
+        if row.get("status") == "EXECUTING":
+            if row.get("lease_owner") == lease_owner:
+                return {**row, "status": "success", "duplicate": True,
+                        "claimed": True, "receipt_status": "EXECUTING"}
+            return {"status": "error", "error": True,
+                    "error_code": "lease_conflict", "message": "lease changed"}
+        if row.get("status") != "PREPARED":
+            return {"status": "success", "duplicate": True, **row}
+        if row.get("lease_owner") != lease_owner:
+            return {"status": "error", "error": True,
+                    "error_code": "lease_conflict", "message": "lease changed"}
+        approval = store.approvals.get(row.get("approval_id"))
+        if row.get("approval_consumed") and (
+                not approval or approval.get("status") != "CLAIMED"
+                or approval.get("claimed_action_id") != action_id
+                or approval.get("claim_id") != row.get("claim_id")):
+            return {"status": "error", "error": True,
+                    "error_code": "approval_binding_mismatch",
+                    "message": "approval claim changed"}
+        now = store._now()
+        provider_request_id = dsc.canonical_hash({
+            "action_id": action_id,
+            "lease_generation": int(row.get("lease_generation") or 1)})
+        row.update(status="EXECUTING", provider_request_id=provider_request_id,
+                   consequence_start_committed_at=now,
+                   provider_started_at=now, updated_at=now)
+        if approval:
+            approval.update(status="CONSUMED", consumed_at=now,
+                            terminal_action_id=action_id, updated_at=now)
+        return {**row, "status": "success", "duplicate": False,
+                "claimed": True, "receipt_status": "EXECUTING",
+                "action_id": action_id, "lease_owner": lease_owner}
 
     async def _finish_external_action(
             founder_id, action_id, lease_owner, status, *,
@@ -1486,11 +1944,31 @@ def fake_store(monkeypatch):
         if not row or row.get("founder_id") != founder_id:
             return {"status": "error", "error": True,
                     "error_code": "owner_mismatch", "message": "action not found"}
-        if row.get("status") != "PREPARED":
+        allowed = {"EXECUTING"}
+        if int(row.get("schema_version") or 1) == 1:
+            allowed.add("PREPARED")
+        if row.get("status") not in allowed:
             return {"status": "success", "duplicate": True, **row}
         if row.get("lease_owner") != lease_owner:
             return {"status": "error", "error": True,
                     "error_code": "lease_conflict", "message": "lease changed"}
+        if row.get("action_kind") == "submit_application" and status == "SUCCEEDED":
+            application = store.applications.get(row.get("application_id"))
+            if not application or application.get("founder_id") != founder_id:
+                return {"status": "error", "error": True,
+                        "error_code": "reconciliation_required",
+                        "message": "submission domain authority is missing"}
+            application.update(
+                state="SUBMITTED",
+                submission={
+                    "confirmation_id": str(
+                        (result_ref or {}).get("confirmation_id")
+                        or provider_effect_id or ""),
+                    "portal_url": str((result_ref or {}).get("portal_url") or ""),
+                    "external_action_id": action_id,
+                },
+                updated_at=store._now(),
+                version=int(application.get("version") or 0) + 1)
         row.update(status=status, provider_effect_id=provider_effect_id,
                    result_ref=result_ref or {}, uncertainty_reason=uncertainty_reason,
                    error_code=error_code, lease_owner=None, lease_started_at=None,
@@ -1513,6 +1991,22 @@ def fake_store(monkeypatch):
         if row.get("status") != "UNCERTAIN":
             return {"status": "error", "error": True,
                     "error_code": "version_conflict", "message": "not uncertain"}
+        if row.get("action_kind") == "submit_application" and status == "SUCCEEDED":
+            application = store.applications.get(row.get("application_id"))
+            if not application or application.get("founder_id") != founder_id:
+                return {"status": "error", "error": True,
+                        "error_code": "reconciliation_required",
+                        "message": "submission domain authority is missing"}
+            application.update(
+                state="SUBMITTED",
+                submission={
+                    "confirmation_id": str(
+                        (result_ref or {}).get("confirmation_id")
+                        or provider_effect_id or ""),
+                    "portal_url": str((result_ref or {}).get("portal_url") or ""),
+                    "external_action_id": action_id,
+                }, updated_at=store._now(),
+                version=int(application.get("version") or 0) + 1)
         row.update(status=status, provider_effect_id=provider_effect_id,
                    result_ref=result_ref or {}, uncertainty_reason=None,
                    error_code=error_code, updated_at=store._now(),
@@ -1545,13 +2039,17 @@ def fake_store(monkeypatch):
         "mark_distilled": _mark_distilled, "create_application": _create_application,
         "find_application_by_founder_opportunity": _find_application_by_founder_opportunity,
         "get_or_create_application": _get_or_create_application,
-        "get_application": _get_application, "update_application": _update_application,
+        "get_application": _get_application,
+        "get_application_for_provider_event": _get_application_for_provider_event,
+        "update_application": _update_application,
         "append_application_followup": _append_application_followup,
         "record_interview_answer": _record_interview_answer,
         "guarded_application_transition": _guarded_transition,
         "update_draft_section": _update_draft_section,
         "create_approval": _create_approval, "get_approval": _get_approval,
+        "get_approval_for_workspace": _get_approval_for_workspace,
         "grant_approval": _grant_approval, "deny_approval": _deny_approval,
+        "resolve_approval_decision": _resolve_approval_decision,
         "find_valid_approval": _find_valid_approval, "consume_approval": _consume_approval,
         "claim_approval": _claim_approval,
         "expire_stale_approvals": _expire_stale_approvals,
@@ -1561,7 +2059,9 @@ def fake_store(monkeypatch):
         "create_ingestion": _create_ingestion, "get_ingestion": _get_ingestion,
         "update_ingestion": _update_ingestion, "get_opportunity": _get_opportunity,
         "register_artifact_ingestion": _register_artifact_ingestion,
-        "get_artifact": _get_artifact, "update_artifact": _update_artifact,
+        "get_artifact": _get_artifact,
+        "get_artifact_by_storage_name": _get_artifact_by_storage_name,
+        "update_artifact": _update_artifact,
         "replace_artifact_chunks": _replace_artifact_chunks,
         "list_artifact_chunks": _list_artifact_chunks,
         "claim_ingestion": _claim_ingestion,
@@ -1609,6 +2109,7 @@ def fake_store(monkeypatch):
         "upsert_data_connection": _upsert_data_connection,
         "get_data_connection": _get_data_connection,
         "list_data_connections": _list_data_connections,
+        "find_data_connections_by_provider": _find_data_connections_by_provider,
         "transition_data_connection": _transition_data_connection,
         "revoke_connection_source_grants": _revoke_connection_source_grants,
         "create_source_grant": _create_source_grant,
@@ -1629,7 +2130,16 @@ def fake_store(monkeypatch):
         "apply_external_event_signal": _apply_external_event_signal,
         "claim_external_event_delivery": _claim_external_event_delivery,
         "finish_external_event_delivery": _finish_external_event_delivery,
+        "create_wake_delivery": _create_wake_delivery,
+        "receive_portal_event": _receive_portal_event,
+        "claim_portal_event": _claim_portal_event,
+        "finish_portal_event": _finish_portal_event,
+        "get_wake_delivery": _get_wake_delivery,
+        "claim_wake_delivery": _claim_wake_delivery,
+        "finish_wake_delivery": _finish_wake_delivery,
+        "requeue_wake_delivery": _requeue_wake_delivery,
         "prepare_external_action": _prepare_external_action,
+        "start_external_action": _start_external_action,
         "finish_external_action": _finish_external_action,
         "reconcile_external_action": _reconcile_external_action,
         "get_external_action": _get_external_action,

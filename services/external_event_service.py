@@ -12,7 +12,7 @@ from collections.abc import Awaitable, Callable
 from typing import Any
 
 from services import data_source_contracts as dsc
-from services import data_source_metrics, firestore
+from services import data_source_metrics, firestore, wake_delivery_service
 
 WakeFn = Callable[[str, str, str], Awaitable[None]]
 
@@ -76,8 +76,29 @@ async def _causal_candidates(founder_id: str, event: dict[str, Any],
         for action in await firestore.list_external_actions(founder_id):
             result_ref = action.get("result_ref") or {}
             if (action.get("status") == "SUCCEEDED"
-                    and str(result_ref.get("provider_thread_id") or "") == thread_id
-                    and action.get("session_id")):
+                    and str(result_ref.get("provider_thread_id") or "") == thread_id):
+                domain_ref = str(action.get("domain_ref") or "")
+                if (domain_ref
+                        and action.get("approval_domain") == "INVESTOR_OUTREACH"):
+                    from services.durable_store import production_store
+
+                    outreach = await production_store().get(
+                        "investor_outreach", domain_ref)
+                    if (outreach and outreach.get("workspace_id") == founder_id
+                            and outreach.get("origin_session_id")):
+                        item = {
+                            "application_id": "",
+                            "session_id": str(outreach["origin_session_id"]),
+                            "resource_id": domain_ref,
+                            "resource_kind": "investor_outreach",
+                            "outreach_id": domain_ref,
+                            "basis": dsc.CorrelationBasis.CAUSAL_ACTION.value,
+                        }
+                        candidates[(domain_ref, item["session_id"],
+                                    item["basis"])] = item
+                        continue
+                if not action.get("session_id"):
+                    continue
                 item = {
                     "application_id": str(action.get("application_id") or ""),
                     "session_id": str(action.get("session_id") or ""),
@@ -128,7 +149,7 @@ async def _heuristic_candidates(founder_id: str,
     results = []
     for application in await firestore.list_inflight_applications(founder_id):
         opportunity = await firestore.get_opportunity(
-            str(application.get("opportunity_id") or ""))
+            str(application.get("opportunity_id") or ""), founder_id)
         name = str((opportunity or {}).get("name") or "").strip()
         if name and name.lower() in text:
             results.append({
@@ -148,15 +169,22 @@ async def _deliver(founder_id: str, event_id: str, session_id: str,
         return claim.get("delivery_status") in {"DELIVERED", "NOT_REQUIRED"}
     if not claim.get("claimed"):
         return False
-    try:
-        await wake(founder_id, session_id, notice)
-    except Exception:
+    receipt = await firestore.create_wake_delivery(
+        founder_id, session_id, "external_event", event_id, notice, {})
+    if receipt.get("error"):
         await firestore.finish_external_event_delivery(
-            founder_id, event_id, delivered=False)
+            founder_id, event_id, claim["lease_owner"], delivered=False)
         return False
+    async def _wake(_workspace_id: str, selected_session_id: str,
+                    selected_notice: str, _state_delta: dict) -> None:
+        await wake(founder_id, selected_session_id, selected_notice)
+
+    outcome = await wake_delivery_service.deliver(
+        founder_id, receipt["delivery_id"], _wake)
+    delivered = outcome.get("delivery_status") == "DELIVERED"
     await firestore.finish_external_event_delivery(
-        founder_id, event_id, delivered=True)
-    return True
+        founder_id, event_id, claim["lease_owner"], delivered=delivered)
+    return delivered
 
 
 async def process_mail_event(founder_id: str, connector_id: str,
@@ -222,7 +250,25 @@ async def process_mail_event(founder_id: str, connector_id: str,
     exact = await _causal_candidates(founder_id, current, provider_event)
     if len(exact) == 1:
         match = exact[0]
-        if match["application_id"]:
+        if match.get("resource_kind") == "investor_outreach":
+            from services.durable_store import production_store
+            from services.investor_outreach_service import InvestorOutreachService
+
+            correlated = await InvestorOutreachService(
+                production_store()).record_reply(
+                    workspace_id=founder_id,
+                    provider_thread_id=str(provider_event.get("thread_id") or ""),
+                    provider_message_id=str(provider_event.get("id") or ""),
+                    sender=str(provider_event.get("from") or ""),
+                    subject=str(provider_event.get("subject") or ""),
+                    excerpt=str(provider_event.get("excerpt") or ""))
+            if correlated.get("error"):
+                return correlated
+            applied = await firestore.apply_external_event_signal(
+                founder_id, event_id, claim["lease_owner"],
+                session_id=match["session_id"], correlation_basis=match["basis"],
+                resource_id=match["outreach_id"])
+        elif match["application_id"]:
             applied = await firestore.apply_external_event_to_application(
                 founder_id, event_id, claim["lease_owner"],
                 match["application_id"], match["session_id"], match["basis"],

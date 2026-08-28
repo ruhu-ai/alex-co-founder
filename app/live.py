@@ -17,6 +17,7 @@ import asyncio
 import base64
 import json
 import logging
+import os
 
 from fastapi import WebSocket, WebSocketDisconnect
 from google.adk.agents.live_request_queue import LiveRequestQueue
@@ -44,7 +45,11 @@ def register_live(app, session_service, founder_id: str) -> None:
     """Mount the bidi voice websocket on the FastAPI app."""
     # One runner owns this surface for the process lifetime. Sessions remain
     # isolated by user/session ids passed to run_live.
-    runner = Runner(app=live_app, session_service=session_service)
+    from services import persistent_memory
+
+    runner = Runner(
+        app=live_app, session_service=session_service,
+        memory_service=persistent_memory.configured_adk_service())
 
     @app.websocket("/live/{session_id}")
     async def live_ws(websocket: WebSocket, session_id: str) -> None:
@@ -52,15 +57,30 @@ def register_live(app, session_service, founder_id: str) -> None:
         # app_auth cookie from the ?key= bootstrap rides the handshake.
         from app import auth
 
-        if not auth.websocket_is_founder(websocket):
+        workspace_id = founder_id
+        if os.environ.get("K_SERVICE"):
+            from services.actor_identity import resolve_actor_from_claims
+
+            claims = auth.session_claims(websocket)
+            selected = str(websocket.query_params.get("workspace_id") or "")
+            if not claims:
+                await websocket.close(code=4401)
+                return
+            principal = await resolve_actor_from_claims(
+                claims, workspace_id=selected)
+            if isinstance(principal, dict):
+                await websocket.close(code=4403)
+                return
+            workspace_id = principal.workspace_id
+        elif not auth.websocket_is_founder(websocket):
             await websocket.close(code=4401)
             return
         await websocket.accept()
         session = await session_service.get_session(
-            app_name=live_app.name, user_id=founder_id, session_id=session_id)
+            app_name=live_app.name, user_id=workspace_id, session_id=session_id)
         if session is None:
             session = await session_service.create_session(
-                app_name=live_app.name, user_id=founder_id, session_id=session_id)
+                app_name=live_app.name, user_id=workspace_id, session_id=session_id)
 
         queue = LiveRequestQueue()
         run_config = RunConfig(
@@ -102,7 +122,7 @@ def register_live(app, session_service, founder_id: str) -> None:
             """ADK live events -> browser frames."""
             try:
                 async for event in runner.run_live(
-                        user_id=founder_id, session_id=session_id,
+                        user_id=workspace_id, session_id=session_id,
                         live_request_queue=queue, run_config=run_config):
                     if event.content and event.content.parts:
                         for part in event.content.parts:
@@ -161,7 +181,8 @@ def register_live(app, session_service, founder_id: str) -> None:
                 from google.adk.events import Event
 
                 fresh = await session_service.get_session(
-                    app_name=live_app.name, user_id=founder_id, session_id=session_id)
+                    app_name=live_app.name, user_id=workspace_id,
+                    session_id=session_id)
                 for role, text in turns:
                     if not text.strip():
                         continue
@@ -190,7 +211,9 @@ def register_hiring_live(app) -> None:
         if not claims:
             await websocket.close(code=4401)
             return
-        principal = await resolve_actor_from_claims(claims)
+        principal = await resolve_actor_from_claims(
+            claims, workspace_id=str(
+                websocket.query_params.get("workspace_id") or ""))
         if isinstance(principal, dict):
             await websocket.close(code=4403)
             return

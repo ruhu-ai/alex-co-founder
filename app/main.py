@@ -27,7 +27,7 @@ from typing import Literal
 os.environ.setdefault("OAUTHLIB_RELAX_TOKEN_SCOPE", "1")
 
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from google.adk.apps import App
 from google.adk.cli.fast_api import get_fast_api_app
@@ -41,26 +41,47 @@ from agents.co_founder.agent import app as agent_app
 from agents.co_founder.config import PERSONA_NAME
 from agents.co_founder.state_schema import ApplicationStep as Step
 from agents.co_founder.sub_agents import distiller as distiller_subagent
-from app import browser_routes, hiring_routes
+from app import browser_routes, browser_worker_routes, hiring_routes
 from app.app_utils.telemetry import setup_telemetry
 from app.resume_handler import SYSTEM_NOTICE_MARKER, ResumeHandler
 from services import (
     activity,
     approval_service,
-    browser_service,
     discovery_service,
     distill_service,
     feedback_service,
     firestore,
     hiring_policy_service,
+    investor_outreach_service,
+    persistent_memory,
     pipeline_service,
     session_deletion,
     session_resources,
     storage,
     voice_service,
     waiting,
+    wake_delivery_service,
+    workflow_timer_service,
 )
-from services.actor_identity import resolve_actor_from_claims
+from services import browser_gateway as browser_service
+from services.actor_identity import (
+    ActorPrincipal,
+    WorkspaceRole,
+    change_membership,
+    resolve_actor_from_claims,
+    resolve_seeded_principal,
+)
+from services.command_service import CommandService
+from services.command_service import transport_status as command_http_status
+from services.durable_store import AtomicMutation, production_store
+from services.workflow_contracts import RunKind, stable_id
+from services.workflow_projection_service import (
+    WorkflowProjectionService,
+)
+from services.workflow_projection_service import (
+    shadow_enabled as workflow_shadow_enabled,
+)
+from services.workflow_runtime import WorkflowRuntime
 
 setup_telemetry()
 
@@ -122,7 +143,9 @@ hiring_routes.register(app)
 
 # Surface 2: webhooks/tasks
 db_session_service = DatabaseSessionService(db_url=SESSION_SERVICE_URI)
-webhook_runner = Runner(app=agent_app, session_service=db_session_service)
+webhook_runner = Runner(
+    app=agent_app, session_service=db_session_service,
+    memory_service=persistent_memory.configured_adk_service())
 resume_handler = ResumeHandler(runner=webhook_runner)
 
 # Surface 3: the distiller (inline, synchronous)
@@ -131,6 +154,46 @@ distill_runner = Runner(app=distill_app, session_service=db_session_service)
 distill_service.attach(distill_runner, db_session_service)
 
 FOUNDER_ID = os.environ.get("FOUNDER_ID", "founder")
+
+
+async def _platform_human(request: Request, *, workspace_id: str = "") \
+        -> ActorPrincipal | dict:
+    """Resolve an interactive human, with local seeded compatibility only."""
+    selected = workspace_id or request.headers.get("X-Workspace-ID", "")
+    claims = auth.session_claims(request)
+    if claims:
+        return await resolve_actor_from_claims(
+            claims, workspace_id=selected)
+    if not os.environ.get("K_SERVICE"):
+        local_workspace = selected or FOUNDER_ID
+        return await resolve_seeded_principal(
+            FOUNDER_ID, workspace_id=local_workspace)
+    return {"status": "error", "error": True,
+            "error_code": "interactive_human_required",
+            "message": "Sign in to issue workspace commands."}
+
+
+def _local_compat_principal(workspace_id: str = "") -> ActorPrincipal:
+    """Principal for retired, local-only routes used by legacy tests/tools.
+
+    Deployed requests can never reach this adapter. Versioned product routes
+    always resolve the seeded membership row or verified interactive claims.
+    """
+    selected = workspace_id or FOUNDER_ID
+    return ActorPrincipal(
+        actor_id=FOUNDER_ID, workspace_id=selected, role=WorkspaceRole.OWNER,
+        role_grants=frozenset({"workspace.*"}),
+        candidate_assignments=frozenset(), interview_assignments=frozenset(),
+        session_auth_time=int(datetime.now(timezone.utc).timestamp()),
+        membership_version=1, principal_kind="SEEDED_COMPAT",
+        membership_id=f"local-compat:{selected}:{FOUNDER_ID}")
+
+
+async def _route_principal(request: Request, *, legacy: bool = False) \
+        -> ActorPrincipal | dict:
+    if legacy and not os.environ.get("K_SERVICE"):
+        return _local_compat_principal()
+    return await _platform_human(request)
 
 # Surface 4: real-time voice (Gemini Live bidi) — same orchestrator, same sessions
 from app.live import register_hiring_live, register_live  # noqa: E402
@@ -175,7 +238,28 @@ async def _verify_oidc(request: Request) -> bool:
     header = request.headers.get("Authorization", "")
     if not header.startswith("Bearer "):
         return False
-    expected_sa = os.environ.get("TASKS_INVOKER_SA", "")
+    route_identity_env = {
+        "/tasks/discover": "TASKS_DISCOVERY_INGESTION_SA",
+        "/tasks/ingest_document": "TASKS_DISCOVERY_INGESTION_SA",
+        "/tasks/investor_outreach_prepare": "TASKS_DISCOVERY_INGESTION_SA",
+        "/tasks/reconcile_ingestion_orphans": "TASKS_DISCOVERY_INGESTION_SA",
+        "/tasks/deadline_scan": "TASKS_TIMERS_SA",
+        "/tasks/workflow_timer_checkpoint": "TASKS_TIMERS_SA",
+        "/tasks/workflow_timer_recover": "TASKS_TIMERS_SA",
+        "/tasks/dispatch_command_outbox": "TASKS_TIMERS_SA",
+        "/tasks/browser_expire": "TASKS_BROWSER_SA",
+        "/tasks/portal_wake": "TASKS_PROVIDER_EVENTS_SA",
+        "/tasks/wake_delivery": "TASKS_PROVIDER_EVENTS_SA",
+        "/tasks/gmail_scan": "TASKS_PROVIDER_EVENTS_SA",
+        "/tasks/alex_mail_scan": "TASKS_PROVIDER_EVENTS_SA",
+        "/tasks/investor_outreach_send": "TASKS_PROVIDER_EVENTS_SA",
+        "/tasks/distill": "TASKS_INTERACTIVE_SA",
+    }
+    expected_sa = os.environ.get(
+        route_identity_env.get(request.url.path, "TASKS_INVOKER_SA"), "")
+    # Compatibility fallback is safe only while a deployment has not opted
+    # into a lane identity. deploy.sh always injects every lane identity.
+    expected_sa = expected_sa or os.environ.get("TASKS_INVOKER_SA", "")
     if not expected_sa:
         project = os.environ.get("GOOGLE_CLOUD_PROJECT", "")
         if not project:
@@ -195,10 +279,15 @@ async def _verify_oidc(request: Request) -> bool:
 
 
 async def _verify_task_caller(request: Request) -> bool:
-    """Task routes serve two principals: Pub/Sub push (OIDC) and the founder
-    UI's manual-run buttons (app token/cookie). Either passes; anonymous
-    callers in production pass neither."""
-    return auth.request_is_founder(request) or await _verify_oidc(request)
+    """Worker routes accept workload OIDC only in production.
+
+    Human-triggered operations enter through authenticated v1 command routes;
+    accepting a founder cookie here would let an interactive principal invoke
+    internal retry/delivery endpoints with workload authority.
+    """
+    if not os.environ.get("K_SERVICE"):
+        return True
+    return await _verify_oidc(request)
 
 
 # ---------------------------------------------------------------------------
@@ -215,6 +304,14 @@ class WakePayload(BaseModel):
     # retry. Message text is deliberately not an idempotency key: a founder may
     # intentionally repeat the same request later.
     client_request_id: str | None = None
+
+
+class SessionCreateRequest(BaseModel):
+    client_request_id: str = Field(default="", max_length=128)
+
+
+class WakeDeliveryRetryV1(BaseModel):
+    client_request_id: str = Field(min_length=8, max_length=128)
 
 
 class DiscoverTaskPayload(BaseModel):
@@ -234,6 +331,30 @@ class DiscoveryRequestPayload(BaseModel):
     context: str = ""
 
 
+class InvestorOutreachRequestV1(BaseModel):
+    session_id: str
+    client_request_id: str = Field(min_length=8, max_length=128)
+    objective: str = Field(min_length=1, max_length=800)
+    artifact_refs: list[str] = Field(default_factory=list, max_length=8)
+    max_candidates: int = Field(default=20, ge=1, le=50)
+
+
+class InvestorOutreachPrepareTask(BaseModel):
+    workspace_id: str
+    outreach_id: str
+    command_id: str = ""
+
+
+class InvestorDraftCommandV1(BaseModel):
+    client_request_id: str = Field(min_length=8, max_length=128)
+
+
+class InvestorSendTask(BaseModel):
+    workspace_id: str
+    draft_id: str
+    command_id: str
+
+
 class IngestTaskPayload(BaseModel):
     ingestion_id: str
 
@@ -243,6 +364,7 @@ _REQUEST_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$")
 _ATTACHMENT_REFERENCE = re.compile(r"(?:^|\s)@[A-Za-z0-9_.-]+(?:\s|$)")
 _DISCOVER_CONTEXT_MAX = 500
 _HIRING_CONTEXT_MAX = 700
+_INVESTOR_CONTEXT_MAX = 800
 _INGESTION_REF = re.compile(r"^[a-f0-9]{32}$")
 
 
@@ -274,13 +396,31 @@ def _parse_slash_command(message: str) -> tuple[str, str] | None:
     return match.group(1), re.sub(r"\s+", " ", match.group(2) or "").strip()
 
 
+def _compile_workflow_command(message: str) -> tuple[str, str] | None:
+    """Compile only explicit, narrow workflow starts; discussion stays chat."""
+    slash = _parse_slash_command(message) if message.strip().startswith("/") else None
+    if slash is not None:
+        return slash
+    normalized = re.sub(r"\s+", " ", message).strip()
+    # Avoid turning "we should probably find investors" into work. Natural
+    # invocation requires an imperative start plus an explicit research/rank/
+    # draft scope; the same validated service handles the slash and UI paths.
+    if (re.match(r"^(?:find|research|identify|rank)\b", normalized, re.I)
+            and re.search(r"\binvestors?\b", normalized, re.I)
+            and re.search(r"\b(?:rank|draft|prepare|research|find)\b",
+                          normalized, re.I)):
+        return "investors", normalized
+    return None
+
+
 async def _append_chat_message(session_id: str, *, author: str, role: str,
-                               text: str, invocation_id: str) -> None:
+                               text: str, invocation_id: str,
+                               founder_id: str = FOUNDER_ID) -> None:
     """Append one deterministic command event that intentionally skips Runner."""
     from google.adk.events import Event
 
     session = await db_session_service.get_session(
-        app_name=agent_app.name, user_id=FOUNDER_ID, session_id=session_id)
+        app_name=agent_app.name, user_id=founder_id, session_id=session_id)
     if session is None:
         return
     await db_session_service.append_event(session, Event(
@@ -291,10 +431,11 @@ async def _append_chat_message(session_id: str, *, author: str, role: str,
 
 
 async def _append_chat_exchange(session_id: str, founder_text: str,
-                                reply: str, invocation_id: str) -> None:
+                                reply: str, invocation_id: str,
+                                founder_id: str = FOUNDER_ID) -> None:
     """Persist both sides of a deterministic slash-command exchange."""
     session = await db_session_service.get_session(
-        app_name=agent_app.name, user_id=FOUNDER_ID, session_id=session_id)
+        app_name=agent_app.name, user_id=founder_id, session_id=session_id)
     if session is None:
         return
     existing_authors = {
@@ -304,18 +445,20 @@ async def _append_chat_exchange(session_id: str, founder_text: str,
     if "user" not in existing_authors:
         await _append_chat_message(
             session_id, author="user", role="user", text=founder_text,
-            invocation_id=invocation_id)
+            invocation_id=invocation_id, founder_id=founder_id)
     if agent_app.root_agent.name not in existing_authors:
         await _append_chat_message(
             session_id, author=agent_app.root_agent.name, role="model", text=reply,
-            invocation_id=invocation_id)
+            invocation_id=invocation_id, founder_id=founder_id)
     # Slash-command turns skip the Runner, so catalog them here (docs/23 §6.3).
     await session_resources.catalog_session_event(
-        founder_id=FOUNDER_ID, session_id=session_id,
+        founder_id=founder_id, session_id=session_id,
         text=founder_text, author="user")
 
 
-async def _resolve_attachment_refs(refs: list[str], session_id: str) -> list[dict]:
+async def _resolve_attachment_refs(
+        refs: list[str], session_id: str,
+        founder_id: str = FOUNDER_ID) -> list[dict]:
     """Resolve opaque attachment refs into bounded, trusted session metadata."""
     resolved: list[dict] = []
     seen: set[str] = set()
@@ -326,7 +469,7 @@ async def _resolve_attachment_refs(refs: list[str], session_id: str) -> list[dic
         if not _INGESTION_REF.fullmatch(ref):
             raise HTTPException(status_code=400, detail="invalid attachment reference")
         ingestion = await firestore.get_ingestion(ref)
-        if (not ingestion or ingestion.get("founder_id") != FOUNDER_ID
+        if (not ingestion or ingestion.get("founder_id") != founder_id
                 or ingestion.get("session_id") != session_id):
             # Do not reveal whether a foreign attachment exists.
             raise HTTPException(status_code=404, detail="attachment not found")
@@ -349,7 +492,10 @@ DISCOVERY_DEFAULT_LABEL = "Profile-driven funding discovery"
 
 async def _accept_discovery_request(*, session_id: str, client_request_id: str,
                                     context: str,
-                                    message_id: str | None = None) -> dict:
+                                    message_id: str | None = None,
+                                    founder_id: str = FOUNDER_ID,
+                                    actor_id: str = FOUNDER_ID,
+                                    session_exists=None) -> dict:
     """Durably accept one founder discovery submission (docs/23 §6.2).
 
     Validates the session and request, persists the ACCEPTED receipt plus its
@@ -358,7 +504,9 @@ async def _accept_discovery_request(*, session_id: str, client_request_id: str,
     same request returns the same IDs; a reused request id with different
     normalized context is a conflict and launches nothing.
     """
-    if not await _founder_session_exists(session_id):
+    owns_session = (await session_exists(session_id) if session_exists
+                    else await _workspace_session_exists(founder_id, session_id))
+    if not owns_session:
         return {"status": "error", "error": True, "code": 404,
                 "message": "not found"}
     if not client_request_id or not _REQUEST_ID.fullmatch(client_request_id):
@@ -369,7 +517,7 @@ async def _accept_discovery_request(*, session_id: str, client_request_id: str,
     display_query = discovery_service.scrub_query_text(
         normalized or DISCOVERY_DEFAULT_LABEL)[:500]
     receipt = await firestore.create_discovery_receipt(
-        client_request_id, FOUNDER_ID, context_hash,
+        client_request_id, founder_id, context_hash,
         origin_session_id=session_id, display_query=display_query,
         context=normalized, origin_message_id=message_id)
     if receipt.get("conflict"):
@@ -381,7 +529,7 @@ async def _accept_discovery_request(*, session_id: str, client_request_id: str,
         # First acceptance, or a retry whose earlier registration failed —
         # deterministic IDs make this replay-safe (docs/23 §3 invariant 9).
         registered = await session_resources.register_session_resource(
-            founder_id=FOUNDER_ID, session_id=session_id,
+            founder_id=founder_id, session_id=session_id,
             resource_type=session_resources.ResourceType.DISCOVERY_REQUEST,
             canonical_id=discovery_request_id,
             relationship=session_resources.Relationship.CREATED,
@@ -399,14 +547,37 @@ async def _accept_discovery_request(*, session_id: str, client_request_id: str,
                                               "resource registration failed")}
         resource_id = registered["resource_id"]
         await firestore.update_discovery_receipt(
-            client_request_id, FOUNDER_ID, {"resource_id": resource_id})
+            client_request_id, founder_id, {"resource_id": resource_id})
+    shadow: dict | None = None
+    workflow_run_id = str(receipt.get("workflow_run_id") or "")
+    if workflow_shadow_enabled() and not workflow_run_id:
+        shadow = await WorkflowProjectionService().ensure_discovery(
+            workspace_id=founder_id,
+            discovery_request_id=discovery_request_id,
+            originating_actor_id=actor_id)
+        if shadow.get("error"):
+            logging.getLogger(__name__).error(
+                "workflow shadow failed kind=discovery request_id=%s code=%s",
+                discovery_request_id, shadow.get("error_code"))
+        else:
+            workflow_run_id = shadow["run_id"]
+            await firestore.update_discovery_receipt(
+                client_request_id, founder_id,
+                {"workflow_run_id": workflow_run_id,
+                 "workflow_plan_hash": shadow.get("plan_hash"),
+                 "workflow_plan_version": shadow.get("plan_version"),
+                 "workflow_shadow_status": "MATCHED"})
     return {"status": "accepted", "request_id": client_request_id,
             "discovery_request_id": discovery_request_id,
             "resource_id": resource_id, "session_id": session_id,
-            "duplicate": bool(receipt.get("duplicate"))}
+            "duplicate": bool(receipt.get("duplicate")),
+            **({"workflow_run_id": workflow_run_id}
+               if workflow_run_id else {})}
 
 
-async def _dispatch_discovery(accepted: dict, *, on_started=None) -> dict:
+async def _dispatch_discovery(
+        accepted: dict, *, on_started=None,
+        founder_id: str = FOUNDER_ID) -> dict:
     """Dispatch an accepted discovery request: Cloud Tasks in production
     (IDs only — the worker loads authority from the receipt), inline in local
     development. Dispatch failure stays on the SAME receipt as an error/retry
@@ -423,13 +594,14 @@ async def _dispatch_discovery(accepted: dict, *, on_started=None) -> dict:
             task_queue.enqueue,
             "/tasks/discover",
             {"discovery_request_id": accepted["discovery_request_id"],
-             "founder_id": FOUNDER_ID},
-            f"discover:{FOUNDER_ID}:{request_id}",
+             "founder_id": founder_id},
+            f"discover:{founder_id}:{request_id}",
+            queue_name="co-founder-discovery-ingestion",
         )
         dispatched = queued.get("status") == "success"
         try:
             await firestore.update_discovery_receipt(
-                request_id, FOUNDER_ID,
+                request_id, founder_id,
                 {"dispatch_status": "queued" if dispatched else "error",
                  "dispatch_error": ("" if dispatched
                                     else str(queued.get("message", ""))[:200])})
@@ -439,18 +611,22 @@ async def _dispatch_discovery(accepted: dict, *, on_started=None) -> dict:
         return queued
     return await _discover_and_score(
         discovery_request_id=accepted["discovery_request_id"],
-        on_started=on_started)
+        on_started=on_started, founder_id=founder_id)
 
 
 async def _launch_discovery_command(*, context: str, request_id: str,
-                                    session_id: str, on_started=None) -> dict:
+                                    session_id: str, on_started=None,
+                                    founder_id: str = FOUNDER_ID,
+                                    actor_id: str = FOUNDER_ID) -> dict:
     """Accept durably, then dispatch — chat `/discover` and the discovery UI
     converge on this same request service (docs/23 §6.2)."""
     accepted = await _accept_discovery_request(
-        session_id=session_id, client_request_id=request_id, context=context)
+        session_id=session_id, client_request_id=request_id, context=context,
+        founder_id=founder_id, actor_id=actor_id)
     if accepted.get("error"):
         return accepted
-    result = await _dispatch_discovery(accepted, on_started=on_started)
+    result = await _dispatch_discovery(
+        accepted, on_started=on_started, founder_id=founder_id)
     merged = {**accepted, **result}
     # The adapter contract predates the receipt boundary: "success" + flags.
     if merged.get("status") == "accepted":
@@ -458,7 +634,80 @@ async def _launch_discovery_command(*, context: str, request_id: str,
     return merged
 
 
-async def _launch_hiring_command(*, request: Request, context: str,
+async def _prepare_investor_outreach(
+        workspace_id: str, outreach_id: str, *, command_id: str = "") -> dict:
+    """Run the safe research/rank/draft cut; sending remains a later approval."""
+    service = investor_outreach_service.InvestorOutreachService(production_store())
+    researched = await service.research(
+        workspace_id=workspace_id, outreach_id=outreach_id)
+    if researched.get("error"):
+        result = researched
+    else:
+        ranked = await service.rank(
+            workspace_id=workspace_id, outreach_id=outreach_id)
+        result = (ranked if ranked.get("error") else await service.draft(
+            workspace_id=workspace_id, outreach_id=outreach_id, limit=5))
+    if command_id:
+        commands = CommandService(production_store())
+        receipt = await commands.get(
+            workspace_id=workspace_id, command_id=command_id)
+        if not receipt.get("error") and receipt.get("status") not in {
+                "COMPLETED", "FAILED", "REJECTED"}:
+            await commands.transition(
+                workspace_id=workspace_id, command_id=command_id,
+                expected_version=receipt["version"],
+                status="FAILED" if result.get("error") else "COMPLETED",
+                run_id=str((researched.get("outreach") or {}).get("run_id") or ""),
+                result_ref=(None if result.get("error") else {
+                    "outreach_id": outreach_id,
+                    "draft_count": len(result.get("drafts") or []),
+                }),
+                error_code=str(result.get("error_code") or ""))
+    outreach = await production_store().get("investor_outreach", outreach_id)
+    if outreach:
+        await _notify_founder(
+            ("Investor research and recipient-bound drafts are ready. Nothing "
+             "was sent; review each exact message in the approval surface."
+             if not result.get("error") else
+             "Investor research could not finish safely; inspect the run receipt."),
+            session_id=str(outreach.get("origin_session_id") or ""),
+            source_kind="system_notice",
+            source_id=f"investor-prepare:{outreach_id}",
+            founder_id=workspace_id)
+    return result
+
+
+async def _launch_investor_outreach(
+        *, principal: ActorPrincipal, objective: str, session_id: str,
+        request_id: str, artifact_refs: list[str] | None = None,
+        command_id: str = "") -> dict:
+    service = investor_outreach_service.InvestorOutreachService(production_store())
+    started = await service.start(
+        principal=principal, objective=objective,
+        origin_session_id=session_id, client_request_id=request_id,
+        artifact_refs=artifact_refs or [], max_candidates=20)
+    if started.get("error"):
+        return started
+    outreach_id = started["outreach"]["outreach_id"]
+    if os.environ.get("K_SERVICE"):
+        from services import task_queue
+
+        queued = await asyncio.to_thread(
+            task_queue.enqueue, "/tasks/investor_outreach_prepare",
+            {"workspace_id": principal.workspace_id,
+             "outreach_id": outreach_id, "command_id": command_id},
+            f"investor-prepare:{outreach_id}",
+            queue_name="co-founder-discovery-ingestion")
+        return {**started, "dispatch": queued,
+                "status": "success" if not queued.get("error") else "error"}
+    prepared = await _prepare_investor_outreach(
+        principal.workspace_id, outreach_id, command_id=command_id)
+    return {**started, "prepared": prepared,
+            **({"error": True, "error_code": prepared.get("error_code")}
+               if prepared.get("error") else {})}
+
+
+async def _launch_hiring_command(*, principal: ActorPrincipal, context: str,
                                   request_id: str) -> dict:
     """Create the closed synthetic Ruhu FDE role from a founder chat command.
 
@@ -475,9 +724,6 @@ async def _launch_hiring_command(*, request: Request, context: str,
         return {"error": True, "message": (
             "This protected demo command supports the Ruhu Forward Deployment Engineer "
             "fixture: include Ruhu, Forward Deployment Engineer, Nigeria, and remote.")}
-    principal = await resolve_actor_from_claims(auth.session_claims(request))
-    if isinstance(principal, dict):
-        return principal
     fixture_id = "fixture_ruhu_fde_walkthrough"
     allowed = {value.strip() for value in os.environ.get(
         "HIRING_SYNTHETIC_FIXTURE_IDS", "").split(",") if value.strip()}
@@ -513,107 +759,221 @@ async def _launch_hiring_command(*, request: Request, context: str,
 _founder_session_id: str | None = None
 
 
-async def _set_founder_session(session_id: str) -> None:
+async def _set_founder_session(
+        session_id: str, founder_id: str = FOUNDER_ID) -> None:
     """Record the founder's active chat session, in-process and durably."""
     global _founder_session_id
-    _founder_session_id = session_id
+    if founder_id == FOUNDER_ID:
+        _founder_session_id = session_id
     try:
         await firestore.get_client().collection("founder_state").document(
-            FOUNDER_ID).set({"active_session_id": session_id})
+            founder_id).set({"active_session_id": session_id})
     except Exception as exc:  # persistence is best-effort — never fail the turn
         logging.getLogger(__name__).warning(
             "founder session persist failed: %s", exc)
 
 
-async def _get_founder_session() -> str | None:
+async def _get_founder_session(founder_id: str = FOUNDER_ID) -> str | None:
     """The founder's active chat session — process cache first, then Firestore
     (survives restart/scale-to-zero), None if the founder never opened a chat."""
-    if _founder_session_id:
+    if founder_id == FOUNDER_ID and _founder_session_id:
         return _founder_session_id
     try:
         doc = await firestore.get_client().collection("founder_state").document(
-            FOUNDER_ID).get()
+            founder_id).get()
     except Exception:
         return None
     return doc.to_dict().get("active_session_id") if doc.exists else None
 
 
-async def _notify_founder(notice: str, session_id: str | None = None) -> None:
-    """Wake the founder's chat session with a system notice so the AGENT
-    reports outcomes (sweep results, deadline alerts) instead of the board
-    changing silently. No-op until the founder has opened a chat."""
-    target_session_id = session_id or await _get_founder_session()
+async def _notify_founder(notice: str, session_id: str | None = None, *,
+                          source_kind: str = "system_notice",
+                          source_id: str = "",
+                          founder_id: str = FOUNDER_ID) -> dict:
+    """Persist then dispatch a founder notice through the durable wake lane."""
+    target_session_id = session_id or await _get_founder_session(founder_id)
     if not target_session_id:
-        return
-    await resume_handler.wake(
-        user_id=FOUNDER_ID, session_id=target_session_id,
-        notice=notice, state_delta={})
+        return {"status": "success", "delivery_status": "NOT_REQUIRED"}
+    stable_source_id = source_id or hashlib.sha256(
+        notice.encode("utf-8")).hexdigest()
+    created = await firestore.create_wake_delivery(
+        founder_id, target_session_id, source_kind, stable_source_id,
+        notice[:300], {})
+    if created.get("error"):
+        return created
+    dispatched = await _dispatch_wake_delivery(
+        created["delivery_id"], founder_id)
+    return {**created, "dispatch": dispatched}
 
 
-@app.post("/wake")
+@app.post("/api/v1/messages")
+@app.post("/wake", include_in_schema=False)
 async def wake(payload: WakePayload, request: Request) -> dict:
+    if request.url.path == "/wake" and os.environ.get("K_SERVICE"):
+        return JSONResponse(
+            {"error": True, "error_code": "legacy_route_retired",
+             "message": "Use POST /api/v1/messages."}, status_code=410)
+    principal = await _route_principal(
+        request, legacy=request.url.path == "/wake")
+    if isinstance(principal, dict):
+        return JSONResponse(principal, status_code=401)
+    founder_id = principal.workspace_id
     session_id = payload.session_id or f"s-{uuid.uuid4().hex}"
-    await _set_founder_session(session_id)
+    receipt: dict | None = None
+    commands = CommandService(production_store())
+    if request.url.path == "/api/v1/messages":
+        request_id = str(payload.client_request_id or "")
+        if not _REQUEST_ID.fullmatch(request_id):
+            return JSONResponse(
+                {"error": True, "error_code": "command_contract_invalid",
+                 "message": "A valid client_request_id is required."},
+                status_code=400)
+        receipt = await commands.accept(
+            principal=principal, client_request_id=request_id,
+            command_type="conversation.message",
+            request={"session_id": session_id, "message": payload.message,
+                     "attachment_refs": list(payload.attachment_refs)},
+            origin_session_id=session_id)
+        if receipt.get("error"):
+            return JSONResponse(receipt, status_code=command_http_status(receipt))
+        if receipt.get("duplicate"):
+            return JSONResponse(
+                {"session_id": session_id, "replies": [], "duplicate": True,
+                 "command_receipt": receipt},
+                status_code=command_http_status(receipt))
+
+    async def _respond(result: dict) -> dict:
+        if receipt is None:
+            return result
+        terminal = await commands.transition(
+            workspace_id=founder_id, command_id=receipt["command_id"],
+            expected_version=receipt["version"],
+            status="REJECTED" if result.get("error") else "COMPLETED",
+            result_ref=({"session_id": session_id,
+                         "conversation_ref": f"session:{session_id}"}
+                        if not result.get("error") else None),
+            error_code=str(result.get("error_code") or "message_rejected"))
+        return {**result, "command_receipt": terminal}
+
+    await _set_founder_session(session_id, founder_id)
     existing = await db_session_service.get_session(
-        app_name=agent_app.name, user_id=FOUNDER_ID, session_id=session_id)
+        app_name=agent_app.name, user_id=founder_id, session_id=session_id)
     if existing is None:
         existing = await db_session_service.create_session(
-            app_name=agent_app.name, user_id=FOUNDER_ID, session_id=session_id)
+            app_name=agent_app.name, user_id=founder_id, session_id=session_id)
 
-    command = (_parse_slash_command(payload.message)
-               if (_discover_command_enabled() or _hiring_command_enabled()) else None)
+    command = _compile_workflow_command(payload.message)
     if command is not None:
         name, context = command
         request_id = payload.client_request_id or f"req_{uuid.uuid4().hex}"
         if not _REQUEST_ID.fullmatch(request_id):
             reply = "I couldn't start that request because its request ID is invalid. Please retry."
             await _append_chat_exchange(
-                session_id, payload.message, reply, f"command-{uuid.uuid4().hex}")
-            return {"session_id": session_id, "replies": [reply],
-                    "launched": False}
+                session_id, payload.message, reply, f"command-{uuid.uuid4().hex}",
+                founder_id)
+            return await _respond({"session_id": session_id, "replies": [reply],
+                                   "launched": False})
+        if name in {"investors", "investor"}:
+            if len(context) > _INVESTOR_CONTEXT_MAX or not context:
+                reply = ("Investor outreach needs a concrete objective of at most "
+                         f"{_INVESTOR_CONTEXT_MAX} characters.")
+                await _append_chat_exchange(
+                    session_id, payload.message, reply, f"command-{request_id}",
+                    founder_id)
+                return await _respond({"session_id": session_id,
+                                       "replies": [reply], "launched": False})
+            try:
+                resolved = await _resolve_attachment_refs(
+                    list(payload.attachment_refs or []), session_id, founder_id)
+            except HTTPException:
+                reply = "One referenced document is unavailable in this session; nothing started."
+                await _append_chat_exchange(
+                    session_id, payload.message, reply, f"command-{request_id}",
+                    founder_id)
+                return await _respond({"session_id": session_id,
+                                       "replies": [reply], "launched": False})
+            launch = await _launch_investor_outreach(
+                principal=principal, objective=context, session_id=session_id,
+                request_id=request_id,
+                artifact_refs=[item["attachment_ref"] for item in resolved])
+            if launch.get("error"):
+                reply = ("I couldn't start investor outreach safely. No email was "
+                         "sent; inspect the durable command/run receipt and retry.")
+            else:
+                reply = ("I started a durable investor-outreach run. I’ll research, "
+                         "rank, and prepare recipient-bound drafts; nothing will be "
+                         "sent without your exact approval.")
+            await _append_chat_exchange(
+                session_id, payload.message, reply, f"command-{request_id}",
+                founder_id)
+            return await _respond({
+                "session_id": session_id, "replies": [reply],
+                "launched": not launch.get("error") and not launch.get("duplicate"),
+                "duplicate": bool(launch.get("duplicate")),
+                "outreach_id": (launch.get("outreach") or {}).get("outreach_id"),
+                "run_id": (launch.get("run") or {}).get("run_id"),
+                "client_request_id": request_id})
         if name == "hiring":
             if payload.attachment_refs or _ATTACHMENT_REFERENCE.search(context):
                 reply = "The protected hiring command accepts role context only; no attachment was read."
-                await _append_chat_exchange(session_id, payload.message, reply, f"command-{request_id}")
-                return {"session_id": session_id, "replies": [reply], "launched": False,
-                        "client_request_id": request_id}
-            launch = await _launch_hiring_command(request=request, context=context, request_id=request_id)
+                await _append_chat_exchange(
+                    session_id, payload.message, reply, f"command-{request_id}",
+                    founder_id)
+                return await _respond({
+                    "session_id": session_id, "replies": [reply], "launched": False,
+                    "client_request_id": request_id})
+            launch = await _launch_hiring_command(
+                principal=principal, context=context, request_id=request_id)
             if launch.get("error"):
                 reply = f"I couldn't start the hiring operation safely: {launch.get('message', 'request refused')}"
-                await _append_chat_exchange(session_id, payload.message, reply, f"command-{request_id}")
-                return {"session_id": session_id, "replies": [reply], "launched": False,
-                        "client_request_id": request_id}
+                await _append_chat_exchange(
+                    session_id, payload.message, reply, f"command-{request_id}",
+                    founder_id)
+                return await _respond({
+                    "session_id": session_id, "replies": [reply], "launched": False,
+                    "client_request_id": request_id})
             role = launch["role"]
             reply = (f"I created the durable draft hiring operation for {role['role_title']} at "
                      f"{role['company_name']} and prepared its role brief, scorecard, interview "
                      f"plan, and exact job-post draft. Open Hiring Operations to review and approve "
                      f"role {role['role_code']}. No post or email was sent.")
-            await _append_chat_exchange(session_id, payload.message, reply, f"command-{request_id}")
-            return {"session_id": session_id, "replies": [reply], "launched": not launch.get("duplicate", False),
-                    "duplicate": launch.get("duplicate", False), "role_id": role["role_id"],
-                    "client_request_id": request_id}
+            await _append_chat_exchange(
+                session_id, payload.message, reply, f"command-{request_id}",
+                founder_id)
+            return await _respond({
+                "session_id": session_id, "replies": [reply],
+                "launched": not launch.get("duplicate", False),
+                "duplicate": launch.get("duplicate", False),
+                "role_id": role["role_id"], "client_request_id": request_id})
         if name != "discover":
             reply = (f"I don't recognize /{name}. The available workflow command "
-                     "is /discover or the protected synthetic /hiring FDE command.")
+                     "is /investors, /discover, or the protected synthetic "
+                     "/hiring FDE command.")
             await _append_chat_exchange(
-                session_id, payload.message, reply, f"command-{request_id}")
-            return {"session_id": session_id, "replies": [reply],
-                    "launched": False, "client_request_id": request_id}
+                session_id, payload.message, reply, f"command-{request_id}",
+                founder_id)
+            return await _respond({"session_id": session_id, "replies": [reply],
+                                   "launched": False,
+                                   "client_request_id": request_id})
         if len(context) > _DISCOVER_CONTEXT_MAX:
             reply = (f"Discovery context must be {_DISCOVER_CONTEXT_MAX} characters or "
                      "fewer. Please shorten it and try again.")
             await _append_chat_exchange(
-                session_id, payload.message, reply, f"command-{request_id}")
-            return {"session_id": session_id, "replies": [reply],
-                    "launched": False, "client_request_id": request_id}
+                session_id, payload.message, reply, f"command-{request_id}",
+                founder_id)
+            return await _respond({"session_id": session_id, "replies": [reply],
+                                   "launched": False,
+                                   "client_request_id": request_id})
         if payload.attachment_refs or _ATTACHMENT_REFERENCE.search(context):
             reply = ("This competition-safe /discover command accepts prose context only. "
                      "Task-scoped attachments will be supported after attachment scopes "
                      "are implemented; I did not ingest or use that reference.")
             await _append_chat_exchange(
-                session_id, payload.message, reply, f"command-{request_id}")
-            return {"session_id": session_id, "replies": [reply],
-                    "launched": False, "client_request_id": request_id}
+                session_id, payload.message, reply, f"command-{request_id}",
+                founder_id)
+            return await _respond({"session_id": session_id, "replies": [reply],
+                                   "launched": False,
+                                   "client_request_id": request_id})
 
         started_reply = (
             "I started discovery. I'll rank the results and report what I find here.")
@@ -622,12 +982,18 @@ async def wake(payload: WakePayload, request: Request) -> dict:
         async def _persist_started() -> None:
             nonlocal started_persisted
             await _append_chat_exchange(
-                session_id, payload.message, started_reply, f"command-{request_id}")
+                session_id, payload.message, started_reply, f"command-{request_id}",
+                founder_id)
             started_persisted = True
 
-        launch = await _launch_discovery_command(
-            context=context, request_id=request_id, session_id=session_id,
-            on_started=_persist_started)
+        launch_kwargs = {
+            "context": context, "request_id": request_id,
+            "session_id": session_id, "on_started": _persist_started,
+        }
+        if request.url.path == "/api/v1/messages":
+            launch_kwargs.update(
+                founder_id=founder_id, actor_id=principal.actor_id)
+        launch = await _launch_discovery_command(**launch_kwargs)
         duplicate = bool(launch.get("duplicate"))
         in_progress = bool(launch.get("in_progress"))
         launched = launch.get("status") == "success" and not duplicate and not in_progress
@@ -642,16 +1008,19 @@ async def wake(payload: WakePayload, request: Request) -> dict:
             reply = started_reply
         if not started_persisted:
             await _append_chat_exchange(
-                session_id, payload.message, reply, f"command-{request_id}")
+                session_id, payload.message, reply, f"command-{request_id}",
+                founder_id)
         elif reply != started_reply:
             # The start acknowledgment is already durable and correctly
             # ordered before local inline work; append any failure correction.
             await _append_chat_message(
                 session_id, author=agent_app.root_agent.name, role="model",
-                text=reply, invocation_id=f"command-{request_id}-result")
-        return {"session_id": session_id, "replies": [reply],
-                "launched": launched, "duplicate": duplicate,
-                "in_progress": in_progress, "client_request_id": request_id}
+                text=reply, invocation_id=f"command-{request_id}-result",
+                founder_id=founder_id)
+        return await _respond({"session_id": session_id, "replies": [reply],
+                               "launched": launched, "duplicate": duplicate,
+                               "in_progress": in_progress,
+                               "client_request_id": request_id})
 
     # Refresh persisted refs on every conversational turn. A document may have
     # moved from QUEUED to READY while the founder was thinking; session state
@@ -665,14 +1034,20 @@ async def wake(payload: WakePayload, request: Request) -> dict:
     attachments: list[dict] = []
     for ref in refs:
         try:
-            attachments.extend(await _resolve_attachment_refs([ref], session_id))
+            attachments.extend(await _resolve_attachment_refs(
+                [ref], session_id, founder_id))
         except HTTPException:
             if ref in incoming_refs:
                 raise
             # An old reference can disappear due to retention. Drop it from
             # active state without revealing anything about foreign records.
             continue
-    state_delta = {}
+    # Identity is a repairable session projection. It is derived from the
+    # verified request principal on every turn and never from model arguments.
+    state_delta = {
+        ss.K_USER_PROFILE_ID: founder_id,
+        ss.K_ACTOR_ID: principal.actor_id,
+    }
     if refs or previous:
         state_delta[ss.K_ACTIVE_ATTACHMENTS] = attachments
 
@@ -682,7 +1057,7 @@ async def wake(payload: WakePayload, request: Request) -> dict:
     # closed vocabulary and can never raise into the turn.
     trace = activity.TraceCollector(root_agent_name=agent_app.root_agent.name)
     async for event in webhook_runner.run_async(
-            user_id=FOUNDER_ID, session_id=session_id,
+            user_id=founder_id, session_id=session_id,
             state_delta=state_delta,
             new_message=types.Content(role="user", parts=[types.Part.from_text(text=payload.message)])):
         trace.observe(event)
@@ -692,36 +1067,86 @@ async def wake(payload: WakePayload, request: Request) -> dict:
     # the conversational response and emits a repair marker; it never fails
     # the turn or corrupts session state.
     await session_resources.catalog_session_event(
-        founder_id=FOUNDER_ID, session_id=session_id,
+        founder_id=founder_id, session_id=session_id,
         text=payload.message, author="user")
     if replies:
         await session_resources.catalog_session_event(
-            founder_id=FOUNDER_ID, session_id=session_id,
+            founder_id=founder_id, session_id=session_id,
             text=replies[-1], author="agent")
-    return {"session_id": session_id, "replies": replies,
-            "trace": trace.as_payload()}
+    return await _respond({"session_id": session_id, "replies": replies,
+                           "trace": trace.as_payload()})
 
 
-@app.post("/session/new")
-async def new_session() -> dict:
-    session_id = f"s-{uuid.uuid4().hex}"
-    await _set_founder_session(session_id)
+@app.post("/api/v1/sessions")
+@app.post("/session/new", include_in_schema=False)
+async def new_session(request: Request) -> dict:
+    if request.url.path == "/session/new" and os.environ.get("K_SERVICE"):
+        return JSONResponse(
+            {"error": True, "error_code": "legacy_route_retired",
+             "message": "Use POST /api/v1/sessions."}, status_code=410)
+    principal = await _route_principal(
+        request, legacy=request.url.path == "/session/new")
+    if isinstance(principal, dict):
+        return JSONResponse(principal, status_code=401)
+    founder_id = principal.workspace_id
+    body = await request.json() if request.headers.get("content-type", "").lower().startswith(
+        "application/json") else {}
+    payload = SessionCreateRequest.model_validate(body or {})
+    command = None
+    commands = CommandService(production_store())
+    if request.url.path == "/api/v1/sessions":
+        if not _REQUEST_ID.fullmatch(payload.client_request_id):
+            return JSONResponse(
+                {"error": True, "error_code": "command_contract_invalid",
+                 "message": "A valid client_request_id is required."}, status_code=400)
+        command = await commands.accept(
+            principal=principal, client_request_id=payload.client_request_id,
+            command_type="session.create", request={})
+        if command.get("error"):
+            return JSONResponse(command, status_code=command_http_status(command))
+        if command.get("duplicate"):
+            result_ref = command.get("result_ref") or {}
+            return JSONResponse(
+                {"session_id": result_ref.get("session_id"),
+                 "duplicate": True, "command_receipt": command},
+                status_code=command_http_status(command))
+        session_id = "s-" + hashlib.sha256(
+            command["command_id"].encode()).hexdigest()[:32]
+    else:
+        session_id = f"s-{uuid.uuid4().hex}"
+    await _set_founder_session(session_id, founder_id)
     await db_session_service.create_session(
-        app_name=agent_app.name, user_id=FOUNDER_ID, session_id=session_id)
+        app_name=agent_app.name, user_id=founder_id, session_id=session_id)
     await session_resources.catalog_session_event(
-        founder_id=FOUNDER_ID, session_id=session_id, created=True)
-    return {"session_id": session_id}
+        founder_id=founder_id, session_id=session_id, created=True)
+    if command is None:
+        return {"session_id": session_id}
+    terminal = await commands.transition(
+        workspace_id=founder_id, command_id=command["command_id"],
+        expected_version=command["version"], status="COMPLETED",
+        result_ref={"session_id": session_id})
+    return {"session_id": session_id, "command_receipt": terminal}
 
 
-@app.get("/api/chat/{session_id}")
-async def chat_history(session_id: str) -> dict:
+@app.get("/api/v1/sessions/{session_id}/messages")
+@app.get("/api/chat/{session_id}", include_in_schema=False)
+async def chat_history(session_id: str, request: Request) -> dict:
     """Full chat transcript so agent-initiated messages (proactive reports)
     render without the founder sending anything. System wake notices are
     hidden — only the agent's replies to them surface. Notices are recognised
     by an invisible marker (resume_handler.SYSTEM_NOTICE_MARKER), never by a
     visible text prefix, so a founder message starting with 'System:' shows."""
+    if request.url.path.startswith("/api/chat/") and os.environ.get("K_SERVICE"):
+        return JSONResponse({"error": True, "error_code": "legacy_route_retired",
+                             "message": "Use the v1 sessions API."},
+                            status_code=410)
+    principal = await _route_principal(
+        request, legacy=request.url.path.startswith("/api/chat/"))
+    if isinstance(principal, dict):
+        return JSONResponse(principal, status_code=401)
     session = await db_session_service.get_session(
-        app_name=agent_app.name, user_id=FOUNDER_ID, session_id=session_id)
+        app_name=agent_app.name, user_id=principal.workspace_id,
+        session_id=session_id)
     if session is None:
         return JSONResponse({"error": "not found"}, status_code=404)
     messages = []
@@ -737,21 +1162,34 @@ async def chat_history(session_id: str) -> dict:
     return {"status": "success", "messages": messages}
 
 
-@app.get("/api/waiting")
-async def api_waiting(session_id: str = "", since: str = ""):
+@app.get("/api/v1/waits")
+@app.get("/api/waiting", include_in_schema=False)
+async def api_waiting(request: Request, session_id: str = "", since: str = ""):
     """Open waits and what changed while the founder was away (docs/24 §7.1).
 
     Derived, never stored: a pure function of durable records plus `since`.
     Identity is the authenticated founder; there is no founder_id parameter.
     """
-    if session_id and not await _founder_session_exists(session_id):
+    if request.url.path == "/api/waiting" and os.environ.get("K_SERVICE"):
+        return JSONResponse({"error": True, "error_code": "legacy_route_retired",
+                             "message": "Use GET /api/v1/waits."},
+                            status_code=410)
+    principal = await _route_principal(
+        request, legacy=request.url.path == "/api/waiting")
+    if isinstance(principal, dict):
+        return JSONResponse(principal, status_code=401)
+    founder_id = principal.workspace_id
+    session_exists = (_founder_session_exists
+                      if request.url.path == "/api/waiting"
+                      else lambda sid: _workspace_session_exists(founder_id, sid))
+    if session_id and not await session_exists(session_id):
         return JSONResponse({"error": "not found"}, status_code=404)
     now = datetime.now(timezone.utc)
     result = await waiting.list_waits(
-        FOUNDER_ID, session_id=session_id or None, now=now)
+        founder_id, session_id=session_id or None, now=now)
     waits = result["waits"]
     changed = await waiting.changed_since(
-        FOUNDER_ID, activity.clamp_since(since or None, now=now),
+        founder_id, activity.clamp_since(since or None, now=now),
         session_id=session_id or None)
     return {
         "status": "success",
@@ -764,37 +1202,63 @@ async def api_waiting(session_id: str = "", since: str = ""):
     }
 
 
-@app.get("/api/search")
-async def api_search(q: str = "", types: str = "", session_id: str = "",
-                     cursor: str = "", limit: int = 30):
+@app.get("/api/v1/search")
+@app.get("/api/search", include_in_schema=False)
+async def api_search(request: Request, q: str = "", types: str = "",
+                     session_id: str = "", cursor: str = "", limit: int = 30):
     """Typed global search over conversations and Alex's work (docs/23 §7).
 
     Identity is the authenticated founder — there is no founder_id parameter.
     Results are grouped by resource and carry typed focus targets; canonical
     content is fetched afterwards through its own authorized endpoint.
     """
+    if request.url.path == "/api/search" and os.environ.get("K_SERVICE"):
+        return JSONResponse({"error": True, "error_code": "legacy_route_retired",
+                             "message": "Use GET /api/v1/search."},
+                            status_code=410)
+    principal = await _route_principal(
+        request, legacy=request.url.path == "/api/search")
+    if isinstance(principal, dict):
+        return JSONResponse(principal, status_code=401)
+
+    async def _session_exists(session: str) -> bool:
+        return await _workspace_session_exists(principal.workspace_id, session)
+
     result = await session_resources.search(
-        founder_id=FOUNDER_ID, q=q,
+        founder_id=principal.workspace_id, q=q,
         types=[t for t in types.split(",") if t.strip()],
         session_id=session_id or None, cursor=cursor or None, limit=limit,
-        session_exists=_founder_session_exists)
+        session_exists=_session_exists)
     if result.get("error"):
         status = 404 if result.get("message") == "not found" else 400
         return JSONResponse(result, status_code=status)
     return result
 
 
-@app.get("/api/sessions/{session_id}/resources")
-async def api_session_resources(session_id: str, limit: int = 100):
+@app.get("/api/v1/sessions/{session_id}/resources")
+@app.get("/api/sessions/{session_id}/resources", include_in_schema=False)
+async def api_session_resources(
+        session_id: str, request: Request, limit: int = 100):
     """One conversation's durable outputs, newest first (docs/23 WI-6)."""
-    if not await _founder_session_exists(session_id):
+    if (request.url.path.startswith("/api/sessions/")
+            and os.environ.get("K_SERVICE")):
+        return JSONResponse({"error": True, "error_code": "legacy_route_retired",
+                             "message": "Use the v1 sessions API."},
+                            status_code=410)
+    principal = await _route_principal(
+        request, legacy=request.url.path.startswith("/api/sessions/")
+        and not request.url.path.startswith("/api/v1/"))
+    if isinstance(principal, dict):
+        return JSONResponse(principal, status_code=401)
+    if not await _workspace_session_exists(principal.workspace_id, session_id):
         return JSONResponse({"error": "not found"}, status_code=404)
     return await session_resources.all_session_resources_for(
-        FOUNDER_ID, session_id, max_items=limit)
+        principal.workspace_id, session_id, max_items=limit)
 
 
-@app.get("/api/sessions")
-async def api_sessions(limit: int = 30):
+@app.get("/api/v1/sessions")
+@app.get("/api/sessions", include_in_schema=False)
+async def api_sessions(request: Request, limit: int = 30):
     """Session history for the header search popup: newest first, each with a
     preview line so a conversation is findable by content, not just id. Only
     this founder's sessions — system sessions (user_id="system") never list.
@@ -802,8 +1266,18 @@ async def api_sessions(limit: int = 30):
     chat_history above."""
     from datetime import datetime, timezone
 
+    if request.url.path == "/api/sessions" and os.environ.get("K_SERVICE"):
+        return JSONResponse({"error": True, "error_code": "legacy_route_retired",
+                             "message": "Use GET /api/v1/sessions."},
+                            status_code=410)
+    principal = await _route_principal(
+        request, legacy=request.url.path == "/api/sessions")
+    if isinstance(principal, dict):
+        return JSONResponse(principal, status_code=401)
+    founder_id = principal.workspace_id
+
     listing = await db_session_service.list_sessions(
-        app_name=agent_app.name, user_id=FOUNDER_ID)
+        app_name=agent_app.name, user_id=founder_id)
     sessions = sorted(getattr(listing, "sessions", None) or [],
                       key=lambda s: s.last_update_time or 0,
                       reverse=True)[:max(1, min(limit, 100))]
@@ -812,7 +1286,7 @@ async def api_sessions(limit: int = 30):
         # list_sessions returns shells; events need the full read. Founder
         # scale (tens of sessions) keeps this cheap, and `limit` caps it.
         full = await db_session_service.get_session(
-            app_name=agent_app.name, user_id=FOUNDER_ID, session_id=s.id)
+            app_name=agent_app.name, user_id=founder_id, session_id=s.id)
         preview, first_agent, count = "", "", 0
         for event in (full.events if full else None) or []:
             content = getattr(event, "content", None)
@@ -844,10 +1318,13 @@ class SessionDeleteRequest(BaseModel):
     """Explicit confirmation for an irreversible founder action."""
 
     confirm: bool = False
+    client_request_id: str = Field(default="", max_length=128)
 
 
+@app.delete("/api/v1/sessions/{session_id}")
 @app.delete("/api/sessions/{session_id}")
-async def api_delete_session(session_id: str, payload: SessionDeleteRequest):
+async def api_delete_session(
+        session_id: str, payload: SessionDeleteRequest, request: Request):
     """Delete one founder-owned session and its exclusive session files.
 
     Shared/profile resources, external copies, and append-only audit records
@@ -860,16 +1337,54 @@ async def api_delete_session(session_id: str, payload: SessionDeleteRequest):
              "message": "explicit confirmation is required"},
             status_code=400,
         )
+    if (request.url.path.startswith("/api/sessions/")
+            and os.environ.get("K_SERVICE")):
+        return JSONResponse({"error": True, "error_code": "legacy_route_retired",
+                             "message": "Use the v1 sessions API."},
+                            status_code=410)
+    principal = await _route_principal(
+        request, legacy=request.url.path.startswith("/api/sessions/")
+        and not request.url.path.startswith("/api/v1/"))
+    if isinstance(principal, dict):
+        return JSONResponse(principal, status_code=401)
+    command = None
+    commands = CommandService(production_store())
+    if request.url.path.startswith("/api/v1/"):
+        client_request_id = str(getattr(payload, "client_request_id", "") or "")
+        if not client_request_id:
+            return JSONResponse(
+                {"error": True, "error_code": "command_contract_invalid",
+                 "message": "A client_request_id is required."}, status_code=400)
+        command = await commands.accept(
+            principal=principal, client_request_id=client_request_id,
+            command_type="session.delete",
+            request={"session_id": session_id, "confirm": True},
+            origin_session_id=session_id)
+        if command.get("error") or command.get("duplicate"):
+            return JSONResponse(command, status_code=command_http_status(command))
     result = await session_deletion.delete_session(
-        founder_id=FOUNDER_ID,
+        founder_id=principal.workspace_id,
         session_id=session_id,
         app_name=agent_app.name,
         session_service=db_session_service,
     )
     if result.get("error"):
+        if command is not None:
+            result = await commands.transition(
+                workspace_id=principal.workspace_id,
+                command_id=command["command_id"],
+                expected_version=command["version"], status="REJECTED",
+                error_code=str(result.get("error_code") or "session_delete_failed"))
         status = 404 if result.get("message") == "not found" else 409
         return JSONResponse(result, status_code=status)
-    return result
+    if command is None:
+        return result
+    terminal = await commands.transition(
+        workspace_id=principal.workspace_id, command_id=command["command_id"],
+        expected_version=command["version"], status="COMPLETED",
+        result_ref={"session_id": session_id,
+                    "deleted_files": int(result.get("deleted_files") or 0)})
+    return JSONResponse(terminal, status_code=200)
 
 
 # ---------------------------------------------------------------------------
@@ -891,62 +1406,72 @@ async def portal_event(event: PortalEvent, request: Request):
         return JSONResponse({"error": "bad portal token"}, status_code=401)
     if event.kind == "ping":
         return {"status": "ok", "ping": True}
-    # Idempotency: Pub/Sub-style redelivery or a portal retry must not
-    # re-advance state or re-wake the agent for the same confirmation.
-    dedupe_key = (f"portal_event:{event.kind}:{event.application_id}:"
-                  f"{event.confirmation_id}" if event.confirmation_id else "")
-    if dedupe_key and await firestore.find_successful_action(dedupe_key):
-        return {"status": "ok", "duplicate": True}
-    if event.session_id and not await _founder_session_exists(event.session_id):
+    if not event.application_id or not event.confirmation_id:
+        return JSONResponse({"error": "portal event identity is required"},
+                            status_code=400)
+    app_doc = await firestore.get_application_for_provider_event(
+        event.application_id)
+    workspace_id = str((app_doc or {}).get("founder_id") or "")
+    if not app_doc or not workspace_id:
+        return JSONResponse({"error": "unknown founder application"}, status_code=400)
+    if event.session_id and not await _workspace_session_exists(
+            workspace_id, event.session_id):
         return JSONResponse({"error": "unknown founder session"}, status_code=400)
+    receipt = await firestore.receive_portal_event(
+        workspace_id, event.application_id, event.kind,
+        event.confirmation_id, event.session_id)
+    if receipt.get("error"):
+        return JSONResponse(receipt, status_code=409)
+    if receipt.get("status") == "APPLIED":
+        wake_id = str(receipt.get("wake_delivery_id") or "")
+        if wake_id:
+            delivered = await _dispatch_wake_delivery(wake_id, workspace_id)
+            if delivered.get("error"):
+                return JSONResponse(delivered, status_code=503)
+        return {"status": "ok", "duplicate": True,
+                "receipt_id": receipt["receipt_id"]}
+    claim = await firestore.claim_portal_event(
+        workspace_id, receipt["receipt_id"])
+    if claim.get("in_progress"):
+        return JSONResponse(claim, status_code=503)
+    if claim.get("error") or not claim.get("claimed"):
+        return JSONResponse(claim, status_code=409)
     delta = {"pending_signals": []}
     target_step = (Step.FOLLOW_UP if event.kind == "submission_confirmed"
                    else Step.CLOSED if event.kind == "result_posted" else None)
     if event.application_id and target_step:
-        app_doc = await firestore.get_application(event.application_id)
-        if not app_doc or app_doc.get("founder_id") != FOUNDER_ID:
-            return JSONResponse({"error": "unknown founder application"}, status_code=400)
         current = app_doc.get("state") if app_doc else None
         # The mock can confirm while submit_form is still unwinding. Walk the
         # legal chain instead of attempting the invalid gate→follow-up leap.
         if current == Step.AWAITING_SUBMIT_APPROVAL:
             advanced = await pipeline_service.advance_application(
-                event.application_id, Step.SUBMITTED, actor="system:portal")
+                event.application_id, Step.SUBMITTED, actor="system:portal",
+                founder_id=workspace_id)
             current = advanced.get("current_step", current)
         if target_step == Step.CLOSED and current == Step.SUBMITTED:
             advanced = await pipeline_service.advance_application(
-                event.application_id, Step.FOLLOW_UP, actor="system:portal")
+                event.application_id, Step.FOLLOW_UP, actor="system:portal",
+                founder_id=workspace_id)
             current = advanced.get("current_step", current)
         if current != target_step:
             advanced = await pipeline_service.advance_application(
-                event.application_id, target_step, actor="system:portal")
+                event.application_id, target_step, actor="system:portal",
+                founder_id=workspace_id)
             current = advanced.get("current_step", current)
         if current == target_step:
             delta["current_step"] = target_step
-    if event.session_id:
-        wake_payload = {
-            "session_id": event.session_id,
-            "notice": f"Resume: portal event — {event.kind} {event.confirmation_id}".strip(),
-            "state_delta": delta,
-        }
-        if os.environ.get("K_SERVICE"):
-            from services import task_queue
-
-            queued = await asyncio.to_thread(
-                task_queue.enqueue, "/tasks/portal_wake", wake_payload,
-                dedupe_key or f"portal-wake:{uuid.uuid4().hex}")
-            if queued.get("status") != "success":
-                return JSONResponse(queued, status_code=503)
-        else:
-            await resume_handler.wake(
-                user_id=FOUNDER_ID, session_id=event.session_id,
-                notice=wake_payload["notice"], state_delta=delta)
-    if dedupe_key:
-        await firestore.audit(
-            "system:portal", f"portal_event_{event.kind}",
-            f"applications/{event.application_id}", "success",
-            event.confirmation_id, idempotency_key=dedupe_key)
-    return {"status": "ok"}
+    notice = f"Resume: portal event — {event.kind} {event.confirmation_id}".strip()
+    finished = await firestore.finish_portal_event(
+        workspace_id, receipt["receipt_id"], claim["lease_owner"],
+        notice=notice, state_delta=delta)
+    if finished.get("error"):
+        return JSONResponse(finished, status_code=409)
+    wake_id = str(finished.get("wake_delivery_id") or "")
+    if wake_id:
+        delivered = await _dispatch_wake_delivery(wake_id, workspace_id)
+        if delivered.get("error"):
+            return JSONResponse(delivered, status_code=503)
+    return {"status": "ok", "receipt_id": receipt["receipt_id"]}
 
 
 @app.post("/webhooks/deadline")
@@ -968,7 +1493,8 @@ async def deadline_webhook(request: Request):
 
         queued = await asyncio.to_thread(
             task_queue.enqueue, "/tasks/deadline_scan",
-            {"message_id": message_id}, f"deadline:{message_id}")
+            {"message_id": message_id}, f"deadline:{message_id}",
+            queue_name="co-founder-timers")
         if queued.get("status") != "success":
             return JSONResponse(queued, status_code=503)
         return {"status": "success", "queued": True,
@@ -978,22 +1504,36 @@ async def deadline_webhook(request: Request):
     return result
 
 
-async def _deadline_scan_and_nudge() -> dict:
+async def _deadline_scan_and_nudge(workspace_id: str = "") -> dict:
     """Deadline sentinel + proactive nudge (docs/08): anything newly CRITICAL
     is reported to the founder's chat, not just re-badged on the board."""
-    result = await discovery_service.deadline_scan()
+    if not workspace_id:
+        if not os.environ.get("K_SERVICE"):
+            return await _deadline_scan_and_nudge(FOUNDER_ID)
+        memberships = await production_store().list(
+            "workspace_members", filters={"status": "ACTIVE"}, limit=1000)
+        workspaces = sorted({str(row.get("workspace_id") or "")
+                             for row in memberships if row.get("workspace_id")})
+        results = [await _deadline_scan_and_nudge(value) for value in workspaces]
+        return {"status": "success", "workspace_count": len(workspaces),
+                "scanned": sum(int(row.get("scanned") or 0) for row in results),
+                "notified": sum(int(row.get("notified") or 0) for row in results)}
+    result = await discovery_service.deadline_scan(workspace_id)
     critical = result.get("newly_critical") or []
     if not critical:
         return result
     names = []
     for oid in critical:
-        opp = await firestore.get_opportunity(oid)
+        opp = await firestore.get_opportunity(oid, workspace_id)
         if opp:
             names.append(opp.get("name", oid))
     await _notify_founder(
         "System: deadline scan — newly CRITICAL: "
         + ", ".join(names)
-        + ". Tell the founder, with days left and what starting now requires.")
+        + ". Tell the founder, with days left and what starting now requires.",
+        source_kind="deadline",
+        source_id=hashlib.sha256("\x1f".join(sorted(critical)).encode()).hexdigest(),
+        founder_id=workspace_id)
     return {**result, "notified": len(names)}
 
 
@@ -1002,15 +1542,401 @@ async def _deadline_scan_and_nudge() -> dict:
 # is the only scheduled Pub/Sub wake)
 # ---------------------------------------------------------------------------
 
+@app.get("/api/v1/commands/{command_id}")
+async def api_v1_command(request: Request, command_id: str):
+    principal = await _platform_human(request)
+    if isinstance(principal, dict):
+        return JSONResponse(principal, status_code=401)
+    result = await CommandService(production_store()).get(
+        workspace_id=principal.workspace_id, command_id=command_id)
+    return JSONResponse(result, status_code=404 if result.get("error") else 200)
+
+
+@app.post("/api/v1/discovery-requests")
+async def api_v1_discovery_requests(request: Request,
+                                    payload: DiscoveryRequestPayload):
+    """Versioned, principal-scoped, receipted discovery command."""
+    principal = await _platform_human(request)
+    if isinstance(principal, dict):
+        return JSONResponse(principal, status_code=401)
+    if not await _workspace_session_exists(
+            principal.workspace_id, payload.session_id):
+        return JSONResponse({"error": "not found"}, status_code=404)
+    if not payload.client_request_id or not _REQUEST_ID.fullmatch(
+            payload.client_request_id):
+        return JSONResponse(
+            {"status": "error", "error": True,
+             "error_code": "command_contract_invalid",
+             "message": "A valid client_request_id is required."},
+            status_code=400)
+    normalized = discovery_service.normalize_discovery_context(payload.context)
+    context_hash = hashlib.sha256(normalized.encode()).hexdigest()
+    display_query = discovery_service.scrub_query_text(
+        normalized or DISCOVERY_DEFAULT_LABEL)[:500]
+    discovery_request_id = firestore.discovery_receipt_id(
+        principal.workspace_id, payload.client_request_id)
+    journey_id = stable_id(
+        "journey", principal.workspace_id, "discovery", discovery_request_id)
+    store = production_store()
+    run_creation = await WorkflowRuntime(store).prepare_run_creation(
+        workspace_id=principal.workspace_id, journey_id=journey_id,
+        run_kind=RunKind.OPPORTUNITY_DISCOVERY,
+        workflow_kind="opportunity_discovery:v1",
+        idempotency_key=discovery_request_id,
+        domain_ref=discovery_request_id,
+        originating_actor_id=principal.actor_id,
+        origin_session_id=payload.session_id)
+    if run_creation.get("error"):
+        return JSONResponse(run_creation, status_code=409)
+    domain_row = firestore.discovery_receipt_record(
+        payload.client_request_id, principal.workspace_id, context_hash,
+        origin_session_id=payload.session_id,
+        display_query=display_query, context=normalized,
+        workflow_run_id=run_creation["run_id"],
+        workflow_plan_hash=run_creation["run_record"]["plan_hash"],
+        workflow_plan_version=run_creation["run_record"]["plan_version"])
+    authority_mutations = (*run_creation["mutations"], AtomicMutation(
+        "discovery_requests", discovery_request_id, None, record=domain_row))
+    commands = CommandService(store)
+    command = await commands.accept(
+        principal=principal, client_request_id=payload.client_request_id,
+        command_type="opportunity_discovery.start",
+        request={"session_id": payload.session_id, "context": payload.context},
+        origin_session_id=payload.session_id,
+        run_id=run_creation["run_id"],
+        dispatch_ref=discovery_request_id,
+        authority_mutations=authority_mutations)
+    if command.get("error") or command.get("duplicate"):
+        return JSONResponse(command, status_code=command_http_status(command))
+    accepted = await _accept_discovery_request(
+        session_id=payload.session_id,
+        client_request_id=payload.client_request_id,
+        context=payload.context, founder_id=principal.workspace_id,
+        actor_id=principal.actor_id)
+    if accepted.get("error"):
+        terminal = await commands.transition(
+            workspace_id=principal.workspace_id,
+            command_id=command["command_id"],
+            expected_version=command["version"], status="REJECTED",
+            error_code="discovery_request_rejected")
+        return JSONResponse(terminal, status_code=400)
+    dispatch = await _dispatch_discovery(
+        accepted, founder_id=principal.workspace_id)
+    if dispatch.get("status") == "error":
+        transitioned = await commands.transition(
+            workspace_id=principal.workspace_id,
+            command_id=command["command_id"],
+            expected_version=command["version"], status="FAILED",
+            run_id=str(accepted.get("workflow_run_id") or ""),
+            error_code="dispatch_failed")
+        return JSONResponse(transitioned, status_code=409)
+    transitioned = await commands.transition(
+        workspace_id=principal.workspace_id,
+        command_id=command["command_id"],
+        expected_version=command["version"],
+        status="DISPATCHED" if os.environ.get("K_SERVICE") else "COMPLETED",
+        run_id=str(accepted.get("workflow_run_id") or ""),
+        result_ref=(None if os.environ.get("K_SERVICE") else {
+            "discovery_request_id": accepted["discovery_request_id"],
+            "resource_id": accepted["resource_id"],
+        }))
+    return JSONResponse(
+        transitioned, status_code=command_http_status(transitioned))
+
+
+@app.post("/api/v1/investor-outreach")
+async def api_v1_investor_outreach(
+        request: Request, payload: InvestorOutreachRequestV1):
+    """Start the same reviewed investor template used by chat and slash input."""
+    principal = await _platform_human(request)
+    if isinstance(principal, dict):
+        return JSONResponse(principal, status_code=401)
+    if not await _workspace_session_exists(
+            principal.workspace_id, payload.session_id):
+        return JSONResponse({"error": "not found"}, status_code=404)
+    try:
+        resolved = await _resolve_attachment_refs(
+            payload.artifact_refs, payload.session_id, principal.workspace_id)
+    except HTTPException as exc:
+        return JSONResponse({"error": True, "error_code": "attachment_not_found",
+                             "message": "A task reference was not found."},
+                            status_code=exc.status_code)
+    store = production_store()
+    service = investor_outreach_service.InvestorOutreachService(store)
+    prepared_creation = await service.prepare_start_creation(
+        principal=principal, objective=payload.objective,
+        origin_session_id=payload.session_id,
+        client_request_id=payload.client_request_id,
+        artifact_refs=[item["attachment_ref"] for item in resolved],
+        max_candidates=payload.max_candidates)
+    if prepared_creation.get("error"):
+        return JSONResponse(prepared_creation, status_code=409)
+    commands = CommandService(store)
+    command = await commands.accept(
+        principal=principal, client_request_id=payload.client_request_id,
+        command_type="investor_outreach.start",
+        request={"session_id": payload.session_id,
+                 "objective": payload.objective,
+                 "artifact_refs": payload.artifact_refs,
+                 "max_candidates": payload.max_candidates},
+        origin_session_id=payload.session_id,
+        run_id=str(prepared_creation["run"]["run_id"]),
+        dispatch_ref=str(prepared_creation["outreach"]["outreach_id"]),
+        authority_mutations=prepared_creation["mutations"])
+    if command.get("error") or command.get("duplicate"):
+        return JSONResponse(command, status_code=command_http_status(command))
+    started = await service.start(
+        principal=principal, objective=payload.objective,
+        origin_session_id=payload.session_id,
+        client_request_id=payload.client_request_id,
+        artifact_refs=[item["attachment_ref"] for item in resolved],
+        max_candidates=payload.max_candidates)
+    if started.get("error"):
+        terminal = await commands.transition(
+            workspace_id=principal.workspace_id,
+            command_id=command["command_id"], expected_version=command["version"],
+            status="REJECTED", error_code=str(
+                started.get("error_code") or "outreach_rejected"))
+        return JSONResponse(terminal, status_code=409)
+    if os.environ.get("K_SERVICE"):
+        from services.command_dispatcher import CommandDispatcher
+
+        delivery = await CommandDispatcher(store).dispatch(
+            stable_id("cmdoutbox", command["command_id"], "dispatch"))
+        if delivery.get("error"):
+            # Receipt/outbox/run/domain all remain durable and pending. The
+            # bounded recovery job retries; a queue outage is not a false
+            # terminal workflow failure.
+            return JSONResponse(delivery, status_code=503)
+        dispatched = delivery["command"]
+        return JSONResponse({**dispatched,
+                             "outreach_id": started["outreach"]["outreach_id"]},
+                            status_code=202)
+    dispatched = command
+    prepared = await _prepare_investor_outreach(
+        principal.workspace_id, started["outreach"]["outreach_id"])
+    terminal = await commands.transition(
+        workspace_id=principal.workspace_id,
+        command_id=command["command_id"], expected_version=dispatched["version"],
+        status="FAILED" if prepared.get("error") else "COMPLETED",
+        run_id=started["run"]["run_id"],
+        result_ref=(None if prepared.get("error") else {
+            "outreach_id": started["outreach"]["outreach_id"],
+            "draft_count": len(prepared.get("drafts") or [])}),
+        error_code=str(prepared.get("error_code") or ""))
+    return JSONResponse(terminal, status_code=503 if prepared.get("error") else 200)
+
+
+@app.get("/api/v1/investor-outreach")
+async def api_v1_list_investor_outreach(request: Request, session_id: str):
+    """List founder-visible outreach runs for one owned conversation."""
+    principal = await _platform_human(request)
+    if isinstance(principal, dict):
+        return JSONResponse(principal, status_code=401)
+    if not await _workspace_session_exists(principal.workspace_id, session_id):
+        return JSONResponse({"error": "not found"}, status_code=404)
+    store = production_store()
+    rows = await store.list(
+        "investor_outreach",
+        filters={"workspace_id": principal.workspace_id,
+                 "origin_session_id": session_id}, limit=100)
+    results = []
+    for row in rows:
+        run = await store.get("workflow_runs", str(row.get("run_id") or ""))
+        drafts = await store.list(
+            "outreach_drafts",
+            filters={"workspace_id": principal.workspace_id,
+                     "outreach_id": row["outreach_id"]}, limit=100)
+        visible_drafts = []
+        for draft in drafts:
+            approval = (await store.get(
+                "approvals", str(draft.get("approval_id") or ""))
+                if draft.get("approval_id") else None)
+            action = (await store.get(
+                "external_actions", str(
+                    draft.get("action_id")
+                    or (approval or {}).get("claimed_action_id") or ""))
+                if (draft.get("action_id")
+                    or (approval or {}).get("claimed_action_id")) else None)
+            visible_drafts.append({
+                **draft,
+                "approval_status": (approval or {}).get("status"),
+                "action_status": (action or {}).get("status"),
+            })
+        results.append({**row, "drafts": visible_drafts,
+                        "run": run if run and run.get("workspace_id") == principal.workspace_id else None})
+    results.sort(key=lambda item: str(item.get("created_at") or ""), reverse=True)
+    return {"status": "success", "outreaches": results}
+
+
+@app.get("/api/v1/investor-outreach/{outreach_id}")
+async def api_v1_get_investor_outreach(request: Request, outreach_id: str):
+    principal = await _platform_human(request)
+    if isinstance(principal, dict):
+        return JSONResponse(principal, status_code=401)
+    store = production_store()
+    row = await store.get("investor_outreach", outreach_id)
+    if not row or row.get("workspace_id") != principal.workspace_id:
+        return JSONResponse({"error": "not found"}, status_code=404)
+    drafts = await store.list(
+        "outreach_drafts",
+        filters={"workspace_id": principal.workspace_id,
+                 "outreach_id": outreach_id}, limit=100)
+    return {"status": "success", "outreach": row, "drafts": drafts}
+
+
+@app.post("/api/v1/investor-outreach/{outreach_id}:retry")
+async def api_v1_retry_investor_outreach(
+        request: Request, outreach_id: str, payload: InvestorDraftCommandV1):
+    """Retry only the reversible research/rank/draft preparation cut."""
+    principal = await _platform_human(request)
+    if isinstance(principal, dict):
+        return JSONResponse(principal, status_code=401)
+    store = production_store()
+    outreach = await store.get("investor_outreach", outreach_id)
+    if (not outreach or outreach.get("workspace_id") != principal.workspace_id):
+        return JSONResponse({"error": "not found"}, status_code=404)
+    if outreach.get("domain_state") not in {
+            "SCOPING", "SOURCING", "QUALIFYING", "DRAFTING_OUTREACH"}:
+        return JSONResponse(
+            {"status": "error", "error": True,
+             "error_code": "outreach_retry_unsafe",
+             "message": "Only reversible preparation work can be retried."},
+            status_code=409)
+    commands = CommandService(store)
+    command = await commands.accept(
+        principal=principal, client_request_id=payload.client_request_id,
+        command_type="investor_outreach.retry_prepare",
+        request={"outreach_id": outreach_id})
+    if command.get("error") or command.get("duplicate"):
+        return JSONResponse(command, status_code=command_http_status(command))
+    if os.environ.get("K_SERVICE"):
+        dispatched = await commands.transition(
+            workspace_id=principal.workspace_id, command_id=command["command_id"],
+            expected_version=command["version"], status="DISPATCHED",
+            run_id=str(outreach.get("run_id") or ""))
+        from services import task_queue
+
+        queued = await asyncio.to_thread(
+            task_queue.enqueue, "/tasks/investor_outreach_prepare",
+            {"workspace_id": principal.workspace_id,
+             "outreach_id": outreach_id, "command_id": command["command_id"]},
+            f"investor-retry:{outreach_id}:{payload.client_request_id}",
+            queue_name="co-founder-discovery-ingestion")
+        if queued.get("error"):
+            failed = await commands.transition(
+                workspace_id=principal.workspace_id,
+                command_id=command["command_id"],
+                expected_version=dispatched["version"], status="FAILED",
+                error_code="dispatch_failed")
+            return JSONResponse(failed, status_code=503)
+        return JSONResponse(dispatched, status_code=202)
+    result = await _prepare_investor_outreach(
+        principal.workspace_id, outreach_id)
+    terminal = await commands.transition(
+        workspace_id=principal.workspace_id, command_id=command["command_id"],
+        expected_version=command["version"],
+        status="FAILED" if result.get("error") else "COMPLETED",
+        run_id=str(outreach.get("run_id") or ""),
+        result_ref=None if result.get("error") else {"outreach_id": outreach_id},
+        error_code=str(result.get("error_code") or ""))
+    return JSONResponse(terminal, status_code=503 if result.get("error") else 200)
+
+
+@app.post("/api/v1/outreach-drafts/{draft_id}:request-approval")
+async def api_v1_request_investor_send_approval(
+        request: Request, draft_id: str, payload: InvestorDraftCommandV1):
+    principal = await _platform_human(request)
+    if isinstance(principal, dict):
+        return JSONResponse(principal, status_code=401)
+    store = production_store()
+    commands = CommandService(store)
+    command = await commands.accept(
+        principal=principal, client_request_id=payload.client_request_id,
+        command_type="investor_outreach.request_send_approval",
+        request={"draft_id": draft_id})
+    if command.get("error") or command.get("duplicate"):
+        return JSONResponse(command, status_code=command_http_status(command))
+    result = await investor_outreach_service.InvestorOutreachService(
+        store).request_send_approval(
+            principal=principal, draft_id=draft_id,
+            client_request_id=payload.client_request_id)
+    terminal = await commands.transition(
+        workspace_id=principal.workspace_id, command_id=command["command_id"],
+        expected_version=command["version"],
+        status="COMPLETED" if not result.get("error") else "REJECTED",
+        result_ref=({"draft_id": draft_id,
+                     "approval_id": (result.get("approval") or {}).get(
+                         "approval_id")}
+                    if not result.get("error") else None),
+        error_code=str(result.get("error_code") or "approval_request_failed"))
+    return JSONResponse(terminal, status_code=200 if not result.get("error") else 409)
+
+
+@app.post("/api/v1/outreach-drafts/{draft_id}:send")
+async def api_v1_send_investor_draft(
+        request: Request, draft_id: str, payload: InvestorDraftCommandV1):
+    principal = await _platform_human(request)
+    if isinstance(principal, dict):
+        return JSONResponse(principal, status_code=401)
+    store = production_store()
+    draft = await store.get("outreach_drafts", draft_id)
+    if not draft or draft.get("workspace_id") != principal.workspace_id:
+        return JSONResponse({"error": "not found"}, status_code=404)
+    commands = CommandService(store)
+    command = await commands.accept(
+        principal=principal, client_request_id=payload.client_request_id,
+        command_type="investor_outreach.send", request={"draft_id": draft_id})
+    if command.get("error") or command.get("duplicate"):
+        return JSONResponse(command, status_code=command_http_status(command))
+    if os.environ.get("K_SERVICE"):
+        dispatched = await commands.transition(
+            workspace_id=principal.workspace_id,
+            command_id=command["command_id"], expected_version=command["version"],
+            status="DISPATCHED", run_id=str(draft.get("run_id") or ""))
+        from services import task_queue
+
+        queued = await asyncio.to_thread(
+            task_queue.enqueue, "/tasks/investor_outreach_send",
+            {"workspace_id": principal.workspace_id, "draft_id": draft_id,
+             "command_id": command["command_id"]},
+            f"investor-send:{draft_id}:{payload.client_request_id}",
+            queue_name="co-founder-provider-events")
+        if queued.get("error"):
+            failed = await commands.transition(
+                workspace_id=principal.workspace_id,
+                command_id=command["command_id"],
+                expected_version=dispatched["version"], status="FAILED",
+                error_code="dispatch_failed")
+            return JSONResponse(failed, status_code=503)
+        return JSONResponse(dispatched, status_code=202)
+    result = await investor_outreach_service.InvestorOutreachService(
+        store).send_approved(workspace_id=principal.workspace_id,
+                             draft_id=draft_id)
+    terminal = await commands.transition(
+        workspace_id=principal.workspace_id, command_id=command["command_id"],
+        expected_version=command["version"],
+        status="COMPLETED" if not result.get("error") else "FAILED",
+        run_id=str(draft.get("run_id") or ""),
+        result_ref=({"draft_id": draft_id,
+                     "action_id": (result.get("action") or {}).get("action_id")}
+                    if not result.get("error") else None),
+        error_code=str(result.get("error_code") or "send_failed"))
+    return JSONResponse(terminal, status_code=200 if not result.get("error") else 409)
+
 @app.post("/api/discovery-requests")
 async def api_discovery_requests(payload: DiscoveryRequestPayload):
     """Founder-facing discovery boundary (docs/23 §6.2): validate, durably
     persist receipt + resource + session link, then dispatch a task carrying
     only stable IDs. The UI never calls /tasks/discover directly."""
+    if os.environ.get("K_SERVICE"):
+        return JSONResponse(
+            {"error": True, "error_code": "legacy_route_retired",
+             "message": "Use POST /api/v1/discovery-requests."}, status_code=410)
     accepted = await _accept_discovery_request(
         session_id=payload.session_id,
         client_request_id=payload.client_request_id,
-        context=payload.context)
+        context=payload.context, session_exists=_founder_session_exists)
     if accepted.get("error"):
         return JSONResponse(
             {"status": "error", "error": True,
@@ -1037,8 +1963,18 @@ async def tasks_discover(request: Request,
     if not await _verify_task_caller(request):
         return JSONResponse({"error": "unauthorized"}, status_code=401)
     body = payload or DiscoverTaskPayload()
+    if os.environ.get("K_SERVICE") and not body.discovery_request_id:
+        return JSONResponse(
+            {"error": True, "error_code": "receipt_required",
+             "message": "Production discovery requires a durable receipt."},
+            status_code=400)
     result = await _discover_and_score(
         discovery_request_id=body.discovery_request_id,
+        # Deployed deliveries must carry a durable receipt and derive tenancy
+        # from it. The fallback exists only for local, pre-receipt tasks still
+        # exercised by compatibility tests and cannot run in Cloud Run.
+        founder_id=(body.founder_id or
+                    ("" if os.environ.get("K_SERVICE") else FOUNDER_ID)),
         context=body.context,
         client_request_id=body.client_request_id,
         session_id=body.session_id,
@@ -1068,6 +2004,53 @@ async def tasks_ingest_document(request: Request, payload: IngestTaskPayload):
     return result
 
 
+@app.post("/tasks/investor_outreach_prepare")
+async def tasks_investor_outreach_prepare(
+        request: Request, payload: InvestorOutreachPrepareTask):
+    """Prepare research/ranking/drafts; the worker has no send authority."""
+    if not await _verify_task_caller(request):
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    result = await _prepare_investor_outreach(
+        payload.workspace_id, payload.outreach_id,
+        command_id=payload.command_id)
+    if result.get("error"):
+        return JSONResponse(result, status_code=503)
+    return result
+
+
+@app.post("/tasks/investor_outreach_send")
+async def tasks_investor_outreach_send(
+        request: Request, payload: InvestorSendTask):
+    """Execute one exact-approved draft through the consequence boundary."""
+    if not await _verify_task_caller(request):
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    store = production_store()
+    result = await investor_outreach_service.InvestorOutreachService(
+        store).send_approved(
+            workspace_id=payload.workspace_id, draft_id=payload.draft_id)
+    commands = CommandService(store)
+    receipt = await commands.get(
+        workspace_id=payload.workspace_id, command_id=payload.command_id)
+    if not receipt.get("error") and receipt.get("status") not in {
+            "COMPLETED", "FAILED", "REJECTED"}:
+        await commands.transition(
+            workspace_id=payload.workspace_id, command_id=payload.command_id,
+            expected_version=receipt["version"],
+            status="FAILED" if result.get("error") else "COMPLETED",
+            run_id=str((result.get("draft") or {}).get("run_id") or ""),
+            result_ref=(None if result.get("error") else {
+                "draft_id": payload.draft_id,
+                "action_id": (result.get("action") or {}).get("action_id")}),
+            error_code=str(result.get("error_code") or "send_failed"))
+    if result.get("error"):
+        # UNCERTAIN is durable and must not trigger a blind provider retry.
+        status_code = 200 if result.get("error_code") in {
+            "provider_outcome_uncertain", "reconciliation_required",
+            "action_projection_reconciliation_required"} else 503
+        return JSONResponse(result, status_code=status_code)
+    return result
+
+
 @app.post("/tasks/reconcile_ingestion_orphans")
 async def tasks_reconcile_ingestion_orphans(request: Request):
     """Manually/task-invoked cleanup; no polling or always-on worker."""
@@ -1076,6 +2059,16 @@ async def tasks_reconcile_ingestion_orphans(request: Request):
     from services import source_ingestion
 
     return await source_ingestion.reconcile_orphans()
+
+
+@app.post("/tasks/dispatch_command_outbox")
+async def tasks_dispatch_command_outbox(request: Request):
+    """Recover accepted commands whose post-commit queue handoff was lost."""
+    if not await _verify_task_caller(request):
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    from services.command_dispatcher import CommandDispatcher
+
+    return await CommandDispatcher(production_store()).dispatch_pending(limit=100)
 
 
 async def _register_discovery_outputs(receipt: dict, summary: dict) -> None:
@@ -1087,11 +2080,14 @@ async def _register_discovery_outputs(receipt: dict, summary: dict) -> None:
     receipt_id = receipt.get("id") or ""
     origin = receipt.get("origin_session_id") or ""
     resource_id = receipt.get("resource_id") or ""
+    founder_id = str(receipt.get("founder_id") or receipt.get("workspace_id") or "")
+    if not founder_id:
+        return
     executed = (summary.get("executed_queries") or [])[:12]
     opportunity_ids = (summary.get("opportunity_ids") or [])[:100]
     try:
         await firestore.update_discovery_receipt(
-            request_id, FOUNDER_ID,
+            request_id, founder_id,
             {"executed_queries": executed,
              "result_opportunity_ids": opportunity_ids})
     except Exception:  # noqa: BLE001 — projection metadata is best-effort
@@ -1115,11 +2111,11 @@ async def _register_discovery_outputs(receipt: dict, summary: dict) -> None:
         return
     for oid in opportunity_ids:
         try:
-            opp = await firestore.get_opportunity(oid)
+            opp = await firestore.get_opportunity(oid, founder_id)
             if not opp:
                 continue
             await session_resources.register_session_resource(
-                founder_id=FOUNDER_ID, session_id=origin,
+                founder_id=founder_id, session_id=origin,
                 resource_type=session_resources.ResourceType.OPPORTUNITY,
                 canonical_id=oid,
                 relationship=session_resources.Relationship.DISCOVERED,
@@ -1140,6 +2136,7 @@ async def _discover_and_score(context: str | None = None,
                               client_request_id: str | None = None,
                               session_id: str | None = None,
                               discovery_request_id: str | None = None,
+                              founder_id: str = "",
                               on_started=None) -> dict:
     """Autonomous pipeline (docs/08): sweep, then wake the agent on a headless
     system session to score the new finds — discover → matchmake with no human
@@ -1154,16 +2151,25 @@ async def _discover_and_score(context: str | None = None,
     if discovery_request_id:
         receipt = await firestore.get_discovery_request_by_id(
             discovery_request_id)
-        if not receipt or receipt.get("founder_id") != FOUNDER_ID:
+        receipt_founder = str(
+            (receipt or {}).get("founder_id")
+            or (receipt or {}).get("workspace_id") or "")
+        if (not receipt or not receipt_founder
+                or (founder_id and receipt_founder != founder_id)):
             # Not-yet-visible or foreign receipt: 503-driven redelivery is the
             # safe outcome; never run without durable authority.
             return {"status": "error", "error": True,
                     "message": "unknown discovery request"}
+        founder_id = receipt_founder
         client_request_id = receipt.get("request_id")
         context = receipt.get("context", "")
         session_id = None  # legacy delivery param is unused on this path
 
     normalized_context = discovery_service.normalize_discovery_context(context)
+    if not founder_id:
+        return {"status": "error", "error": True,
+                "error_code": "workspace_authority_missing",
+                "message": "Discovery has no durable workspace authority."}
     lease_owner = ""
     if client_request_id:
         if not _REQUEST_ID.fullmatch(client_request_id):
@@ -1171,7 +2177,7 @@ async def _discover_and_score(context: str | None = None,
                     "message": "invalid client_request_id"}
         context_hash = hashlib.sha256(normalized_context.encode()).hexdigest()
         claim = await firestore.claim_discovery_request(
-            client_request_id, FOUNDER_ID, context_hash)
+            client_request_id, founder_id, context_hash)
         if claim.get("conflict"):
             return {"status": "error", "error": True,
                     "message": "client_request_id was reused for different context"}
@@ -1185,10 +2191,13 @@ async def _discover_and_score(context: str | None = None,
         if on_started is not None:
             await on_started()
         summary = await discovery_service.run_sweep(
-            get_workflow(), FOUNDER_ID, context=normalized_context)
+            get_workflow(), founder_id,
+            context=normalized_context)
         if receipt is not None:
             await _register_discovery_outputs(receipt, summary)
-        unscored = await firestore.list_unscored_opportunities()
+        workspace_id = founder_id
+        unscored = await firestore.list_unscored_opportunities(
+            founder_id=workspace_id)
         if (not unscored and summary.get("new", 0) == 0 and not session_id
                 and receipt is None):
             # Preserve the quiet button behavior. Conversational requests carry
@@ -1196,20 +2205,22 @@ async def _discover_and_score(context: str | None = None,
             result = {"status": "success", "summary": summary, "shortlisted": 0}
             if client_request_id:
                 await firestore.finish_discovery_request(
-                    client_request_id, FOUNDER_ID, lease_owner, "COMPLETE", result)
+                    client_request_id, workspace_id, lease_owner, "COMPLETE", result)
             return result
         if unscored:
             system_session_id = "system-discovery"
             existing = await db_session_service.get_session(
-                app_name=agent_app.name, user_id="system", session_id=system_session_id)
+                app_name=agent_app.name, user_id=workspace_id,
+                session_id=system_session_id)
             if existing is None:
                 await db_session_service.create_session(
-                    app_name=agent_app.name, user_id="system", session_id=system_session_id,
+                    app_name=agent_app.name, user_id=workspace_id,
+                    session_id=system_session_id,
                     state={"current_step": "IDLE", "active_application_id": "",
                            "checklist_status": [], "pending_signals": [],
-                           "user:profile_id": FOUNDER_ID})
+                           "user:profile_id": workspace_id})
             await resume_handler.wake(
-                user_id="system", session_id=system_session_id,
+                user_id=workspace_id, session_id=system_session_id,
                 notice=(f"System: discovery sweep complete ({summary.get('new', 0)} new, "
                         f"{len(unscored)} unscored). Score every unscored opportunity "
                         "against the Founder Profile via matchmaker_agent: shortlist "
@@ -1217,7 +2228,7 @@ async def _discover_and_score(context: str | None = None,
                         "reason. Act and stop — nobody is here to answer questions."),
                 state_delta={})
 
-        board = await pipeline_service.board(FOUNDER_ID)
+        board = await pipeline_service.board(workspace_id)
         shortlisted = board.get("opportunities", {}).get("SHORTLISTED", [])
         names = ", ".join(o.get("name", "?") for o in shortlisted[:5]) or "none"
         if not unscored and summary.get("new", 0) == 0:
@@ -1230,27 +2241,35 @@ async def _discover_and_score(context: str | None = None,
                 f"System: discovery sweep finished — {summary.get('new', 0)} new programs "
                 f"found; {len(shortlisted)} currently shortlisted ({names}). Report what "
                 "you found, urgent first, and recommend one concrete next move.")
+        result = {"status": "success", "summary": summary,
+                  "shortlisted": len(shortlisted)}
+        if client_request_id:
+            await firestore.finish_discovery_request(
+                client_request_id, workspace_id, lease_owner, "COMPLETE", result)
         if receipt is not None:
             # Origin-bound completion (docs/23 §6.2): target the receipt's
             # origin session; a missing origin gets NO fabricated wake and no
             # latest-session fallback — the receipt records completion.
             origin = receipt.get("origin_session_id") or ""
-            if origin and await _founder_session_exists(origin):
-                await _notify_founder(notice, session_id=origin)
+            if origin and await _workspace_session_exists(workspace_id, origin):
+                await _notify_founder(
+                    notice, session_id=origin, source_kind="discovery",
+                    source_id=str(receipt.get("id") or client_request_id or ""),
+                    founder_id=workspace_id)
         else:
-            await _notify_founder(notice, session_id=session_id)
-        result = {"status": "success", "summary": summary,
-                  "shortlisted": len(shortlisted)}
-        if client_request_id:
-            await firestore.finish_discovery_request(
-                client_request_id, FOUNDER_ID, lease_owner, "COMPLETE", result)
+            await _notify_founder(
+                notice, session_id=session_id, source_kind="discovery",
+                source_id=str(client_request_id or "legacy-discovery:" +
+                              hashlib.sha256(notice.encode()).hexdigest()),
+                founder_id=workspace_id)
         return result
     except Exception as exc:
         logging.getLogger(__name__).exception("discovery request failed")
         if client_request_id and lease_owner:
             try:
                 await firestore.finish_discovery_request(
-                    client_request_id, FOUNDER_ID, lease_owner, "FAILED",
+                    client_request_id, founder_id,
+                    lease_owner, "FAILED",
                     {"error": str(exc)[:200]})
             except Exception:
                 logging.getLogger(__name__).exception(
@@ -1267,9 +2286,27 @@ async def tasks_deadline_scan(request: Request):
 
 
 class PortalWakeRequest(BaseModel):
+    workspace_id: str
     session_id: str
     notice: str
     state_delta: dict
+
+
+class WakeDeliveryRequest(BaseModel):
+    delivery_id: str
+    workspace_id: str = ""
+
+
+class WorkflowTimerCheckpointRequest(BaseModel):
+    workspace_id: str
+    wait_id: str
+    expected_generation: int = Field(ge=1)
+    checkpoint_generation: int = Field(ge=1)
+
+
+class WorkflowTimerRecoverRequest(BaseModel):
+    workspace_id: str
+    wait_id: str
 
 
 class BrowserExpireRequest(BaseModel):
@@ -1290,12 +2327,55 @@ async def tasks_portal_wake(payload: PortalWakeRequest, request: Request):
     """Cloud Tasks worker: acknowledge only after the agent wake completes."""
     if not await _verify_task_caller(request):
         return JSONResponse({"error": "unauthorized"}, status_code=401)
-    if not await _founder_session_exists(payload.session_id):
+    if not await _workspace_session_exists(
+            payload.workspace_id, payload.session_id):
         return JSONResponse({"error": "unknown founder session"}, status_code=404)
     await resume_handler.wake(
-        user_id=FOUNDER_ID, session_id=payload.session_id,
+        user_id=payload.workspace_id, session_id=payload.session_id,
         notice=payload.notice, state_delta=payload.state_delta)
     return {"status": "success"}
+
+
+@app.post("/tasks/wake_delivery")
+async def tasks_wake_delivery(payload: WakeDeliveryRequest, request: Request):
+    """Deliver a durable founder wake; non-2xx makes Cloud Tasks retry."""
+    if not await _verify_task_caller(request):
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    if not payload.workspace_id:
+        return JSONResponse({"error": "workspace_id required"}, status_code=400)
+    result = await _run_wake_delivery(
+        payload.delivery_id, payload.workspace_id)
+    if result.get("error"):
+        return JSONResponse(result, status_code=503)
+    return result
+
+
+@app.post("/tasks/workflow_timer_checkpoint")
+async def tasks_workflow_timer_checkpoint(
+        payload: WorkflowTimerCheckpointRequest, request: Request):
+    """Deliver one generation-fenced durable timer checkpoint."""
+    if not await _verify_task_caller(request):
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    result = await workflow_timer_service.deliver_timer_checkpoint(
+        workspace_id=payload.workspace_id, wait_id=payload.wait_id,
+        expected_generation=payload.expected_generation,
+        checkpoint_generation=payload.checkpoint_generation)
+    if result.get("error"):
+        return JSONResponse(result, status_code=503)
+    return result
+
+
+@app.post("/tasks/workflow_timer_recover")
+async def tasks_workflow_timer_recover(
+        payload: WorkflowTimerRecoverRequest, request: Request):
+    """Explicit repair lane for a visible PENDING/FAILED timer receipt."""
+    if not await _verify_task_caller(request):
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    result = await workflow_timer_service.recover_timer(
+        workspace_id=payload.workspace_id, wait_id=payload.wait_id)
+    if result.get("error"):
+        return JSONResponse(result, status_code=503)
+    return result
 
 
 class DistillRequest(BaseModel):
@@ -1320,8 +2400,9 @@ async def api_config():
     return {"persona_name": PERSONA_NAME, "workflow_id": os.environ.get("WORKFLOW_FILE", "")}
 
 
-@app.get("/api/pipeline")
-async def api_pipeline(session_id: str = ""):
+@app.get("/api/v1/pipeline")
+@app.get("/api/pipeline", include_in_schema=False)
+async def api_pipeline(request: Request, session_id: str = ""):
     """Return the founder pipeline, optionally scoped to one conversation.
 
     Session scoping is resolved from the durable many-to-many resource links,
@@ -1329,14 +2410,26 @@ async def api_pipeline(session_id: str = ""):
     That keeps a deduplicated opportunity visible in every conversation that
     discovered or selected it without assigning ownership to chat history.
     """
-    if session_id and not await _founder_session_exists(session_id):
+    if request.url.path == "/api/pipeline" and os.environ.get("K_SERVICE"):
+        return JSONResponse({"error": True, "error_code": "legacy_route_retired",
+                             "message": "Use GET /api/v1/pipeline."},
+                            status_code=410)
+    principal = await _route_principal(
+        request, legacy=request.url.path == "/api/pipeline")
+    if isinstance(principal, dict):
+        return JSONResponse(principal, status_code=401)
+    founder_id = principal.workspace_id
+    session_exists = (_founder_session_exists
+                      if request.url.path == "/api/pipeline"
+                      else lambda sid: _workspace_session_exists(founder_id, sid))
+    if session_id and not await session_exists(session_id):
         return JSONResponse({"error": "not found"}, status_code=404)
-    board = await pipeline_service.board(FOUNDER_ID)
+    board = await pipeline_service.board(founder_id)
     if not session_id:
         return board
 
     linked = await session_resources.all_session_resources_for(
-        FOUNDER_ID, session_id)
+        founder_id, session_id)
     ids_by_type: dict[str, set[str]] = {}
     for resource in linked.get("resources", []):
         canonical_id = str((resource.get("canonical_ref") or {}).get("id") or "")
@@ -1363,15 +2456,25 @@ async def api_pipeline(session_id: str = ""):
 
 @app.get("/api/audit")
 async def api_audit():
+    if os.environ.get("K_SERVICE"):
+        return JSONResponse(
+            {"error": True, "error_code": "legacy_route_retired",
+             "message": "Workspace audit export is not available yet."},
+            status_code=410)
     return {"status": "success", "audit": await firestore.list_audit()}
 
 
 async def _founder_session_exists(session_id: str) -> bool:
     """Resolve identity server-side exactly once; callers never supply user_id."""
+    return await _workspace_session_exists(FOUNDER_ID, session_id)
+
+
+async def _workspace_session_exists(workspace_id: str, session_id: str) -> bool:
+    """Verify a Cloud SQL conversation under its resolved workspace owner."""
     if not session_id:
         return False
     session = await db_session_service.get_session(
-        app_name=agent_app.name, user_id=FOUNDER_ID, session_id=session_id)
+        app_name=agent_app.name, user_id=workspace_id, session_id=session_id)
     return session is not None
 
 
@@ -1380,22 +2483,26 @@ browser_routes.configure(
     app_name=agent_app.name,
     founder_id=FOUNDER_ID,
     session_exists=_founder_session_exists,
+    principal_resolver=_platform_human,
+    workspace_session_exists=_workspace_session_exists,
 )
 app.include_router(browser_routes.router)
+app.include_router(browser_worker_routes.router)
 
 # Session-resource registration verifies founder-session ownership through the
 # same server-side check (docs/23 §3 invariant 6).
 session_resources.configure(session_exists=_founder_session_exists)
 
 
-async def _founder_session_state(session_id: str) -> dict | None:
+async def _founder_session_state(
+        founder_id: str, session_id: str) -> dict | None:
     """Read one founder session's state for the waiting adapter (docs/24 §4).
 
     Returns None rather than raising when the store is unreachable, so waits
     derived from Firestore still render (docs/24 §10)."""
     try:
         session = await db_session_service.get_session(
-            app_name=agent_app.name, user_id=FOUNDER_ID, session_id=session_id)
+            app_name=agent_app.name, user_id=founder_id, session_id=session_id)
     except Exception:  # noqa: BLE001 — one reader never blanks the digest
         logging.getLogger(__name__).exception("session state read failed")
         return None
@@ -1405,15 +2512,28 @@ async def _founder_session_state(session_id: str) -> dict | None:
 waiting.configure(session_state_reader=_founder_session_state)
 
 
-@app.get("/api/applications/{application_id}")
-async def api_application(application_id: str, session_id: str):
-    if not await _founder_session_exists(session_id):
+@app.get("/api/v1/applications/{application_id}")
+@app.get("/api/applications/{application_id}", include_in_schema=False)
+async def api_application(
+        application_id: str, session_id: str, request: Request):
+    if (request.url.path.startswith("/api/applications/")
+            and os.environ.get("K_SERVICE")):
+        return JSONResponse({"error": True, "error_code": "legacy_route_retired",
+                             "message": "Use the v1 applications API."},
+                            status_code=410)
+    principal = await _route_principal(
+        request, legacy=request.url.path.startswith("/api/applications/")
+        and not request.url.path.startswith("/api/v1/"))
+    if isinstance(principal, dict):
+        return JSONResponse(principal, status_code=401)
+    founder_id = principal.workspace_id
+    if not await _workspace_session_exists(founder_id, session_id):
         return JSONResponse({"error": "not found"}, status_code=404)
-    app_doc = await firestore.get_application(application_id)
-    if not app_doc or app_doc.get("founder_id") != FOUNDER_ID:
+    app_doc = await firestore.get_application(application_id, founder_id)
+    if not app_doc or app_doc.get("founder_id") != founder_id:
         return JSONResponse({"error": "not found"}, status_code=404)
     pending = await firestore.find_pending_approval(
-        application_id, founder_id=FOUNDER_ID, session_id=session_id)
+        application_id, founder_id=founder_id, session_id=session_id)
     app_doc["pending_approval_id"] = pending["id"] if pending else None
     app_doc["evidence_check"] = await _current_evidence_check(app_doc)
     return app_doc
@@ -1434,14 +2554,19 @@ async def _current_evidence_check(app_doc: dict) -> dict | None:
     try:
         # Ownership is enforced in the accessor: a corrupted or guessed pointer
         # must not be able to surface another founder's report.
+        workspace_id = str(
+            app_doc.get("workspace_id") or app_doc.get("founder_id") or "")
+        if not workspace_id:
+            return None
         report = await firestore.get_evidence_check(
-            report_id,
-            founder_id=app_doc.get("founder_id") or FOUNDER_ID,
+            report_id, founder_id=workspace_id,
             application_id=app_doc.get("id") or "")
         if not report:
             return None
-        profile = await profile_service.get_profile(app_doc.get("founder_id") or FOUNDER_ID) or {}
-        opportunity = (await firestore.get_opportunity(app_doc.get("opportunity_id") or "")
+        profile = await profile_service.get_profile(workspace_id) or {}
+        opportunity = (await firestore.get_opportunity(
+            app_doc.get("opportunity_id") or "",
+            workspace_id)
                        if app_doc.get("opportunity_id") else None)
         if gemma_evidence.is_stale(
                 report, app_doc, profile, opportunity,
@@ -1463,35 +2588,113 @@ class FeedbackRequest(BaseModel):
     edited_text: str = ""
 
 
-@app.post("/api/feedback")
-async def api_feedback(payload: FeedbackRequest):
-    """Review controls — the distiller runs inline (synchronous, docs/07)."""
-    # Session-ownership check, same as the approval/application siblings: the
-    # feedback (and its resume wake) only acts on the founder's own session.
-    if not await _founder_session_exists(payload.session_id):
-        return JSONResponse({"error": "not found"}, status_code=404)
+class FeedbackRequestV1(FeedbackRequest):
+    client_request_id: str = Field(min_length=8, max_length=128)
+
+
+async def _run_wake_delivery(delivery_id: str,
+                             founder_id: str = FOUNDER_ID) -> dict:
+    async def _wake(founder_id: str, session_id: str, notice: str,
+                    state_delta: dict) -> None:
+        await resume_handler.wake(
+            user_id=founder_id, session_id=session_id,
+            notice=notice, state_delta=state_delta)
+
+    return await wake_delivery_service.deliver(
+        founder_id, delivery_id, _wake)
+
+
+async def _dispatch_wake_delivery(delivery_id: str,
+                                  founder_id: str = FOUNDER_ID) -> dict:
+    """Queue in production; deliver inline locally through the same receipt."""
+    if os.environ.get("K_SERVICE"):
+        from services import task_queue
+
+        return await asyncio.to_thread(
+            task_queue.enqueue, "/tasks/wake_delivery",
+            {"delivery_id": delivery_id, "workspace_id": founder_id},
+            delivery_id, queue_name="co-founder-provider-events")
+    return await _run_wake_delivery(delivery_id, founder_id)
+
+
+async def _record_feedback_for(
+        founder_id: str, payload: FeedbackRequest) -> dict:
+    if not await _workspace_session_exists(founder_id, payload.session_id):
+        return {"status": "error", "error": True,
+                "error_code": "owner_mismatch", "message": "Not found."}
     result = await feedback_service.record_feedback(
-        founder_id=FOUNDER_ID, application_id=payload.application_id,
+        founder_id=founder_id, application_id=payload.application_id,
         section_id=payload.section_id, feedback_type=payload.type,
         reason=payload.reason, edited_text=payload.edited_text)
     if result.get("status") != "success":
-        return JSONResponse(result, status_code=409)
+        return result
     if payload.session_id:
-        try:
-            await resume_handler.wake(
-                user_id=FOUNDER_ID, session_id=payload.session_id,
-                notice="Resume: founder reviewed a section.",
-                state_delta={
-                    "pending_signals": [],
-                    **({"current_step": result["application_step"]}
-                       if result.get("application_step") else {}),
-                })
-        except Exception as exc:  # the feedback IS recorded — a failed wake
-            # must not 500 the click; the next poll/wake picks the state up
-            logging.getLogger(__name__).warning(
-                "post-feedback wake failed (feedback recorded): %s", exc)
-            result = {**result, "wake": "failed"}
+        delivery = await firestore.create_wake_delivery(
+            founder_id, payload.session_id, "feedback", result["feedback_id"],
+            "Resume: founder reviewed a section.",
+            {"pending_signals": [],
+             **({"current_step": result["application_step"]}
+                if result.get("application_step") else {})})
+        if delivery.get("status") == "success":
+            dispatched = await _dispatch_wake_delivery(
+                delivery["delivery_id"], founder_id)
+            result = {**result, "wake_delivery_id": delivery["delivery_id"],
+                      "wake": ("delivered" if not dispatched.get("error")
+                               else "pending_retry")}
+        else:
+            logging.getLogger(__name__).error(
+                "post-feedback wake receipt failed feedback_id=%s code=%s",
+                result["feedback_id"], delivery.get("error_code"))
+            result = {**result, "wake": "receipt_failed"}
     return result
+
+
+@app.post("/api/feedback")
+async def api_feedback(payload: FeedbackRequest):
+    """Local compatibility route; production clients use the scoped v1 API."""
+    if os.environ.get("K_SERVICE"):
+        return JSONResponse(
+            {"status": "error", "error": True,
+             "error_code": "legacy_route_retired",
+             "message": "Use POST /api/v1/feedback."},
+            status_code=410)
+    # Session-ownership check, same as the approval/application siblings: the
+    # feedback (and its resume wake) only acts on the founder's own session.
+    result = await _record_feedback_for(FOUNDER_ID, payload)
+    if result.get("error"):
+        from services.error_contracts import http_status
+
+        return JSONResponse(result, status_code=http_status(result))
+    return result
+
+
+@app.post("/api/v1/feedback")
+async def api_v1_feedback(request: Request, payload: FeedbackRequestV1):
+    principal = await _platform_human(request)
+    if isinstance(principal, dict):
+        return JSONResponse(principal, status_code=401)
+    commands = CommandService(production_store())
+    command = await commands.accept(
+        principal=principal, client_request_id=payload.client_request_id,
+        command_type="application_feedback.record",
+        request=payload.model_dump(mode="json"),
+        origin_session_id=payload.session_id)
+    if command.get("error") or command.get("duplicate"):
+        return JSONResponse(command, status_code=command_http_status(command))
+    result = await _record_feedback_for(principal.workspace_id, payload)
+    terminal = await commands.transition(
+        workspace_id=principal.workspace_id,
+        command_id=command["command_id"], expected_version=command["version"],
+        status="COMPLETED" if not result.get("error") else "REJECTED",
+        result_ref=({"feedback_id": result.get("feedback_id"),
+                     "wake_delivery_id": result.get("wake_delivery_id")}
+                    if not result.get("error") else None),
+        error_code=str(result.get("error_code") or ""))
+    from services.error_contracts import http_status
+
+    return JSONResponse(
+        terminal, status_code=(200 if not result.get("error")
+                               else http_status(result)))
 
 
 class ApprovalResolve(BaseModel):
@@ -1499,9 +2702,164 @@ class ApprovalResolve(BaseModel):
     session_id: str
 
 
+class ApprovalDecisionV1(BaseModel):
+    decision: Literal["grant", "deny"]
+    session_id: str
+    client_request_id: str = Field(min_length=8, max_length=128)
+
+
+class RunControlV1(BaseModel):
+    client_request_id: str = Field(min_length=8, max_length=128)
+    expected_version: int = Field(ge=1)
+    reason: str = Field(default="", max_length=500)
+
+
+class MembershipChangeV1(BaseModel):
+    client_request_id: str = Field(min_length=8, max_length=128)
+    expected_version: int = Field(ge=1)
+    role: Literal["OWNER", "HIRING_MANAGER", "INTERVIEWER", "OBSERVER"]
+    status: Literal["ACTIVE", "REVOKED"]
+    role_grants: list[str] = Field(default_factory=list, max_length=200)
+    candidate_assignments: list[str] = Field(default_factory=list, max_length=500)
+    interview_assignments: list[str] = Field(default_factory=list, max_length=500)
+
+
+class ReconcileActionV1(BaseModel):
+    client_request_id: str = Field(min_length=8, max_length=128)
+    expected_status: Literal["UNCERTAIN"] = "UNCERTAIN"
+
+
+@app.patch("/api/v1/workspace-members/{actor_id}")
+async def api_v1_change_membership(request: Request, actor_id: str,
+                                   payload: MembershipChangeV1):
+    """Fresh-owner, versioned, receipted membership administration."""
+    principal = await _platform_human(request)
+    if isinstance(principal, dict):
+        return JSONResponse(principal, status_code=401)
+    commands = CommandService(production_store())
+    request_body = payload.model_dump(mode="json")
+    command = await commands.accept(
+        principal=principal, client_request_id=payload.client_request_id,
+        command_type="workspace_membership.change",
+        request={"actor_id": actor_id, **request_body})
+    if command.get("error") or command.get("duplicate"):
+        return JSONResponse(command, status_code=command_http_status(command))
+    result = await change_membership(
+        principal=principal, actor_id=actor_id,
+        expected_version=payload.expected_version,
+        role=WorkspaceRole(payload.role), role_grants=payload.role_grants,
+        candidate_assignments=payload.candidate_assignments,
+        interview_assignments=payload.interview_assignments,
+        status=payload.status, client_request_id=payload.client_request_id,
+        store=production_store())
+    terminal = await commands.transition(
+        workspace_id=principal.workspace_id,
+        command_id=command["command_id"], expected_version=command["version"],
+        status="COMPLETED" if not result.get("error") else "REJECTED",
+        result_ref=({"actor_id": actor_id,
+                     "membership_status": result.get("membership_status"),
+                     "membership_version": result.get("membership_version")}
+                    if not result.get("error") else None),
+        error_code=str(result.get("error_code") or ""))
+    from services.error_contracts import http_status
+
+    return JSONResponse(
+        terminal, status_code=(200 if not result.get("error")
+                               else http_status(result)))
+
+
+@app.get("/api/v1/runs/{run_id}")
+async def api_v1_get_run(request: Request, run_id: str):
+    """Workspace-scoped durable run projection; chat is never the status."""
+    principal = await _platform_human(request)
+    if isinstance(principal, dict):
+        return JSONResponse(principal, status_code=401)
+    row = await production_store().get("workflow_runs", run_id)
+    if not row or row.get("workspace_id") != principal.workspace_id:
+        return JSONResponse(
+            {"status": "error", "error": True,
+             "error_code": "run_not_found", "message": "Run does not exist."},
+            status_code=404)
+    return row
+
+
+async def _run_control(request: Request, run_id: str, payload: RunControlV1,
+                       operation: str):
+    principal = await _platform_human(request)
+    if isinstance(principal, dict):
+        return JSONResponse(principal, status_code=401)
+    store = production_store()
+    row = await store.get("workflow_runs", run_id)
+    if not row or row.get("workspace_id") != principal.workspace_id:
+        return JSONResponse(
+            {"status": "error", "error": True,
+             "error_code": "run_not_found", "message": "Run does not exist."},
+            status_code=404)
+    if int(row.get("version") or 0) != payload.expected_version:
+        return JSONResponse(
+            {"status": "error", "error": True,
+             "error_code": "version_conflict",
+             "message": "Run changed; reload before issuing this command."},
+            status_code=409)
+    commands = CommandService(store)
+    command = await commands.accept(
+        principal=principal, client_request_id=payload.client_request_id,
+        command_type=f"workflow_run.{operation}",
+        request={"run_id": run_id, "expected_version": payload.expected_version,
+                 "reason": payload.reason})
+    if command.get("error") or command.get("duplicate"):
+        return JSONResponse(command, status_code=command_http_status(command))
+    runtime = WorkflowRuntime(store)
+    if operation == "pause":
+        result = await runtime.pause_run(
+            run_id, actor_id=principal.actor_id,
+            reason=payload.reason or "Paused by founder")
+    elif operation == "resume":
+        result = await runtime.resume_run(run_id, actor_id=principal.actor_id)
+    else:
+        result = await runtime.cancel_run(
+            run_id, actor_id=principal.actor_id,
+            reason=payload.reason or "Cancelled by founder")
+    terminal = await commands.transition(
+        workspace_id=principal.workspace_id,
+        command_id=command["command_id"], expected_version=command["version"],
+        status="COMPLETED" if not result.get("error") else "REJECTED",
+        run_id=run_id,
+        result_ref=({"run_id": run_id,
+                     "runtime_status": result.get("runtime_status")}
+                    if not result.get("error") else None),
+        error_code=str(result.get("error_code") or ""))
+    return JSONResponse(
+        terminal, status_code=(200 if not result.get("error") else 409))
+
+
+@app.post("/api/v1/runs/{run_id}:pause")
+async def api_v1_pause_run(request: Request, run_id: str,
+                           payload: RunControlV1):
+    return await _run_control(request, run_id, payload, "pause")
+
+
+@app.post("/api/v1/runs/{run_id}:resume")
+async def api_v1_resume_run(request: Request, run_id: str,
+                            payload: RunControlV1):
+    return await _run_control(request, run_id, payload, "resume")
+
+
+@app.post("/api/v1/runs/{run_id}:cancel")
+async def api_v1_cancel_run(request: Request, run_id: str,
+                            payload: RunControlV1):
+    return await _run_control(request, run_id, payload, "cancel")
+
+
 @app.get("/api/approvals/pending")
-async def api_approvals_pending(session_id: str):
+async def api_approvals_pending(request: Request, session_id: str):
     """This founder session's approval inbox."""
+    if os.environ.get("K_SERVICE"):
+        return JSONResponse(
+            {"status": "error", "error": True,
+             "error_code": "api_version_required",
+             "message": "Use the workspace-scoped /api/v1 approvals API."},
+            status_code=410)
     if not await _founder_session_exists(session_id):
         return JSONResponse({"error": "not found"}, status_code=404)
     return {"status": "success",
@@ -1509,29 +2867,199 @@ async def api_approvals_pending(session_id: str):
                 founder_id=FOUNDER_ID, session_id=session_id)}
 
 
+@app.get("/api/v1/approvals")
+async def api_v1_approvals(request: Request, session_id: str = ""):
+    """Current workspace approval inbox; authority is never session-global."""
+    principal = await _platform_human(request)
+    if isinstance(principal, dict):
+        return JSONResponse(principal, status_code=401)
+    rows = await firestore.list_pending_approvals(
+        founder_id=principal.workspace_id, session_id=session_id)
+    return {"status": "success", "approvals": rows}
+
+
+@app.get("/api/v1/approvals/{approval_id}")
+async def api_v1_approval(request: Request, approval_id: str):
+    principal = await _platform_human(request)
+    if isinstance(principal, dict):
+        return JSONResponse(principal, status_code=401)
+    row = await firestore.get_approval_for_workspace(
+        principal.workspace_id, approval_id)
+    if not row:
+        return JSONResponse(
+            {"status": "error", "error": True,
+             "error_code": "approval_not_found",
+             "message": "Approval does not exist."}, status_code=404)
+    return row
+
+
+@app.get("/api/v1/events/stream")
+async def api_v1_events_stream(request: Request, last_event_id: str = ""):
+    """Replayable workspace projection stream; snapshots remain authoritative."""
+    principal = await _platform_human(request)
+    if isinstance(principal, dict):
+        return JSONResponse(principal, status_code=401)
+    from services.projection_stream import (
+        ProjectionEventService,
+        snapshot_required_event,
+        sse_event,
+    )
+
+    stream = ProjectionEventService(production_store())
+    cursor_id = str(request.headers.get("last-event-id") or last_event_id or "")
+    cursor = await stream.resolve_cursor(
+        workspace_id=principal.workspace_id, event_id=cursor_id)
+    if cursor.get("error_code") == "foreign_cursor":
+        return JSONResponse(cursor, status_code=403)
+    cursor_missing = cursor.get("error_code") == "snapshot_required"
+    after_sequence = int(cursor.get("sequence") or 0)
+
+    async def events():
+        nonlocal after_sequence
+        if cursor_missing:
+            yield snapshot_required_event(after_sequence)
+            return
+        started = asyncio.get_running_loop().time()
+        next_membership_check = started
+        while asyncio.get_running_loop().time() - started < 55 * 60:
+            if await request.is_disconnected():
+                return
+            now = asyncio.get_running_loop().time()
+            if now >= next_membership_check:
+                membership = await production_store().get(
+                    "workspace_members", principal.membership_id)
+                if (not membership
+                        or membership.get("workspace_id") != principal.workspace_id
+                        or membership.get("status") != "ACTIVE"
+                        or int(membership.get("version") or 0)
+                        != int(principal.membership_version)):
+                    yield "event: authorization_revoked\ndata: {}\n\n"
+                    return
+                next_membership_check = now + 30
+            replay = await stream.replay(
+                workspace_id=principal.workspace_id,
+                after_sequence=after_sequence)
+            for row in replay["events"]:
+                after_sequence = int(row["sequence"])
+                yield sse_event(row)
+            if replay["snapshot_required"]:
+                yield snapshot_required_event(after_sequence)
+                return
+            if not replay["events"]:
+                yield ": keepalive\n\n"
+            await asyncio.sleep(2)
+
+    return StreamingResponse(
+        events(), media_type="text/event-stream",
+        headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no",
+                 "X-Content-Type-Options": "nosniff",
+                 "Referrer-Policy": "same-origin"})
+
+
+@app.post("/api/v1/wake-deliveries/{delivery_id}:retry")
+async def api_v1_retry_wake_delivery(
+        request: Request, delivery_id: str, payload: WakeDeliveryRetryV1):
+    """Drain one visible dead letter under an idempotent human command."""
+    principal = await _platform_human(request)
+    if isinstance(principal, dict):
+        return JSONResponse(principal, status_code=401)
+    commands = CommandService(production_store())
+    command = await commands.accept(
+        principal=principal, client_request_id=payload.client_request_id,
+        command_type="wake_delivery.retry",
+        request={"delivery_id": delivery_id})
+    if command.get("error") or command.get("duplicate"):
+        return JSONResponse(command, status_code=command_http_status(command))
+    requeued = await firestore.requeue_wake_delivery(
+        principal.workspace_id, delivery_id)
+    if not requeued.get("error"):
+        await _dispatch_wake_delivery(delivery_id, principal.workspace_id)
+    terminal = await commands.transition(
+        workspace_id=principal.workspace_id,
+        command_id=command["command_id"],
+        expected_version=command["version"],
+        status="COMPLETED" if not requeued.get("error") else "REJECTED",
+        result_ref=({"delivery_id": delivery_id,
+                     "delivery_status": "RETRY_DISPATCHED"}
+                    if not requeued.get("error") else None),
+        error_code=str(requeued.get("error_code") or ""))
+    return JSONResponse(
+        terminal, status_code=200 if not requeued.get("error") else 409)
+
+
 @app.post("/api/approvals/{approval_id}/resolve")
-async def api_resolve_approval(approval_id: str, payload: ApprovalResolve):
+async def api_resolve_approval(request: Request, approval_id: str,
+                               payload: ApprovalResolve):
+    if os.environ.get("K_SERVICE"):
+        return JSONResponse(
+            {"status": "error", "error": True,
+             "error_code": "api_version_required",
+             "message": "Use the receipted /api/v1 approval decision API."},
+            status_code=410)
     if not await _founder_session_exists(payload.session_id):
         return JSONResponse({"error": "not found"}, status_code=404)
     result = await approval_service.resolve(
         approval_id, payload.decision, FOUNDER_ID, payload.session_id)
+    if result.get("status") != "success":
+        status_by_code = {
+            "invalid_contract": 400,
+            "not_found": 404,
+            "owner_mismatch": 404,
+            "approval_expired": 409,
+            "approval_terminal": 409,
+        }
+        return JSONResponse(
+            result, status_code=status_by_code.get(
+                str(result.get("error_code") or ""), 409))
     if result.get("status") == "success" and payload.decision == "grant":
-        gate = result.get("gate", "action")
-        try:
-            await resume_handler.wake(
-                user_id=FOUNDER_ID, session_id=payload.session_id,
-                notice=f"Resume: founder approved {gate} at the approval gate.",
-                state_delta={"pending_signals": []})
-        except Exception as exc:
-            logging.getLogger(__name__).warning(
-                "post-approval wake failed (approval recorded): %s", exc)
-            result = {**result, "wake": "failed"}
+        dispatched = await _dispatch_wake_delivery(result["wake_delivery_id"])
+        result = {**result,
+                  "wake": ("delivered" if not dispatched.get("error")
+                           else "pending_retry")}
     return result
 
 
+@app.post("/api/v1/approvals/{approval_id}:decide")
+async def api_v1_decide_approval(request: Request, approval_id: str,
+                                 payload: ApprovalDecisionV1):
+    """Principal-derived human decision; same founder may have initiated it."""
+    principal = await _platform_human(request)
+    if isinstance(principal, dict):
+        return JSONResponse(principal, status_code=401)
+    commands = CommandService(production_store())
+    command = await commands.accept(
+        principal=principal, client_request_id=payload.client_request_id,
+        command_type="approval.decide",
+        request={"approval_id": approval_id, "decision": payload.decision,
+                 "session_id": payload.session_id},
+        origin_session_id=payload.session_id)
+    if command.get("error") or command.get("duplicate"):
+        return JSONResponse(command, status_code=command_http_status(command))
+    result = await approval_service.resolve_for_principal(
+        principal=principal, approval_id=approval_id,
+        decision=payload.decision, session_id=payload.session_id)
+    terminal = await commands.transition(
+        workspace_id=principal.workspace_id,
+        command_id=command["command_id"],
+        expected_version=command["version"],
+        status="COMPLETED" if not result.get("error") else "REJECTED",
+        result_ref=({"approval_id": approval_id,
+                     "decision": payload.decision}
+                    if not result.get("error") else None),
+        error_code=str(result.get("error_code") or ""))
+    if result.get("error"):
+        return JSONResponse(terminal, status_code=409)
+    if result.get("wake_delivery_id"):
+        await _dispatch_wake_delivery(result["wake_delivery_id"])
+    return JSONResponse(terminal, status_code=200)
+
+
+@app.post("/api/v1/voice-notes")
 @app.post("/api/voice-note")
-async def api_voice_note(file: UploadFile = File(...), context: str = Form(""),
-                         session_id: str = Form(...)):
+async def api_voice_note(request: Request, file: UploadFile = File(...),
+                         context: str = Form(""),
+                         session_id: str = Form(...),
+                         client_request_id: str = Form("")):
     """Voice-note intake (Day 11): store audio artifact, transcribe, forward
     the extracted intent through the normal resume path.
 
@@ -1540,21 +3068,47 @@ async def api_voice_note(file: UploadFile = File(...), context: str = Form(""),
     produced it. Binary lands first; a failed metadata/link commit leaves an
     orphan blob rather than a successful artifact (docs/23 §3 invariant 11).
     """
-    if not await _founder_session_exists(session_id):
+    if request.url.path == "/api/voice-note" and os.environ.get("K_SERVICE"):
+        return JSONResponse({"error": True, "error_code": "legacy_route_retired",
+                             "message": "Use POST /api/v1/voice-notes."},
+                            status_code=410)
+    principal = await _route_principal(
+        request, legacy=request.url.path == "/api/voice-note")
+    if isinstance(principal, dict):
+        return JSONResponse(principal, status_code=401)
+    founder_id = principal.workspace_id
+    if not await _workspace_session_exists(founder_id, session_id):
         return JSONResponse({"error": "not found"}, status_code=404)
     audio = await _read_upload(file, max_bytes=25 * 1024 * 1024,
                                allowed_types={"audio/webm", "audio/ogg", "audio/mp4",
                                               "audio/wav", "audio/x-wav"})
-    name = f"voicenote_{FOUNDER_ID}_{uuid.uuid4().hex[:8]}.webm"
+    command = None
+    commands = CommandService(production_store())
+    if request.url.path == "/api/v1/voice-notes":
+        if not _REQUEST_ID.fullmatch(client_request_id):
+            return JSONResponse(
+                {"error": True, "error_code": "command_contract_invalid",
+                 "message": "A valid client_request_id is required."}, status_code=400)
+        command = await commands.accept(
+            principal=principal, client_request_id=client_request_id,
+            command_type="voice_note.create",
+            request={"session_id": session_id, "context": context,
+                     "filename": file.filename or "", "content_type": file.content_type or "",
+                     "sha256": hashlib.sha256(audio).hexdigest()},
+            origin_session_id=session_id)
+        if command.get("error") or command.get("duplicate"):
+            return JSONResponse(command, status_code=command_http_status(command))
+    workspace_tag = hashlib.sha256(founder_id.encode()).hexdigest()[:12]
+    name = f"voicenote_{workspace_tag}_{uuid.uuid4().hex[:8]}.webm"
     await asyncio.to_thread(storage.save_bytes, name, audio)  # GCS mirror blocks
     result = await voice_service.transcribe(storage.artifact_path(name), context)
     artifact_id = await firestore.create_voice_note_artifact(
-        FOUNDER_ID, session_id, name,
+        founder_id, session_id, name,
         content_type=file.content_type or "audio/webm",
         size_bytes=len(audio),
         transcript_preview=str(result.get("transcript", ""))[:240])
     registered = await session_resources.register_session_resource(
-        founder_id=FOUNDER_ID, session_id=session_id,
+        founder_id=founder_id, session_id=session_id,
         resource_type=session_resources.ResourceType.ARTIFACT,
         canonical_id=artifact_id,
         relationship=session_resources.Relationship.CREATED,
@@ -1575,22 +3129,40 @@ async def api_voice_note(file: UploadFile = File(...), context: str = Form(""),
              "message": registered.get("message",
                                        "provenance could not be recorded")},
             status_code=503)
-    return {"status": result.get("status"), "artifact": name,
+    response = {"status": result.get("status"), "artifact": name,
             "artifact_id": artifact_id,
             "resource_id": registered.get("resource_id", ""),
             "transcript": result.get("transcript", ""),
             "extracted": result.get("extracted", {}),
             "message": result.get("message", "")}
+    if command is None:
+        return response
+    terminal = await commands.transition(
+        workspace_id=founder_id, command_id=command["command_id"],
+        expected_version=command["version"], status="COMPLETED",
+        result_ref={"artifact_id": artifact_id, "session_id": session_id})
+    return {**response, "command_receipt": terminal}
 
 
-@app.post("/api/ingest")
-async def api_ingest(file: UploadFile = File(...),
+@app.post("/api/v1/ingestions")
+@app.post("/api/ingest", include_in_schema=False)
+async def api_ingest(request: Request, file: UploadFile = File(...),
                      session_id: str = Form(...),
-                     scope: str = Form("reference_only")):
+                     scope: str = Form("reference_only"),
+                     client_request_id: str = Form("")):
     """Validate and register a document; extraction continues durably."""
     from services import document_ingestion
 
-    if not await _founder_session_exists(session_id):
+    if request.url.path == "/api/ingest" and os.environ.get("K_SERVICE"):
+        return JSONResponse({"error": True, "error_code": "legacy_route_retired",
+                             "message": "Use POST /api/v1/ingestions."},
+                            status_code=410)
+    principal = await _route_principal(
+        request, legacy=request.url.path == "/api/ingest")
+    if isinstance(principal, dict):
+        return JSONResponse(principal, status_code=401)
+    founder_id = principal.workspace_id
+    if not await _workspace_session_exists(founder_id, session_id):
         return JSONResponse({"error": "not found"}, status_code=404)
     if scope not in {"profile", "reference_only"}:
         raise HTTPException(status_code=400, detail="unsupported attachment scope")
@@ -1608,6 +3180,23 @@ async def api_ingest(file: UploadFile = File(...),
     if checked.get("status") != "success":
         status_code = 415 if checked.get("ingestion_status") == "UNSUPPORTED" else 400
         return JSONResponse(checked, status_code=status_code)
+    command = None
+    commands = CommandService(production_store())
+    if request.url.path == "/api/v1/ingestions":
+        if not _REQUEST_ID.fullmatch(client_request_id):
+            return JSONResponse(
+                {"error": True, "error_code": "command_contract_invalid",
+                 "message": "A valid client_request_id is required."}, status_code=400)
+        command = await commands.accept(
+            principal=principal, client_request_id=client_request_id,
+            command_type="ingestion.upload",
+            request={"session_id": session_id, "scope": scope,
+                     "filename": file.filename or "",
+                     "content_type": file.content_type or "",
+                     "sha256": hashlib.sha256(data).hexdigest()},
+            origin_session_id=session_id)
+        if command.get("error") or command.get("duplicate"):
+            return JSONResponse(command, status_code=command_http_status(command))
     safe = _safe_filename_component(file.filename, fallback="document")
     return await _register_document_ingestion(
         session_id=session_id, scope=scope, source_type="upload",
@@ -1616,17 +3205,30 @@ async def api_ingest(file: UploadFile = File(...),
         declared_content_type=(
             file.content_type or "application/octet-stream").lower(),
         title=file.filename or safe,
-        occurrence_prefix=f"upload:{uuid.uuid4().hex}")
+        occurrence_prefix=f"upload:{uuid.uuid4().hex}",
+        founder_id=founder_id, command=(commands, command) if command else None)
 
 
-@app.get("/api/ingest/{attachment_ref}")
-async def api_ingestion_status(attachment_ref: str, session_id: str):
+@app.get("/api/v1/ingestions/{attachment_ref}")
+@app.get("/api/ingest/{attachment_ref}", include_in_schema=False)
+async def api_ingestion_status(
+        attachment_ref: str, session_id: str, request: Request):
     """Return one owner/session-scoped processing status and citation summary."""
     if not _INGESTION_REF.fullmatch(attachment_ref):
         raise HTTPException(status_code=400, detail="invalid attachment reference")
+    if request.url.path.startswith("/api/ingest/") and os.environ.get("K_SERVICE"):
+        return JSONResponse({"error": True, "error_code": "legacy_route_retired",
+                             "message": "Use the v1 ingestions API."},
+                            status_code=410)
+    principal = await _route_principal(
+        request, legacy=request.url.path.startswith("/api/ingest/")
+        and not request.url.path.startswith("/api/v1/"))
+    if isinstance(principal, dict):
+        return JSONResponse(principal, status_code=401)
     ingestion = await firestore.get_ingestion(attachment_ref)
     artifact = await firestore.get_artifact(attachment_ref)
-    if (not ingestion or not artifact or ingestion.get("founder_id") != FOUNDER_ID
+    if (not ingestion or not artifact
+            or ingestion.get("founder_id") != principal.workspace_id
             or ingestion.get("session_id") != session_id):
         return JSONResponse({"error": "not found"}, status_code=404)
     return {
@@ -1643,23 +3245,36 @@ async def api_ingestion_status(attachment_ref: str, session_id: str):
     }
 
 
-@app.get("/api/ingest/{attachment_ref}/profile-review")
-async def api_profile_review(attachment_ref: str, session_id: str):
+@app.get("/api/v1/ingestions/{attachment_ref}/profile-review")
+@app.get("/api/ingest/{attachment_ref}/profile-review", include_in_schema=False)
+async def api_profile_review(
+        attachment_ref: str, session_id: str, request: Request):
     """Founder-only projection of pending profile proposals and conflicts."""
     from services import profile_service
 
+    if request.url.path.startswith("/api/ingest/") and os.environ.get("K_SERVICE"):
+        return JSONResponse({"error": True, "error_code": "legacy_route_retired",
+                             "message": "Use the v1 ingestions API."},
+                            status_code=410)
+    principal = await _route_principal(
+        request, legacy=request.url.path.startswith("/api/ingest/")
+        and not request.url.path.startswith("/api/v1/"))
+    if isinstance(principal, dict):
+        return JSONResponse(principal, status_code=401)
+    founder_id = principal.workspace_id
     ingestion = await firestore.get_ingestion(attachment_ref)
     artifact = await firestore.get_artifact(attachment_ref)
-    if (not ingestion or not artifact or ingestion.get("founder_id") != FOUNDER_ID
+    if (not ingestion or not artifact or ingestion.get("founder_id") != founder_id
             or artifact.get("session_id") != session_id
             or artifact.get("scope") != "profile"):
         return JSONResponse({"error": "not found"}, status_code=404)
     pending = await profile_service.propose_profile_updates(
-        FOUNDER_ID, attachment_ref, limit=50)
+        founder_id, attachment_ref, limit=50)
     return pending | {"source_title": artifact.get("source_ref", "document")}
 
 
-@app.post("/api/ingest/{attachment_ref}/profile-review")
+@app.post("/api/v1/ingestions/{attachment_ref}/profile-review")
+@app.post("/api/ingest/{attachment_ref}/profile-review", include_in_schema=False)
 async def api_resolve_profile_review(attachment_ref: str, request: Request):
     """Confirm or reject exact pending proposals; founder confirmation wins."""
     from services import profile_service
@@ -1671,9 +3286,19 @@ async def api_resolve_profile_review(attachment_ref: str, request: Request):
     session_id = str(payload.get("session_id") or "")
     proposal_id = str(payload.get("proposal_id") or "")
     decision = str(payload.get("decision") or "")
+    if request.url.path.startswith("/api/ingest/") and os.environ.get("K_SERVICE"):
+        return JSONResponse({"error": True, "error_code": "legacy_route_retired",
+                             "message": "Use the v1 ingestions API."},
+                            status_code=410)
+    principal = await _route_principal(
+        request, legacy=request.url.path.startswith("/api/ingest/")
+        and not request.url.path.startswith("/api/v1/"))
+    if isinstance(principal, dict):
+        return JSONResponse(principal, status_code=401)
+    founder_id = principal.workspace_id
     ingestion = await firestore.get_ingestion(attachment_ref)
     artifact = await firestore.get_artifact(attachment_ref)
-    if (not ingestion or not artifact or ingestion.get("founder_id") != FOUNDER_ID
+    if (not ingestion or not artifact or ingestion.get("founder_id") != founder_id
             or artifact.get("session_id") != session_id
             or artifact.get("scope") != "profile"):
         return JSONResponse({"error": "not found"}, status_code=404)
@@ -1682,22 +3307,60 @@ async def api_resolve_profile_review(attachment_ref: str, request: Request):
     if proposal_id not in pending or decision not in {"approve", "reject"}:
         return JSONResponse({"error": "invalid profile review decision"},
                             status_code=409)
+    command = None
+    commands = CommandService(production_store())
+    if request.url.path.startswith("/api/v1/"):
+        client_request_id = str(payload.get("client_request_id") or "")
+        if not _REQUEST_ID.fullmatch(client_request_id):
+            return JSONResponse(
+                {"error": True, "error_code": "command_contract_invalid",
+                 "message": "A valid client_request_id is required."}, status_code=400)
+        command = await commands.accept(
+            principal=principal, client_request_id=client_request_id,
+            command_type="profile_proposal.decide",
+            request={"attachment_ref": attachment_ref, "proposal_id": proposal_id,
+                     "decision": decision, "reason": str(payload.get("reason") or "")},
+            origin_session_id=session_id)
+        if command.get("error") or command.get("duplicate"):
+            return JSONResponse(command, status_code=command_http_status(command))
     result = await profile_service.confirm_profile_updates(
-        FOUNDER_ID, attachment_ref,
+        founder_id, attachment_ref,
         approved=[proposal_id] if decision == "approve" else [],
         rejected=[proposal_id] if decision == "reject" else [],
         rejection_reasons=[str(payload.get("reason") or
                                "Founder rejected this extracted proposal")])
-    return result
+    if command is None:
+        return result
+    terminal = await commands.transition(
+        workspace_id=founder_id, command_id=command["command_id"],
+        expected_version=command["version"],
+        status="COMPLETED" if not result.get("error") else "REJECTED",
+        result_ref=({"attachment_ref": attachment_ref,
+                     "proposal_id": proposal_id, "decision": decision}
+                    if not result.get("error") else None),
+        error_code=str(result.get("error_code") or "profile_decision_failed"))
+    return JSONResponse(terminal, status_code=(
+        200 if not result.get("error") else command_http_status(terminal)))
 
 
-@app.get("/api/ingest/{attachment_ref}/source")
-async def api_ingestion_source(attachment_ref: str, session_id: str):
+@app.get("/api/v1/ingestions/{attachment_ref}/source")
+@app.get("/api/ingest/{attachment_ref}/source", include_in_schema=False)
+async def api_ingestion_source(
+        attachment_ref: str, session_id: str, request: Request):
     """Open an original attachment after owner/session authorization."""
     if not _INGESTION_REF.fullmatch(attachment_ref):
         raise HTTPException(status_code=400, detail="invalid attachment reference")
+    if request.url.path.startswith("/api/ingest/") and os.environ.get("K_SERVICE"):
+        return JSONResponse({"error": True, "error_code": "legacy_route_retired",
+                             "message": "Use the v1 ingestions API."},
+                            status_code=410)
+    principal = await _route_principal(
+        request, legacy=request.url.path.startswith("/api/ingest/")
+        and not request.url.path.startswith("/api/v1/"))
+    if isinstance(principal, dict):
+        return JSONResponse(principal, status_code=401)
     artifact = await firestore.get_artifact(attachment_ref)
-    if (not artifact or artifact.get("founder_id") != FOUNDER_ID
+    if (not artifact or artifact.get("founder_id") != principal.workspace_id
             or artifact.get("session_id") != session_id):
         return JSONResponse({"error": "not found"}, status_code=404)
     path = await asyncio.to_thread(
@@ -1785,6 +3448,10 @@ async def api_google_connect(request: Request, connector: str = ""):
 
     from services import google_oauth
 
+    principal = await _platform_human(request)
+    if isinstance(principal, dict):
+        return JSONResponse(principal, status_code=401)
+
     if connector and connector not in google_oauth.SCOPE_MAP:
         return JSONResponse({"status": "error", "error": True,
                              "message": "unknown connector"}, status_code=400)
@@ -1806,7 +3473,8 @@ async def api_google_connect(request: Request, connector: str = ""):
     # redirect_uri_mismatch.
     await firestore.create_oauth_state(
         state, flow.code_verifier or "", scopes, account,
-        connector=requested_connector, redirect_uri=redirect_uri)
+        connector=requested_connector, redirect_uri=redirect_uri,
+        workspace_id=principal.workspace_id, actor_id=principal.actor_id)
     return RedirectResponse(url)
 
 
@@ -1847,41 +3515,58 @@ async def api_google_callback(code: str = "", state: str = ""):
                              "message": "no refresh token returned — consent again"}, status_code=400)
     account = entry["account"]
     connector = entry.get("connector") or "drive"
+    workspace_id = str(entry.get("workspace_id") or "")
+    if not workspace_id:
+        return JSONResponse(
+            {"status": "error", "error": True,
+             "error_code": "oauth_state_unscoped",
+             "message": "Consent state is missing its workspace binding."},
+            status_code=400)
     verified = await asyncio.to_thread(
         google_oauth.verify_consent, flow.credentials, connector)
     if verified.get("status") != "success":
         return JSONResponse(verified, status_code=400)
     saved = await asyncio.to_thread(
-        google_oauth.save_refresh_token, token, account)
+        google_oauth.save_refresh_token, token, account, workspace_id)
     if saved.get("status") != "success":
         return JSONResponse(saved, status_code=503)
     from services import connection_registry
 
     projected = await connection_registry.project_verified_consent(
-        FOUNDER_ID, connector, account,
+        workspace_id, connector, account,
         account_hint=verified.get("account_hint", ""),
-        granted_scopes=verified.get("granted_scopes", []))
+        granted_scopes=verified.get("granted_scopes", []),
+        provider_account_hash=verified.get("provider_account_hash", ""))
     if projected.get("status") != "success":
         return JSONResponse(projected, status_code=503)
     return RedirectResponse(f"/?connected={connector}")
 
 
-@app.get("/api/connectors")
-async def api_connectors():
+@app.get("/api/v1/connectors")
+@app.get("/api/connectors", include_in_schema=False)
+async def api_connectors(request: Request):
     """Connector catalogue joined to the provider-free durable projection."""
     from services import connection_registry, connectors
 
-    projection = await connection_registry.list_connection_status(FOUNDER_ID)
+    if request.url.path == "/api/connectors" and os.environ.get("K_SERVICE"):
+        return JSONResponse({"error": True, "error_code": "legacy_route_retired",
+                             "message": "Use GET /api/v1/connectors."},
+                            status_code=410)
+    principal = await _route_principal(
+        request, legacy=request.url.path == "/api/connectors")
+    if isinstance(principal, dict):
+        return JSONResponse(principal, status_code=401)
+    projection = await connection_registry.list_connection_status(
+        principal.workspace_id)
     return {"status": "success",
             "connectors": connectors.catalog(projection["connections"])}
 
 
-@app.get("/api/integrations")
-async def api_integrations():
-    """Connection panel state from durable rows; zero provider fan-out."""
+async def _integrations_for(workspace_id: str, *, scoped: bool = True) -> dict:
+    """Connection panel state from workspace rows; zero provider fan-out."""
     from services import connection_registry
 
-    projection = await connection_registry.list_connection_status(FOUNDER_ID)
+    projection = await connection_registry.list_connection_status(workspace_id)
     rows = projection["connections"]
     active = {key: value.get("status") in {"CONNECTED", "DEGRADED"}
               for key, value in rows.items()}
@@ -1890,13 +3575,13 @@ async def api_integrations():
     active["gmail"] = active.get("founder_gmail", False)
     drive_connection = rows.get("drive", {})
     grants = await firestore.list_source_grants(
-        FOUNDER_ID, connection_id=drive_connection.get("connection_id"))
+        workspace_id, connection_id=drive_connection.get("connection_id"))
     files = [{"id": grant.get("provider_source_id"),
               "name": grant.get("display_name"),
               "source_grant_id": grant.get("source_grant_id"),
               "status": grant.get("status")}
              for grant in grants if grant.get("status") == "ACTIVE"]
-    integ = await firestore.get_integrations(FOUNDER_ID)
+    integ = await firestore.get_integrations(workspace_id)
     hints = [row.get("account_hint") for row in rows.values()
              if row.get("account_hint")]
     return {"status": "success", "oauth_configured": any(active.values()),
@@ -1904,8 +3589,30 @@ async def api_integrations():
             "connectors": active, "connection_status": rows,
             "drive": {"files": files},
             "gmail": {"label": integ.get("gmail_label", "grants"),
-                      "last_scan": await firestore.get_last_gmail_scan()},
-            "alex_mail": {"last_scan": await firestore.get_last_alex_scan()}}
+                      "last_scan": await (
+                          firestore.get_last_gmail_scan(workspace_id)
+                          if scoped else firestore.get_last_gmail_scan())},
+            "alex_mail": {"last_scan": await (
+                firestore.get_last_alex_scan(workspace_id)
+                if scoped else firestore.get_last_alex_scan())}}
+
+
+@app.get("/api/integrations")
+async def api_integrations():
+    """Local compatibility route; production clients use the scoped v1 API."""
+    if os.environ.get("K_SERVICE"):
+        return JSONResponse({"error": True, "error_code": "legacy_route_retired",
+                             "message": "Use GET /api/v1/integrations."},
+                            status_code=410)
+    return await _integrations_for(FOUNDER_ID, scoped=False)
+
+
+@app.get("/api/v1/integrations")
+async def api_v1_integrations(request: Request):
+    principal = await _platform_human(request)
+    if isinstance(principal, dict):
+        return JSONResponse(principal, status_code=401)
+    return await _integrations_for(principal.workspace_id)
 
 
 class DriveFileRequest(BaseModel):
@@ -1921,10 +3628,26 @@ class DisconnectConnectionRequest(BaseModel):
     version: int = Field(ge=1)
 
 
+class DriveFileRequestV1(DriveFileRequest):
+    client_request_id: str = Field(min_length=8, max_length=128)
+
+
+class DisconnectConnectionRequestV1(DisconnectConnectionRequest):
+    client_request_id: str = Field(min_length=8, max_length=128)
+
+
+class ConnectorCommandV1(BaseModel):
+    client_request_id: str = Field(min_length=8, max_length=128)
+
+
 @app.delete("/api/integrations/{connection_id}")
 async def api_disconnect_integration(
         connection_id: str, payload: DisconnectConnectionRequest):
     """Disable local access and revoke Google only at honest account scope."""
+    if os.environ.get("K_SERVICE"):
+        return JSONResponse({"error": True, "error_code": "legacy_route_retired",
+                             "message": "Use the v1 integrations API."},
+                            status_code=410)
     from services import connection_registry
 
     result = await connection_registry.disconnect_connection(
@@ -1935,24 +3658,73 @@ async def api_disconnect_integration(
     return result
 
 
-@app.get("/api/integrations/calendar/upcoming")
-async def api_calendar_upcoming():
+@app.delete("/api/v1/integrations/{connection_id}")
+async def api_v1_disconnect_integration(
+        connection_id: str, payload: DisconnectConnectionRequestV1,
+        request: Request):
+    """Receipted, workspace-bound connector disconnection command."""
+    from services import connection_registry
+
+    principal = await _platform_human(request)
+    if isinstance(principal, dict):
+        return JSONResponse(principal, status_code=401)
+    commands = CommandService(production_store())
+    command = await commands.accept(
+        principal=principal, client_request_id=payload.client_request_id,
+        command_type="connector.disconnect",
+        request={"connection_id": connection_id, **payload.model_dump(mode="json")})
+    if command.get("error") or command.get("duplicate"):
+        return JSONResponse(command, status_code=command_http_status(command))
+    result = await connection_registry.disconnect_connection(
+        principal.workspace_id, connection_id, expected_version=payload.version)
+    terminal = await commands.transition(
+        workspace_id=principal.workspace_id, command_id=command["command_id"],
+        expected_version=command["version"],
+        status="COMPLETED" if not result.get("error") else "REJECTED",
+        result_ref=({"connection_id": connection_id,
+                     "outcome": str(result.get("outcome") or "SUCCEEDED"),
+                     "message": str(result.get("message") or ""),
+                     "action_required": bool(result.get("action_required")),
+                     "permissions_url": str(result.get("permissions_url") or "")}
+                    if not result.get("error") else None),
+        error_code=str(result.get("error_code") or "connector_disconnect_failed"))
+    return JSONResponse(terminal, status_code=(
+        200 if not result.get("error") else command_http_status(terminal)))
+
+
+@app.get("/api/v1/integrations/calendar/upcoming")
+@app.get("/api/integrations/calendar/upcoming", include_in_schema=False)
+async def api_calendar_upcoming(request: Request):
     """Calendar pane preview: upcoming events on the founder's primary calendar."""
     from services import calendar_adapter, connection_registry
 
+    if (request.url.path == "/api/integrations/calendar/upcoming"
+            and os.environ.get("K_SERVICE")):
+        return JSONResponse({"error": True, "error_code": "legacy_route_retired",
+                             "message": "Use the v1 integrations API."},
+                            status_code=410)
+    principal = await _route_principal(
+        request, legacy=request.url.path == "/api/integrations/calendar/upcoming")
+    if isinstance(principal, dict):
+        return JSONResponse(principal, status_code=401)
     gate = await connection_registry.authorize_connector_operation(
-        FOUNDER_ID, "calendar")
+        principal.workspace_id, "calendar")
     if gate.get("error"):
         return gate
-    result = await calendar_adapter.list_upcoming(days_ahead=7, max_results=5)
+    result = await calendar_adapter.list_upcoming(
+        days_ahead=7, max_results=5, workspace_id=principal.workspace_id)
     await connection_registry.record_operation_result(
-        FOUNDER_ID, "calendar", "calendar_list", result)
+        principal.workspace_id, "calendar", "calendar_list", result)
     return result
 
 
 @app.post("/api/integrations/alex_mail/watch")
 async def api_alex_mail_watch():
     """Register Gmail push notifications for Alex's inbox (adr/001 v2)."""
+    if os.environ.get("K_SERVICE"):
+        return JSONResponse({"error": True, "error_code": "legacy_route_retired",
+                             "message": "Use the v1 integrations API."},
+                            status_code=410)
     from services import alex_mailbox, connection_registry
 
     topic = os.environ.get("ALEX_MAIL_PUBSUB_TOPIC", "")
@@ -1969,9 +3741,49 @@ async def api_alex_mail_watch():
     return result
 
 
+@app.post("/api/v1/integrations/alex_mail:watch")
+async def api_v1_alex_mail_watch(payload: ConnectorCommandV1, request: Request):
+    """Receipted watch registration bound to the selected workspace."""
+    from services import alex_mailbox, connection_registry
+
+    principal = await _platform_human(request)
+    if isinstance(principal, dict):
+        return JSONResponse(principal, status_code=401)
+    commands = CommandService(production_store())
+    command = await commands.accept(
+        principal=principal, client_request_id=payload.client_request_id,
+        command_type="connector.alex_mail.watch", request=payload.model_dump())
+    if command.get("error") or command.get("duplicate"):
+        return JSONResponse(command, status_code=command_http_status(command))
+    topic = os.environ.get("ALEX_MAIL_PUBSUB_TOPIC", "")
+    result = ({"status": "error", "error": True,
+               "error_code": "connector_not_configured",
+               "message": "Alex mail push topic is not configured."}
+              if not topic else await connection_registry.authorize_connector_operation(
+                  principal.workspace_id, "alex_mail"))
+    if not result.get("error"):
+        result = await alex_mailbox.start_watch(
+            topic, workspace_id=principal.workspace_id)
+        await connection_registry.record_operation_result(
+            principal.workspace_id, "alex_mail", "gmail_watch", result)
+    terminal = await commands.transition(
+        workspace_id=principal.workspace_id, command_id=command["command_id"],
+        expected_version=command["version"],
+        status="COMPLETED" if not result.get("error") else "REJECTED",
+        result_ref=({"connector_id": "alex_mail", "watch": "enabled"}
+                    if not result.get("error") else None),
+        error_code=str(result.get("error_code") or "watch_registration_failed"))
+    return JSONResponse(terminal, status_code=(
+        200 if not result.get("error") else command_http_status(terminal)))
+
+
 @app.post("/api/integrations/drive/files")
 async def api_drive_files(payload: DriveFileRequest):
     """Founder creates/revokes an explicit deterministic Drive source grant."""
+    if os.environ.get("K_SERVICE"):
+        return JSONResponse({"error": True, "error_code": "legacy_route_retired",
+                             "message": "Use the v1 integrations API."},
+                            status_code=410)
     from services import connection_registry
     from services import data_source_contracts as dsc
 
@@ -2005,8 +3817,78 @@ async def api_drive_files(payload: DriveFileRequest):
             "drive_files": files}
 
 
+async def _drive_files_for(workspace_id: str, payload: DriveFileRequest) -> dict:
+    """Create or revoke one workspace-scoped deterministic source grant."""
+    from services import connection_registry
+    from services import data_source_contracts as dsc
+
+    connection_id = connection_registry.connection_id_for(workspace_id, "drive")
+    connection = await firestore.get_data_connection(workspace_id, connection_id)
+    if not connection or connection.get("status") not in {"CONNECTED", "DEGRADED"}:
+        return {"status": "error", "error": True,
+                "error_code": "auth_required",
+                "message": "Connect Google Drive first."}
+    if (payload.selected_session_id and not await _workspace_session_exists(
+            workspace_id, payload.selected_session_id)):
+        return {"status": "error", "error": True,
+                "error_code": "owner_mismatch", "message": "Not found."}
+    if payload.action == "add":
+        result = await firestore.create_source_grant(
+            workspace_id, connection_id, payload.file_id,
+            display_name=payload.name or payload.file_id,
+            allowed_ingestion_scopes=list(payload.allowed_ingestion_scopes),
+            selected_session_id=payload.selected_session_id)
+    else:
+        grant_id = dsc.source_grant_id(
+            workspace_id, connection_id, payload.file_id)
+        result = await firestore.revoke_source_grant(workspace_id, grant_id)
+    if result.get("error"):
+        return result
+    grants = await firestore.list_source_grants(
+        workspace_id, connection_id=connection_id)
+    files = [{"id": grant.get("provider_source_id"),
+              "name": grant.get("display_name"),
+              "source_grant_id": grant.get("source_grant_id")}
+             for grant in grants if grant.get("status") == "ACTIVE"]
+    await firestore.update_integrations(workspace_id, drive_files=files)
+    return {"status": "success", "source_grant": result,
+            "drive_files": files}
+
+
+@app.post("/api/v1/integrations/drive/files")
+async def api_v1_drive_files(payload: DriveFileRequestV1, request: Request):
+    principal = await _platform_human(request)
+    if isinstance(principal, dict):
+        return JSONResponse(principal, status_code=401)
+    commands = CommandService(production_store())
+    command = await commands.accept(
+        principal=principal, client_request_id=payload.client_request_id,
+        command_type=f"drive_source.{payload.action}",
+        request=payload.model_dump(mode="json"),
+        origin_session_id=payload.selected_session_id or "")
+    if command.get("error") or command.get("duplicate"):
+        return JSONResponse(command, status_code=command_http_status(command))
+    result = await _drive_files_for(principal.workspace_id, payload)
+    terminal = await commands.transition(
+        workspace_id=principal.workspace_id, command_id=command["command_id"],
+        expected_version=command["version"],
+        status="COMPLETED" if not result.get("error") else "REJECTED",
+        result_ref=({"file_id": payload.file_id, "action": payload.action,
+                     "source_grant_id": str(
+                         (result.get("source_grant") or {}).get("source_grant_id") or
+                         (result.get("source_grant") or {}).get("id") or payload.file_id)}
+                    if not result.get("error") else None),
+        error_code=str(result.get("error_code") or "source_grant_failed"))
+    return JSONResponse(terminal, status_code=(
+        200 if not result.get("error") else command_http_status(terminal)))
+
+
 class GmailLabelRequest(BaseModel):
     label: str
+
+
+class GmailLabelRequestV1(GmailLabelRequest):
+    client_request_id: str = Field(min_length=8, max_length=128)
 
 
 class FounderInboxResolveRequest(BaseModel):
@@ -2017,6 +3899,14 @@ class FounderInboxResolveRequest(BaseModel):
 
 class FounderInboxDismissRequest(BaseModel):
     confirm: bool = True
+
+
+class FounderInboxResolveRequestV1(FounderInboxResolveRequest):
+    client_request_id: str = Field(min_length=8, max_length=128)
+
+
+class FounderInboxDismissRequestV1(FounderInboxDismissRequest):
+    client_request_id: str = Field(min_length=8, max_length=128)
 
 
 def _inbox_cursor_encode(created_at: str, inbox_item_id: str) -> str:
@@ -2040,10 +3930,10 @@ def _inbox_cursor_decode(cursor: str) -> tuple[str, str] | None:
         raise HTTPException(status_code=400, detail="invalid cursor") from exc
 
 
-@app.get("/api/founder-inbox")
-async def api_founder_inbox(status: str = "UNREAD", cursor: str = "",
-                            limit: int = 30):
-    """Owner-scoped, keyset-paginated ambiguity inbox; never raw mail body."""
+async def _founder_inbox_for(
+        workspace_id: str, *, status: str = "UNREAD", cursor: str = "",
+        limit: int = 30) -> dict:
+    """Workspace-scoped, keyset-paginated ambiguity inbox projection."""
     from services import data_source_contracts as dsc
 
     try:
@@ -2052,7 +3942,7 @@ async def api_founder_inbox(status: str = "UNREAD", cursor: str = "",
         raise HTTPException(status_code=400, detail="invalid inbox status") from exc
     bounded_limit = max(1, min(limit, 100))
     items = await firestore.list_founder_inbox(
-        FOUNDER_ID, status=status, limit=bounded_limit,
+        workspace_id, status=status, limit=bounded_limit,
         start_after=_inbox_cursor_decode(cursor))
     next_cursor = ""
     if len(items) == bounded_limit:
@@ -2063,9 +3953,36 @@ async def api_founder_inbox(status: str = "UNREAD", cursor: str = "",
     return {"status": "success", "items": items, "next_cursor": next_cursor}
 
 
+@app.get("/api/founder-inbox")
+async def api_founder_inbox(status: str = "UNREAD", cursor: str = "",
+                            limit: int = 30):
+    """Local compatibility route; production clients use the scoped v1 API."""
+    if os.environ.get("K_SERVICE"):
+        return JSONResponse({"error": True, "error_code": "legacy_route_retired",
+                             "message": "Use GET /api/v1/founder-inbox."},
+                            status_code=410)
+    return await _founder_inbox_for(
+        FOUNDER_ID, status=status, cursor=cursor, limit=limit)
+
+
+@app.get("/api/v1/founder-inbox")
+async def api_v1_founder_inbox(
+        request: Request, status: str = "UNREAD", cursor: str = "",
+        limit: int = 30):
+    principal = await _platform_human(request)
+    if isinstance(principal, dict):
+        return JSONResponse(principal, status_code=401)
+    return await _founder_inbox_for(
+        principal.workspace_id, status=status, cursor=cursor, limit=limit)
+
+
 @app.post("/api/founder-inbox/{inbox_item_id}/resolve")
 async def api_resolve_founder_inbox(
         inbox_item_id: str, request: Request):
+    if os.environ.get("K_SERVICE"):
+        return JSONResponse({"error": True, "error_code": "legacy_route_retired",
+                             "message": "Use the v1 founder inbox API."},
+                            status_code=410)
     if not request.headers.get("content-type", "").lower().startswith(
             "application/json"):
         raise HTTPException(status_code=415, detail="application/json required")
@@ -2086,9 +4003,49 @@ async def api_resolve_founder_inbox(
     return result
 
 
+@app.post("/api/v1/founder-inbox/{inbox_item_id}:resolve")
+async def api_v1_resolve_founder_inbox(
+        inbox_item_id: str, payload: FounderInboxResolveRequestV1,
+        request: Request):
+    principal = await _platform_human(request)
+    if isinstance(principal, dict):
+        return JSONResponse(principal, status_code=401)
+    if not await _workspace_session_exists(
+            principal.workspace_id, payload.session_id):
+        return JSONResponse({"error": True, "error_code": "owner_mismatch",
+                             "message": "Not found."}, status_code=404)
+    commands = CommandService(production_store())
+    command = await commands.accept(
+        principal=principal, client_request_id=payload.client_request_id,
+        command_type="founder_inbox.resolve",
+        request={"inbox_item_id": inbox_item_id, **payload.model_dump(mode="json")},
+        origin_session_id=payload.session_id)
+    if command.get("error") or command.get("duplicate"):
+        return JSONResponse(command, status_code=command_http_status(command))
+    result = await firestore.resolve_founder_inbox_item(
+        principal.workspace_id, inbox_item_id,
+        application_id=payload.application_id, resource_id=payload.resource_id,
+        session_id=payload.session_id, session_verified=True)
+    terminal = await commands.transition(
+        workspace_id=principal.workspace_id, command_id=command["command_id"],
+        expected_version=command["version"],
+        status="COMPLETED" if not result.get("error") else "REJECTED",
+        result_ref=({"inbox_item_id": inbox_item_id,
+                     "resolution_id": str(result.get("resolution_id") or
+                                          result.get("resource_id") or inbox_item_id)}
+                    if not result.get("error") else None),
+        error_code=str(result.get("error_code") or "inbox_resolution_failed"))
+    return JSONResponse(terminal, status_code=(
+        200 if not result.get("error") else command_http_status(terminal)))
+
+
 @app.post("/api/founder-inbox/{inbox_item_id}/dismiss")
 async def api_dismiss_founder_inbox(
         inbox_item_id: str, request: Request):
+    if os.environ.get("K_SERVICE"):
+        return JSONResponse({"error": True, "error_code": "legacy_route_retired",
+                             "message": "Use the v1 founder inbox API."},
+                            status_code=410)
     if not request.headers.get("content-type", "").lower().startswith(
             "application/json"):
         raise HTTPException(status_code=415, detail="application/json required")
@@ -2107,12 +4064,66 @@ async def api_dismiss_founder_inbox(
     return result
 
 
+@app.post("/api/v1/founder-inbox/{inbox_item_id}:dismiss")
+async def api_v1_dismiss_founder_inbox(
+        inbox_item_id: str, payload: FounderInboxDismissRequestV1,
+        request: Request):
+    principal = await _platform_human(request)
+    if isinstance(principal, dict):
+        return JSONResponse(principal, status_code=401)
+    if not payload.confirm:
+        raise HTTPException(status_code=400, detail="dismissal not confirmed")
+    commands = CommandService(production_store())
+    command = await commands.accept(
+        principal=principal, client_request_id=payload.client_request_id,
+        command_type="founder_inbox.dismiss",
+        request={"inbox_item_id": inbox_item_id, **payload.model_dump(mode="json")})
+    if command.get("error") or command.get("duplicate"):
+        return JSONResponse(command, status_code=command_http_status(command))
+    result = await firestore.dismiss_founder_inbox_item(
+        principal.workspace_id, inbox_item_id)
+    terminal = await commands.transition(
+        workspace_id=principal.workspace_id, command_id=command["command_id"],
+        expected_version=command["version"],
+        status="COMPLETED" if not result.get("error") else "REJECTED",
+        result_ref=({"inbox_item_id": inbox_item_id,
+                     "status": str(result.get("inbox_status") or "DISMISSED")}
+                    if not result.get("error") else None),
+        error_code=str(result.get("error_code") or "inbox_dismissal_failed"))
+    return JSONResponse(terminal, status_code=(
+        200 if not result.get("error") else command_http_status(terminal)))
+
+
 @app.post("/api/integrations/gmail/label")
 async def api_gmail_label(payload: GmailLabelRequest):
     """The ONE label the agent may read (docs/12). Everything else in the
     mailbox does not exist as far as the agent is concerned."""
+    if os.environ.get("K_SERVICE"):
+        return JSONResponse({"error": True, "error_code": "legacy_route_retired",
+                             "message": "Use the v1 integrations API."},
+                            status_code=410)
     await firestore.update_integrations(FOUNDER_ID, gmail_label=payload.label.strip() or "grants")
     return {"status": "success", "gmail_label": payload.label}
+
+
+@app.post("/api/v1/integrations/gmail/label")
+async def api_v1_gmail_label(payload: GmailLabelRequestV1, request: Request):
+    principal = await _platform_human(request)
+    if isinstance(principal, dict):
+        return JSONResponse(principal, status_code=401)
+    commands = CommandService(production_store())
+    command = await commands.accept(
+        principal=principal, client_request_id=payload.client_request_id,
+        command_type="connector.gmail_label.set", request=payload.model_dump())
+    if command.get("error") or command.get("duplicate"):
+        return JSONResponse(command, status_code=command_http_status(command))
+    label = payload.label.strip() or "grants"
+    await firestore.update_integrations(principal.workspace_id, gmail_label=label)
+    terminal = await commands.transition(
+        workspace_id=principal.workspace_id, command_id=command["command_id"],
+        expected_version=command["version"], status="COMPLETED",
+        result_ref={"gmail_label": label})
+    return JSONResponse(terminal, status_code=200)
 
 
 async def _register_document_ingestion(
@@ -2120,6 +4131,8 @@ async def _register_document_ingestion(
     storage_name: str, data: bytes, checked: dict,
     declared_content_type: str, title: str, occurrence_prefix: str,
     source_grant_id: str | None = None,
+    founder_id: str = FOUNDER_ID,
+    command: tuple[CommandService, dict] | None = None,
 ):
     """Shared safe registration for every knowledge source (docs/24 §7.1).
 
@@ -2131,13 +4144,25 @@ async def _register_document_ingestion(
     from services import source_ingestion
 
     result = await source_ingestion.register_source_ingestion(
-        founder_id=FOUNDER_ID, session_id=session_id,
+        founder_id=founder_id, session_id=session_id,
         source_type=source_type, source_grant_id=source_grant_id,
         source_ref=source_ref, display_name=title, data=data or None,
         declared_content_type=declared_content_type, scope=scope,
         occurrence_key=occurrence_prefix)
     status_code = int(result.pop("http_status", 202 if result.get(
         "status") == "success" else 400))
+    if command is not None:
+        commands, receipt = command
+        terminal = await commands.transition(
+            workspace_id=founder_id, command_id=receipt["command_id"],
+            expected_version=receipt["version"],
+            status="COMPLETED" if not result.get("error") else "REJECTED",
+            result_ref=({"attachment_ref": str(result.get("attachment_ref") or
+                                                result.get("artifact_id") or ""),
+                         "session_id": session_id}
+                        if not result.get("error") else None),
+            error_code=str(result.get("error_code") or "ingestion_registration_failed"))
+        result["command_receipt"] = terminal
     return JSONResponse(result, status_code=status_code)
 
 
@@ -2148,10 +4173,12 @@ class DriveIngestRequest(BaseModel):
     # M1 compatibility only: it must resolve to an ACTIVE canonical grant and
     # is never used directly for a provider fetch.
     file_id: str = Field(default="", max_length=512)
+    client_request_id: str = Field(default="", max_length=128)
 
 
-@app.post("/api/ingest/drive")
-async def api_ingest_drive(payload: DriveIngestRequest):
+@app.post("/api/v1/ingestions:import-drive")
+@app.post("/api/ingest/drive", include_in_schema=False)
+async def api_ingest_drive(payload: DriveIngestRequest, request: Request):
     """Ingest one founder-SELECTED Drive file through the standard pipeline.
 
     This route previously took only a file id: no session, no scope, no
@@ -2163,23 +4190,48 @@ async def api_ingest_drive(payload: DriveIngestRequest):
     enforces, and shares its artifact/ingestion/provenance/dispatch contract so
     Drive material is searchable and attachable like any upload.
     """
-    if not await _founder_session_exists(payload.session_id):
+    if request.url.path == "/api/ingest/drive" and os.environ.get("K_SERVICE"):
+        return JSONResponse({"error": True, "error_code": "legacy_route_retired",
+                             "message": "Use the v1 ingestions API."},
+                            status_code=410)
+    principal = await _route_principal(
+        request, legacy=request.url.path == "/api/ingest/drive")
+    if isinstance(principal, dict):
+        return JSONResponse(principal, status_code=401)
+    founder_id = principal.workspace_id
+    if not await _workspace_session_exists(founder_id, payload.session_id):
         return JSONResponse({"error": "not found"}, status_code=404)
     grant_id = payload.source_grant_id
     if not grant_id and payload.file_id:
         from services import connection_registry
         from services import data_source_contracts as dsc
 
-        connection_id = connection_registry.connection_id_for(FOUNDER_ID, "drive")
+        connection_id = connection_registry.connection_id_for(founder_id, "drive")
         candidate = dsc.source_grant_id(
-            FOUNDER_ID, connection_id, payload.file_id)
-        grant = await firestore.get_source_grant(FOUNDER_ID, candidate)
+            founder_id, connection_id, payload.file_id)
+        grant = await firestore.get_source_grant(founder_id, candidate)
         if grant and grant.get("status") == "ACTIVE":
             grant_id = candidate
     if not grant_id:
         return JSONResponse({"status": "error", "error": True,
                              "error_code": "source_not_selected",
                              "message": "That file is not available."}, status_code=404)
+
+    command = None
+    commands = CommandService(production_store())
+    if request.url.path.startswith("/api/v1/"):
+        if not _REQUEST_ID.fullmatch(payload.client_request_id):
+            return JSONResponse(
+                {"error": True, "error_code": "command_contract_invalid",
+                 "message": "A valid client_request_id is required."}, status_code=400)
+        command = await commands.accept(
+            principal=principal, client_request_id=payload.client_request_id,
+            command_type="ingestion.import_drive",
+            request={"session_id": payload.session_id, "source_grant_id": grant_id,
+                     "scope": payload.scope},
+            origin_session_id=payload.session_id)
+        if command.get("error") or command.get("duplicate"):
+            return JSONResponse(command, status_code=command_http_status(command))
 
     return await _register_document_ingestion(
         session_id=payload.session_id, scope=payload.scope,
@@ -2188,7 +4240,8 @@ async def api_ingest_drive(payload: DriveIngestRequest):
         declared_content_type="application/octet-stream",
         title="Drive document",
         occurrence_prefix=f"drive:{grant_id}:{uuid.uuid4().hex}",
-        source_grant_id=grant_id)
+        source_grant_id=grant_id, founder_id=founder_id,
+        command=(commands, command) if command else None)
 
 
 def _safe_followup_note(event: dict) -> str:
@@ -2243,34 +4296,42 @@ def _safe_email_lines(events: list[dict], limit: int = 5) -> str:
 async def tasks_gmail_scan(request: Request):
     if not await _verify_task_caller(request):
         return JSONResponse({"error": "unauthorized"}, status_code=401)
-    await _gmail_scan_and_report()
-    return {"status": "success"}
+    payload = await request.json()
+    workspace_id = str(payload.get("workspace_id") or "")[:256]
+    command_id = str(payload.get("command_id") or "")[:256]
+    if not workspace_id:
+        return JSONResponse({"error": "workspace_id required"}, status_code=400)
+    result = await _gmail_scan_and_report(workspace_id)
+    await _complete_scan_command(workspace_id, command_id, "founder_gmail", result)
+    return result
 
 
-async def _gmail_scan_and_report() -> None:
+async def _gmail_scan_and_report(workspace_id: str) -> dict:
     """Label-scoped mail → durable receipts → exact effect or founder inbox."""
     from services import connection_registry, external_event_service, gmail_adapter
 
     gate = await connection_registry.authorize_connector_operation(
-        FOUNDER_ID, "founder_gmail")
+        workspace_id, "founder_gmail")
     if gate.get("error"):
         await firestore.set_last_gmail_scan(
-            {"error": gate.get("error_code"), "event_count": 0})
-        return
+            {"error": gate.get("error_code"), "event_count": 0}, workspace_id)
+        return gate
 
-    integ = await firestore.get_integrations(FOUNDER_ID)
-    result = await gmail_adapter.scan(label=integ.get("gmail_label", "grants"))
+    integ = await firestore.get_integrations(workspace_id)
+    result = await gmail_adapter.scan(
+        label=integ.get("gmail_label", "grants"), workspace_id=workspace_id)
     await connection_registry.record_operation_result(
-        FOUNDER_ID, "founder_gmail", "gmail_scan", result)
+        workspace_id, "founder_gmail", "gmail_scan", result)
     if result.get("status") != "success":
         await firestore.set_last_gmail_scan(
-            {"error": "provider_scan_failed", "event_count": 0})
-        return
+            {"error": "provider_scan_failed", "event_count": 0}, workspace_id)
+        return result
     events = result.get("events", [])
     if not events:
         await firestore.set_last_gmail_scan(
-            {"event_count": 0, "scanned": result.get("scanned", 0)})
-        return
+            {"event_count": 0, "scanned": result.get("scanned", 0)},
+            workspace_id)
+        return {"status": "success", "processed": 0, "settled": 0}
 
     async def _wake(founder_id: str, session_id: str, notice: str) -> None:
         await resume_handler.wake(
@@ -2278,16 +4339,104 @@ async def _gmail_scan_and_report() -> None:
             notice=notice, state_delta={})
 
     batch = await external_event_service.process_mail_batch(
-        FOUNDER_ID, "founder_gmail", events, wake=_wake)
+        workspace_id, "founder_gmail", events, wake=_wake)
     # The compatibility processed-id fence advances only after a terminal
     # receipt/effect (and, when required, its origin-bound wake) is durable.
-    await gmail_adapter.mark_processed(batch["settled_provider_ids"])
+    await gmail_adapter.mark_processed(
+        batch["settled_provider_ids"], workspace_id)
     await firestore.set_last_gmail_scan({
         "event_count": len(events), "settled": len(batch["settled_provider_ids"]),
         "receipt_ids": [row.get("event_id") for row in batch["results"]
                         if row.get("event_id")][:50],
         "scanned": result.get("scanned", 0),
-    })
+    }, workspace_id)
+    return {"status": "success", "processed": batch["processed"],
+            "settled": len(batch["settled_provider_ids"])}
+
+
+async def _complete_scan_command(workspace_id: str, command_id: str,
+                                 connector_id: str, result: dict) -> None:
+    """Make a manually-triggered scan receipt terminal after worker delivery."""
+    if not command_id:
+        return
+    commands = CommandService(production_store())
+    current = await commands.get(workspace_id=workspace_id, command_id=command_id)
+    if current.get("error") or current.get("status") in {
+            "COMPLETED", "FAILED", "REJECTED", "CANCELLED"}:
+        return
+    await commands.transition(
+        workspace_id=workspace_id, command_id=command_id,
+        expected_version=int(current["version"]),
+        status="COMPLETED" if not result.get("error") else "FAILED",
+        result_ref=({"connector_id": connector_id,
+                     "processed": int(result.get("processed") or 0),
+                     "settled": int(result.get("settled") or 0)}
+                    if not result.get("error") else None),
+        error_code=(str(result.get("error_code") or "connector_scan_failed")
+                    if result.get("error") else ""))
+
+
+async def _start_manual_scan(principal: ActorPrincipal, payload: ConnectorCommandV1,
+                             connector_id: str) -> JSONResponse:
+    """Accept once, then execute locally or dispatch one durable Cloud Task."""
+    if not _REQUEST_ID.fullmatch(payload.client_request_id):
+        return JSONResponse(
+            {"error": True, "error_code": "command_contract_invalid",
+             "message": "client_request_id is invalid"}, status_code=400)
+    commands = CommandService(production_store())
+    command = await commands.accept(
+        principal=principal, client_request_id=payload.client_request_id,
+        command_type=f"connector.{connector_id}.scan",
+        request={"connector_id": connector_id,
+                 "client_request_id": payload.client_request_id})
+    if command.get("error") or command.get("duplicate"):
+        return JSONResponse(command, status_code=command_http_status(command))
+    if not os.environ.get("K_SERVICE"):
+        result = (await _gmail_scan_and_report(principal.workspace_id)
+                  if connector_id == "founder_gmail"
+                  else await _alex_mail_process(principal.workspace_id))
+        await _complete_scan_command(
+            principal.workspace_id, command["command_id"], connector_id, result)
+        final = await commands.get(
+            workspace_id=principal.workspace_id, command_id=command["command_id"])
+        return JSONResponse(final, status_code=command_http_status(final))
+    from services import task_queue
+
+    path = ("/tasks/gmail_scan" if connector_id == "founder_gmail"
+            else "/tasks/alex_mail_scan")
+    queued = await asyncio.to_thread(
+        task_queue.enqueue, path,
+        {"workspace_id": principal.workspace_id,
+         "command_id": command["command_id"]},
+        f"connector-scan:{command['command_id']}",
+        queue_name="co-founder-provider-events")
+    if queued.get("status") != "success":
+        failed = await commands.transition(
+            workspace_id=principal.workspace_id,
+            command_id=command["command_id"],
+            expected_version=command["version"], status="FAILED",
+            error_code="dispatch_failed")
+        return JSONResponse(failed, status_code=503)
+    dispatched = await commands.transition(
+        workspace_id=principal.workspace_id, command_id=command["command_id"],
+        expected_version=command["version"], status="DISPATCHED")
+    return JSONResponse(dispatched, status_code=202)
+
+
+@app.post("/api/v1/integrations/founder_gmail:scan")
+async def api_v1_gmail_scan(payload: ConnectorCommandV1, request: Request):
+    principal = await _platform_human(request)
+    if isinstance(principal, dict):
+        return JSONResponse(principal, status_code=401)
+    return await _start_manual_scan(principal, payload, "founder_gmail")
+
+
+@app.post("/api/v1/integrations/alex_mail:scan")
+async def api_v1_alex_mail_scan(payload: ConnectorCommandV1, request: Request):
+    principal = await _platform_human(request)
+    if isinstance(principal, dict):
+        return JSONResponse(principal, status_code=401)
+    return await _start_manual_scan(principal, payload, "alex_mail")
 
 
 # ---------------------------------------------------------------------------
@@ -2317,6 +4466,7 @@ async def alex_mail_push(request: Request):
         return JSONResponse({"error": "unauthorized"}, status_code=401)
 
     message_id = ""
+    provider_email = ""
     try:
         envelope = await request.json()
         message = envelope.get("message") if isinstance(envelope, dict) else None
@@ -2324,21 +4474,46 @@ async def alex_mail_push(request: Request):
         if isinstance(candidate, str) and re.fullmatch(
                 r"[A-Za-z0-9_-]{1,128}", candidate):
             message_id = candidate
+        encoded = message.get("data") if isinstance(message, dict) else None
+        if isinstance(encoded, str) and encoded:
+            decoded = json.loads(base64.b64decode(encoded).decode("utf-8"))
+            value = decoded.get("emailAddress") if isinstance(decoded, dict) else None
+            if isinstance(value, str) and 3 <= len(value) <= 254:
+                provider_email = value
     except Exception:
-        message_id = ""   # a manual/founder trigger carries no envelope
+        message_id = ""   # a malformed or local manual trigger carries no envelope
 
-    if os.environ.get("K_SERVICE") and not message_id:
+    if os.environ.get("K_SERVICE") and (not message_id or not provider_email):
         # Production traffic is Pub/Sub-delivered. A missing/malformed provider
         # id cannot be deduplicated or leased, so never acknowledge it and never
         # fall through to an inline mailbox scan.
         return JSONResponse({"error": "invalid Pub/Sub envelope"}, status_code=400)
 
     if os.environ.get("K_SERVICE"):
-        from services import task_queue
+        from services import google_oauth, task_queue
+
+        matches = await firestore.find_data_connections_by_provider(
+            "alex_mail", google_oauth.provider_account_hash(provider_email))
+        if len(matches) != 1:
+            # Refuse the acknowledgement. Gmail retains the messages and
+            # Pub/Sub redelivers while an operator fixes the absent/ambiguous
+            # binding; guessing a latest/global workspace would cross tenants.
+            return JSONResponse(
+                {"error": "provider account is not uniquely correlated",
+                 "error_code": ("connector_binding_missing" if not matches
+                                else "connector_binding_ambiguous")},
+                status_code=409)
+        workspace_id = str(matches[0].get("workspace_id") or "")
+        if not workspace_id:
+            return JSONResponse(
+                {"error": "provider connection has no workspace",
+                 "error_code": "connector_binding_invalid"}, status_code=409)
 
         queued = await asyncio.to_thread(
             task_queue.enqueue, "/tasks/alex_mail_scan",
-            {"message_id": message_id}, f"alex-mail:{message_id}")
+            {"message_id": message_id, "workspace_id": workspace_id},
+            f"alex-mail:{message_id}",
+            queue_name="co-founder-provider-events")
         if queued.get("status") != "success":
             # Refuse the ack so Pub/Sub redelivers rather than dropping mail.
             return JSONResponse(queued, status_code=503)
@@ -2347,7 +4522,9 @@ async def alex_mail_push(request: Request):
 
     # Local development and manual triggers stay request-bound: there is no
     # durable transport to hand the work to.
-    await _alex_mail_process()
+    # A local developer uses the seeded workspace; production never reaches
+    # this compatibility branch.
+    await _alex_mail_process(FOUNDER_ID)
     return {"status": "success"}
 
 
@@ -2355,32 +4532,39 @@ async def alex_mail_push(request: Request):
 async def tasks_alex_mail_scan(request: Request):
     if not await _verify_task_caller(request):
         return JSONResponse({"error": "unauthorized"}, status_code=401)
-    result = await _alex_mail_process()
+    payload = await request.json()
+    workspace_id = str(payload.get("workspace_id") or "")[:256]
+    command_id = str(payload.get("command_id") or "")[:256]
+    if not workspace_id:
+        return JSONResponse({"error": "workspace_id required"}, status_code=400)
+    result = await _alex_mail_process(workspace_id)
+    await _complete_scan_command(workspace_id, command_id, "alex_mail", result)
     if result.get("error"):
         return JSONResponse(result, status_code=503)
     return result
 
 
-async def _alex_mail_process() -> dict:
+async def _alex_mail_process(workspace_id: str) -> dict:
     """Alex mail → durable receipts → exact effect or founder inbox."""
     from services import alex_mailbox, connection_registry, external_event_service
 
     gate = await connection_registry.authorize_connector_operation(
-        FOUNDER_ID, "alex_mail")
+        workspace_id, "alex_mail")
     if gate.get("error"):
         return gate
 
-    result = await alex_mailbox.fetch_history_events()
+    result = await alex_mailbox.fetch_history_events(workspace_id)
     await connection_registry.record_operation_result(
-        FOUNDER_ID, "alex_mail", "mail_history_fetch", result)
+        workspace_id, "alex_mail", "mail_history_fetch", result)
     if result.get("status") != "success":
         await firestore.set_last_alex_scan(
-            {"error": "provider_scan_failed", "event_count": 0})
+            {"error": "provider_scan_failed", "event_count": 0}, workspace_id)
         return {"status": "error", "error": True,
                 "message": "Alex mailbox scan failed"}
     events = result.get("events", [])
     if not events:
-        await firestore.set_last_alex_scan({"event_count": 0, "settled": 0})
+        await firestore.set_last_alex_scan(
+            {"event_count": 0, "settled": 0}, workspace_id)
         return {"status": "success", "processed": 0}
 
     async def _wake(founder_id: str, session_id: str, notice: str) -> None:
@@ -2389,13 +4573,14 @@ async def _alex_mail_process() -> dict:
             notice=notice, state_delta={"pending_signals": []})
 
     batch = await external_event_service.process_mail_batch(
-        FOUNDER_ID, "alex_mail", events, wake=_wake)
-    await alex_mailbox.mark_processed(batch["settled_provider_ids"])
+        workspace_id, "alex_mail", events, wake=_wake)
+    await alex_mailbox.mark_processed(
+        batch["settled_provider_ids"], workspace_id)
     await firestore.set_last_alex_scan({
         "event_count": len(events), "settled": len(batch["settled_provider_ids"]),
         "receipt_ids": [row.get("event_id") for row in batch["results"]
                         if row.get("event_id")][:50],
-    })
+    }, workspace_id)
     return {"status": "success", "processed": batch["processed"],
             "settled": len(batch["settled_provider_ids"])}
 
@@ -2404,12 +4589,28 @@ async def _alex_mail_process() -> dict:
 # documents (docs/15): registry, downloads, Drive sync
 # ---------------------------------------------------------------------------
 
-@app.get("/api/applications/{application_id}/recon")
-async def api_recon(application_id: str):
+@app.get("/api/v1/applications/{application_id}/recon")
+@app.get("/api/applications/{application_id}/recon", include_in_schema=False)
+async def api_recon(application_id: str, request: Request):
     """Vision-recon evidence for one application: the form_map the agent built
     and the screenshots it took getting there (docs/09 Tier 1, docs/10 §Fill
     report). This is the 'show your working' surface — judges ask for it."""
     import json as _json
+
+    if (request.url.path.startswith("/api/applications/")
+            and os.environ.get("K_SERVICE")):
+        return JSONResponse({"error": True, "error_code": "legacy_route_retired",
+                             "message": "Use the v1 applications API."},
+                            status_code=410)
+    principal = await _route_principal(
+        request, legacy=request.url.path.startswith("/api/applications/")
+        and not request.url.path.startswith("/api/v1/"))
+    if isinstance(principal, dict):
+        return JSONResponse(principal, status_code=401)
+    application = await firestore.get_application(
+        application_id, principal.workspace_id)
+    if not application:
+        return JSONResponse({"error": "not found"}, status_code=404)
 
     artifact = f"form_map_{application_id}.json"
     form_map = None
@@ -2433,21 +4634,86 @@ async def api_recon(application_id: str):
             "screenshots": shots[:8], "screenshot_total": len(shots)}
 
 
-@app.get("/api/documents")
-async def api_documents(session_id: str = "", application_id: str = ""):
+@app.get("/api/v1/documents")
+@app.get("/api/documents", include_in_schema=False)
+async def api_documents(request: Request, session_id: str = "",
+                        application_id: str = ""):
+    if request.url.path == "/api/documents" and os.environ.get("K_SERVICE"):
+        return JSONResponse({"error": True, "error_code": "legacy_route_retired",
+                             "message": "Use GET /api/v1/documents."},
+                            status_code=410)
+    principal = await _route_principal(
+        request, legacy=request.url.path == "/api/documents")
+    if isinstance(principal, dict):
+        return JSONResponse(principal, status_code=401)
+    if (session_id and not await (_founder_session_exists(session_id)
+            if request.url.path == "/api/documents" else
+            _workspace_session_exists(principal.workspace_id, session_id))):
+        return JSONResponse({"error": "not found"}, status_code=404)
     docs = await firestore.list_documents(
-        FOUNDER_ID, session_id=session_id or None,
+        principal.workspace_id, session_id=session_id or None,
         application_id=application_id or None)
     return {"status": "success", "documents": docs}
 
 
-@app.get("/api/artifacts/{name}/download")
-async def api_download_artifact(name: str):
+async def _artifact_owner_record(
+        workspace_id: str, name: str, session_id: str = "") -> dict | None:
+    """Resolve a blob only through durable workspace-owned metadata."""
+    canonical = name.removesuffix(".preview.pdf")
+    document = await firestore.get_document_by_artifact(workspace_id, canonical)
+    if document and (not session_id or document.get("session_id") == session_id):
+        return {"kind": "document", **document}
+    artifact = await firestore.get_artifact_by_storage_name(
+        workspace_id, canonical)
+    if artifact and (not session_id or artifact.get("session_id") == session_id):
+        return {"kind": "artifact", **artifact}
+    run_id = ""
+    match = re.fullmatch(r"pageshot_(.+)_\d+_[A-Za-z0-9-]+\.png", canonical)
+    if not match:
+        match = re.fullmatch(r"browserframe_(.+)_[A-Za-z0-9-]+\.jpg", canonical)
+    if match:
+        run_id = match.group(1)
+    if run_id:
+        run = await firestore.get_browser_run(run_id)
+        if (run and run.get("user_id") == workspace_id
+                and (not session_id or run.get("session_id") == session_id)):
+            return {"kind": "browser_frame", **run}
+    application_id = ""
+    match = re.fullmatch(r"form_map_([A-Za-z0-9-]+)\.json", canonical)
+    if not match:
+        match = re.fullmatch(r"recon_([A-Za-z0-9-]+)_.+\.png", canonical)
+    if match:
+        application_id = match.group(1)
+    if application_id:
+        application = await firestore.get_application(
+            application_id, workspace_id)
+        if application:
+            return {"kind": "application_evidence", **application}
+    return None
+
+
+@app.get("/api/v1/artifacts/{name}/download")
+@app.get("/api/artifacts/{name}/download", include_in_schema=False)
+async def api_download_artifact(name: str, request: Request,
+                                session_id: str = ""):
     """Stream a produced artifact. Name allowlist: no path traversal."""
     import re as _re
 
     if not _re.fullmatch(r"[A-Za-z0-9_.-]+", name):
         return JSONResponse({"error": "bad artifact name"}, status_code=400)
+    if (request.url.path.startswith("/api/artifacts/")
+            and os.environ.get("K_SERVICE")):
+        return JSONResponse({"error": True, "error_code": "legacy_route_retired",
+                             "message": "Use the v1 artifacts API."},
+                            status_code=410)
+    principal = await _route_principal(
+        request, legacy=request.url.path.startswith("/api/artifacts/")
+        and not request.url.path.startswith("/api/v1/"))
+    if isinstance(principal, dict):
+        return JSONResponse(principal, status_code=401)
+    if request.url.path.startswith("/api/v1/") and not await _artifact_owner_record(
+            principal.workspace_id, name, session_id):
+        return JSONResponse({"error": "not found"}, status_code=404)
     path = os.path.realpath(await asyncio.to_thread(storage.download_if_missing, name))
     if not path.startswith(os.path.realpath(storage._root())) or not os.path.exists(path):
         return JSONResponse({"error": "not found"}, status_code=404)
@@ -2466,10 +4732,17 @@ async def api_download_artifact(name: str):
     return FileResponse(path, media_type=mime, filename=name)
 
 
-@app.post("/api/documents/{artifact_name}/sync_drive")
-async def api_sync_drive(artifact_name: str):
+class DriveSyncV1(BaseModel):
+    client_request_id: str = Field(default="", max_length=128)
+
+
+@app.post("/api/v1/documents/{artifact_name}:sync-drive")
+@app.post("/api/documents/{artifact_name}/sync_drive", include_in_schema=False)
+async def api_sync_drive(
+        artifact_name: str, request: Request, payload: DriveSyncV1 | None = None):
     """Founder-clicked copy of a produced document to Drive — the click IS the
     approval (docs/15 §security)."""
+    payload = payload or DriveSyncV1()
     import hashlib as _hashlib
     import pathlib as _pathlib
     import re as _re
@@ -2480,6 +4753,19 @@ async def api_sync_drive(artifact_name: str):
         drive_adapter,
         external_action_service,
     )
+    if (request.url.path.startswith("/api/documents/")
+            and os.environ.get("K_SERVICE")):
+        return JSONResponse({"error": True, "error_code": "legacy_route_retired",
+                             "message": "Use the v1 documents API."},
+                            status_code=410)
+    principal = await _route_principal(
+        request, legacy=request.url.path.startswith("/api/documents/")
+        and not request.url.path.startswith("/api/v1/"))
+    if isinstance(principal, dict):
+        return JSONResponse(principal, status_code=401)
+    workspace_id = principal.workspace_id
+    command = None
+    commands = CommandService(production_store())
     if not _re.fullmatch(r"[A-Za-z0-9_.-]+", artifact_name):
         return JSONResponse({"error": "bad artifact name"}, status_code=400)
     # Positive registry allowlist: ingestion blobs, voice notes, browser recon,
@@ -2488,7 +4774,7 @@ async def api_sync_drive(artifact_name: str):
                                  "recon_", "voicenote_")):
         return JSONResponse({"error": "artifact is not an exportable document"},
                             status_code=403)
-    document = await firestore.get_document_by_artifact(FOUNDER_ID, artifact_name)
+    document = await firestore.get_document_by_artifact(workspace_id, artifact_name)
     if not document:
         return JSONResponse({"error": "artifact is not in the produced-document registry"},
                             status_code=403)
@@ -2499,23 +4785,93 @@ async def api_sync_drive(artifact_name: str):
     export_bytes = await asyncio.to_thread(_pathlib.Path(path).read_bytes)
     checksum = _hashlib.sha256(export_bytes).hexdigest()
     document_id = str(document.get("id") or "")
+    if request.url.path.startswith("/api/v1/"):
+        if not _REQUEST_ID.fullmatch(payload.client_request_id):
+            return JSONResponse(
+                {"error": True, "error_code": "command_contract_invalid",
+                 "message": "A valid client_request_id is required."}, status_code=400)
+        command = await commands.accept(
+            principal=principal, client_request_id=payload.client_request_id,
+            command_type="document.sync_drive",
+            request={"artifact_name": artifact_name, "document_id": document_id,
+                     "checksum": checksum})
+        if command.get("error") or command.get("duplicate"):
+            return JSONResponse(command, status_code=command_http_status(command))
     idempotency_key = f"drive-export-v1:{document_id}:{checksum}"
+    consequence_kwargs: dict[str, object] = {}
+    if request.url.path.startswith("/api/v1/"):
+        # A click is a valid same-human approval policy, but it still receives
+        # the exact durable decision record used by chat-initiated effects.
+        from services import approval_service
+
+        drive_subject = approval_service.action_subject_hash(
+            "export_drive_file", document_id,
+            {"document_id": document_id, "artifact_name": artifact_name,
+             "checksum": checksum})
+        approval_request = await approval_service.request_approval(
+            document_id, gate="export_drive_file",
+            details={"document_id": document_id, "artifact_name": artifact_name,
+                     "checksum": checksum},
+            founder_id=workspace_id, session_id="",
+            subject_hash=drive_subject,
+            requested_by_actor_id=principal.actor_id)
+        if approval_request.get("error"):
+            rejected = await commands.transition(
+                workspace_id=workspace_id, command_id=command["command_id"],
+                expected_version=command["version"], status="REJECTED",
+                error_code=str(approval_request.get("error_code")
+                               or "approval_request_failed"))
+            return JSONResponse(rejected, status_code=409)
+        approval_id = str(approval_request["approval_id"])
+        approval_decision = await approval_service.resolve_for_principal(
+            principal=principal, approval_id=approval_id,
+            decision="grant", session_id="")
+        if (approval_decision.get("error")
+                and approval_decision.get("error_code") != "approval_terminal"):
+            rejected = await commands.transition(
+                workspace_id=workspace_id, command_id=command["command_id"],
+                expected_version=command["version"], status="REJECTED",
+                error_code=str(approval_decision.get("error_code")
+                               or "approval_decision_failed"))
+            return JSONResponse(rejected, status_code=409)
+        consequence_kwargs = {
+            "subject_hash": drive_subject, "approval_id": approval_id,
+            "consume_approval": True,
+            "approval_gate": "export_drive_file",
+            "approval_target": document_id,
+        }
     prepared = await external_action_service.prepare(
-        FOUNDER_ID, "drive", "export_drive_file", idempotency_key,
+        workspace_id, "drive", "export_drive_file", idempotency_key,
         {"document_id": document_id, "artifact_name": artifact_name,
-         "checksum": checksum}, resource_id=document_id)
+         "checksum": checksum}, resource_id=document_id,
+        **consequence_kwargs)
     if prepared.get("duplicate"):
-        return external_action_service.duplicate_result(prepared)
+        result = external_action_service.duplicate_result(prepared)
+        if command is None:
+            return result
+        terminal = await commands.transition(
+            workspace_id=workspace_id, command_id=command["command_id"],
+            expected_version=command["version"], status="COMPLETED",
+            result_ref={"document_id": document_id,
+                        "action_id": str(result.get("action_id") or "duplicate")})
+        return JSONResponse(terminal, status_code=200)
     if prepared.get("error") or not prepared.get("claimed"):
-        return JSONResponse(prepared, status_code=409)
+        if command is None:
+            return JSONResponse(prepared, status_code=409)
+        rejected = await commands.transition(
+            workspace_id=workspace_id, command_id=command["command_id"],
+            expected_version=command["version"], status="REJECTED",
+            error_code=str(prepared.get("error_code") or "action_prepare_failed"))
+        return JSONResponse(rejected, status_code=409)
     result = await asyncio.to_thread(
         drive_adapter.upload_file, artifact_name, path,
         document_service.mime_for(ext) if ext in ("docx", "xlsx", "pptx", "pdf")
         else "application/octet-stream", source_artifact_id=document_id,
-        checksum=checksum)
+        checksum=checksum,
+        workspace_id=(workspace_id if request.url.path.startswith("/api/v1/") else ""))
     if result.get("status") == "success":
         await external_action_service.finish(
-            FOUNDER_ID, prepared["action_id"], prepared["lease_owner"],
+            workspace_id, prepared["action_id"], prepared["lease_owner"],
             "SUCCEEDED", action_kind="export_drive_file",
             idempotency_key=idempotency_key,
             provider_effect_id=result.get("file_id"),
@@ -2523,54 +4879,91 @@ async def api_sync_drive(artifact_name: str):
                         "url": result.get("url", ""),
                         "checksum": checksum})
         await connection_registry.record_connector_success(
-            FOUNDER_ID, "drive", "export_drive_file")
-        await firestore.audit(actor="founder", action="drive_sync",
+            workspace_id, "drive", "export_drive_file")
+        await firestore.audit(actor=f"human:{principal.actor_id}", action="drive_sync",
                               target=f"artifacts/{artifact_name}", result="success",
                               detail=f"copied to Drive file {result.get('file_id')}")
-        return {**result, "action_id": prepared["action_id"],
-                "checksum": checksum}
+        response = {**result, "action_id": prepared["action_id"],
+                    "checksum": checksum}
+        if command is None:
+            return response
+        terminal_receipt = await commands.transition(
+            workspace_id=workspace_id, command_id=command["command_id"],
+            expected_version=command["version"], status="COMPLETED",
+            result_ref={"document_id": document_id,
+                        "action_id": prepared["action_id"],
+                        "file_id": str(result.get("file_id") or "")})
+        return {**response, "command_receipt": terminal_receipt}
     terminal = "UNCERTAIN" if result.get("uncertain") else "FAILED"
     await external_action_service.finish(
-        FOUNDER_ID, prepared["action_id"], prepared["lease_owner"], terminal,
+        workspace_id, prepared["action_id"], prepared["lease_owner"], terminal,
         action_kind="export_drive_file", idempotency_key=idempotency_key,
         uncertainty_reason=("provider_outcome_unconfirmed"
                             if terminal == "UNCERTAIN" else None),
         result_ref={"document_id": document_id, "checksum": checksum},
         error_code=result.get("error_code") or "provider_unavailable")
     await connection_registry.record_connector_failure(
-        FOUNDER_ID, "drive", result.get("error_code") or "provider_unavailable")
-    return {**result, "action_id": prepared["action_id"]}
+        workspace_id, "drive", result.get("error_code") or "provider_unavailable")
+    response = {**result, "action_id": prepared["action_id"]}
+    if command is None:
+        return response
+    command_status = "COMPLETED" if terminal == "UNCERTAIN" else "REJECTED"
+    command_result = await commands.transition(
+        workspace_id=workspace_id, command_id=command["command_id"],
+        expected_version=command["version"], status=command_status,
+        result_ref=({"document_id": document_id,
+                     "action_id": prepared["action_id"], "status": "UNCERTAIN"}
+                    if command_status == "COMPLETED" else None),
+        error_code=("" if command_status == "COMPLETED" else
+                    str(result.get("error_code") or "drive_export_failed")))
+    return {**response, "command_receipt": command_result}
 
 
 @app.post("/api/external-actions/{action_id}/reconcile")
 async def api_reconcile_external_action(action_id: str):
     """Founder-triggered provider reconciliation; never retries an effect."""
+    if os.environ.get("K_SERVICE"):
+        return JSONResponse(
+            {"error": True, "error_code": "legacy_route_retired",
+             "message": "Use the v1 external-actions API."}, status_code=410)
+    result = await _reconcile_external_action_for(FOUNDER_ID, action_id)
+    from services.error_contracts import http_status
+
+    return (JSONResponse(result, status_code=http_status(result))
+            if result.get("error") else result)
+
+
+async def _reconcile_external_action_for(
+        workspace_id: str, action_id: str) -> dict:
+    """Provider-specific evidence lookup behind one workspace boundary."""
     from services import alex_mailbox, calendar_adapter, drive_adapter, external_action_service
 
-    receipt = await firestore.get_external_action(FOUNDER_ID, action_id)
+    receipt = await firestore.get_external_action(workspace_id, action_id)
     if not receipt:
-        return JSONResponse({"error": "action receipt not found"}, status_code=404)
+        return {"status": "error", "error": True,
+                "error_code": "action_not_found",
+                "message": "Action receipt does not exist."}
     if receipt.get("status") != "UNCERTAIN":
         return external_action_service.duplicate_result(receipt)
     refs = receipt.get("result_ref") or {}
     kind = receipt.get("action_kind")
     if kind == "send_email":
         return await alex_mailbox.reconcile_sent(
-            refs.get("rfc822_message_id", ""), founder_id=FOUNDER_ID,
+            refs.get("rfc822_message_id", ""), founder_id=workspace_id,
             action_id=action_id)
     if kind == "create_calendar_event":
         return await calendar_adapter.reconcile_event(
-            refs.get("event_id", ""), founder_id=FOUNDER_ID,
+            refs.get("event_id", ""), founder_id=workspace_id,
             action_id=action_id)
     if kind == "export_drive_file":
         checked = await asyncio.to_thread(
             drive_adapter.reconcile_export,
-            refs.get("document_id", ""), refs.get("checksum", ""))
+            refs.get("document_id", ""), refs.get("checksum", ""), workspace_id)
         if checked.get("error"):
             return checked
         status = "SUCCEEDED" if checked.get("exists") else "FAILED"
         resolved = await external_action_service.reconcile(
-            FOUNDER_ID, action_id, status, action_kind="export_drive_file",
+            workspace_id, action_id, status, action_kind="export_drive_file",
             idempotency_key=receipt.get("idempotency_key", ""),
             provider_effect_id=checked.get("file_id") if checked.get("exists") else None,
             result_ref={"file_id": checked.get("file_id", ""),
@@ -2579,17 +4972,92 @@ async def api_reconcile_external_action(action_id: str):
             error_code=None if checked.get("exists") else "provider_rejected")
         return checked | {"action_id": action_id,
                           "receipt_status": resolved.get("status")}
-    return JSONResponse({"error": "unsupported action receipt"}, status_code=400)
+    return {"status": "error", "error": True,
+            "error_code": "invalid_contract",
+            "message": "This action has no registered reconciliation adapter."}
 
 
-@app.get("/api/artifacts/{name}/preview")
-async def api_preview_artifact(name: str):
+@app.get("/api/v1/external-actions")
+async def api_v1_external_actions(request: Request, status: str = ""):
+    """Workspace-scoped operator view for terminal and uncertain effects."""
+    principal = await _platform_human(request)
+    if isinstance(principal, dict):
+        return JSONResponse(principal, status_code=401)
+    if status and status not in {
+            "PREPARED", "EXECUTING", "SUCCEEDED", "FAILED", "UNCERTAIN"}:
+        return JSONResponse(
+            {"status": "error", "error": True,
+             "error_code": "invalid_contract", "message": "Invalid action status."},
+            status_code=400)
+    rows = await firestore.list_external_actions(principal.workspace_id, limit=200)
+    if status:
+        rows = [row for row in rows if row.get("status") == status]
+    return {"status": "success", "actions": rows}
+
+
+@app.post("/api/v1/external-actions/{action_id}:reconcile")
+async def api_v1_reconcile_external_action(
+        request: Request, action_id: str, payload: ReconcileActionV1):
+    """Receipted evidence lookup; reconciliation never replays a provider call."""
+    principal = await _platform_human(request)
+    if isinstance(principal, dict):
+        return JSONResponse(principal, status_code=401)
+    receipt = await firestore.get_external_action(
+        principal.workspace_id, action_id)
+    if not receipt:
+        return JSONResponse(
+            {"status": "error", "error": True,
+             "error_code": "action_not_found", "message": "Action does not exist."},
+            status_code=404)
+    commands = CommandService(production_store())
+    command = await commands.accept(
+        principal=principal, client_request_id=payload.client_request_id,
+        command_type="external_action.reconcile",
+        request={"action_id": action_id,
+                 "expected_status": payload.expected_status})
+    if command.get("error") or command.get("duplicate"):
+        return JSONResponse(command, status_code=command_http_status(command))
+    result = await _reconcile_external_action_for(
+        principal.workspace_id, action_id)
+    terminal = await commands.transition(
+        workspace_id=principal.workspace_id,
+        command_id=command["command_id"], expected_version=command["version"],
+        status="COMPLETED" if not result.get("error") else "REJECTED",
+        result_ref=({"action_id": action_id,
+                     "receipt_status": result.get("receipt_status")
+                     or result.get("status")}
+                    if not result.get("error") else None),
+        error_code=str(result.get("error_code") or ""))
+    from services.error_contracts import http_status
+
+    return JSONResponse(
+        terminal, status_code=(200 if not result.get("error")
+                               else http_status(result)))
+
+
+@app.get("/api/v1/artifacts/{name}/preview")
+@app.get("/api/artifacts/{name}/preview", include_in_schema=False)
+async def api_preview_artifact(name: str, request: Request,
+                               session_id: str = ""):
     """View-only preview: PDFs stream directly; docx/xlsx/pptx convert to PDF
     via headless LibreOffice, cached as {name}.preview.pdf (docs/15)."""
     import re as _re
 
     if not _re.fullmatch(r"[A-Za-z0-9_.-]+", name):
         return JSONResponse({"error": "bad artifact name"}, status_code=400)
+    if (request.url.path.startswith("/api/artifacts/")
+            and os.environ.get("K_SERVICE")):
+        return JSONResponse({"error": True, "error_code": "legacy_route_retired",
+                             "message": "Use the v1 artifacts API."},
+                            status_code=410)
+    principal = await _route_principal(
+        request, legacy=request.url.path.startswith("/api/artifacts/")
+        and not request.url.path.startswith("/api/v1/"))
+    if isinstance(principal, dict):
+        return JSONResponse(principal, status_code=401)
+    if request.url.path.startswith("/api/v1/") and not await _artifact_owner_record(
+            principal.workspace_id, name, session_id):
+        return JSONResponse({"error": "not found"}, status_code=404)
     path = os.path.realpath(await asyncio.to_thread(storage.download_if_missing, name))
     if not path.startswith(os.path.realpath(storage._root())) or not os.path.exists(path):
         return JSONResponse({"error": "not found"}, status_code=404)
@@ -2617,10 +5085,20 @@ async def api_preview_artifact(name: str):
     return FileResponse(preview_path, media_type="application/pdf")
 
 
-@app.post("/api/tts")
-async def api_tts(payload: dict):
+@app.post("/api/v1/tts")
+@app.post("/api/tts", include_in_schema=False)
+async def api_tts(payload: dict, request: Request):
     """Cloud TTS (Chirp 3 HD) — read an agent reply aloud (docs/19 §P1.8)."""
     from fastapi.responses import Response
+
+    if request.url.path == "/api/tts" and os.environ.get("K_SERVICE"):
+        return JSONResponse({"error": True, "error_code": "legacy_route_retired",
+                             "message": "Use POST /api/v1/tts."},
+                            status_code=410)
+    principal = await _route_principal(
+        request, legacy=request.url.path == "/api/tts")
+    if isinstance(principal, dict):
+        return JSONResponse(principal, status_code=401)
 
     text = str(payload.get("text", ""))[:4500]
     if not text.strip():

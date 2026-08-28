@@ -11,26 +11,14 @@ from __future__ import annotations
 import asyncio
 from copy import deepcopy
 from dataclasses import dataclass, field
-from typing import Any, Protocol
+from typing import Any, Protocol, Sequence
 
 from services import firestore
 
 
 def _normalized_record(record: dict[str, Any]) -> dict[str, Any]:
-    """Preserve the explicit synthetic marker contract on every fixture row.
-
-    ``synthetic``/``fixture_id`` remain the internal names used by the H0-H3
-    services.  The aliases make the reviewed fixture provenance contract
-    explicit at the persistence boundary, so a newly added record cannot
-    silently omit it.
-    """
-    normalized = deepcopy(record)
-    if normalized.get("synthetic") is True:
-        normalized.setdefault("is_synthetic", True)
-        fixture_id = normalized.get("fixture_id")
-        if fixture_id:
-            normalized.setdefault("fixture_set_id", fixture_id)
-    return normalized
+    """Copy a record without injecting domain-specific persistence fields."""
+    return deepcopy(record)
 
 
 def _sort_key(value: Any) -> tuple[int, float, str]:
@@ -54,17 +42,63 @@ def _collection_ref(name: str):
     """Resolve only the reviewed durable collections; no caller-selected path."""
     client = firestore.get_client()
     refs = {
+        "opportunities": client.collection("opportunities"),
+        "applications": client.collection("applications"),
+        "ingestions": client.collection("ingestions"),
+        "artifacts": client.collection("artifacts"),
+        "feedback": client.collection("feedback"),
+        "evidence_checks": client.collection("evidence_checks"),
+        "discovery_requests": client.collection("discovery_requests"),
         "approvals": client.collection("approvals"),
         "audit": client.collection("audit"),
         "external_actions": client.collection("external_actions"),
         "external_events": client.collection("external_events"),
+        "data_connections": client.collection("data_connections"),
+        "source_grants": client.collection("source_grants"),
+        "wake_deliveries": client.collection("wake_deliveries"),
+        "portal_event_receipts": client.collection("portal_event_receipts"),
+        "command_receipts": client.collection("command_receipts"),
+        "command_outbox": client.collection("command_outbox"),
+        "projection_streams": client.collection("projection_streams"),
+        "projection_events": client.collection("projection_events"),
+        "tenancy_migration_receipts": client.collection(
+            "tenancy_migration_receipts"),
+        "connector_credential_migration_receipts": client.collection(
+            "connector_credential_migration_receipts"),
+        "consequence_migration_receipts": client.collection(
+            "consequence_migration_receipts"),
+        "workflow_migration_receipts": client.collection(
+            "workflow_migration_receipts"),
+        "action_execution_outbox": client.collection(
+            "action_execution_outbox"),
         "founder_inbox": client.collection("founder_inbox"),
         "workspace_members": client.collection("workspace_members"),
         "workflow_runs": client.collection("workflow_runs"),
+        "workflow_plans": client.collection("workflow_plans"),
         "workflow_steps": client.collection("workflow_steps"),
         "step_attempts": client.collection("step_attempts"),
         "waits": client.collection("waits"),
         "run_events": client.collection("run_events"),
+        "investor_outreach": client.collection("investor_outreach"),
+        "investor_candidates": client.collection("investor_candidates"),
+        "outreach_drafts": client.collection("outreach_drafts"),
+        "investor_replies": client.collection("investor_replies"),
+        "meeting_briefs": client.collection("meeting_briefs"),
+        "workspace_profiles": client.collection("workspace_profiles"),
+        "actor_preference_profiles": client.collection("actor_preference_profiles"),
+        "profile_fact_pointers": client.collection("profile_fact_pointers"),
+        "profile_facts": client.collection("profile_facts"),
+        "profile_fact_receipts": client.collection("profile_fact_receipts"),
+        "memory_items": client.collection("memory_items"),
+        "memory_write_receipts": client.collection("memory_write_receipts"),
+        "memory_search_receipts": client.collection("memory_search_receipts"),
+        "deletion_jobs": client.collection("deletion_jobs"),
+        "deletion_work_items": client.collection("deletion_work_items"),
+        "deletion_receipts": client.collection("deletion_receipts"),
+        "capability_states": client.collection("capability_states"),
+        "operational_snapshots": client.collection("operational_snapshots"),
+        "recovery_drills": client.collection("recovery_drills"),
+        "governance_reports": client.collection("governance_reports"),
         "connector_credential_grants": client.collection("connector_credential_grants"),
         "hiring_roles": client.collection("hiring_roles"),
         "hiring_policy_versions": client.collection("hiring_policy_versions"),
@@ -99,6 +133,24 @@ def _collection_ref(name: str):
     return refs[name]
 
 
+@dataclass(frozen=True)
+class AtomicMutation:
+    """One version-fenced write in a same-database atomic commit.
+
+    ``expected_version=None`` means the document must not exist and ``record``
+    is created at version 1. Otherwise the document must exist at that exact
+    version and ``updates`` are merged with version incremented once.
+    """
+
+    collection: str
+    document_id: str
+    expected_version: int | None
+    updates: dict[str, Any] = field(default_factory=dict)
+    record: dict[str, Any] = field(default_factory=dict)
+    check_only: bool = False
+    replace: bool = False
+
+
 class DurableStore(Protocol):
     async def get(self, collection: str, document_id: str) -> dict[str, Any] | None: ...
     async def create(self, collection: str, document_id: str,
@@ -109,9 +161,14 @@ class DurableStore(Protocol):
     async def compare_and_set(self, collection: str, document_id: str,
                               expected_version: int,
                               updates: dict[str, Any]) -> dict[str, Any] | None: ...
+    async def atomic_compare_and_set(
+            self, mutations: Sequence[AtomicMutation]
+            ) -> dict[tuple[str, str], dict[str, Any]] | None: ...
     async def list(self, collection: str, *, filters: dict[str, Any],
                    order_by: str = "", descending: bool = False,
-                   limit: int = 200) -> list[dict[str, Any]]: ...
+                   limit: int = 200,
+                   start_after: tuple[str, Any] | None = None
+                   ) -> list[dict[str, Any]]: ...
 
 
 class FirestoreDurableStore:
@@ -163,12 +220,72 @@ class FirestoreDurableStore:
 
         return await _cas(transaction)
 
+    async def atomic_compare_and_set(
+            self, mutations: Sequence[AtomicMutation]
+            ) -> dict[tuple[str, str], dict[str, Any]] | None:
+        """Commit create/update mutations together after reading all fences."""
+        from google.cloud import firestore as gc_firestore
+
+        items = tuple(mutations)
+        if not items or len(items) > 100:
+            raise ValueError("atomic mutation batch must contain 1..100 items")
+        keys = [(item.collection, item.document_id) for item in items]
+        if len(set(keys)) != len(keys):
+            raise ValueError("atomic mutation batch contains duplicate document")
+        refs = [_collection_ref(item.collection).document(item.document_id)
+                for item in items]
+        transaction = firestore.get_client().transaction()
+
+        @gc_firestore.async_transactional
+        async def _commit(txn):
+            snapshots = [await ref.get(transaction=txn) for ref in refs]
+            committed: dict[tuple[str, str], dict[str, Any]] = {}
+            for item, snapshot in zip(items, snapshots, strict=True):
+                if item.check_only and item.expected_version is None:
+                    raise ValueError("check-only mutation requires an existing version")
+                if item.expected_version is None:
+                    if snapshot.exists:
+                        return None
+                    row = _normalized_record(
+                        {**deepcopy(item.record), "version": 1})
+                else:
+                    if not snapshot.exists:
+                        return None
+                    current = snapshot.to_dict()
+                    if int(current.get("version", 0)) != item.expected_version:
+                        return None
+                    row = (_normalized_record(current) if item.check_only else
+                           _normalized_record({
+                               **({} if item.replace else current),
+                               **(deepcopy(item.record) if item.replace
+                                  else deepcopy(item.updates)),
+                               "version": item.expected_version + 1,
+                           }))
+                committed[(item.collection, item.document_id)] = {
+                    **row, "id": item.document_id}
+            for ref, item in zip(refs, items, strict=True):
+                if item.check_only:
+                    continue
+                row = committed[(item.collection, item.document_id)]
+                txn.set(ref, {key: value for key, value in row.items()
+                              if key != "id"})
+            return committed
+
+        return await _commit(transaction)
+
     async def list(self, collection: str, *, filters: dict[str, Any],
                    order_by: str = "", descending: bool = False,
-                   limit: int = 200) -> list[dict[str, Any]]:
+                   limit: int = 200,
+                   start_after: tuple[str, Any] | None = None
+                   ) -> list[dict[str, Any]]:
         query = _collection_ref(collection)
         for field_name, value in filters.items():
             query = query.where(field_name, "==", value)
+        if start_after:
+            field_name, value = start_after
+            query = query.where(field_name, ">", value)
+            if not order_by:
+                order_by = field_name
         if order_by:
             from google.cloud.firestore_v1 import Query
             direction = Query.DESCENDING if descending else Query.ASCENDING
@@ -220,15 +337,67 @@ class InMemoryDurableStore:
             bucket[document_id] = committed
             return {**deepcopy(committed), "id": document_id}
 
+    async def atomic_compare_and_set(
+            self, mutations: Sequence[AtomicMutation]
+            ) -> dict[tuple[str, str], dict[str, Any]] | None:
+        items = tuple(mutations)
+        if not items or len(items) > 100:
+            raise ValueError("atomic mutation batch must contain 1..100 items")
+        keys = [(item.collection, item.document_id) for item in items]
+        if len(set(keys)) != len(keys):
+            raise ValueError("atomic mutation batch contains duplicate document")
+        async with self._lock:
+            committed: dict[tuple[str, str], dict[str, Any]] = {}
+            for item in items:
+                if item.check_only and item.expected_version is None:
+                    raise ValueError("check-only mutation requires an existing version")
+                current = self.records.get(item.collection, {}).get(
+                    item.document_id)
+                if item.expected_version is None:
+                    if current is not None:
+                        return None
+                    row = _normalized_record(
+                        {**deepcopy(item.record), "version": 1})
+                else:
+                    if (current is None
+                            or int(current.get("version", 0))
+                            != item.expected_version):
+                        return None
+                    row = (_normalized_record(current) if item.check_only else
+                           _normalized_record({
+                               **({} if item.replace else current),
+                               **(deepcopy(item.record) if item.replace
+                                  else deepcopy(item.updates)),
+                               "version": item.expected_version + 1,
+                           }))
+                committed[(item.collection, item.document_id)] = row
+            for item in items:
+                if item.check_only:
+                    continue
+                collection, document_id = item.collection, item.document_id
+                row = committed[(collection, document_id)]
+                self.records.setdefault(collection, {})[document_id] = row
+            return {
+                key: {**deepcopy(row), "id": key[1]}
+                for key, row in committed.items()
+            }
+
     async def list(self, collection: str, *, filters: dict[str, Any],
                    order_by: str = "", descending: bool = False,
-                   limit: int = 200) -> list[dict[str, Any]]:
+                   limit: int = 200,
+                   start_after: tuple[str, Any] | None = None
+                   ) -> list[dict[str, Any]]:
         async with self._lock:
             rows = [
                 {**deepcopy(row), "id": document_id}
                 for document_id, row in self.records.get(collection, {}).items()
                 if all(row.get(key) == value for key, value in filters.items())
             ]
+        if start_after:
+            field_name, value = start_after
+            rows = [row for row in rows
+                    if row.get(field_name) is not None
+                    and row.get(field_name) > value]
         if order_by:
             rows.sort(key=lambda row: _sort_key(row.get(order_by)),
                       reverse=descending)

@@ -15,8 +15,9 @@ from services.hiring_service import HiringService
 
 
 def _error(code: str, message: str, http_status: int = 409) -> dict[str, Any]:
+    del http_status
     return {"status": "error", "error": True, "error_code": code,
-            "message": message, "http_status": http_status}
+            "message": message}
 
 
 class HiringMailboxService:
@@ -420,7 +421,9 @@ class HiringMailboxService:
                 "fixture_id": batch["fixture_id"],
             })
         if result.get("error"):
-            recoverable = result.get("http_status", 409) >= 500
+            from services.error_contracts import http_status
+
+            recoverable = http_status(result) >= 500
             if recoverable:
                 return {**result, "recoverable": True}
             inbox_id = stable_id("hinbox", batch["batch_id"],

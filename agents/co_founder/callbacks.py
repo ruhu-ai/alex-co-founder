@@ -215,8 +215,14 @@ def enforce_effect_claims(
     })
 
 
-async def initialize_session_state(callback_context: CallbackContext) -> None:
-    """Ensures all state machine keys are initialized to prevent errors."""
+async def initialize_session_state(
+        callback_context: CallbackContext) -> Optional[types.Content]:
+    """Initialize projections and reconcile active workflow authority.
+
+    Returning Content fails closed before inference when an active application
+    cannot be read or does not belong to the resolved founder. Session state is
+    useful model context, never an independent transition authority.
+    """
     state = callback_context.state
     for key, default in _DEFAULTS.items():
         if key not in state:
@@ -231,22 +237,63 @@ async def initialize_session_state(callback_context: CallbackContext) -> None:
     # of the founder — they must resolve to the founder's profile, never to a
     # "system" profile that would read empty.
     if ss.K_USER_PROFILE_ID not in state:
-        import os
-
         uid = getattr(callback_context, "user_id", "") or ""
         if uid and uid != "system":
             state[ss.K_USER_PROFILE_ID] = uid
         else:
-            state[ss.K_USER_PROFILE_ID] = os.environ.get("FOUNDER_ID", "founder")
+            return types.Content(
+                role="model", parts=[types.Part.from_text(
+                    text=("I could not resolve the workspace authority for this "
+                          "invocation, so I stopped before reading or acting."))])
     if ss.K_APP_WORKFLOW_ID not in state:
         from .workflow import get_workflow  # local import: avoid cycles at import time
 
         state[ss.K_APP_WORKFLOW_ID] = get_workflow().workflow_id
 
+    active_application_id = str(
+        state.get(ss.K_ACTIVE_APPLICATION_ID) or "")
+    if active_application_id:
+        try:
+            from services import firestore
+
+            application = await firestore.get_application(
+                active_application_id,
+                str(state.get(ss.K_USER_PROFILE_ID) or ""))
+        except Exception:
+            application = None
+        founder_id = str(state.get(ss.K_USER_PROFILE_ID) or "")
+        if (not application
+                or application.get("founder_id") != founder_id
+                or not application.get("state")):
+            state[ss.K_CURRENT_STEP] = ss.ApplicationStep.IDLE
+            state[_FAILURES_KEY] = {
+                "authority_reconciliation": {
+                    "message": "authoritative application state is unavailable",
+                    "error_code": "authority_unavailable",
+                }
+            }
+            return types.Content(
+                role="model",
+                parts=[types.Part.from_text(text=(
+                    "I couldn't safely continue this application because its "
+                    "authoritative state is unavailable. No workflow action or "
+                    "external consequence was attempted."
+                ))],
+            )
+        state[ss.K_CURRENT_STEP] = application["state"]
+        if application.get("opportunity_id"):
+            state[ss.K_ACTIVE_OPPORTUNITY_ID] = application["opportunity_id"]
+        checklist = application.get("checklist")
+        if isinstance(checklist, (dict, list)):
+            state[ss.K_CHECKLIST_STATUS] = checklist
+        failures = dict(state.get(_FAILURES_KEY) or {})
+        failures.pop("authority_reconciliation", None)
+        state[_FAILURES_KEY] = failures
+
     # BrowserRun is durable truth; rewrite the advisory projection before the
     # instruction template renders on every invocation (docs/18).
     try:
-        from services import browser_service
+        from services import browser_gateway as browser_service
 
         session = getattr(callback_context, "session", None)
         session_key = {
@@ -357,7 +404,7 @@ async def _grounding_source(founder_id: str, app_id: str) -> tuple[str, str, str
     programme = ""
 
     if app_id:
-        app = await firestore.get_application(app_id) or {}
+        app = await firestore.get_application(app_id, founder_id) or {}
         for section in app.get("draft_sections", []):
             # Only APPROVED text is a source. A draft the founder has not seen
             # is not evidence, and neither is a rejected one.
@@ -367,7 +414,7 @@ async def _grounding_source(founder_id: str, app_id: str) -> tuple[str, str, str
             parts.append(str(question.get("label", "")))
         opp_id = app.get("opportunity_id", "")
         if opp_id:
-            opp = await firestore.get_opportunity(opp_id) or {}
+            opp = await firestore.get_opportunity(opp_id, founder_id) or {}
             programme = str(opp.get("name", ""))
             # Only the quotable fields. Dumping the whole record would let ids,
             # hashes and timestamps whitelist any digit the model invented —
@@ -396,7 +443,9 @@ async def enforce_document_grounding(
     if not isinstance(spec, (dict, list)):
         return None  # malformed spec is the tool's own validation problem
 
-    founder = tool_context.state.get(ss.K_USER_PROFILE_ID, "founder")
+    from .tools._common import workspace_id
+
+    founder = workspace_id(tool_context)
     app_id = tool_context.state.get(ss.K_ACTIVE_APPLICATION_ID, "")
     source, company, programme = await _grounding_source(founder, app_id)
 

@@ -30,7 +30,8 @@ def connection_id_for(founder_id: str, connector_id: str) -> str:
 
 async def project_verified_consent(
         founder_id: str, requested_connector: str, account: str, *,
-        account_hint: str, granted_scopes: list[str]) -> dict[str, Any]:
+        account_hint: str, granted_scopes: list[str],
+        provider_account_hash: str = "") -> dict[str, Any]:
     """Persist every connector proven present in one verified Google grant."""
     try:
         requested = dsc.require_closed(requested_connector, dsc.ConnectorId)
@@ -54,8 +55,9 @@ async def project_verified_consent(
         row = await firestore.upsert_data_connection(
             founder_id, connector_id, account_ref=_ACCOUNT_REF[account],
             account_hint=account_hint, auth_kind="google_oauth",
-            credential_ref=google_oauth.ACCOUNT_ENV[account],
-            granted_scopes=sorted(granted), status="CONNECTED")
+            credential_ref=google_oauth.credential_ref(account, founder_id),
+            granted_scopes=sorted(granted),
+            provider_account_hash=provider_account_hash, status="CONNECTED")
         if row.get("error"):
             return row
         row = await firestore.transition_data_connection(
@@ -109,7 +111,7 @@ async def record_connector_success(founder_id: str, connector_id: str,
         row = await firestore.upsert_data_connection(
             founder_id, connector_id, account_ref=_ACCOUNT_REF[account],
             auth_kind="google_oauth",
-            credential_ref=google_oauth.ACCOUNT_ENV[account],
+            credential_ref=google_oauth.credential_ref(account, founder_id),
             status="CONNECTED")
         if row.get("error"):
             return row
@@ -299,8 +301,10 @@ async def disconnect_connection(founder_id: str, connection_id: str, *,
         status="DISCONNECTING")
     if disconnecting.get("error"):
         return disconnecting
-    remote = await asyncio.to_thread(google_oauth.revoke_account_grant, account)
-    local = await asyncio.to_thread(google_oauth.delete_account_credential, account)
+    remote = await asyncio.to_thread(
+        google_oauth.revoke_account_grant, account, 10, founder_id)
+    local = await asyncio.to_thread(
+        google_oauth.delete_account_credential, account, founder_id)
     grants = await firestore.revoke_connection_source_grants(founder_id, connection_id)
     certain = remote.get("status") == "success" and local.get("status") == "success"
     final = await firestore.transition_data_connection(

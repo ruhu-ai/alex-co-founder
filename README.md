@@ -9,6 +9,10 @@ It is not another chatbot that gives founders more advice. Co-Founder carries
 the operational workflow while every consequential decision remains with a
 human.
 
+Durable workflow, domain, approval, and action records are authoritative.
+ADK session state is a reconciled model-facing projection for continuity—not
+an authorization source—and chat history never authorizes consequences.
+
 **All Things Agentic Hackathon — Collaborative Partner category.** Built with
 Google ADK, Gemini, Gemma, and Google Cloud.
 
@@ -411,18 +415,24 @@ python -m playwright install chromium
 python scripts/seed_demo.py
 ```
 
-Run the founder app:
+Run the complete local stack (founder app plus mock portal):
 
 ```bash
 ./scripts/run_local.sh
 ```
 
-Run the mock program portal in another terminal:
+The launcher validates Google Application Default Credentials before opening a
+port, waits for both health endpoints, and shuts both services down together.
+It deliberately runs without hot reload so file edits cannot interrupt voice
+conversations, approval flows, or OAuth callbacks. For active development, opt
+in explicitly:
 
 ```bash
-source .venv/bin/activate
-uvicorn mock_portal.main:app --host 127.0.0.1 --port 8091
+./scripts/run_local.sh --reload
 ```
+
+Use `./scripts/run_local.sh --app-only` only when the mock portal is already
+running elsewhere.
 
 Open [http://127.0.0.1:8090](http://127.0.0.1:8090). `run_local.sh` makes this
 the single canonical founder-app origin: it starts Uvicorn on the same address
@@ -461,8 +471,8 @@ silently updating the Founder Profile.
 | `./scripts/setup.sh` | Create/update the complete local environment and verify credentials/model access. |
 | `python -m playwright install chromium` | Install the local browser used by guarded automation. |
 | `python scripts/seed_demo.py` | Seed `founder`, `eval_founder`, demo opportunities, and workflow data. |
-| `uvicorn app.main:app --port 8090` | Run the founder application. |
-| `uvicorn mock_portal.main:app --port 8091` | Run the mock portal and A2A program agent. |
+| `./scripts/run_local.sh` | Run and health-check the stable founder app and mock portal together. |
+| `./scripts/run_local.sh --reload` | Run both local services with development hot reload. |
 | `python -m pytest tests/unit tests/integration -q` | Run deterministic unit, service, and integration tests. |
 | `ruff check .` | Run Python static checks. |
 | `python scripts/check_contrast.py` | Verify the founder UI's semantic color contrast. |

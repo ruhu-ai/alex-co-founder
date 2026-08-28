@@ -10,8 +10,9 @@ from services.hiring_contracts import RoleContract, canonical_hash, stable_id, u
 
 
 def _error(code: str, message: str, http_status: int = 409) -> dict[str, Any]:
+    del http_status
     return {"status": "error", "error": True, "error_code": code,
-            "message": message, "http_status": http_status}
+            "message": message}
 
 
 async def propose_policy(*, principal: ActorPrincipal, role_id: str,

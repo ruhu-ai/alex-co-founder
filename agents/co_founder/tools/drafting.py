@@ -1,13 +1,12 @@
 """Drafting tools (docs/05). Errors as data. G1 enforced in code."""
 
 import logging
-import os
 import uuid
 
 from google.adk.tools import ToolContext
 
 from .. import state_schema as ss
-from ._common import run
+from ._common import run, workspace_id
 
 
 def save_draft_section(section_key: str, content: str, word_count: int, notes: str,
@@ -38,10 +37,11 @@ def save_draft_section(section_key: str, content: str, word_count: int, notes: s
     from services import firestore
 
     app_id = state.get(ss.K_ACTIVE_APPLICATION_ID, "")
+    founder_id = workspace_id(tool_context)
     section_id = f"sec-{uuid.uuid4().hex[:8]}"
 
     async def _go():
-        app = await firestore.get_application(app_id)
+        app = await firestore.get_application(app_id, founder_id)
         if not app:
             return {"status": "error", "error": True, "message": "no active application"}
         sections = app.get("draft_sections", [])
@@ -84,11 +84,13 @@ def complete_drafting(tool_context: ToolContext) -> dict:
 
     state = tool_context.state
     app_id = state.get(ss.K_ACTIVE_APPLICATION_ID, "")
+    founder_id = workspace_id(tool_context)
     # Session comes from the invocation context, never from model args.
     session_id = getattr(getattr(tool_context, "session", None), "id", "") or ""
 
     async def _go():
-        app = await firestore.get_application(app_id) if app_id else None
+        app = (await firestore.get_application(app_id, founder_id)
+               if app_id else None)
         if not app:
             return {"status": "error", "error": True, "message": "no active application"}
         if app.get("state") != ss.ApplicationStep.DRAFTING:
@@ -120,7 +122,8 @@ def complete_drafting(tool_context: ToolContext) -> dict:
             return gate          # IN_PROGRESS / persistence failure: stay in DRAFTING
 
         return await pipeline_service.advance_application(
-            app_id, ss.ApplicationStep.AWAITING_REVIEW, actor="agent:drafter"
+            app_id, ss.ApplicationStep.AWAITING_REVIEW, actor="agent:drafter",
+            founder_id=founder_id,
         )
 
     result = run(_go())
@@ -148,10 +151,17 @@ async def _attach_evidence_check(app: dict, app_id: str,
     """
     from services import firestore, gemma_evidence, profile_service
 
-    founder = app.get("founder_id") or os.environ.get("FOUNDER_ID", "founder")
+    founder = str(app.get("workspace_id") or app.get("founder_id") or "")
+    if not founder:
+        return {
+            "status": "error", "error": True,
+            "error_code": "workspace_authority_missing",
+            "message": "the application has no workspace authority",
+        }
     try:
         profile = await profile_service.get_profile(founder) or {}
-        opportunity = (await firestore.get_opportunity(app.get("opportunity_id") or "")
+        opportunity = (await firestore.get_opportunity(
+            app.get("opportunity_id") or "", founder)
                        if app.get("opportunity_id") else None)
     except Exception as exc:  # noqa: BLE001
         logging.getLogger(__name__).warning(
@@ -234,8 +244,9 @@ def get_section_feedback(section_id: str, tool_context: ToolContext) -> dict:
         # empty across applications. Map a section id back to its key first.
         section_key = section_id
         app_id = tool_context.state.get(ss.K_ACTIVE_APPLICATION_ID, "")
+        founder_id = workspace_id(tool_context)
         if section_id.startswith("sec-") and app_id:
-            app = await firestore.get_application(app_id) or {}
+            app = await firestore.get_application(app_id, founder_id) or {}
             match = next((s for s in app.get("draft_sections", [])
                           if s.get("section_id") == section_id), None)
             if match and match.get("section_key"):
@@ -274,10 +285,11 @@ def get_form_questions(tool_context: ToolContext) -> dict:
 
     async def _go():
         app_id = tool_context.state.get(ss.K_ACTIVE_APPLICATION_ID, "")
+        founder_id = workspace_id(tool_context)
         if not app_id:
             return {"status": "error", "error": True,
                     "message": "no active application — choose one first"}
-        app = await firestore.get_application(app_id) or {}
+        app = await firestore.get_application(app_id, founder_id) or {}
         questions = app.get("form_questions", []) or []
         if not questions:
             return {"status": "success", "count": 0, "questions": [],

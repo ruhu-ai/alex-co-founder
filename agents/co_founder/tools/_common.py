@@ -48,3 +48,33 @@ def add_pending_signal(tool_context, signal: str) -> None:
     if signal not in signals:
         signals.append(signal)
     tool_context.state[ss.K_PENDING_SIGNALS] = signals
+
+
+def workspace_id(tool_context) -> str:
+    """Resolve the invocation workspace without trusting model arguments.
+
+    ADK state normally carries the reconciled profile id. During first-turn
+    initialization or projection repair it may not be populated yet, while
+    the invocation/session identity is already server-derived. Durable reads
+    remain scoped by falling back to those identities, never to an empty query.
+    """
+    from .. import state_schema as ss
+
+    session = getattr(tool_context, "session", None)
+    return str(
+        tool_context.state.get(ss.K_USER_PROFILE_ID)
+        or getattr(tool_context, "user_id", "")
+        or getattr(session, "user_id", "")
+        or "")
+
+
+def actor_id(tool_context) -> str:
+    """Return the server-projected interactive actor identity.
+
+    There is deliberately no founder/workspace fallback: the initiating human
+    and workspace are different security dimensions even when one person owns
+    the only workspace. Missing actor authority must fail closed in production.
+    """
+    from .. import state_schema as ss
+
+    return str(tool_context.state.get(ss.K_ACTOR_ID) or "")

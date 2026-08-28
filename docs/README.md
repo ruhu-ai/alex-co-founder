@@ -64,11 +64,15 @@ founder's voice and thinking through explicit feedback capture.
 | `31-h4s-test-account-operations.md` | Test-account provisioning, deployment isolation, and manual proof required for H4S provider effects | Required before effect enablement |
 | `32-internal-controlled-demo.md` | Separate, disabled, two-account Ruhu demo lane for real internal Gmail/Calendar receipts; never hiring or H4S | Proposed; separate review required |
 | `33-founder-first-hiring-demo.md` | Founder-first synthetic Ruhu FDE demo: durable command, controlled mailbox event, candidate Evidence Passport, and internal receipt runbook | Implementation/demo runbook; provider proof requires the listed local configuration |
+| `34-platform-architecture-and-convergence.md` | Production platform authority model, generic runtime, state/session/memory boundaries, approval/action protocol, delivery, security, observability, and phased convergence plan | Proposed for architecture review; phases require explicit gates |
 
 ## Design principles (binding on all implementation)
 
-1. **The state machine grounds everything.** The agent reads workflow position from
-   session state (`{current_step}` injected into instructions), never from chat history.
+1. **Durable state authorizes; reconciled session state grounds inference.**
+   Workflow/domain/action records are authoritative. Before inference, the
+   application repairs session `current_step` and other control keys from those
+   records; the model reads that projection, never chat history. Session state
+   cannot independently authorize a transition or external consequence.
 2. **Tools return errors as data.** A tool never raises to the model. It returns
    `{"error": true, "message": "..."}` so the model can explain and recover.
 3. **Dormancy by default.** No polling loops, no blocked threads. The agent sleeps;

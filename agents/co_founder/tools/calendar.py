@@ -10,6 +10,8 @@ from google.adk.tools.tool_context import ToolContext
 
 from services import calendar_adapter
 
+from ._common import actor_id, workspace_id
+
 
 async def get_upcoming_meetings(tool_context: ToolContext, days_ahead: int = 7) -> dict:
     """List the founder's upcoming calendar events (next `days_ahead` days).
@@ -24,7 +26,9 @@ async def get_upcoming_meetings(tool_context: ToolContext, days_ahead: int = 7) 
         {"status": "success", "events": [{summary, start, end, attendees, meet_link}]}
         or {"error": true, "message": ...} when Calendar is not connected.
     """
-    return await calendar_adapter.list_upcoming(days_ahead=days_ahead)
+    return await calendar_adapter.list_upcoming(
+        days_ahead=days_ahead,
+        workspace_id=workspace_id(tool_context))
 
 
 async def check_availability(tool_context: ToolContext, days_ahead: int = 7) -> dict:
@@ -43,7 +47,9 @@ async def check_availability(tool_context: ToolContext, days_ahead: int = 7) -> 
         {"status": "success", "busy": [{start, end}], "window": {...}}
         or {"error": true, "message": ...} when Calendar is not connected.
     """
-    return await calendar_adapter.check_availability(days_ahead=days_ahead)
+    return await calendar_adapter.check_availability(
+        days_ahead=days_ahead,
+        workspace_id=workspace_id(tool_context))
 
 
 async def book_meeting(tool_context: ToolContext, summary: str, start_iso: str,
@@ -72,6 +78,7 @@ async def book_meeting(tool_context: ToolContext, summary: str, start_iso: str,
     return await calendar_adapter.create_event(
         summary=summary, start_iso=start_iso, end_iso=end_iso,
         attendees=attendees, application_id=application_id,
-        founder_id=tool_context.state.get("user:profile_id", "founder"),
+        founder_id=workspace_id(tool_context),
+        requested_by_actor_id=actor_id(tool_context),
         session_id=(getattr(session, "id", "")
                     or getattr(session, "session_id", "")))

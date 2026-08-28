@@ -3,13 +3,20 @@
 from __future__ import annotations
 
 import hashlib
-import json
 import re
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+from services.canonical import canonical_hash as _platform_canonical_hash
+from services.workflow_contracts import RunKind  # noqa: F401
+
+# ``RunKind`` remains a documented hiring-contract import during the Phase 0
+# compatibility window.  The generic definition is authoritative; this
+# re-export prevents existing hiring adapters from silently selecting a second
+# enum or breaking at import time during the staged migration.
 
 StrictText = Annotated[str, Field(min_length=1, max_length=4000)]
 OpaqueId = Annotated[str, Field(pattern=r"^[a-z][a-z0-9_:-]{2,127}$")]
@@ -18,22 +25,6 @@ Hash = Annotated[str, Field(pattern=r"^sha256:[0-9a-f]{64}$")]
 
 class ClosedModel(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
-
-
-class RuntimeStatus(str, Enum):
-    ACTIVE = "ACTIVE"
-    DORMANT = "DORMANT"
-    PAUSED = "PAUSED"
-    CANCELLING = "CANCELLING"
-    CANCELLED = "CANCELLED"
-    COMPLETED = "COMPLETED"
-    FAILED = "FAILED"
-
-
-class RunKind(str, Enum):
-    ROLE = "ROLE"
-    CANDIDATE = "CANDIDATE"
-    ONBOARDING = "ONBOARDING"
 
 
 class RoleState(str, Enum):
@@ -339,9 +330,7 @@ def _field_names(value: object) -> set[str]:
 
 
 def canonical_hash(value: BaseModel | dict) -> str:
-    payload = value.model_dump(mode="json") if isinstance(value, BaseModel) else value
-    raw = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
-    return "sha256:" + hashlib.sha256(raw.encode()).hexdigest()
+    return _platform_canonical_hash(value, domain="hiring-contract")
 
 
 def stable_id(prefix: str, *parts: str) -> str:

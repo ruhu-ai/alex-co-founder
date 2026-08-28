@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import time
 from dataclasses import dataclass
 from enum import Enum
@@ -33,6 +34,8 @@ class ActorPrincipal:
     interview_assignments: frozenset[str]
     session_auth_time: int
     membership_version: int
+    principal_kind: str = "INTERACTIVE"
+    membership_id: str = ""
 
     def audit_fields(self) -> dict[str, Any]:
         return {
@@ -40,12 +43,15 @@ class ActorPrincipal:
             "workspace_id": self.workspace_id,
             "actor_role": self.role.value,
             "membership_version": self.membership_version,
+            "membership_id": self.membership_id,
+            "principal_kind": self.principal_kind,
         }
 
 
 def _error(code: str, message: str, http_status: int = 403) -> dict[str, Any]:
+    del http_status
     return {"status": "error", "error": True, "error_code": code,
-            "message": message, "http_status": http_status}
+            "message": message}
 
 
 async def resolve_actor_from_claims(
@@ -62,15 +68,19 @@ async def resolve_actor_from_claims(
     auth_time = (claims or {}).get("auth_time")
     if not subject or not isinstance(auth_time, int):
         return _error("hiring_auth_required",
-                      "Sign in with a verified account to use hiring.", 401)
+                      "Sign in with a verified account to use this workspace.", 401)
     durable = store or production_store()
     filters: dict[str, Any] = {"auth_subject": subject, "status": "ACTIVE"}
     if workspace_id:
         filters["workspace_id"] = workspace_id
     matches = await durable.list("workspace_members", filters=filters, limit=2)
+    if len(matches) > 1 and not workspace_id:
+        return _error(
+            "workspace_selection_required",
+            "Select an active workspace before continuing.", 409)
     if len(matches) != 1:
         return _error("membership_missing",
-                      "No unique active workspace membership authorizes this request.")
+                      "No active workspace membership authorizes this request.")
     member = matches[0]
     try:
         role = WorkspaceRole(str(member["role"]))
@@ -85,6 +95,51 @@ async def resolve_actor_from_claims(
                 str(item) for item in member.get("interview_assignments", [])),
             session_auth_time=auth_time,
             membership_version=int(member.get("version", 1)),
+            principal_kind="INTERACTIVE",
+            membership_id=str(member.get("membership_id") or member.get("id") or ""),
+        )
+    except (KeyError, TypeError, ValueError):
+        return _error("invalid_membership", "Workspace membership is invalid.")
+
+
+async def resolve_seeded_principal(
+        seed_id: str, *, workspace_id: str,
+        store: DurableStore | None = None) -> ActorPrincipal | dict[str, Any]:
+    """Resolve an explicitly local/eval identity through membership records.
+
+    Seeded identities are never accepted in Cloud Run and cannot be silently
+    promoted to an interactive principal by supplying a familiar user id.
+    """
+    if os.environ.get("K_SERVICE"):
+        return _error("seeded_identity_forbidden",
+                      "Seeded identities are local/evaluation only.", 401)
+    if seed_id not in {"user", "eval_founder", "founder", "demo_founder"}:
+        return _error("seeded_identity_forbidden",
+                      "Seeded identity is not registered.", 401)
+    durable = store or production_store()
+    matches = await durable.list(
+        "workspace_members",
+        filters={"auth_subject": f"seeded:{seed_id}",
+                 "workspace_id": workspace_id, "status": "ACTIVE",
+                 "local_only": True}, limit=2)
+    if len(matches) != 1:
+        return _error("membership_missing",
+                      "Seeded workspace membership is missing.")
+    member = matches[0]
+    try:
+        return ActorPrincipal(
+            actor_id=str(member["actor_id"]),
+            workspace_id=str(member["workspace_id"]),
+            role=WorkspaceRole(str(member["role"])),
+            role_grants=frozenset(str(item) for item in member.get("role_grants", [])),
+            candidate_assignments=frozenset(
+                str(item) for item in member.get("candidate_assignments", [])),
+            interview_assignments=frozenset(
+                str(item) for item in member.get("interview_assignments", [])),
+            session_auth_time=int(time.time()),
+            membership_version=int(member.get("version", 1)),
+            principal_kind="SEEDED",
+            membership_id=str(member.get("membership_id") or member.get("id") or ""),
         )
     except (KeyError, TypeError, ValueError):
         return _error("invalid_membership", "Workspace membership is invalid.")
@@ -94,6 +149,12 @@ def authorize(principal: ActorPrincipal, operation: str, *, role_id: str = "",
               candidate_application_id: str = "", require_fresh: bool = False,
               now: int | None = None) -> dict[str, Any]:
     """Code-owned role/assignment/freshness authorization."""
+    if (operation in {"resolve_approval", "human_decision",
+                      "membership_change"}
+            and principal.principal_kind != "INTERACTIVE"):
+        return _error(
+            "interactive_human_required",
+            "This decision requires a signed-in interactive human.")
     if require_fresh:
         maximum = int(hiring_activation.policy()["auth_freshness"]["max_age_seconds"])
         age = int(now if now is not None else time.time()) - principal.session_auth_time
@@ -130,16 +191,20 @@ def authorize(principal: ActorPrincipal, operation: str, *, role_id: str = "",
 async def create_membership(*, actor_id: str, workspace_id: str,
                             auth_subject: str, role: WorkspaceRole,
                             created_by: str, store: DurableStore | None = None,
-                            synthetic: bool = True) -> dict[str, Any]:
+                            synthetic: bool = True,
+                            local_only: bool = False) -> dict[str, Any]:
     """Create an immutable-id membership projection for bootstrap/admin code."""
     durable = store or production_store()
+    membership_id = stable_id("membership", workspace_id, actor_id)
     row = {
-        "schema_version": 1, "actor_id": actor_id, "workspace_id": workspace_id,
+        "schema_version": 2, "membership_id": membership_id,
+        "actor_id": actor_id, "workspace_id": workspace_id,
         "auth_subject": auth_subject, "role": role.value, "status": "ACTIVE",
         "role_grants": [], "candidate_assignments": [], "interview_assignments": [],
         "created_by": created_by, "version": 1, "synthetic": synthetic,
+        "local_only": bool(local_only),
     }
-    if not await durable.create("workspace_members", actor_id, row):
+    if not await durable.create("workspace_members", membership_id, row):
         return _error("version_conflict", "Membership already exists.", 409)
     audit_id = stable_id("audit", workspace_id, "membership_create", actor_id)
     await durable.create("audit", audit_id, {
@@ -147,7 +212,7 @@ async def create_membership(*, actor_id: str, workspace_id: str,
         "founder_id": workspace_id, "workspace_id": workspace_id,
         "actor": created_by, "actor_id": created_by,
         "action": "workspace_membership.create",
-        "target": f"workspace_members/{actor_id}", "result": "success",
+        "target": f"workspace_members/{membership_id}", "result": "success",
         "detail": f"role={role.value} status=ACTIVE",
         "created_at": utc_now(), "version": 1,
     })
@@ -168,11 +233,16 @@ async def change_membership(*, principal: ActorPrincipal, actor_id: str,
     if principal.role is not WorkspaceRole.OWNER or status not in {"ACTIVE", "REVOKED"}:
         return _error("operation_forbidden", "Only a fresh owner may change membership.")
     durable = store or production_store()
-    member = await durable.get("workspace_members", actor_id)
-    if not member or member.get("workspace_id") != principal.workspace_id:
+    matches = await durable.list(
+        "workspace_members",
+        filters={"actor_id": actor_id,
+                 "workspace_id": principal.workspace_id}, limit=2)
+    if len(matches) != 1:
         return _error("membership_missing", "Membership does not exist.", 404)
+    member = matches[0]
+    membership_id = str(member.get("membership_id") or member.get("id") or "")
     committed = await durable.compare_and_set(
-        "workspace_members", actor_id, expected_version, {
+        "workspace_members", membership_id, expected_version, {
             "role": role.value, "role_grants": sorted(set(role_grants)),
             "candidate_assignments": sorted(set(candidate_assignments)),
             "interview_assignments": sorted(set(interview_assignments)),

@@ -23,8 +23,9 @@ _FORBIDDEN = re.compile(
 
 
 def _error(code: str, message: str, status: int = 409) -> dict[str, Any]:
+    del status
     return {"status": "error", "error": True, "error_code": code,
-            "message": message, "http_status": status}
+            "message": message}
 
 
 def _secret() -> bytes:

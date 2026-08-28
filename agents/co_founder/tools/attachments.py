@@ -3,7 +3,7 @@
 from google.adk.tools import ToolContext
 
 from .. import state_schema as ss
-from ._common import run
+from ._common import run, workspace_id
 
 
 def search_attachment(query: str, tool_context: ToolContext) -> dict:
@@ -27,7 +27,7 @@ def search_attachment(query: str, tool_context: ToolContext) -> dict:
         return {"status": "error", "error": True,
                 "message": "attachment search requires an active session"}
     return run(document_ingestion.search_attachments(
-        founder_id=tool_context.state.get(ss.K_USER_PROFILE_ID, "founder"),
+        founder_id=workspace_id(tool_context),
         session_id=session_id,
         attachment_refs=refs,
         query=query,

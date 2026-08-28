@@ -81,6 +81,73 @@ class TestAdminRoutesStripped:
         assert "/api/connectors/github/token" not in paths
 
 
+class TestInvestorOutreachApi:
+    def test_explicit_natural_request_compiles_but_vague_discussion_does_not(
+            self, appmod):
+        assert appmod._compile_workflow_command(
+            "Find seed investors for our African AI launch")[0] == "investors"
+        assert appmod._compile_workflow_command(
+            "We should probably think about investors someday") is None
+
+    def test_start_and_session_scoped_list_share_the_durable_template(
+            self, client, appmod, monkeypatch):
+        import time
+
+        from services.actor_identity import (
+            ActorPrincipal,
+            WorkspaceRole,
+            create_membership,
+        )
+        from services.durable_store import InMemoryDurableStore
+
+        store = InMemoryDurableStore()
+        membership = asyncio.run(create_membership(
+            actor_id="actor-owner", workspace_id="workspace-a",
+            auth_subject="subject-owner", role=WorkspaceRole.OWNER,
+            created_by="test", store=store))
+        principal = ActorPrincipal(
+            actor_id="actor-owner", workspace_id="workspace-a",
+            role=WorkspaceRole.OWNER, role_grants=frozenset(),
+            candidate_assignments=frozenset(), interview_assignments=frozenset(),
+            session_auth_time=int(time.time()),
+            membership_version=membership["version"],
+            membership_id=membership["membership_id"])
+
+        async def platform_human(_request):
+            return principal
+
+        async def session_exists(workspace_id, session_id):
+            return workspace_id == "workspace-a" and session_id == "session-a"
+
+        async def prepared(workspace_id, outreach_id, **_kwargs):
+            assert workspace_id == "workspace-a"
+            return {"status": "success", "drafts": [],
+                    "outreach": {"outreach_id": outreach_id}}
+
+        monkeypatch.setattr(appmod, "production_store", lambda: store)
+        monkeypatch.setattr(appmod, "_platform_human", platform_human)
+        monkeypatch.setattr(appmod, "_workspace_session_exists", session_exists)
+        monkeypatch.setattr(appmod, "_prepare_investor_outreach", prepared)
+
+        started = client.post("/api/v1/investor-outreach", json={
+            "session_id": "session-a",
+            "client_request_id": "investor-api-request-1",
+            "objective": "Find seed investors for African AI",
+            "artifact_refs": [], "max_candidates": 10,
+        })
+        assert started.status_code == 200
+        receipt = started.json()
+        assert receipt["status"] == "COMPLETED"
+        listed = client.get(
+            "/api/v1/investor-outreach?session_id=session-a")
+        assert listed.status_code == 200
+        assert len(listed.json()["outreaches"]) == 1
+        assert listed.json()["outreaches"][0]["origin_session_id"] == "session-a"
+
+        foreign = client.get(
+            "/api/v1/investor-outreach?session_id=session-foreign")
+        assert foreign.status_code == 404
+
 class TestConnectionProjection:
     def test_panel_uses_durable_rows_without_provider_calls(
             self, client, appmod, fake_store, monkeypatch):
@@ -157,7 +224,8 @@ class TestDriveExportReceipts:
             "Program", "sha256:spec", 1, "app1:pack"))
         calls = []
 
-        def _upload(name, path, mime, *, source_artifact_id, checksum):
+        def _upload(name, path, mime, *, source_artifact_id, checksum,
+                    workspace_id=""):
             calls.append((name, source_artifact_id, checksum))
             return {"status": "success", "file_id": "drive-file-1",
                     "url": "https://drive.google.com/file/d/drive-file-1"}
@@ -514,7 +582,7 @@ class TestFounderInboxApi:
         monkeypatch.setenv("K_SERVICE", "co-founder")
         assert client.get("/api/config").status_code == 503
 
-    def test_prod_task_route_rejects_anonymous_but_takes_founder(
+    def test_prod_task_route_rejects_interactive_founder(
             self, appmod, client, monkeypatch):
         monkeypatch.setenv("K_SERVICE", "co-founder")
         monkeypatch.setenv("APP_AUTH_TOKEN", "t0ken")
@@ -524,7 +592,20 @@ class TestFounderInboxApi:
         monkeypatch.setattr(appmod.discovery_service, "deadline_scan", _noop)
         assert client.post("/tasks/deadline_scan").status_code == 401
         assert client.post("/tasks/deadline_scan",
-                           headers={"X-App-Key": "t0ken"}).status_code == 200
+                           headers={"X-App-Key": "t0ken"}).status_code == 401
+
+    @pytest.mark.parametrize("path", (
+        "/tasks/gmail_scan", "/tasks/alex_mail_scan", "/tasks/wake_delivery"))
+    def test_workspace_worker_rejects_missing_workspace(
+            self, appmod, client, monkeypatch, path):
+        monkeypatch.setenv("K_SERVICE", "co-founder")
+
+        async def _allow(_request):
+            return True
+
+        monkeypatch.setattr(appmod, "_verify_oidc", _allow)
+        response = client.post(path, json={})
+        assert response.status_code in {400, 422}
 
     def test_deadline_pubsub_fast_acks_after_one_deduplicated_enqueue(
             self, appmod, client, monkeypatch):
@@ -536,7 +617,7 @@ class TestFounderInboxApi:
         async def _allow(_request):
             return True
 
-        def _enqueue(path, payload, dedupe_key):
+        def _enqueue(path, payload, dedupe_key, **kwargs):
             calls.append((path, payload, dedupe_key))
             return {"status": "success"}
 
@@ -575,6 +656,71 @@ class TestFounderInboxApi:
         monkeypatch.setattr(appmod, "_alex_mail_process", _must_not_process)
         response = client.post("/webhooks/alex_mail", json={"message": {}})
         assert response.status_code == 400
+
+    def test_alex_mail_pubsub_routes_only_exact_provider_binding(
+            self, appmod, client, fake_store, monkeypatch):
+        import base64
+        import json
+
+        from services import firestore, google_oauth, task_queue
+
+        monkeypatch.setenv("K_SERVICE", "co-founder")
+
+        async def _allow(_request):
+            return True
+
+        calls = []
+
+        def _enqueue(path, payload, dedupe_key, **kwargs):
+            calls.append((path, payload, dedupe_key))
+            return {"status": "success"}
+
+        monkeypatch.setattr(appmod, "_verify_oidc", _allow)
+        monkeypatch.setattr(task_queue, "enqueue", _enqueue)
+        asyncio.run(firestore.upsert_data_connection(
+            "workspace-a", "alex_mail", account_ref="alex-role-mailbox",
+            provider_account_hash=google_oauth.provider_account_hash(
+                "alex@workspace-a.example"), status="CONNECTED"))
+        data = base64.b64encode(json.dumps({
+            "emailAddress": "alex@workspace-a.example", "historyId": "51",
+        }).encode()).decode()
+
+        response = client.post("/webhooks/alex_mail", json={
+            "message": {"messageId": "provider-message-1", "data": data}})
+
+        assert response.status_code == 200
+        assert calls == [(
+            "/tasks/alex_mail_scan",
+            {"message_id": "provider-message-1", "workspace_id": "workspace-a"},
+            "alex-mail:provider-message-1")]
+
+    def test_alex_mail_pubsub_refuses_ambiguous_provider_binding(
+            self, appmod, client, fake_store, monkeypatch):
+        import base64
+        import json
+
+        from services import firestore, google_oauth
+
+        monkeypatch.setenv("K_SERVICE", "co-founder")
+
+        async def _allow(_request):
+            return True
+
+        monkeypatch.setattr(appmod, "_verify_oidc", _allow)
+        binding = google_oauth.provider_account_hash("shared@example.com")
+        for workspace in ("workspace-a", "workspace-b"):
+            asyncio.run(firestore.upsert_data_connection(
+                workspace, "alex_mail", account_ref="alex-role-mailbox",
+                provider_account_hash=binding, status="CONNECTED"))
+        data = base64.b64encode(json.dumps({
+            "emailAddress": "shared@example.com", "historyId": "52",
+        }).encode()).decode()
+
+        response = client.post("/webhooks/alex_mail", json={
+            "message": {"messageId": "provider-message-2", "data": data}})
+
+        assert response.status_code == 409
+        assert response.json()["error_code"] == "connector_binding_ambiguous"
 
     def test_prod_webhooks_fail_closed_without_configured_tokens(
             self, client, monkeypatch):
@@ -726,14 +872,14 @@ class TestDiscoverCommandAdapter:
             sweeps.append((founder_id, context))
             return {"status": "success", "new": 0, "errors": []}
 
-        async def _unscored(limit=10):
+        async def _unscored(limit=10, founder_id=""):
             return []
 
         async def _board(founder_id):
             return {"status": "success", "opportunities": {"SHORTLISTED": []},
                     "applications": []}
 
-        async def _notify(notice, session_id=None):
+        async def _notify(notice, session_id=None, **_kwargs):
             notices.append((notice, session_id))
 
         monkeypatch.setattr(appmod.discovery_service, "run_sweep", _sweep)
@@ -762,7 +908,7 @@ class TestDiscoverCommandAdapter:
             assert context == ""
             return {"status": "success", "new": 0, "errors": []}
 
-        async def _unscored(limit=10):
+        async def _unscored(limit=10, founder_id=""):
             return []
 
         async def _notify(*args, **kwargs):

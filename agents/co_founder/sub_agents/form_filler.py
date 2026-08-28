@@ -49,7 +49,7 @@ async def verify_before_action(tool, args, tool_context):
         }
     if name not in ("fill_fields", "submit_form"):
         return None
-    from services import browser_service
+    from services import browser_gateway as browser_service
 
     app_id = tool_context.state.get("active_application_id", "")
     session = browser_service.fill_session_for_application(app_id)

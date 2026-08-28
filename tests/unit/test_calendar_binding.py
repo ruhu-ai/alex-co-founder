@@ -347,7 +347,8 @@ class TestScopePreCheck:
     @pytest.fixture(autouse=True)
     def prod_service(self, monkeypatch):
         svc = _FakeCalendar()
-        monkeypatch.setattr(calendar_adapter, "_service", lambda: svc)
+        monkeypatch.setattr(
+            calendar_adapter, "_service", lambda _workspace_id="": svc)
         monkeypatch.setattr(calendar_adapter, "_service_factory", None)
         return svc
 
@@ -356,7 +357,7 @@ class TestScopePreCheck:
         def _boom(*_a, **_k):
             raise AssertionError("granted_scopes() hit the network on the hot path")
         monkeypatch.setattr(google_oauth, "granted_scopes", _boom)
-        monkeypatch.setitem(google_oauth._granted, "founder",
+        monkeypatch.setitem(google_oauth._granted, (FOUNDER, "founder"),
                             frozenset({calendar_adapter._CAL_WRITE_SCOPE}))
 
         await grant_for(MEETING_A)
@@ -367,7 +368,7 @@ class TestScopePreCheck:
     async def test_cached_scopes_without_write_still_refuse(
             self, fake_store, prod_service, monkeypatch):
         monkeypatch.setitem(
-            google_oauth._granted, "founder",
+            google_oauth._granted, (FOUNDER, "founder"),
             frozenset({"https://www.googleapis.com/auth/calendar.readonly"}))
         result = await book(MEETING_A)
         assert result["status"] == "error"
@@ -377,7 +378,7 @@ class TestScopePreCheck:
     async def test_an_unavailable_scope_lookup_never_blocks_booking(
             self, fake_store, prod_service, monkeypatch):
         """Cold cache + a failing/slow tokeninfo is "unknown", not "denied"."""
-        google_oauth._granted.pop("founder", None)
+        google_oauth._granted.pop((FOUNDER, "founder"), None)
 
         def _fail(*_a, **_k):
             raise RuntimeError("tokeninfo unreachable")

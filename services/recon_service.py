@@ -68,7 +68,7 @@ async def run_recon(page, goal: str, application_id: str) -> dict:
         if action == "done":
             break
         try:
-            from services import browser_service
+            from services import browser_gateway as browser_service
 
             key = "recon-target"
             if action in {"click", "type", "select"}:

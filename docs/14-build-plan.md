@@ -97,6 +97,10 @@ attachments to `/discover` or changing the competition lifecycle.
   projection and many-to-many session links in 23's eight-work-item order.
   This is a compatibility seam for 21, not permission to skip directly to the
   WorkflowRun phases or make chat history the work store.
+- **34 — platform architecture and convergence**: the implementation overlay
+  for 21. After the competition acceptance criteria are green, execute its
+  Phase 0 stabilization gate first; no later runtime, memory, capability, or
+  domain-expansion phase is authorized by the document alone.
 
 ## Final acceptance criteria (mapped to judging)
 

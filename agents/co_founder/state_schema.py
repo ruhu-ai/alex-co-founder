@@ -55,6 +55,10 @@ K_ACTIVE_ATTACHMENTS = "active_attachments"
 K_OPPORTUNITY_READINESS = "opportunity_readiness"
 K_BROWSER_STATUS = "browser_status"
 K_USER_PROFILE_ID = "user:profile_id"
+# Server-derived interactive actor projected into ADK state. Tools may use this
+# identity for audit/binding only; authorization still re-reads the durable
+# workspace membership at the consequence boundary.
+K_ACTOR_ID = "platform:actor_id"
 K_USER_PREFS = "user:prefs"
 K_APP_WORKFLOW_ID = "app:workflow_id"
 K_TODAY = "today"  # refreshed every turn by the callback — the agent's clock

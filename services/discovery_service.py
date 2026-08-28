@@ -138,7 +138,7 @@ async def fetch_source(source_url: str, source_type: str, artifact_name: str) ->
     else:
         text, links = _parse_html(resp.text, final_url)
         if len(text) < 500:  # JS shell — render through Playwright (docs/08)
-            from services import browser_service
+            from services import browser_gateway as browser_service
 
             rendered_text = await browser_service.render_text(final_url)
             if rendered_text:
@@ -199,7 +199,8 @@ async def extract_records(text_artifact: str, entity_schema: dict) -> dict:
     return {"status": "success", "records": records}
 
 
-async def save_opportunity_record(record: dict, entity_schema: dict) -> dict:
+async def save_opportunity_record(record: dict, entity_schema: dict,
+                                  founder_id: str = "") -> dict:
     """Validate against the workflow entity_schema: missing → None, extra → rejected.
     A record with no name is junk extraction — rejected, never saved."""
     if not record.get("name"):
@@ -218,6 +219,8 @@ async def save_opportunity_record(record: dict, entity_schema: dict) -> dict:
             full[key] = pipeline_service.normalize_string_list(full.get(key))
     full["raw_excerpt"] = record.get("raw_excerpt", "")[:2000]
     full["source_type"] = record.get("source_type", "web_page")
+    full["workspace_id"] = founder_id or None
+    full["founder_id"] = founder_id or None
     full["dedup_hash"] = pipeline_service.dedup_hash(full.get("name") or "", full.get("application_url") or "")
     opportunity_id = await firestore.create_opportunity(full)
     return {"status": "success", "opportunity_id": opportunity_id, "dedup_hash": full["dedup_hash"]}
@@ -286,7 +289,8 @@ def _relevant(item: dict) -> bool:
     return any(w in text for w in _RELEVANCE_WORDS)
 
 
-async def _ingest_url(url: str, source_type: str, workflow, summary: dict) -> None:
+async def _ingest_url(url: str, source_type: str, workflow, summary: dict,
+                      founder_id: str = "") -> None:
     """Fetch one source → extract records → save each (deduped). One bad record
     or fetch never fails the sweep — errors land in summary['errors'].
     Extraction is skipped when the source content is unchanged since the last
@@ -316,8 +320,11 @@ async def _ingest_url(url: str, source_type: str, workflow, summary: dict) -> No
     for record in extracted["records"]:
         try:
             existing = await firestore.find_opportunity_by_hash(
-                pipeline_service.dedup_hash(record.get("name"), record.get("application_url")))
-            saved = await save_opportunity_record(record, workflow.entity_schema)
+                pipeline_service.dedup_hash(
+                    record.get("name"), record.get("application_url")),
+                founder_id)
+            saved = await save_opportunity_record(
+                record, workflow.entity_schema, founder_id)
             if saved["status"] == "success":
                 summary["saved"] += 1
                 if existing is None:
@@ -351,7 +358,8 @@ async def run_sweep(workflow, founder_id: str | None = None,
         url = source.get("url", "")
         if not url or url == "TBD-Day-1":
             continue
-        await _ingest_url(url, source["type"], workflow, summary)
+        await _ingest_url(
+            url, source["type"], workflow, summary, founder_id or "")
 
     search_sources = [s for s in workflow.sources if s["type"] == "search"]
     if search_sources and founder_id and _search_fn is not None:
@@ -382,7 +390,8 @@ async def run_sweep(workflow, founder_id: str | None = None,
                 if not url or url in seen_urls or not _relevant(item):
                     continue
                 seen_urls.add(url)
-                await _ingest_url(url, "web_page", workflow, summary)
+                await _ingest_url(
+                    url, "web_page", workflow, summary, founder_id or "")
 
     # Audit the real outcome, not an unconditional "success": every lane can
     # error while the sweep still returns. success = clean; partial = some
@@ -400,7 +409,7 @@ async def run_sweep(workflow, founder_id: str | None = None,
 
 
 
-async def deadline_scan() -> dict:
+async def deadline_scan(founder_id: str = "") -> dict:
     """Deadline sentinel (docs/08): recompute urgency on ALL open items.
 
     Pages through the whole opportunities collection with a created_at cursor —
@@ -414,7 +423,8 @@ async def deadline_scan() -> dict:
     critical = []
     cursor: str | None = None
     while True:
-        batch = await firestore.list_opportunities(limit=_PAGE, start_after=cursor)
+        batch = await firestore.list_opportunities(
+            limit=_PAGE, start_after=cursor, founder_id=founder_id)
         if not batch:
             break
         for opp in batch:
@@ -424,7 +434,9 @@ async def deadline_scan() -> dict:
                 opp.get("deadline"), opp.get("required_materials", []))
             previous = (opp.get("urgency") or {}).get("tier")
             if urgency != opp.get("urgency"):
-                await firestore.set_opportunity_state(opp["id"], opp["state"], urgency=urgency)
+                await firestore.set_opportunity_state(
+                    opp["id"], opp["state"], founder_id=founder_id,
+                    urgency=urgency)
             if urgency["tier"] == "CRITICAL" and previous != "CRITICAL":
                 critical.append(opp["id"])
             scanned += 1

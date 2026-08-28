@@ -8,6 +8,15 @@ import json
 import os
 from datetime import datetime, timezone
 
+QUEUE_IDENTITY_ENV = {
+    "co-founder-provider-events": "TASKS_PROVIDER_EVENTS_SA",
+    "co-founder-discovery-ingestion": "TASKS_DISCOVERY_INGESTION_SA",
+    "co-founder-timers": "TASKS_TIMERS_SA",
+    "co-founder-browser-expiry": "TASKS_BROWSER_SA",
+    "co-founder-reconciliation": "TASKS_RECONCILIATION_SA",
+    "co-founder-interactive": "TASKS_INTERACTIVE_SA",
+}
+
 
 def enqueue(
     path: str,
@@ -22,7 +31,9 @@ def enqueue(
     project = os.environ.get("GOOGLE_CLOUD_PROJECT", "")
     region = os.environ.get("GOOGLE_CLOUD_REGION", "us-central1")
     base_url = os.environ.get("AGENT_BASE_URL", "").rstrip("/")
-    service_account = os.environ.get("TASKS_INVOKER_SA", "")
+    identity_env = QUEUE_IDENTITY_ENV.get(queue_name, "TASKS_INVOKER_SA")
+    service_account = (os.environ.get(identity_env, "")
+                       or os.environ.get("TASKS_INVOKER_SA", ""))
     if not all((project, region, base_url, service_account)):
         return {"status": "error", "error": True,
                 "message": "Cloud Tasks is not fully configured"}

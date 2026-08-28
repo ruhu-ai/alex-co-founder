@@ -38,10 +38,11 @@ def set_service_factory(fn: Callable[[], Any] | None) -> None:
     _service_factory = fn
 
 
-def _service():
+def _service(workspace_id: str = ""):
     if _service_factory is not None:
         return _service_factory()
-    creds = google_oauth.get_credentials()
+    creds = (google_oauth.get_credentials("founder", workspace_id)
+             if workspace_id else google_oauth.get_credentials())
     if creds is None:
         return None
     from googleapiclient.discovery import build
@@ -73,12 +74,14 @@ def _body_text(payload: dict) -> str:
     return ""
 
 
-async def scan(label: str = "grants", max_results: int = 20) -> dict:
+async def scan(label: str = "grants", max_results: int = 20,
+               workspace_id: str = "") -> dict:
     """Unread mail under one label → classified events. Idempotent: message ids
     already in gmail_state/processed are skipped."""
     import asyncio
 
-    svc = await asyncio.to_thread(_service)  # cred refresh is blocking HTTP
+    svc = await asyncio.to_thread(
+        _service, workspace_id)  # cred refresh is blocking HTTP
     if svc is None:
         return {"status": "error", "error": True,
                 "message": "Google OAuth not configured (run scripts/oauth_setup.py)"}
@@ -88,7 +91,9 @@ async def scan(label: str = "grants", max_results: int = 20) -> dict:
     except Exception as exc:
         return {"status": "error", "error": True, "message": f"gmail list failed: {exc}"}
 
-    processed = set(await firestore.get_processed_gmail_ids())
+    processed = set(await (firestore.get_processed_gmail_ids(workspace_id)
+                           if workspace_id else
+                           firestore.get_processed_gmail_ids()))
     events = []
     for stub in resp.get("messages", []):
         if stub["id"] in processed:
@@ -120,7 +125,11 @@ async def scan(label: str = "grants", max_results: int = 20) -> dict:
     return {"status": "success", "events": events, "scanned": len(resp.get("messages", []))}
 
 
-async def mark_processed(message_ids: list[str]) -> None:
+async def mark_processed(message_ids: list[str], workspace_id: str = "") -> None:
     """Record messages as handled — call ONLY after the domain effect commits."""
     if message_ids:
-        await firestore.add_processed_gmail_ids(list(message_ids))
+        if workspace_id:
+            await firestore.add_processed_gmail_ids(
+                list(message_ids), workspace_id)
+        else:
+            await firestore.add_processed_gmail_ids(list(message_ids))

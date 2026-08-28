@@ -24,6 +24,7 @@ from services.hiring_data_rights import HiringDataRightsService
 from services.hiring_identity_vault import CandidateIdentityVault, fixture_key_wrapper
 from services.hiring_mailbox import HiringMailboxService
 from services.hiring_service import HiringService
+from services.hiring_workflow_adapter import HiringWorkflowAdapter
 from services.workflow_runtime import WorkflowRuntime
 
 FIXTURE_ID = "fixture_ruhu_fde_walkthrough"
@@ -97,7 +98,10 @@ def _fixture_message(message_id: str, *, route_id: str, labels: list[str],
 
 
 async def _principal(store) -> ActorPrincipal:
-    member = await store.get("workspace_members", ACTOR_ID)
+    members = await store.list(
+        "workspace_members",
+        filters={"actor_id": ACTOR_ID, "workspace_id": WORKSPACE_ID}, limit=2)
+    member = members[0] if len(members) == 1 else None
     if (not member or member.get("workspace_id") != WORKSPACE_ID
             or member.get("role") != WorkspaceRole.OWNER.value):
         raise SystemExit(
@@ -134,7 +138,7 @@ async def main() -> None:
     wrap, unwrap = fixture_key_wrapper(key)
     vault = CandidateIdentityVault(wrap_key=wrap, unwrap_key=unwrap,
                                    dedup_key=key, store=store)
-    runtime = WorkflowRuntime(store)
+    runtime = WorkflowRuntime(store, domain_adapter=HiringWorkflowAdapter())
     hiring = HiringService(store=store, identity_vault=vault, runtime=runtime)
     mailbox = HiringMailboxService(hiring, store=store)
     contract = _contract()

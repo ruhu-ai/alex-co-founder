@@ -140,6 +140,9 @@ async def test_external_action_payload_drift_and_uncertainty_block_retry(fake_st
         "founder", connection["connection_id"], "export_drive_file", "copy-1",
         dsc.canonical_hash({"artifact": "doc-2", "sha256": "b" * 64}))
     assert drift["error_code"] == "version_conflict"
+    started = await firestore.start_external_action(
+        "founder", prepared["action_id"], prepared["lease_owner"])
+    assert started["status"] == "success"
     await firestore.finish_external_action(
         "founder", prepared["action_id"], prepared["lease_owner"], "UNCERTAIN",
         uncertainty_reason="provider_timeout", error_code="provider_timeout")
@@ -149,8 +152,9 @@ async def test_external_action_payload_drift_and_uncertainty_block_retry(fake_st
     assert retry["error_code"] == "reconciliation_required"
 
 
-async def test_expired_prepared_action_becomes_uncertain_not_reclaimed(fake_store):
-    """Mutation proof: reclaiming the stale lease would permit a second effect."""
+async def test_expired_prepared_is_reclaimed_but_expired_execution_is_uncertain(
+        fake_store):
+    """T1 is recoverable; only expiry after T2 has an ambiguous outcome."""
     connection = await _drive_connection()
     request_hash = dsc.canonical_hash({"artifact": "doc-1"})
     prepared = await firestore.prepare_external_action(
@@ -163,8 +167,20 @@ async def test_expired_prepared_action_becomes_uncertain_not_reclaimed(fake_stor
         "founder", connection["connection_id"], "export_drive_file", "copy-crash",
         request_hash, lease_seconds=1)
 
-    assert after_crash["error_code"] == "reconciliation_required"
-    assert after_crash["status"] == "UNCERTAIN"
+    assert after_crash["status"] == "success"
+    assert after_crash["reclaimed"] is True
+    assert after_crash["action_id"] == prepared["action_id"]
+
+    started = await firestore.start_external_action(
+        "founder", prepared["action_id"], after_crash["lease_owner"])
+    assert started["status"] == "success"
+    fake_store.external_actions[prepared["action_id"]]["lease_started_at"] = (
+        "2000-01-01T00:00:00+00:00")
+    after_provider_window = await firestore.prepare_external_action(
+        "founder", connection["connection_id"], "export_drive_file", "copy-crash",
+        request_hash, lease_seconds=1)
+    assert after_provider_window["error_code"] == "reconciliation_required"
+    assert after_provider_window["status"] == "UNCERTAIN"
     assert fake_store.external_actions[prepared["action_id"]]["lease_owner"] is None
 
     resolved = await firestore.reconcile_external_action(

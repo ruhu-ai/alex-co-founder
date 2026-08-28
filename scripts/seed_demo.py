@@ -14,6 +14,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from services import firestore, pipeline_service  # noqa: E402
+from services.actor_identity import WorkspaceRole, create_membership  # noqa: E402
 
 USER_IDS = ["user", "eval_founder", os.environ.get("FOUNDER_ID", "founder")]
 
@@ -85,6 +86,14 @@ async def main() -> None:
             print(f"profile seeded for '{user_id}'")
         else:
             print(f"profile exists for '{user_id}' (v{existing['version']}) — left as-is")
+        membership = await create_membership(
+            actor_id=f"seeded_{user_id}", workspace_id=user_id,
+            auth_subject=f"seeded:{user_id}", role=WorkspaceRole.OWNER,
+            created_by="seed_demo", synthetic=True, local_only=True)
+        if membership.get("status") == "success":
+            print(f"local membership seeded for '{user_id}'")
+        elif membership.get("error_code") != "version_conflict":
+            raise RuntimeError(membership.get("message") or "membership seed failed")
 
     for record in OPPORTUNITIES:
         record["dedup_hash"] = pipeline_service.dedup_hash(

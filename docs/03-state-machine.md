@@ -1,10 +1,12 @@
 # 03 — State Machine
 
 Two lifecycles. The **opportunity lifecycle** is data-pipeline state (Firestore
-`opportunities.state`). The **application lifecycle** is the conversational workflow
-the orchestrator is grounded in (session `current_step`, mirrored to Firestore
-`applications.state`). Refinement of the brief: `current_step` also admits `IDLE` and
-`TRIAGE` so the orchestrator has well-defined behavior when no application is active.
+`opportunities.state`). The **application lifecycle** is authoritative in
+Firestore `applications.state`. Session `current_step` is the required
+model-facing projection: it is reconciled from the durable application before
+inference and consequence guards, and cannot authorize work independently.
+Refinement of the brief: `current_step` also admits `IDLE` and `TRIAGE` so the
+orchestrator has well-defined behavior when no application is active.
 
 ## Opportunity lifecycle (Firestore, driven by tools)
 
@@ -14,7 +16,7 @@ DISCOVERED ──fit≥threshold──► SHORTLISTED
      └──fit<threshold────► ARCHIVED (archive_reason required)
 ```
 
-## Application lifecycle (session `current_step`)
+## Application lifecycle (durable `applications.state`)
 
 ```
 IDLE ──founder opens app──► TRIAGE ──founder picks opportunity──► INTERVIEWING
@@ -52,12 +54,14 @@ which the approval was granted (09/22).
 | 6 | AWAITING_REVIEW → APPROVED | orchestrator | all sections status=APPROVED | `submit_idempotency_key` generated |
 | 7 | APPROVED → FORM_FILLING | founder (UI) | — | portal creds fetched at execution time only |
 | 8 | FORM_FILLING → AWAITING_SUBMIT_APPROVAL | form-filler | fresh fill report written (partial OK), including portal and mapping hashes | approval PENDING record bound to those hashes; UI prompts founder |
-| 9 | AWAITING_SUBMIT_APPROVAL → SUBMITTED | form-filler | **server-side approval resolved** (GRANTED, unexpired, unconsumed) and live portal/mapping hashes match its `subject_hash` | approval → CONSUMED; confirmation stored; audit row |
+| 9 | AWAITING_SUBMIT_APPROVAL → SUBMITTED | form-filler | **server-side approval resolved** (GRANTED, unexpired, unconsumed), durable application is still at this edge, and live portal/mapping hashes match its `subject_hash` | approval → CONSUMED and PREPARED action created atomically before provider call; terminal/UNCERTAIN receipt; confirmation stored; audit row |
 | 10 | SUBMITTED → FOLLOW_UP | system | `submission.confirmation_id` present | followup schedule created |
 | 11 | FOLLOW_UP → CLOSED | system/founder | result recorded or deadline passed | final audit row |
 
 **Safety gates (eval-tested, see 11):**
-- G1: no `save_draft_section` while `current_step == INTERVIEWING` and gaps remain.
+- G1: no `save_draft_section` while authoritative application state is
+  `INTERVIEWING` and gaps remain. Reconciled `current_step` presents that state
+  to the model but is not the guard authority.
 - G2: no `submit_form` without a valid approval token bound to the current fill
   report — the tool itself validates approval status, expiry, consumption, portal
   signature, and mapping hash,
@@ -88,10 +92,10 @@ pattern stays on the roadmap if a future workflow has true in-invocation waits.
 
 **Resume handler rules (from the reference pattern):**
 1. Hydrate the persisted session by `(user_id, session_id)` — never start a new one.
-2. Call `runner.run_async(user_id=..., session_id=..., new_message=<wake notice>,
-   state_delta={...})`. The `state_delta` transition lands **before** the next
-   inference call, so the model sees the new `current_step` in its instruction and
-   cannot hallucinate intermediate steps.
+2. Commit authoritative state and a durable wake receipt first. Hydration then
+   reconciles the session projection and calls `runner.run_async(...)` with a
+   minimal notice/`state_delta`. If durable state cannot be read, fail closed
+   before inference; a `state_delta` alone is never transition authority.
 3. The wake `new_message` is a short system-style note, e.g.
    `"Resume: portal confirmed submission C-1042."` — not a fabricated user request.
 4. Containers may be cold / scaled to zero. Session store must be durable

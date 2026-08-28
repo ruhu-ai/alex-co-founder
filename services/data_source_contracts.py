@@ -8,7 +8,6 @@ they can select a role, status, collection contract, or effect kind.
 from __future__ import annotations
 
 import hashlib
-import json
 from dataclasses import dataclass
 from enum import Enum
 from typing import Any, TypeVar
@@ -145,6 +144,7 @@ SANDBOX_ONLY_ACTION_KINDS: frozenset[str] = frozenset({
 
 class ExternalActionStatus(ClosedValue):
     PREPARED = "PREPARED"
+    EXECUTING = "EXECUTING"
     SUCCEEDED = "SUCCEEDED"
     FAILED = "FAILED"
     UNCERTAIN = "UNCERTAIN"
@@ -303,14 +303,11 @@ def canonical_hash(value: Any, *, max_bytes: int = 32_768) -> str:
     Callers must pass safe metadata, not raw provider/document bodies. The cap
     prevents a receipt helper from becoming a covert large-content store.
     """
-    try:
-        encoded = json.dumps(value, sort_keys=True, separators=(",", ":"),
-                             ensure_ascii=False, allow_nan=False).encode()
-    except (TypeError, ValueError) as exc:
-        raise ValueError("payload is not canonical JSON") from exc
-    if len(encoded) > max_bytes:
-        raise ValueError("payload exceeds receipt metadata limit")
-    return hashlib.sha256(encoded).hexdigest()
+    from services.canonical import canonical_hash as platform_hash
+
+    return platform_hash(
+        value, domain="data-source-receipt", prefixed=False,
+        max_bytes=max_bytes)
 
 
 def values(enum_type: type[EnumT]) -> frozenset[str]:

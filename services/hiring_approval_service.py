@@ -11,8 +11,9 @@ from services.hiring_contracts import canonical_hash, stable_id, utc_now
 
 
 def _error(code: str, message: str, http_status: int = 409) -> dict[str, Any]:
+    del http_status
     return {"status": "error", "error": True, "error_code": code,
-            "message": message, "http_status": http_status}
+            "message": message}
 
 
 def _requires_fresh(approval: dict[str, Any], requested: bool) -> bool:
@@ -51,22 +52,47 @@ async def request_approval(*, principal: ActorPrincipal, run_id: str,
         "action_kind": action_kind, "exact_action": exact_action,
     })
     approval_id = stable_id("happroval", principal.workspace_id, client_request_id)
+    capability_id = None
+    capability_version = None
+    connector_id = None
+    if action_kind in {"H4S_SEND_EMAIL", "H4S_CREATE_CALENDAR_EVENT"}:
+        from services.capability_registry import require_controlled_action
+
+        capability = require_controlled_action(action_kind, "h4s_google")
+        capability_id = capability.capability_id
+        capability_version = capability.semantic_version
+        connector_id = "h4s_google"
     now = datetime.now(timezone.utc)
     row = {
         "schema_version": 2, "approval_id": approval_id,
         "approval_domain": "HIRING", "workspace_id": principal.workspace_id,
         "founder_id": principal.workspace_id,
         "run_id": run_id, "role_id": role_id,
+        "plan_hash": run.get("plan_hash"),
+        "step_id": exact_action.get("candidate_run_id") or run_id,
+        "capability_id": capability_id,
+        "capability_version": capability_version,
+        "connector_id": connector_id,
+        "connector_binding_version": exact_action.get(
+            "connector_binding_id"),
         "policy_version_id": policy_version_id, "action_kind": action_kind,
+        "policy_id": "hiring_policy", "policy_version": policy_version_id,
+        "domain_ref": role_id, "domain_version": int(run.get("version") or 1),
+        "target_hash": canonical_hash({
+            "destinations": exact_action.get("destination_ids") or
+            exact_action.get("normalized_destinations") or []}),
+        "normalized_payload_hash": canonical_hash(exact_action),
         "subject_hash": subject_hash, "exact_action": exact_action,
         "requested_by_actor_id": principal.actor_id,
-        "resolved_by_actor_id": None, "status": "PENDING",
+        "approving_actor_requirement": "INTERACTIVE_MEMBER",
+        "resolved_by_actor_id": None, "decided_by_actor_id": None,
+        "status": "PENDING",
         "expires_at": (now + timedelta(minutes=ttl_minutes)).isoformat(),
         "consumed_at": None, "created_at": now.isoformat(),
+        "claim_id": None, "claimed_action_id": None, "claimed_at": None,
+        "voided_at": None, "void_reason": None,
         "updated_at": now.isoformat(), "client_request_id": client_request_id,
-        "synthetic": run.get("synthetic") is True,
-        "synthetic_namespace": run.get("synthetic_namespace"),
-        "fixture_id": run.get("fixture_id"), "version": 1,
+        "provenance": run.get("provenance") or {}, "version": 1,
     }
     created = await durable.create("approvals", approval_id, row)
     existing = row if created else await durable.get("approvals", approval_id)
@@ -107,6 +133,7 @@ async def resolve_approval(*, principal: ActorPrincipal, approval_id: str,
         "approvals", approval_id, int(approval["version"]), {
             "status": desired_status,
             "resolved_by_actor_id": principal.actor_id,
+            "decided_by_actor_id": principal.actor_id,
             "resolved_at": utc_now(), "updated_at": utc_now(),
             "resolution_membership_version": principal.membership_version,
         })
@@ -123,6 +150,38 @@ async def claim_approval(*, principal: ActorPrincipal, approval_id: str,
                          action_kind: str, exact_action: dict[str, Any],
                          store: DurableStore | None = None,
                          require_fresh: bool = False) -> dict[str, Any]:
+    durable = store or production_store()
+    validated = await validate_approval_claim(
+        principal=principal, approval_id=approval_id, run_id=run_id,
+        policy_version_id=policy_version_id, action_kind=action_kind,
+        exact_action=exact_action, store=durable, require_fresh=require_fresh)
+    if validated.get("error"):
+        return validated
+    approval = validated["approval"]
+    expected = validated["subject_hash"]
+    committed = await durable.compare_and_set(
+        "approvals", approval_id, int(approval["version"]), {
+            "status": "CONSUMED", "consumed_by_actor_id": principal.actor_id,
+            "consumed_at": utc_now(), "updated_at": utc_now(),
+        })
+    if not committed:
+        return _error("concurrency_conflict", "Approval changed concurrently.")
+    return {"status": "success", "approval_id": approval_id,
+            "subject_hash": expected}
+
+
+async def validate_approval_claim(
+        *, principal: ActorPrincipal, approval_id: str, run_id: str,
+        policy_version_id: str, action_kind: str, exact_action: dict[str, Any],
+        store: DurableStore | None = None,
+        require_fresh: bool = False) -> dict[str, Any]:
+    """Validate an exact claim without mutating it.
+
+    Consequence kernels use the returned version as a precondition in the
+    same multi-document transaction that creates the PREPARED action.  Keeping
+    validation here prevents each connector from inventing its own binding,
+    role, freshness, and expiry rules.
+    """
     durable = store or production_store()
     approval = await durable.get("approvals", approval_id)
     if not approval or approval.get("workspace_id") != principal.workspace_id:
@@ -147,12 +206,5 @@ async def claim_approval(*, principal: ActorPrincipal, approval_id: str,
     # out is no longer the decision the human made.
     if str(approval.get("expires_at", "")) <= utc_now():
         return _error("approval_expired", "Approval has expired.")
-    committed = await durable.compare_and_set(
-        "approvals", approval_id, int(approval["version"]), {
-            "status": "CONSUMED", "consumed_by_actor_id": principal.actor_id,
-            "consumed_at": utc_now(), "updated_at": utc_now(),
-        })
-    if not committed:
-        return _error("concurrency_conflict", "Approval changed concurrently.")
     return {"status": "success", "approval_id": approval_id,
-            "subject_hash": expected}
+            "subject_hash": expected, "approval": approval}

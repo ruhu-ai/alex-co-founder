@@ -6,7 +6,7 @@ import re
 from google.adk.tools import ToolContext
 
 from .. import state_schema as ss
-from ._common import add_pending_signal, run
+from ._common import actor_id, add_pending_signal, run, workspace_id
 
 # Application steps in which a committed application is mid-flight: starting a
 # second application would clobber active_application_id/current_step/checklist
@@ -48,7 +48,7 @@ def get_pipeline(tool_context: ToolContext) -> dict:
     """
     from services import pipeline_service
 
-    return run(pipeline_service.board(tool_context.state.get(ss.K_USER_PROFILE_ID, "founder")))
+    return run(pipeline_service.board(workspace_id(tool_context)))
 
 
 def get_unscored_opportunities(tool_context: ToolContext) -> dict:
@@ -61,7 +61,8 @@ def get_unscored_opportunities(tool_context: ToolContext) -> dict:
 
     async def _go():
         return {"status": "success",
-                "opportunities": await firestore.list_unscored_opportunities(limit=10)}
+                "opportunities": await firestore.list_unscored_opportunities(
+                    limit=10, founder_id=workspace_id(tool_context))}
 
     return run(_go())
 
@@ -82,7 +83,8 @@ def shortlist(opportunity_id: str, rationale: str, urgency_note: str,
     from services import pipeline_service
 
     return run(pipeline_service.shortlist(
-        opportunity_id, rationale, urgency_note, fit_score=fit_score))
+        opportunity_id, rationale, urgency_note, fit_score=fit_score,
+        founder_id=workspace_id(tool_context)))
 
 
 def archive_with_reason(opportunity_id: str, reason: str, fit_score: int, tool_context: ToolContext) -> dict:
@@ -98,7 +100,9 @@ def archive_with_reason(opportunity_id: str, reason: str, fit_score: int, tool_c
     """
     from services import pipeline_service
 
-    return run(pipeline_service.archive(opportunity_id, reason, fit_score))
+    return run(pipeline_service.archive(
+        opportunity_id, reason, fit_score,
+        founder_id=workspace_id(tool_context)))
 
 
 def choose_opportunity(opportunity_id: str, tool_context: ToolContext) -> dict:
@@ -114,6 +118,15 @@ def choose_opportunity(opportunity_id: str, tool_context: ToolContext) -> dict:
     from services import pipeline_service
 
     state = tool_context.state
+    # The durable workspace scope comes from the active invocation identity.
+    # Session state normally mirrors it, but a fresh/repaired projection may
+    # not contain the profile key yet; never turn that projection miss into an
+    # unscoped durable read.
+    founder_id = str(
+        state.get(ss.K_USER_PROFILE_ID)
+        or getattr(tool_context, "user_id", "")
+        or getattr(getattr(tool_context, "session", None), "user_id", "")
+        or "")
     # Escalate when blocked (docs/README): refuse to start a second application
     # while one is mid-flight — clobbering the active ids would strand it.
     active_id = state.get(ss.K_ACTIVE_APPLICATION_ID, "")
@@ -126,7 +139,7 @@ def choose_opportunity(opportunity_id: str, tool_context: ToolContext) -> dict:
                             f"{current}. Finish or close it before starting a new "
                             "one — I won't drop work in flight.")}
 
-    founder_id = state.get(ss.K_USER_PROFILE_ID, "founder")
+    founder_id = workspace_id(tool_context)
     result = run(pipeline_service.choose_opportunity(founder_id, opportunity_id))
     if result.get("status") == "success":
         # A duplicate selection from another/recreated session rehydrates the
@@ -167,7 +180,7 @@ def _register_selection(tool_context: ToolContext, founder_id: str,
     async def _register():
         from services import firestore
 
-        opp = await firestore.get_opportunity(opportunity_id) or {}
+        opp = await firestore.get_opportunity(opportunity_id, founder_id) or {}
         await sr.register_session_resource(
             founder_id=founder_id, session_id=session_id,
             resource_type=sr.ResourceType.OPPORTUNITY,
@@ -205,7 +218,8 @@ def get_opportunity(opportunity_id: str, tool_context: ToolContext) -> dict:
     from services import firestore
 
     async def _go():
-        opp = await firestore.get_opportunity(opportunity_id)
+        opp = await firestore.get_opportunity(
+            opportunity_id, workspace_id(tool_context))
         if not opp:
             return {"status": "error", "error": True, "message": f"opportunity {opportunity_id} not found"}
         return {"status": "success", "opportunity": opp}
@@ -224,6 +238,11 @@ def get_checklist(tool_context: ToolContext) -> dict:
     from services import firestore
 
     state = tool_context.state
+    founder_id = str(
+        state.get(ss.K_USER_PROFILE_ID)
+        or getattr(tool_context, "user_id", "")
+        or getattr(getattr(tool_context, "session", None), "user_id", "")
+        or "")
     state_status = dict(state.get(ss.K_CHECKLIST_STATUS) or {})
     if state_status:
         done = sum(1 for s in state_status.values() if s == "DONE")
@@ -234,7 +253,8 @@ def get_checklist(tool_context: ToolContext) -> dict:
 
     async def _go():
         app_id = state.get(ss.K_ACTIVE_APPLICATION_ID, "")
-        app = await firestore.get_application(app_id) if app_id else None
+        app = (await firestore.get_application(app_id, founder_id)
+               if app_id else None)
         if not app:
             return {"status": "error", "error": True, "message": "no active application"}
         items = app.get("checklist", [])
@@ -257,10 +277,16 @@ def complete_interview(tool_context: ToolContext) -> dict:
 
     state = tool_context.state
     app_id = state.get(ss.K_ACTIVE_APPLICATION_ID, "")
+    founder_id = str(
+        state.get(ss.K_USER_PROFILE_ID)
+        or getattr(tool_context, "user_id", "")
+        or getattr(getattr(tool_context, "session", None), "user_id", "")
+        or "")
     requirements = [str(r) for r in (state.get(ss.K_ACTIVE_PROGRAM_REQUIREMENTS) or [])]
 
     async def _go():
-        app = await firestore.get_application(app_id) if app_id else None
+        app = (await firestore.get_application(app_id, founder_id)
+               if app_id else None)
         if not app:
             return {"status": "error", "error": True, "message": "no active application"}
         # The interviewer's ground truth for what has been answered.
@@ -278,7 +304,8 @@ def complete_interview(tool_context: ToolContext) -> dict:
                             "these and record_answer before completing the interview."),
             }
         return await pipeline_service.advance_application(
-            app_id, ss.ApplicationStep.DRAFTING, actor="agent:interviewer")
+            app_id, ss.ApplicationStep.DRAFTING, actor="agent:interviewer",
+            founder_id=founder_id)
 
     result = run(_go())
     if result.get("status") == "success":
@@ -302,9 +329,10 @@ def request_approval(gate: str, tool_context: ToolContext) -> dict:
     session = getattr(tool_context, "session", None)
     session_id = (getattr(session, "id", "")
                   or getattr(session, "session_id", ""))
-    founder_id = tool_context.state.get(ss.K_USER_PROFILE_ID, "founder")
+    founder_id = workspace_id(tool_context)
     result = run(approval_service.request_approval(
-        app_id, gate, founder_id=founder_id, session_id=session_id))
+        app_id, gate, founder_id=founder_id, session_id=session_id,
+        requested_by_actor_id=actor_id(tool_context)))
     if result.get("status") == "success":
         add_pending_signal(tool_context, "founder_approval")
     return result

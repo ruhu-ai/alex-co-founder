@@ -15,19 +15,22 @@ pytestmark = pytest.mark.asyncio
 
 async def _seed_application(store):
     store.opportunities["opp1"] = {
-        "id": "opp1", "state": "SHORTLISTED", "name": "Meridian Grant",
+        "id": "opp1", "workspace_id": "founder", "founder_id": "founder",
+        "state": "SHORTLISTED", "name": "Meridian Grant",
         "application_url": "https://portal.example/apply", "required_materials": ["essay"],
         "deadline": None, "dedup_hash": "x", "created_at": "", "updated_at": ""}
     chosen = await pipeline_service.choose_opportunity("founder", "opp1")
     app_id = chosen["application_id"]
-    await pipeline_service.advance_application(app_id, "DRAFTING", actor="test")
-    app = await firestore.get_application(app_id)
+    await pipeline_service.advance_application(
+        app_id, "DRAFTING", actor="test", founder_id="founder")
+    app = await firestore.get_application(app_id, "founder")
     assert app is not None
     sections = [{"section_id": "sec-1", "section_key": "describe_traction",
                  "content": "Our revolutionary traction is unmatched.",
                  "word_count": 6, "notes": "", "status": "DRAFTED", "version": 1}]
     await firestore.update_application(app_id, draft_sections=sections)
-    await pipeline_service.advance_application(app_id, "AWAITING_REVIEW", actor="test")
+    await pipeline_service.advance_application(
+        app_id, "AWAITING_REVIEW", actor="test", founder_id="founder")
     return app_id
 
 
@@ -36,15 +39,15 @@ async def test_adaptation_loop(fake_store, monkeypatch):
 
     # The synchronous distiller, faked at the service boundary (the agent-level
     # distiller needs model creds; the contract it must satisfy is this write).
-    async def fake_distill(feedback_id, session_service=None):
-        record = await firestore.get_feedback(feedback_id)
+    async def fake_distill(feedback_id, session_service=None, founder_id=""):
+        record = await firestore.get_feedback(feedback_id, founder_id)
         assert "revolutionary" in record["reason"]  # verbatim evidence reaches the distiller
         await firestore.apply_profile_update(
             record["founder_id"], "voice_rule",
             {"rule": "never use the word 'revolutionary'"}, evidence=record["reason"])
         rules = await profile_service.get_voice_rules(record["founder_id"])
         rule_id = rules[-1]["id"]
-        await firestore.mark_distilled(feedback_id, [rule_id])
+        await firestore.mark_distilled(feedback_id, [rule_id], founder_id)
         return {"status": "success", "rule_ids": [rule_id]}
 
     monkeypatch.setattr("services.distill_service.run_distillation", fake_distill)
@@ -70,7 +73,7 @@ async def test_adaptation_loop(fake_store, monkeypatch):
     # 3. version bumped and the rejected section returned to drafting
     profile = await profile_service.get_profile("founder")
     assert profile["version"] >= 1
-    app = await firestore.get_application(app_id)
+    app = await firestore.get_application(app_id, "founder")
     assert app is not None
     assert app["state"] == "DRAFTING"
     assert app["draft_sections"][0]["status"] == "CHANGES_REQUESTED"
@@ -84,7 +87,7 @@ async def test_adaptation_loop(fake_store, monkeypatch):
         _ToolCtx(app_id),
     )
     assert redraft["status"] == "success"
-    app = await firestore.get_application(app_id)
+    app = await firestore.get_application(app_id, "founder")
     section = app["draft_sections"][0]
     assert "revolutionary" not in section["content"].lower()
     assert rule["id"] in section["notes"]
@@ -98,7 +101,7 @@ async def test_adaptation_loop(fake_store, monkeypatch):
 
 async def test_approve_advances_and_absorbs_canonical_answer(fake_store, monkeypatch):
     app_id = await _seed_application(fake_store)
-    async def fake_distill(feedback_id, session_service=None):
+    async def fake_distill(feedback_id, session_service=None, founder_id=""):
         return {"status": "success"}
 
     monkeypatch.setattr("services.distill_service.run_distillation", fake_distill)
@@ -108,7 +111,7 @@ async def test_approve_advances_and_absorbs_canonical_answer(fake_store, monkeyp
         feedback_type="approve")
 
     assert result["application_step"] == "APPROVED"
-    app = await firestore.get_application(app_id)
+    app = await firestore.get_application(app_id, "founder")
     assert app is not None
     # the canonical answer library absorbed the approved text
     profile = await profile_service.get_profile("founder")
@@ -157,12 +160,14 @@ class _ToolCtx:
 
     def __init__(self, app_id):
         self.state = {"active_application_id": app_id,
-                      "current_step": "DRAFTING", "checklist_status": {}}
+                      "current_step": "DRAFTING", "checklist_status": {},
+                      "user:profile_id": "founder"}
 
 
 async def _ready_to_complete(fake_store, monkeypatch):
     app_id = await _seed_application(fake_store)
-    await pipeline_service.advance_application(app_id, "DRAFTING", actor="test")
+    await pipeline_service.advance_application(
+        app_id, "DRAFTING", actor="test", founder_id="founder")
     rows = _fake_evidence_store(monkeypatch)
     return app_id, rows
 
@@ -189,7 +194,7 @@ async def test_model_failure_still_reaches_awaiting_review(fake_store, monkeypat
         gemma_evidence.set_backend(None)
 
     assert result["status"] == "success", result
-    app = await firestore.get_application(app_id)
+    app = await firestore.get_application(app_id, "founder")
     assert app["state"] == "AWAITING_REVIEW"
     assert ctx.state["current_step"] == "AWAITING_REVIEW"
     # an honest unavailable report exists rather than nothing at all
@@ -222,7 +227,7 @@ async def test_a_check_already_running_holds_the_transition(fake_store, monkeypa
         gemma_evidence.set_backend(None)
 
     assert result.get("error") and result.get("retriable")
-    app = await firestore.get_application(app_id)
+    app = await firestore.get_application(app_id, "founder")
     assert app["state"] == "DRAFTING"
 
 
@@ -241,7 +246,7 @@ async def test_unreadable_evidence_blocks_review_with_error_data(fake_store, mon
     assert result["status"] == "error"
     assert result["error_code"] == "evidence_read_failed"
     assert result["retriable"] is True
-    app = await firestore.get_application(app_id)
+    app = await firestore.get_application(app_id, "founder")
     assert app["state"] == "DRAFTING"
     assert not app.get("latest_evidence_check_id")
     assert rows == {}
@@ -257,7 +262,7 @@ async def test_disabled_checker_persists_unavailable_before_review(fake_store, m
     result = drafting.complete_drafting(_ToolCtx(app_id))
 
     assert result["status"] == "success"
-    app = await firestore.get_application(app_id)
+    app = await firestore.get_application(app_id, "founder")
     assert app["state"] == "AWAITING_REVIEW"
     report_id = app.get("latest_evidence_check_id")
     assert report_id in rows
@@ -290,7 +295,7 @@ async def test_report_persistence_failure_blocks_review(fake_store, monkeypatch)
 
     assert result["status"] == "error"
     assert result["error_code"] == "persistence_error"
-    app = await firestore.get_application(app_id)
+    app = await firestore.get_application(app_id, "founder")
     assert app["state"] == "DRAFTING"
     assert not app.get("latest_evidence_check_id")
     assert not any(row.get("execution_status") == "COMPLETE" for row in rows.values())

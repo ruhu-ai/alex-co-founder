@@ -6,11 +6,11 @@ import re
 from google.adk.tools import ToolContext
 
 from .. import state_schema as ss
-from ._common import run
+from ._common import run, workspace_id
 
 
 def _founder_id(tool_context: ToolContext) -> str:
-    return tool_context.state.get(ss.K_USER_PROFILE_ID, "founder")
+    return workspace_id(tool_context)
 
 
 def _founder_turn_text(tool_context: ToolContext) -> str:

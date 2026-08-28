@@ -3,7 +3,7 @@
 from google.adk.tools import ToolContext
 
 from .. import state_schema as ss
-from ._common import run
+from ._common import run, workspace_id
 
 
 def schedule_followup(kind: str, due_at: str, note: str, tool_context: ToolContext) -> dict:
@@ -20,6 +20,7 @@ def schedule_followup(kind: str, due_at: str, note: str, tool_context: ToolConte
     from services import firestore, pipeline_service
 
     app_id = tool_context.state.get(ss.K_ACTIVE_APPLICATION_ID, "")
+    founder_id = workspace_id(tool_context)
 
     async def _go():
         # Transactional append: the previous read-modify-write of the whole
@@ -31,7 +32,8 @@ def schedule_followup(kind: str, due_at: str, note: str, tool_context: ToolConte
     result = run(_go())
     if result.get("status") == "success":
         transition = run(pipeline_service.advance_application(
-            app_id, ss.ApplicationStep.FOLLOW_UP, actor="agent:orchestrator"))
+            app_id, ss.ApplicationStep.FOLLOW_UP, actor="agent:orchestrator",
+            founder_id=founder_id))
         if transition.get("status") == "success":
             tool_context.state[ss.K_CURRENT_STEP] = ss.ApplicationStep.FOLLOW_UP
     return result

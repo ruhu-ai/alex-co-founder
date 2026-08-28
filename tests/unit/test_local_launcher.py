@@ -1,0 +1,111 @@
+"""Regression checks for the one-command local runtime contract."""
+
+from __future__ import annotations
+
+import os
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[2]
+LAUNCHER = ROOT / "scripts" / "run_local.sh"
+
+
+def _copy_launcher(tmp_path: Path, *, with_uvicorn: bool = True) -> Path:
+    scripts = tmp_path / "scripts"
+    scripts.mkdir()
+    copied = scripts / "run_local.sh"
+    shutil.copy2(LAUNCHER, copied)
+    if with_uvicorn:
+        uvicorn = tmp_path / ".venv" / "bin" / "uvicorn"
+        uvicorn.parent.mkdir(parents=True)
+        uvicorn.write_text("#!/usr/bin/env bash\nexit 99\n")
+        uvicorn.chmod(0o755)
+        (uvicorn.parent / "python").symlink_to(sys.executable)
+    return copied
+
+
+def _run(
+    script: Path,
+    *,
+    path: str,
+    extra_env: dict[str, str] | None = None,
+) -> subprocess.CompletedProcess[str]:
+    env = os.environ.copy()
+    env["PATH"] = path
+    env.update(extra_env or {})
+    return subprocess.run(
+        ["/bin/bash", str(script)],
+        text=True,
+        capture_output=True,
+        timeout=5,
+        env=env,
+        check=False,
+    )
+
+
+def test_launcher_has_valid_shell_syntax():
+    result = subprocess.run(
+        ["/bin/bash", "-n", str(LAUNCHER)],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+
+
+def test_launcher_fails_before_start_when_environment_is_missing(tmp_path):
+    script = _copy_launcher(tmp_path, with_uvicorn=False)
+    result = _run(script, path="/usr/bin:/bin")
+    assert result.returncode == 2
+    assert "Missing .venv/bin/uvicorn" in result.stderr
+
+
+def test_launcher_fails_before_binding_when_adc_is_expired(tmp_path):
+    script = _copy_launcher(tmp_path)
+    fake_bin = tmp_path / "fake-bin"
+    fake_bin.mkdir()
+    gcloud = fake_bin / "gcloud"
+    gcloud.write_text("#!/usr/bin/env bash\nexit 1\n")
+    gcloud.chmod(0o755)
+
+    result = _run(script, path=f"{fake_bin}:/usr/bin:/bin")
+
+    assert result.returncode == 2
+    assert "Application Default Credentials are missing or expired" in result.stderr
+    assert "login" in result.stderr
+    assert "exit 99" not in result.stderr
+
+
+def test_launcher_fails_before_binding_with_broken_crypto_backend(tmp_path):
+    script = _copy_launcher(tmp_path)
+    python = tmp_path / ".venv" / "bin" / "python"
+    python.unlink()
+    python.write_text("#!/usr/bin/env bash\nexit 1\n")
+    python.chmod(0o755)
+
+    result = _run(script, path="/usr/bin:/bin")
+
+    assert result.returncode == 2
+    assert "cryptography/OpenSSL installation is incompatible" in result.stderr
+    assert "requirements-dev.txt" in result.stderr
+
+
+def test_stable_path_invokes_uvicorn_without_empty_array_failure(tmp_path):
+    script = _copy_launcher(tmp_path)
+    fake_bin = tmp_path / "fake-bin"
+    fake_bin.mkdir()
+    gcloud = fake_bin / "gcloud"
+    gcloud.write_text("#!/usr/bin/env bash\nexit 0\n")
+    gcloud.chmod(0o755)
+
+    result = _run(
+        script,
+        path=f"{fake_bin}:/usr/bin:/bin",
+        extra_env={"LOCAL_STARTUP_HEALTH_ATTEMPTS": "1"},
+    )
+
+    assert result.returncode == 1
+    assert "Mock portal" in result.stderr or "Founder app" in result.stderr
+    assert "unbound variable" not in result.stderr

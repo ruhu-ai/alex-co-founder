@@ -168,18 +168,27 @@ class TestSubmitForm:
         # model retries: same derived key → prior success short-circuits
         ctx.state[ss.K_CURRENT_STEP] = ApplicationStep.AWAITING_SUBMIT_APPROVAL
         second = browser.submit_form(ctx)
-        assert second["error"] is True
-        assert "Already submitted" in second["message"]
+        assert second["status"] == "success"
+        assert second["duplicate"] is True
+        assert "nothing was submitted twice" in second["message"]
 
-    async def test_failed_submit_keeps_the_approval(self, fake_store, monkeypatch):
-        """A transient portal failure must not burn the founder's single-use
-        grant — they should not have to approve twice."""
+    async def test_ambiguous_submit_spends_approval_and_requires_reconciliation(
+            self, fake_store, monkeypatch):
+        """Once the provider boundary is crossed, failure is ambiguous.
+
+        The exact approval stays spent and the durable action becomes
+        UNCERTAIN so a retry cannot issue a second provider call.
+        """
         app_id, approval_id, ctx = await self._arm(
             fake_store, monkeypatch,
             {"status": "error", "error": True, "message": "portal 502"})
         result = browser.submit_form(ctx)
         assert result["error"] is True
-        assert fake_store.approvals[approval_id]["status"] == "GRANTED"
+        assert result["error_code"] == "reconciliation_required"
+        assert fake_store.approvals[approval_id]["status"] == "CONSUMED"
+        actions = list(fake_store.external_actions.values())
+        assert len(actions) == 1
+        assert actions[0]["status"] == "UNCERTAIN"
         assert fake_store.applications[app_id]["state"] == \
             ApplicationStep.AWAITING_SUBMIT_APPROVAL
 
@@ -264,6 +273,7 @@ class TestSubmitBinding:
             fake_store, state=ApplicationStep.AWAITING_SUBMIT_APPROVAL)
         fake_store.opportunities["opp-1"] = {
             "id": "opp-1",
+            "workspace_id": "founder", "founder_id": "founder",
             "application_url": "http://127.0.0.1:8091/apply/mp-grant"}
         armed = await arm_submit_binding(
             fake_store, app_id,

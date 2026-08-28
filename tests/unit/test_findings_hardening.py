@@ -11,7 +11,13 @@ import pytest
 from starlette.datastructures import Headers, UploadFile
 
 from agents.co_founder.state_schema import ApplicationStep, SectionStatus
-from services import alex_mailbox, feedback_service, firestore, google_oauth
+from services import (
+    alex_mailbox,
+    approval_service,
+    feedback_service,
+    firestore,
+    google_oauth,
+)
 
 ROOT = Path(__file__).parents[2]
 
@@ -34,23 +40,31 @@ async def test_losing_approval_claim_never_calls_email_provider(
 
     alex_mailbox.set_service_factory(Service)
 
-    async def _valid(*_args, **_kwargs):
-        return {"id": "approval-1", "details": {}}
+    details = {"to": "program@example.org", "subject": "Question", "body": "Body"}
+    subject_hash = approval_service.action_subject_hash(
+        "send_email", "email:general", details)
+    approval_id = await firestore.create_approval(
+        "email:general", "send_email", 30, details=details,
+        founder_id="founder", session_id="session", subject_hash=subject_hash)
+    await firestore.grant_approval(approval_id, "founder")
 
-    async def _lost(_approval_id):
-        return False
+    async def _lost(*_args, **_kwargs):
+        return {"status": "error", "error": True,
+                "error_code": "concurrency_conflict",
+                "message": "Approval or action changed concurrently."}
 
     async def _audit(*_args, **_kwargs):
         return None
 
-    monkeypatch.setattr("services.alex_mailbox.firestore.find_valid_approval", _valid)
-    monkeypatch.setattr("services.alex_mailbox.firestore.claim_approval", _lost)
+    monkeypatch.setattr(
+        "services.alex_mailbox.external_action_service.prepare", _lost)
     monkeypatch.setattr("services.alex_mailbox.firestore.audit", _audit)
     result = await alex_mailbox.send_email(
         "program@example.org", "Question", "Body",
         founder_id="founder", session_id="session")
     alex_mailbox.set_service_factory(None)
-    assert result["status"] == "error" and "already used" in result["message"]
+    assert result["status"] == "error"
+    assert result["error_code"] == "concurrency_conflict"
     assert sends == []
 
 
@@ -131,7 +145,7 @@ def test_background_work_and_voice_lifecycle_are_request_bound():
     main_source = (ROOT / "app/main.py").read_text()
     live_source = (ROOT / "app/live.py").read_text()
     assert "BackgroundTasks" not in main_source
-    assert 'task_queue.enqueue, "/tasks/portal_wake"' in main_source
+    assert 'task_queue.enqueue, "/tasks/wake_delivery"' in main_source
     assert live_source.index("runner = Runner(") < live_source.index(
         '@app.websocket("/live/{session_id}")')
     assert "pending_model_transcript or pending_model_raw" in live_source
@@ -146,7 +160,11 @@ def test_cloud_build_and_required_eval_gate_are_reproducible():
     assert "playwright install chromium" not in docker
     assert "pytest==" not in requirements and "ruff==" not in requirements
     assert "ADK eval gate blocked" in ci and "exit 1" in ci
-    assert "--min-instances 0 --max-instances 1" in deploy
+    assert "co-founder-browser-worker" in deploy
+    assert "--no-allow-unauthenticated --min-instances 0 --max-instances 1" in deploy
+    assert "--concurrency=1" in deploy
+    assert "--allow-unauthenticated --min-instances 0 --max-instances 10" in deploy
+    assert "BROWSER_WORKER_URL" in deploy
     assert "--cpu-throttling" in deploy
     assert "--no-cpu-throttling" not in deploy
 

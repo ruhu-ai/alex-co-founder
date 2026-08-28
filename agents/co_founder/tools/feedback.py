@@ -7,7 +7,7 @@ import re
 from google.adk.tools import ToolContext
 
 from .. import state_schema as ss
-from ._common import run
+from ._common import run, workspace_id
 
 # A stored artifact name is a single flat filename — never a path.
 _ARTIFACT_NAME = re.compile(r"^[A-Za-z0-9._-]+$")
@@ -42,7 +42,7 @@ def record_feedback(section_id: str, feedback_type: str, reason: str, edited_tex
                 "message": "no active application"}
 
     result = run(feedback_service.record_feedback(
-        founder_id=tool_context.state.get(ss.K_USER_PROFILE_ID, "founder"),
+        founder_id=workspace_id(tool_context),
         application_id=tool_context.state.get(ss.K_ACTIVE_APPLICATION_ID, ""),
         section_id=section_id,
         feedback_type=feedback_type,
@@ -70,7 +70,8 @@ def get_feedback(feedback_id: str, tool_context: ToolContext) -> dict:
     from services import firestore
 
     async def _go():
-        record = await firestore.get_feedback(feedback_id)
+        record = await firestore.get_feedback(
+            feedback_id, workspace_id(tool_context))
         if not record:
             return {"status": "error", "error": True, "message": f"feedback {feedback_id} not found"}
         return {"status": "success", "feedback": record}
@@ -90,7 +91,8 @@ def mark_distilled(feedback_id: str, rule_ids: list[str], tool_context: ToolCont
     """
     from services import firestore
 
-    return run(firestore.mark_distilled(feedback_id, rule_ids))
+    return run(firestore.mark_distilled(
+        feedback_id, rule_ids, workspace_id(tool_context)))
 
 
 def submit_voice_note(artifact_name: str, context: str, tool_context: ToolContext) -> dict:

@@ -11,11 +11,13 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import os
 import re
 import uuid
 from typing import Any, Callable
 
 from services import firestore, profile_authority
+from services.canonical import canonical_hash
 
 # Injectable for tests / offline dev: (artifact_name, founder_id) -> proposals list
 ExtractFn = Callable[[str, str], list[dict[str, Any]]]
@@ -53,6 +55,27 @@ def set_embed_fn(fn: EmbedFn | None) -> None:
 
 async def get_profile(founder_id: str) -> dict[str, Any]:
     profile = await firestore.get_profile(founder_id)
+    read_mode = os.environ.get("PROFILE_FACT_READ_MODE", "compatibility")
+    if read_mode in {"dual", "target"}:
+        from services.profile_fact_service import ProfileFactService
+
+        target = await ProfileFactService().current(
+            workspace_id=founder_id, actor_id=founder_id,
+            include_actor_private=True)
+        if not target.get("error"):
+            parity = canonical_hash(
+                dict(profile.get("facts") or {}), domain="profile-parity") == canonical_hash(
+                    target["facts"], domain="profile-parity")
+            if not parity:
+                await firestore.audit(
+                    "system:profile_migration", "profile_read_parity",
+                    f"profiles/{founder_id}", "mismatch",
+                    f"compat_count={len(profile.get('facts') or {})};"
+                    f"target_count={len(target['facts'])}")
+            if read_mode == "target":
+                profile = {**profile, "facts": target["facts"],
+                           "target_fact_records": target["records"],
+                           "profile_storage_schema_version": 2}
     projected = {**profile,
                  "fact_provenance": dict(profile.get("fact_provenance") or {}),
                  "canonical_answers": [dict(row) for row in

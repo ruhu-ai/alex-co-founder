@@ -329,6 +329,17 @@ body {
   color: var(--ink-3); font-style: italic; -webkit-line-clamp: none; display: block;
   border-left: 2px solid var(--ink-3); padding-left: var(--sp-2);
 }
+.outreach-card { gap: var(--sp-2); }
+.outreach-draft {
+  border-top: 1px solid var(--divider); padding-top: var(--sp-2);
+  display: flex; flex-direction: column; gap: var(--sp-1);
+}
+.outreach-draft .message-preview {
+  white-space: pre-wrap; overflow-wrap: anywhere; color: var(--ink-2);
+  font-size: var(--fs-2); line-height: var(--lh-2); max-height: 8lh;
+  overflow: auto;
+}
+.outreach-actions { display: flex; gap: var(--sp-2); flex-wrap: wrap; align-items: center; }
 
 /* ============================================================================
    Meter — fit score.  Hue encodes the value; the number is always present.
@@ -1477,6 +1488,8 @@ body[data-offline="true"] #offline { display: flex; }
     </div>
     <h2 style="margin-top:var(--sp-5)">Committed applications</h2>
     <div id="apps" class="stack"></div>
+    <h2 style="margin-top:var(--sp-5)">Investor outreach</h2>
+    <div id="investorRuns" class="stack"></div>
     </section>
 
     <section id="browserSurface" aria-labelledby="browserTitle">
@@ -1949,7 +1962,7 @@ matchMedia("(prefers-color-scheme: light)").addEventListener("change", () => {
 
 // ---------- state ----------
 let sessionId = null, activeApp = null, pendingApproval = null, thinking = false;
-let pipelineApps = [], founderInboxRows = [];
+let pipelineApps = [], founderInboxRows = [], investorOutreaches = [];
 // sessionId is always the explicitly active/write-bound conversation.
 // viewingSession is a read-through context only and must never replace it.
 let viewingSession = null, sessionResources = [], sessionResourcesTruncated = false;
@@ -1958,6 +1971,9 @@ let chatCount = 0;
 let browserSnapshot = null;
 let browserEventSource = null, browserEventSession = null;
 let browserEventTries = 0, browserEventTimer = 0;
+let platformEventSource = null, platformRefreshTimer = 0;
+const platformVersions = new Map();
+const PLATFORM_EVENT_CURSOR = "cofounder-platform-event-cursor";
 let browserFrames = [], browserResyncing = false;
 // Run-view versions and frame seqs are tracked separately: a frame carries no
 // status/kind, so letting it advance the run-view version made a corrective
@@ -2001,8 +2017,22 @@ const emptyState = (icon, head, body, action = "") =>
 
 applyTheme(localStorage.getItem(THEME_KEY));
 addEventListener("DOMContentLoaded", buildRefTabs);
+let CSRF_TOKEN = "";
+async function appFetch(path, opts = {}) {
+  const method = String(opts.method || "GET").toUpperCase();
+  const headers = { ...(opts.headers || {}) };
+  if (!["GET", "HEAD", "OPTIONS"].includes(method)) {
+    if (!CSRF_TOKEN) {
+      const me = await fetch("/auth/me").then(r => r.ok ? r.json() : null).catch(() => null);
+      CSRF_TOKEN = me && me.csrf_token || "";
+    }
+    if (CSRF_TOKEN) headers["X-CSRF-Token"] = CSRF_TOKEN;
+  }
+  return fetch(path, { ...opts, headers });
+}
 async function api(path, opts = {}) {
-  const r = await fetch(path, { headers: { "Content-Type": "application/json" }, ...opts });
+  const headers = { "Content-Type": "application/json", ...(opts.headers || {}) };
+  const r = await appFetch(path, { ...opts, headers });
   if (r.status === 401 && !path.startsWith("/auth/")) {
     // Signed out or session expired — the login page explains the way back in
     // (and covers the ?key= flow when sign-in isn't configured).
@@ -2138,7 +2168,7 @@ async function speakText(text, btn) {
   if (speakAudio) { speakAudio.pause(); speakAudio = null; return; }
   btn.disabled = true;
   try {
-    const r = await fetch("/api/tts", { method: "POST",
+    const r = await appFetch("/api/v1/tts", { method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ text }) });
     if (!r.ok) { toast("Read-aloud unavailable right now.", "danger"); return; }
@@ -2312,7 +2342,7 @@ async function refreshWaiting() {
   const since = localStorage.getItem(SEEN_KEY) || "";
   let data;
   try {
-    data = await api(`/api/waiting?session_id=${encodeURIComponent(context)}`
+    data = await api(`/api/v1/waits?session_id=${encodeURIComponent(context)}`
       + (since ? `&since=${encodeURIComponent(since)}` : ""));
   } catch (e) { return; }          // waiting never breaks the page
   renderDigest(data);
@@ -2337,7 +2367,9 @@ async function newSession() {
   if (voice) { toast("Hang up the live call before starting a new conversation.", "attn"); return; }
   actStop();
   closeBrowserEvents();
-  const r = await api("/session/new", { method: "POST", body: "{}" });
+  const r = await api("/api/v1/sessions", { method: "POST", body: JSON.stringify({
+    client_request_id: "session_create_" + crypto.randomUUID()
+  }) });
   sessionId = r.session_id;
   viewingSession = null;
   setReadThroughControls();
@@ -2359,7 +2391,7 @@ async function restoreSession() {
   const saved = localStorage.getItem(SESSION_KEY);
   if (saved) {
     try {
-      const h = await api("/api/chat/" + saved);   // 404 => stale, mint fresh
+      const h = await api("/api/v1/sessions/" + saved + "/messages");   // 404 => stale
       sessionId = saved;
       $("sessionTag").textContent = "session " + sessionId;
       chatCount = 0;
@@ -2373,7 +2405,7 @@ async function restoreSession() {
 // session without the founder sending anything — sync from history.
 async function syncChat() {
   if (!sessionId || thinking || voice || viewingSession) return;
-  const h = await api("/api/chat/" + sessionId);
+  const h = await api("/api/v1/sessions/" + sessionId + "/messages");
   const msgs = h.messages || [];
   if (msgs.length === chatCount) { renderSessionDocCards(); return; }
   chatCount = msgs.length;
@@ -2408,7 +2440,7 @@ async function send() {
     // this request it must reuse the body; intentionally sending the same text
     // later receives a new id and remains a new request.
     const requestId = "req_" + crypto.randomUUID();
-    const r = await api("/wake", { method: "POST", body: JSON.stringify({
+    const r = await api("/api/v1/messages", { method: "POST", body: JSON.stringify({
       message: text, session_id: sessionId, client_request_id: requestId,
       attachment_refs: readyAttachmentRefs
     }) });
@@ -2500,16 +2532,125 @@ function clearReview() {
   publishFormTab();
 }
 
+function investorDraftAction(draft, runTerminal = false) {
+  if (runTerminal && draft.status !== "SENT") {
+    return `<span class="badge" data-tone="attn">Run closed · no action available</span>`;
+  }
+  if (!draft.recipient_email) {
+    return `<span class="badge" data-tone="attn">Recipient evidence missing · draft only</span>`;
+  }
+  if (draft.status === "SENT") {
+    return `<span class="badge" data-tone="ok">Sent · receipt recorded</span>`;
+  }
+  if (draft.action_status === "UNCERTAIN") {
+    return `<span class="badge" data-tone="attn">Delivery uncertain · reconciling, do not resend</span>`;
+  }
+  if (draft.approval_status === "GRANTED") {
+    return `<button class="btn" data-variant="danger" data-size="sm"
+              onclick="sendInvestorDraft('${esc(draft.draft_id)}')"
+              ${readThrough() ? "disabled" : ""}>Send exact approved email</button>`;
+  }
+  if (["PENDING", "CLAIMED"].includes(draft.approval_status)) {
+    return `<span class="badge" data-tone="attn">${draft.approval_status === "PENDING"
+      ? "Waiting for your approval" : "Approved action in progress"}</span>`;
+  }
+  return `<button class="btn" data-variant="secondary" data-size="sm"
+            onclick="requestInvestorApproval('${esc(draft.draft_id)}')"
+            ${readThrough() ? "disabled" : ""}>Review exact email</button>`;
+}
+
+function renderInvestorOutreach() {
+  investorOutreaches = investorOutreaches || [];
+  $("investorRuns").innerHTML = investorOutreaches.map(outreach => {
+    const run = outreach.run || {};
+    const runStatus = run.runtime_status || "UNKNOWN";
+    const terminal = ["CANCELLED", "SUCCEEDED", "FAILED", "REJECTED"].includes(runStatus);
+    const control = terminal ? "" : (runStatus === "PAUSED"
+      ? `<button class="btn" data-variant="secondary" data-size="sm" onclick="controlInvestorRun('${esc(run.run_id)}',${Number(run.version || 0)},'resume')">Resume</button>`
+      : `<button class="btn" data-variant="secondary" data-size="sm" onclick="controlInvestorRun('${esc(run.run_id)}',${Number(run.version || 0)},'pause')">Pause</button>`)
+      + (terminal ? "" : `<button class="btn" data-variant="ghost" data-size="sm" onclick="controlInvestorRun('${esc(run.run_id)}',${Number(run.version || 0)},'cancel')">Cancel</button>`);
+    const retryable = ["SCOPING", "SOURCING", "QUALIFYING", "DRAFTING_OUTREACH"].includes(outreach.domain_state);
+    const drafts = (outreach.drafts || []).map(draft => `<div class="outreach-draft">
+      <div class="name">${esc(draft.recipient_email || "Recipient not verified")}</div>
+      <div class="meta"><span>${esc(draft.subject || "Untitled message")}</span>
+        <span class="badge" data-tone="info">${esc(draft.status || "DRAFTED")}</span></div>
+      <div class="message-preview">${esc(draft.body || "")}</div>
+      <div class="outreach-actions">${investorDraftAction(draft, terminal)}</div>
+    </div>`).join("");
+    return `<article class="card outreach-card">
+      <div class="name">${esc(outreach.objective || "Investor outreach")}</div>
+      <div class="meta"><span class="badge" data-tone="info">${esc(outreach.domain_state || "SCOPING")}</span>
+        <span class="badge" data-tone="${runStatus === "FAILED" ? "danger" : runStatus === "PAUSED" ? "attn" : "info"}">${esc(runStatus)}</span>
+        <span>${Number(outreach.candidate_count || 0)} candidates · ${Number(outreach.draft_count || 0)} drafts</span></div>
+      <div class="outreach-actions">${control}${retryable ? `<button class="btn" data-variant="ghost" data-size="sm" onclick="retryInvestorOutreach('${esc(outreach.outreach_id)}')">Retry preparation</button>` : ""}</div>
+      ${drafts || `<div class="why">Research is running. No message can be sent until an exact draft is approved here.</div>`}
+    </article>`;
+  }).join("") || emptyState("sparkle", "No investor outreach yet",
+    readThrough() ? "No investor work was linked to this conversation."
+      : "Ask Alex to find investors for a specific objective. Research and drafts come first; sending always waits for your exact approval.");
+}
+
+async function controlInvestorRun(runId, expectedVersion, operation) {
+  if (!requireActiveContext(`${operation} this run`)) return;
+  try {
+    await api(`/api/v1/runs/${encodeURIComponent(runId)}:${operation}`, {
+      method: "POST", body: JSON.stringify({
+        client_request_id: `run_${operation}_` + crypto.randomUUID(),
+        expected_version: expectedVersion, reason: `${operation} requested by founder`
+      })
+    });
+    toast(`Run ${operation} request recorded.`, operation === "cancel" ? "attn" : "ok");
+    await refresh();
+  } catch (err) { toast(err.message || `Could not ${operation} the run.`, "danger"); }
+}
+
+async function retryInvestorOutreach(outreachId) {
+  if (!requireActiveContext("retry investor preparation")) return;
+  try {
+    await api(`/api/v1/investor-outreach/${encodeURIComponent(outreachId)}:retry`, {
+      method: "POST", body: JSON.stringify({client_request_id: "outreach_retry_" + crypto.randomUUID()})
+    });
+    toast("Reversible research and drafting retry accepted.", "ok");
+    await refresh();
+  } catch (err) { toast(err.message || "Preparation retry failed.", "danger"); }
+}
+
+async function requestInvestorApproval(draftId) {
+  if (!requireActiveContext("request investor outreach approval")) return;
+  try {
+    await api(`/api/v1/outreach-drafts/${encodeURIComponent(draftId)}:request-approval`, {
+      method: "POST", body: JSON.stringify({client_request_id: "outreach_approval_" + crypto.randomUUID()})
+    });
+    toast("Approval requested. Review the exact recipient and message above.", "attn");
+    await refresh();
+  } catch (err) { toast(err.message || "Approval request failed.", "danger"); }
+}
+
+async function sendInvestorDraft(draftId) {
+  if (!requireActiveContext("send approved investor outreach")) return;
+  try {
+    await api(`/api/v1/outreach-drafts/${encodeURIComponent(draftId)}:send`, {
+      method: "POST", body: JSON.stringify({client_request_id: "outreach_send_" + crypto.randomUUID()})
+    });
+    toast("Approved email dispatched once. Its provider receipt is being recorded.", "ok");
+    await refresh();
+  } catch (err) {
+    toast(err.message || "Send did not reach a confirmed outcome. Do not resend until reconciliation finishes.", "danger");
+    await refresh();
+  }
+}
+
 async function refresh() {
   const context = contextSessionId();
   if (!context) return;
   const generation = ++refreshGeneration;
   refreshGateBanner();
-  let board, resourceResult;
+  let board, resourceResult, investorResult;
   try {
-    [board, resourceResult] = await Promise.all([
-      api(`/api/pipeline?session_id=${encodeURIComponent(context)}`),
-      api(`/api/sessions/${encodeURIComponent(context)}/resources?limit=2000`),
+    [board, resourceResult, investorResult] = await Promise.all([
+      api(`/api/v1/pipeline?session_id=${encodeURIComponent(context)}`),
+      api(`/api/v1/sessions/${encodeURIComponent(context)}/resources?limit=2000`),
+      api(`/api/v1/investor-outreach?session_id=${encodeURIComponent(context)}`),
     ]);
     if (generation !== refreshGeneration || context !== contextSessionId()) return;
     setOffline(false);
@@ -2559,6 +2700,8 @@ async function refresh() {
 
   const apps = board.applications || [];
   pipelineApps = apps;
+  investorOutreaches = investorResult.outreaches || [];
+  renderInvestorOutreach();
   if (activeApp && !apps.some(app => app.id === activeApp.id)) {
     activeApp = null;
     clearReview();
@@ -2685,7 +2828,7 @@ function browserRunRank(run) {
 }
 
 // `authoritative` marks a full durable state read (browser.snapshot or GET
-// /api/browser/state). Those already ran through the server's precedence, so
+// /api/v1/browser/state). Those already ran through the server's precedence, so
 // they may switch runs freely — that is how a view stuck on a stale "active"
 // run heals. Single-run stream events must earn the switch on rank.
 function reduceBrowserRun(run, authoritative = false) {
@@ -2718,7 +2861,7 @@ function reduceBrowserFrame(event) {
   const firstFrameForRun = !browserFrameSeqs.has(runId);
   trackBrowserRun(browserFrameSeqs, runId, Number(frame.seq || 0));
   const screenshot = frame.artifact
-    ? `/api/artifacts/${encodeURIComponent(frame.artifact)}/preview` : null;
+    ? `/api/v1/artifacts/${encodeURIComponent(frame.artifact)}/preview?session_id=${encodeURIComponent(contextSessionId())}` : null;
   if (browserSnapshot && browserSnapshot.run_id === runId) {
     browserSnapshot = {
       ...browserSnapshot, frame_seq: Number(frame.seq || 0),
@@ -2750,7 +2893,7 @@ async function loadBrowserState(attempt = 0) {
   if (!session || browserResyncing) return;
   browserResyncing = true;
   try {
-    const state = await api(`/api/browser/state?session_id=${encodeURIComponent(session)}`);
+    const state = await api(`/api/v1/browser/state?session_id=${encodeURIComponent(session)}`);
     const run = pickBrowserRun(state);
     if (run) reduceBrowserRun(run, true); else { browserSnapshot = null; renderBrowserPanel(); }
   } catch {
@@ -2791,7 +2934,7 @@ function connectBrowserEvents(isRetry = false) {
   closeBrowserEvents();
   if (!isRetry) browserEventTries = 0;  // founder-driven attempt: fresh budget
   browserEventSession = context;
-  const source = new EventSource(`/api/browser/events?session_id=${encodeURIComponent(context)}`);
+  const source = new EventSource(`/api/v1/browser/events?session_id=${encodeURIComponent(context)}`);
   browserEventSource = source;
   source.addEventListener("open", () => { browserEventTries = 0; });
   source.addEventListener("error", () => {
@@ -2810,6 +2953,50 @@ function connectBrowserEvents(isRetry = false) {
   ["browser.snapshot", "browser.started", "browser.frame", "browser.status",
    "browser.closed", "browser.resync"].forEach(type =>
     source.addEventListener(type, handleBrowserEvent));
+}
+
+function closePlatformEvents() {
+  if (platformEventSource) platformEventSource.close();
+  platformEventSource = null;
+  if (platformRefreshTimer) { clearTimeout(platformRefreshTimer); platformRefreshTimer = 0; }
+}
+
+function scheduleProjectionRefresh() {
+  if (platformRefreshTimer) return;
+  platformRefreshTimer = setTimeout(async () => {
+    platformRefreshTimer = 0;
+    await Promise.all([refresh(), refreshWaiting()]);
+  }, 120);
+}
+
+function connectPlatformEvents() {
+  if (platformEventSource || document.visibilityState === "hidden") return;
+  const cursor = localStorage.getItem(PLATFORM_EVENT_CURSOR) || "";
+  const query = cursor ? `?last_event_id=${encodeURIComponent(cursor)}` : "";
+  const source = new EventSource(`/api/v1/events/stream${query}`);
+  platformEventSource = source;
+  source.addEventListener("projection", event => {
+    let row;
+    try { row = JSON.parse(event.data); } catch { return; }
+    const key = `${row.projection_type}:${row.aggregate_id}`;
+    const prior = platformVersions.get(key) || -1;
+    if (Number(row.version) < prior) return;
+    platformVersions.set(key, Number(row.version));
+    if (event.lastEventId) localStorage.setItem(PLATFORM_EVENT_CURSOR, event.lastEventId);
+    if (row.projection_type === "browser") loadBrowserState();
+    scheduleProjectionRefresh();
+  });
+  source.addEventListener("snapshot_required", () => {
+    localStorage.removeItem(PLATFORM_EVENT_CURSOR);
+    closePlatformEvents();
+    scheduleProjectionRefresh();
+  });
+  source.addEventListener("authorization_revoked", () => closePlatformEvents());
+  source.addEventListener("error", () => {
+    if (source === platformEventSource && source.readyState === EventSource.CLOSED) {
+      closePlatformEvents();
+    }
+  });
 }
 
 function renderBrowserPanel() {
@@ -2882,11 +3069,14 @@ async function stopBrowsing() {
   if (!requireActiveContext("stop browser work")) return;
   if (!sessionId || !browserSnapshot) return;
   if (browserSnapshot.kind === "fill" && !confirm("Stop form work? Unsaved portal entries may be discarded. Nothing will be submitted.")) return;
-  const result = await api("/api/browser/stop", {
-    method: "POST", body: JSON.stringify({ session_id: sessionId, run_id: browserSnapshot.run_id })
+  const result = await api("/api/v1/browser:stop", {
+    method: "POST", body: JSON.stringify({
+      session_id: sessionId, run_id: browserSnapshot.run_id,
+      client_request_id: "browser_stop_" + crypto.randomUUID()
+    })
   });
-  toast(result.status === "success" ? "Browser work stopped." : (result.message || "Couldn't stop browser work."),
-        result.status === "success" ? "ok" : "danger");
+  toast(result.status === "COMPLETED" || result.status === "success" ? "Browser work stopped." : (result.message || "Couldn't stop browser work."),
+        result.status === "COMPLETED" || result.status === "success" ? "ok" : "danger");
 }
 
 // ---------- reference tabs (docs/16 §7.10) ----------
@@ -2980,7 +3170,7 @@ const stateLabel = st => esc(STATE_COPY[st] || String(st || "").replaceAll("_", 
 async function loadApp(id, silent) {
   const context = contextSessionId();
   let loaded;
-  try { loaded = await api(`/api/applications/${id}?session_id=${encodeURIComponent(context)}`); }
+  try { loaded = await api(`/api/v1/applications/${id}?session_id=${encodeURIComponent(context)}`); }
   catch { return; }
   if (context !== contextSessionId()) return;
   activeApp = loaded;
@@ -3052,7 +3242,7 @@ async function loadApp(id, silent) {
 async function loadRecon(appId) {
   const el = $("reconSlot");
   let r;
-  try { r = await api(`/api/applications/${appId}/recon`); }
+  try { r = await api(`/api/v1/applications/${appId}/recon`); }
   catch { el.innerHTML = ""; return; }
 
   const fm = r.form_map, shots = r.screenshots || [];
@@ -3073,7 +3263,7 @@ async function loadRecon(appId) {
         step${fm.steps_taken === 1 ? "" : "s"} in <span class="tnum">${fm.time_seconds ?? 0}</span>s</span>
         ${fm.exhausted ? `<span class="badge" data-tone="attn">${ico("alert", "ico-sm")}partial map</span>` : ""}
         ${r.form_map_artifact
-          ? `<a href="/api/artifacts/${r.form_map_artifact}/download" download
+          ? `<a href="/api/v1/artifacts/${r.form_map_artifact}/download?session_id=${encodeURIComponent(contextSessionId())}" download
                style="margin-left:auto">form map</a>` : ""}
       </div>` : "";
 
@@ -3081,7 +3271,7 @@ async function loadRecon(appId) {
     ? `<div class="filmstrip" role="list" aria-label="Recon screenshots, newest first">
          ${shots.map(name => `<button role="listitem" title="${esc(name)}"
              data-doc-action="shot" data-artifact="${esc(name)}">
-             <img loading="lazy" src="/api/artifacts/${encodeURIComponent(name)}/download" alt=""></button>`).join("")}
+             <img loading="lazy" src="/api/v1/artifacts/${encodeURIComponent(name)}/download?session_id=${encodeURIComponent(contextSessionId())}" alt=""></button>`).join("")}
        </div>
        ${r.screenshot_total > shots.length
          ? `<div class="hd"><span class="tnum">${r.screenshot_total - shots.length}</span>
@@ -3093,8 +3283,8 @@ async function loadRecon(appId) {
 
 function showShot(name) {
   $("shotTitle").textContent = name;
-  $("shotImg").src = `/api/artifacts/${name}/download`;
-  $("shotDownload").href = `/api/artifacts/${name}/download`;
+  $("shotImg").src = `/api/v1/artifacts/${name}/download?session_id=${encodeURIComponent(contextSessionId())}`;
+  $("shotDownload").href = `/api/v1/artifacts/${name}/download?session_id=${encodeURIComponent(contextSessionId())}`;
   openDialog("shotModal");
 }
 
@@ -3164,13 +3354,14 @@ async function feedback(sectionId, type, btn) {
     toast("Alex needs a reason — that is what shapes the next draft.", "attn");
     reasonEl.focus(); return;
   }
-  const r = await api("/api/feedback", { method: "POST", body: JSON.stringify({
+  const r = await api("/api/v1/feedback", { method: "POST", body: JSON.stringify({
     session_id: sessionId, application_id: activeApp.id, section_id: sectionId,
     // An edited section is approved as the founder's exact replacement. A
     // requested revision remains an explicit edit feedback action, but
     // approving after using Edit must never silently drop the typed text.
-    type, reason, edited_text: type === "reject" ? "" : edited }) });
-  if (!r || r.error || r.status !== "success") {
+    type, reason, edited_text: type === "reject" ? "" : edited,
+    client_request_id: "feedback_" + crypto.randomUUID() }) });
+  if (!r || r.error || !["COMPLETED", "success"].includes(r.status)) {
     toast((r && r.message) || "Feedback could not be saved. Nothing changed.", "danger");
     return;
   }
@@ -3229,9 +3420,9 @@ async function refreshGateBanner() {
   try {
     const context = contextSessionId();
     if (!context) return;
-    const j = await api(`/api/approvals/pending?session_id=${encodeURIComponent(context)}`);
+    const j = await api(`/api/v1/approvals?session_id=${encodeURIComponent(context)}`);
     if (context !== contextSessionId()) return;
-    const pending = (j || {}).pending || [];
+    const pending = (j || {}).approvals || [];
     gateItems = Object.fromEntries(pending.map(a => [a.id, a]));
     const shown = pending.filter(a => !activeApp || a.id !== activeApp.pending_approval_id);
     $("gateBanner").innerHTML = shown.map(a => {
@@ -3282,16 +3473,26 @@ async function resolveApproval(decision) {
   if (!pendingApproval) return;
   const id = pendingApproval;
   const gate = gateItems[id] && gateItems[id].gate;
-  closeApproval();
-  await api(`/api/approvals/${id}/resolve`, { method: "POST",
-    body: JSON.stringify({ decision, session_id: sessionId }) });
-  toast(decision === "grant"
-      ? (gate === "send_email" ? "Approved — tell Alex to send, and it goes."
-         : gate === "book_meeting" ? "Approved — tell Alex to book it, and invites go out."
-         : "Approved — Alex is submitting now.")
-      : "Held. Nothing was sent.",
-        decision === "grant" ? "ok" : "attn");
-  refresh();
+  try {
+    await api(`/api/v1/approvals/${id}:decide`, { method: "POST",
+      body: JSON.stringify({
+        decision, session_id: sessionId,
+        client_request_id: "approval_" + crypto.randomUUID(),
+      }) });
+    closeApproval();
+    toast(decision === "grant"
+        ? (gate === "send_email" ? "Approved — tell Alex to send, and it goes."
+           : gate === "book_meeting" ? "Approved — tell Alex to book it, and invites go out."
+           : "Approved — Alex is submitting now.")
+        : "Held. Nothing was sent.",
+          decision === "grant" ? "ok" : "attn");
+    refresh();
+  } catch (err) {
+    // A competing tab or an expired decision is not success. Keep the review
+    // open long enough to explain the durable outcome, then refresh it.
+    toast(err.message || "This approval was already resolved.", "danger");
+    await refresh();
+  }
 }
 
 // ---------- responsive panes ----------
@@ -3324,9 +3525,10 @@ $("micBtn").onclick = async () => {
     // A voice note is a founder-visible artifact: it carries its session so
     // it is findable from this conversation (docs/23 §6.1).
     fd.append("session_id", sessionId);
+    fd.append("client_request_id", "voice_note_" + crypto.randomUUID());
     let j;
     try {
-      const r = await fetch("/api/voice-note", { method: "POST", body: fd });
+      const r = await appFetch("/api/v1/voice-notes", { method: "POST", body: fd });
       j = await r.json();
     } catch (e) {
       toast("Voice note upload failed: " + (e.message || e), "danger");
@@ -3343,8 +3545,9 @@ $("micBtn").onclick = async () => {
     if (!sessionId) await newSession();
     setThinking(true);
     try {
-      const r2 = await api("/wake", { method: "POST",
-        body: JSON.stringify({ message: j.transcript, session_id: sessionId }) });
+      const r2 = await api("/api/v1/messages", { method: "POST",
+        body: JSON.stringify({ message: j.transcript, session_id: sessionId,
+          client_request_id: "voice_message_" + crypto.randomUUID() }) });
       (r2.replies || []).forEach(t => addMsg("agent", t));
     } catch (e) {
       addMsg("agent", "I transcribed your note but couldn't act on it — try sending it again.");
@@ -3369,6 +3572,7 @@ async function uploadDoc(input) {
   fd.append("file", f);
   fd.append("session_id", sessionId);
   fd.append("scope", scope);
+  fd.append("client_request_id", "ingestion_upload_" + crypto.randomUUID());
   const d = document.createElement("div");
   d.className = "msg agent";
   const purpose = scope === "profile" ? "for proposed Founder Profile updates" : "for this conversation";
@@ -3376,7 +3580,7 @@ async function uploadDoc(input) {
   $("chatlog").appendChild(d);
   $("chatlog").scrollTop = $("chatlog").scrollHeight;
   try {
-    const r = await fetch("/api/ingest", { method: "POST", body: fd });
+    const r = await appFetch("/api/v1/ingestions", { method: "POST", body: fd });
     const j = await r.json().catch(() => ({}));
     if (!r.ok || j.status !== "success" || !j.attachment_ref) {
       throw new Error(j.message || j.detail || `upload failed (${r.status})`);
@@ -3404,7 +3608,7 @@ async function watchAttachment(ref, filename, scope, messageNode, attachmentSess
   for (let attempt = 0; attempt < 45; attempt += 1) {
     if (attempt) await new Promise(resolve => setTimeout(resolve, 2000));
     try {
-      const j = await api(`/api/ingest/${encodeURIComponent(ref)}?session_id=${encodeURIComponent(attachmentSessionId)}`);
+      const j = await api(`/api/v1/ingestions/${encodeURIComponent(ref)}?session_id=${encodeURIComponent(attachmentSessionId)}`);
       const status = j.ingestion_status || "QUEUED";
       if (!terminal.has(status)) {
         messageNode.innerHTML = `${agentHead()}<p>Processing <b>${esc(filename)}</b>
@@ -3447,7 +3651,7 @@ async function renderProfileReview(ref, ownerSessionId, messageNode) {
   const slot = messageNode.querySelector("[data-profile-review-list]");
   if (!slot) return;
   try {
-    const review = await api(`/api/ingest/${encodeURIComponent(ref)}/profile-review?session_id=${encodeURIComponent(ownerSessionId)}`);
+    const review = await api(`/api/v1/ingestions/${encodeURIComponent(ref)}/profile-review?session_id=${encodeURIComponent(ownerSessionId)}`);
     const proposals = review.proposals || [];
     if (!proposals.length) {
       slot.innerHTML = `<div class="crow"><span class="grow">Profile review complete.</span>
@@ -3483,11 +3687,12 @@ async function resolveProfileProposal(button) {
   if (decision === "reject" && !reason) return;
   button.disabled = true;
   try {
-    await api(`/api/ingest/${encodeURIComponent(button.dataset.profileRef)}/profile-review`, {
+    await api(`/api/v1/ingestions/${encodeURIComponent(button.dataset.profileRef)}/profile-review`, {
       method: "POST", body: JSON.stringify({
         session_id: button.dataset.profileSession,
         proposal_id: button.dataset.profileProposal,
         decision, reason,
+        client_request_id: "profile_decision_" + crypto.randomUUID(),
       }),
     });
     const messageNode = button.closest(".msg.agent");
@@ -3503,7 +3708,7 @@ let pdfjsLib = null, pdfDoc = null, pdfPage = 1, pdfZoom = 1.1;
 
 async function previewDoc(artifact, title) {
   $("pdfTitle").textContent = title;
-  $("pdfDownload").href = `/api/artifacts/${artifact}/download`;
+  $("pdfDownload").href = `/api/v1/artifacts/${artifact}/download?session_id=${encodeURIComponent(contextSessionId())}`;
   openDialog("pdfModal");
   $("pdfPageInfo").textContent = "converting…";
   try {
@@ -3511,7 +3716,7 @@ async function previewDoc(artifact, title) {
       pdfjsLib = await import("/vendor/pdfjs/pdf.min.mjs");
       pdfjsLib.GlobalWorkerOptions.workerSrc = "/vendor/pdfjs/pdf.worker.min.mjs";
     }
-    const resp = await fetch(`/api/artifacts/${artifact}/preview`);
+    const resp = await fetch(`/api/v1/artifacts/${artifact}/preview?session_id=${encodeURIComponent(contextSessionId())}`);
     if (!resp.ok) {
       const j = await resp.json().catch(() => ({}));
       $("pdfPageInfo").textContent = j.error || "preview unavailable";
@@ -3549,7 +3754,7 @@ function closePdf() { closeDialog("pdfModal"); pdfDoc = null; }
 let allDocs = [];
 
 async function loadDocuments(context = contextSessionId()) {
-  const r = await api(`/api/documents?session_id=${encodeURIComponent(context)}`);
+  const r = await api(`/api/v1/documents?session_id=${encodeURIComponent(context)}`);
   if (context !== contextSessionId()) return;
   allDocs = r.documents || [];
   renderDocuments();
@@ -3569,7 +3774,7 @@ function docCardHtml(d, showApp) {
       <div class="sub">v${d.version} · ${timeAgo(d.created_at)}${showApp && d.opportunity_name ? " · " + esc(d.opportunity_name) : ""}
         · <span class="doc-tag" data-doc-action="session" data-session="${esc(d.session_id || "")}">${esc(d.session_id || "session")}</span></div>
     </div>
-    <a class="cbtn" title="Download" aria-label="Download" href="/api/artifacts/${encodeURIComponent(d.artifact_name)}/download" download>
+    <a class="cbtn" title="Download" aria-label="Download" href="/api/v1/artifacts/${encodeURIComponent(d.artifact_name)}/download?session_id=${encodeURIComponent(contextSessionId())}" download>
       ${ico("download")}</a>
     <button class="cbtn" title="Preview" aria-label="Preview"
             data-doc-action="preview" data-artifact="${esc(d.artifact_name)}" data-title="${esc(d.title)}">
@@ -3589,7 +3794,7 @@ function artifactCardHtml(row) {
       <div class="sub">${esc(row.subtitle || row.status || "Session attachment")} · ${timeAgo(row.occurred_at)}</div>
     </div>
     <a class="cbtn" title="Download source" aria-label="Download source"
-       href="/api/ingest/${encodeURIComponent(id)}/source?session_id=${encodeURIComponent(contextSessionId())}" download>
+       href="/api/v1/ingestions/${encodeURIComponent(id)}/source?session_id=${encodeURIComponent(contextSessionId())}" download>
       ${ico("download")}</a>
   </div>`;
 }
@@ -3731,7 +3936,7 @@ async function viewSession(sid) {
   // Read-through never mutates sessionId: live voice, typed input and every
   // write remain bound to the explicitly active conversation (docs/23 §8.2).
   if (voice) { toast("Hang up the live call before opening another conversation.", "attn"); return; }
-  const h = await api("/api/chat/" + sid);
+  const h = await api("/api/v1/sessions/" + sid + "/messages");
   if (h.error) { toast("That session no longer exists.", "danger"); return; }
   viewingSession = sid;
   setReadThroughControls();
@@ -3773,7 +3978,8 @@ async function backToSession() {
 async function syncDrive(name) {
   if (!requireActiveContext("copy a document to Drive")) return;
   toast("Copying to Drive…");
-  const r = await api(`/api/documents/${name}/sync_drive`, { method: "POST", body: "{}" });
+  const r = await api(`/api/v1/documents/${name}:sync-drive`, { method: "POST",
+    body: JSON.stringify({ client_request_id: "drive_sync_" + crypto.randomUUID() }) });
   toast(r.status === "success" ? "Copied to your Drive." : (r.message || "Couldn't copy to Drive."),
         r.status === "success" ? "ok" : "danger");
 }
@@ -3837,7 +4043,7 @@ const CONN_ICON = {
   slack: "hash",           // Slack's own channel convention, generically drawn
   telegram: "paper-plane", // `send` belongs to the composer button
   alex_mail: "sparkle",    // Alex's own inbox — ours, so the agent mark fits
-  alex_calendar: "calendar",
+  alex_calendar: "clock",   // Alex-owned scheduling lane, distinct from founder Calendar
   jira: "board",
 };
 const connMark = c => CONN_ICON[c.name] ? ico(CONN_ICON[c.name]) : esc(c.icon || "");
@@ -3914,7 +4120,7 @@ async function loadConnections() {
   connectorCatalog = (cat || {}).connectors || [];
   renderConnectorList();
 
-  connState = await api("/api/integrations");
+  connState = await api("/api/v1/integrations");
   const conn = connState.connectors || {};
   const status = connState.connection_status || {};
   const any = Object.values(conn).some(Boolean);
@@ -3956,7 +4162,7 @@ async function loadConnections() {
     : `<div class="crow"><span class="grow conn-sub">${alexLast && alexLast.error ? esc(alexLast.error) : "Never scanned."}</span></div>`;
 
   if (conn.calendar) {
-    api("/api/integrations/calendar/upcoming").then(j => {
+    api("/api/v1/integrations/calendar/upcoming").then(j => {
       const evs = (j || {}).events || [];
       $("calendarUpcoming").innerHTML = evs.length
         ? evs.map(e => `<div class="crow"><span class="grow"><b>${esc(e.summary)}</b>
@@ -4004,9 +4210,12 @@ async function disconnectConnector(key) {
     ? `Disconnect ${key} from Co-Founder? The shared Google grant will remain active for ${names.join(", ") || "the other connectors"}. You can revoke the whole grant later in Google Account permissions.`
     : `Disconnect ${key}? This is the last active connector on this Google account, so Co-Founder will revoke the account-wide Google grant and remove its local credential.`;
   if (!window.confirm(warning)) return;
-  const result = await api(`/api/integrations/${encodeURIComponent(row.connection_id)}`, {
-    method: "DELETE", body: JSON.stringify({ version: row.version }) });
-  if (result.status !== "success") {
+  const command = await api(`/api/v1/integrations/${encodeURIComponent(row.connection_id)}`, {
+    method: "DELETE", body: JSON.stringify({
+      version: row.version, client_request_id: "disconnect_" + crypto.randomUUID()
+    }) });
+  const result = command.result_ref || command;
+  if (command.status !== "COMPLETED" && command.status !== "success") {
     toast(result.message || "The connection changed. Reload and try again.", "danger");
     return;
   }
@@ -4021,15 +4230,17 @@ async function disconnectConnector(key) {
 async function addDriveFile() {
   const id = $("driveFileId").value.trim();
   if (!id) return;
-  await api("/api/integrations/drive/files", { method: "POST",
-    body: JSON.stringify({ file_id: id, action: "add", selected_session_id: sessionId || null }) });
+  await api("/api/v1/integrations/drive/files", { method: "POST",
+    body: JSON.stringify({ file_id: id, action: "add", selected_session_id: sessionId || null,
+      client_request_id: "drive_add_" + crypto.randomUUID() }) });
   $("driveFileId").value = "";
   toast("Added — Alex may now read that file.", "ok");
   loadConnections();
 }
 async function removeDriveFile(id) {
-  await api("/api/integrations/drive/files", { method: "POST",
-    body: JSON.stringify({ file_id: id, action: "remove" }) });
+  await api("/api/v1/integrations/drive/files", { method: "POST",
+    body: JSON.stringify({ file_id: id, action: "remove",
+      client_request_id: "drive_remove_" + crypto.randomUUID() }) });
   toast("Removed — Alex can no longer see that file.", "ok");
   loadConnections();
 }
@@ -4037,34 +4248,39 @@ async function ingestDrive(sourceGrantId) {
   if (!requireActiveContext("ingest a Drive document")) return;
   toast("Fetching from Drive and extracting…");
   if (!sessionId) await newSession();
-  const r = await api("/api/ingest/drive", { method: "POST", body: JSON.stringify({
-    session_id: sessionId, source_grant_id: sourceGrantId, scope: "profile" }) });
+  const r = await api("/api/v1/ingestions:import-drive", { method: "POST", body: JSON.stringify({
+    session_id: sessionId, source_grant_id: sourceGrantId, scope: "profile",
+    client_request_id: "drive_ingest_" + crypto.randomUUID() }) });
   toast(r.status === "success" ? `Read it — ${r.summary || "facts extracted"}.` : (r.message || "Couldn't read that file."),
         r.status === "success" ? "ok" : "danger");
 }
 async function saveGmailLabel() {
   const label = $("gmailLabel").value.trim() || "grants";
-  await api("/api/integrations/gmail/label", { method: "POST", body: JSON.stringify({ label }) });
+  await api("/api/v1/integrations/gmail/label", { method: "POST", body: JSON.stringify({
+    label, client_request_id: "gmail_label_" + crypto.randomUUID() }) });
   toast(`Now watching label “${label}”.`, "ok");
   loadConnections();
 }
 async function scanGmail() {
   const b = $("gmailScanBtn");
   b.disabled = true; b.textContent = "Scanning…";
-  await api("/tasks/gmail_scan", { method: "POST", body: "{}" });
+  await api("/api/v1/integrations/founder_gmail:scan", { method: "POST",
+    body: JSON.stringify({ client_request_id: "gmail_scan_" + crypto.randomUUID() }) });
   toast("Scanning — new mail is classified and reported in chat.", "ok");
   setTimeout(() => { b.disabled = false; b.textContent = "Scan now"; loadConnections(); }, 8000);
 }
 async function scanAlexMail() {
   const b = $("alexScanBtn");
   b.disabled = true;
-  await api("/tasks/alex_mail_scan", { method: "POST", body: "{}" });
+  await api("/api/v1/integrations/alex_mail:scan", { method: "POST",
+    body: JSON.stringify({ client_request_id: "alex_scan_" + crypto.randomUUID() }) });
   toast("Scanning Alex's mailbox — findings appear in chat");
   setTimeout(() => { b.disabled = false; loadConnections(); }, 8000);
 }
 async function enableAlexWatch() {
-  const j = await api("/api/integrations/alex_mail/watch", { method: "POST", body: "{}" });
-  toast(j.status === "success" ? "Watch enabled — mail now wakes Alex instantly"
+  const j = await api("/api/v1/integrations/alex_mail:watch", { method: "POST",
+    body: JSON.stringify({ client_request_id: "alex_watch_" + crypto.randomUUID() }) });
+  toast(j.status === "COMPLETED" || j.status === "success" ? "Watch enabled — mail now wakes Alex instantly"
                                : (j.message || "Watch setup failed"));
 }
 
@@ -4232,7 +4448,7 @@ function closeSessions() { closeDialog("sessions"); }
 // ---------- founder inbox (docs/24 WI-5) ----------
 async function refreshFounderInbox() {
   let result;
-  try { result = await api("/api/founder-inbox?status=UNREAD&limit=100"); }
+  try { result = await api("/api/v1/founder-inbox?status=UNREAD&limit=100"); }
   catch { return; }
   founderInboxRows = result.items || [];
   const count = founderInboxRows.length;
@@ -4292,9 +4508,10 @@ async function resolveFounderInbox(inboxId) {
   const select = $("inbox-app-" + inboxId);
   if (!select || !select.value) { toast("Choose an application first.", "attn"); return; }
   try {
-    await api(`/api/founder-inbox/${encodeURIComponent(inboxId)}/resolve`, {
+    await api(`/api/v1/founder-inbox/${encodeURIComponent(inboxId)}:resolve`, {
       method: "POST", body: JSON.stringify({
-        application_id: select.value, resource_id: select.value, session_id: sessionId
+        application_id: select.value, resource_id: select.value, session_id: sessionId,
+        client_request_id: "inbox_resolve_" + crypto.randomUUID()
       })
     });
     toast("Message linked to the application.", "ok");
@@ -4305,8 +4522,10 @@ async function resolveFounderInbox(inboxId) {
 
 async function dismissFounderInbox(inboxId) {
   try {
-    await api(`/api/founder-inbox/${encodeURIComponent(inboxId)}/dismiss`, {
-      method: "POST", body: JSON.stringify({ confirm: true })
+    await api(`/api/v1/founder-inbox/${encodeURIComponent(inboxId)}:dismiss`, {
+      method: "POST", body: JSON.stringify({
+        confirm: true, client_request_id: "inbox_dismiss_" + crypto.randomUUID()
+      })
     });
     toast("Message dismissed.", "ok");
     await refreshFounderInbox();
@@ -4333,7 +4552,7 @@ async function runSearch({ reset = false } = {}) {
   if (searchCursor && !reset) params.set("cursor", searchCursor);
   let r;
   try {
-    r = await api("/api/search?" + params.toString());
+    r = await api("/api/v1/search?" + params.toString());
   } catch (e) {
     // Preserve the current result set on failure (docs/23 §10).
     if (generation !== searchGeneration) return;
@@ -4436,8 +4655,10 @@ async function deleteSessionFromPicker(index, button) {
   const deletingViewed = row.session_id === viewingSession;
   let result;
   try {
-    result = await api(`/api/sessions/${encodeURIComponent(row.session_id)}`, {
-      method: "DELETE", body: JSON.stringify({ confirm: true })
+    result = await api(`/api/v1/sessions/${encodeURIComponent(row.session_id)}`, {
+      method: "DELETE", body: JSON.stringify({
+        confirm: true, client_request_id: "session_delete_" + crypto.randomUUID()
+      })
     });
   } catch (error) {
     button.disabled = false;
@@ -4574,6 +4795,7 @@ document.addEventListener("keydown", (e) => {
 });
 async function logout() {
   closeBrowserEvents();
+  closePlatformEvents();
   try { await api("/auth/logout", { method: "POST", body: "{}" }); } catch { /* cookie may already be gone */ }
   location.href = "/login.html";
 }
@@ -4596,7 +4818,7 @@ function renderThemeSeg() {
 // ---------- boot ----------
 loadIdentity();
 restoreSession().then(() => {
-  connectBrowserEvents(); refresh(); refreshWaiting();
+  connectBrowserEvents(); connectPlatformEvents(); refresh(); refreshWaiting();
   // Hiring and other first-party surfaces hand public URLs back here. The URL
   // is opened only through the audited embedded Browser flow; never a new OS
   // browser window or direct top-level navigation to an external origin.
@@ -4622,8 +4844,10 @@ document.addEventListener("visibilitychange", () => {
 // never by a timer that keeps waking a scale-to-zero backend.
 window.addEventListener("focus", refresh);
 document.addEventListener("visibilitychange", () => {
-  if (document.visibilityState === "visible") { connectBrowserEvents(); refresh(); }
-  else closeBrowserEvents();
+  if (document.visibilityState === "visible") {
+    connectBrowserEvents(); connectPlatformEvents(); refresh();
+  } else closeBrowserEvents();
+  if (document.visibilityState === "hidden") closePlatformEvents();
 });
 </script>
 </body>

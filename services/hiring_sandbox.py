@@ -17,7 +17,7 @@ from typing import Any
 from services import hiring_activation
 from services.actor_identity import ActorPrincipal, WorkspaceRole, authorize
 from services.durable_store import DurableStore
-from services.hiring_approval_service import claim_approval, request_approval
+from services.hiring_approval_service import request_approval
 from services.hiring_contracts import canonical_hash, stable_id, utc_now
 from services.hiring_sandbox_config import configured_test_connector, configured_test_destination
 
@@ -27,8 +27,9 @@ _SANDBOX_STATES = {"SANDBOX_PROVISIONED", "SANDBOX_CLOSED"}
 
 
 def _error(code: str, message: str, http_status: int = 409) -> dict[str, Any]:
+    del http_status
     return {"status": "error", "error": True, "error_code": code,
-            "message": message, "http_status": http_status}
+            "message": message}
 
 
 @lru_cache(maxsize=1)
@@ -388,32 +389,18 @@ class HiringSandboxService:
             sandbox_run_id: str, binding_id: str, candidate_application_id: str,
             destination_ids: list[str],
             action_kind: str, rendered_payload: dict[str, Any]) -> dict[str, Any]:
-        """Consume one exact H4S approval only after all current guards re-run."""
-        sandbox = await self.store.get("hiring_sandbox_runs", sandbox_run_id)
-        if not sandbox or sandbox.get("workspace_id") != principal.workspace_id:
-            return _error("sandbox_not_found", "Sandbox does not exist.", 404)
-        action = await self.build_exact_action(
-            sandbox_run_id=sandbox_run_id, binding_id=binding_id,
-            candidate_application_id=candidate_application_id,
-            destination_ids=destination_ids, action_kind=action_kind,
-            rendered_payload=rendered_payload)
-        if action.get("error"):
-            return action
-        role = await self.store.get("hiring_roles", sandbox["role_id"])
-        runs = await self.store.list(
-            "workflow_runs",
-            filters={"workspace_id": principal.workspace_id,
-                     "domain_ref": sandbox["role_id"], "run_kind": "ROLE"},
-            limit=2)
-        if not role or len(runs) != 1:
-            return _error("sandbox_role_run_missing",
-                          "Sandbox requires exactly one durable role run.", 409)
-        claimed = await claim_approval(
-            principal=principal, approval_id=approval_id, run_id=runs[0]["run_id"],
-            policy_version_id=str(role.get("current_policy_version_id") or policy()["policy_id"]),
-            action_kind=action_kind, exact_action=action["exact_action"], store=self.store)
-        return {**claimed, "sandbox_context": action.get("sandbox_context"),
-                "exact_action": action.get("exact_action")}
+        """Refuse the removed claim-without-action compatibility endpoint.
+
+        Claiming authority without preparing an action is not recoverable. The
+        H4S effect executor now performs both operations atomically at T1.
+        Parameters remain temporarily for an explicit, fail-closed API bridge.
+        """
+        del (principal, approval_id, sandbox_run_id, binding_id,
+             candidate_application_id, destination_ids, action_kind,
+             rendered_payload)
+        return _error(
+            "claim_requires_action_prepare",
+            "Approval claims are created only by the effect execution boundary.")
 
     async def resolve_destination(
             self, *, sandbox_run_id: str, destination_id: str,

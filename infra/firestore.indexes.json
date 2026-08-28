@@ -2,6 +2,14 @@
   "__comment": "docs/23 §5.6 — composite indexes for session-resource search. Deploy: gcloud firestore indexes composite create per entry, or `firebase deploy --only firestore:indexes` with this file (see docs/13). Search scans order on immutable fields (occurred_at / created_at); recency listings order on updated_at and are single-page.",
   "indexes": [
     {
+      "collectionGroup": "projection_events",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {"fieldPath": "workspace_id", "order": "ASCENDING"},
+        {"fieldPath": "sequence", "order": "ASCENDING"}
+      ]
+    },
+    {
       "collectionGroup": "session_catalog",
       "queryScope": "COLLECTION",
       "fields": [
@@ -76,10 +84,34 @@
       ]
     },
     {
+      "collectionGroup": "opportunities",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {"fieldPath": "workspace_id", "order": "ASCENDING"},
+        {"fieldPath": "dedup_hash", "order": "ASCENDING"}
+      ]
+    },
+    {
+      "collectionGroup": "opportunities",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {"fieldPath": "workspace_id", "order": "ASCENDING"},
+        {"fieldPath": "state", "order": "ASCENDING"}
+      ]
+    },
+    {
+      "collectionGroup": "applications",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {"fieldPath": "workspace_id", "order": "ASCENDING"},
+        {"fieldPath": "founder_id", "order": "ASCENDING"}
+      ]
+    },
+    {
       "collectionGroup": "data_connections",
       "queryScope": "COLLECTION",
       "fields": [
-        {"fieldPath": "founder_id", "order": "ASCENDING"},
+        {"fieldPath": "workspace_id", "order": "ASCENDING"},
         {"fieldPath": "connector_id", "order": "ASCENDING"},
         {"fieldPath": "status", "order": "ASCENDING"},
         {"fieldPath": "updated_at", "order": "DESCENDING"}
@@ -89,7 +121,7 @@
       "collectionGroup": "source_grants",
       "queryScope": "COLLECTION",
       "fields": [
-        {"fieldPath": "founder_id", "order": "ASCENDING"},
+        {"fieldPath": "workspace_id", "order": "ASCENDING"},
         {"fieldPath": "connection_id", "order": "ASCENDING"},
         {"fieldPath": "status", "order": "ASCENDING"},
         {"fieldPath": "updated_at", "order": "DESCENDING"}
@@ -99,7 +131,7 @@
       "collectionGroup": "external_events",
       "queryScope": "COLLECTION",
       "fields": [
-        {"fieldPath": "founder_id", "order": "ASCENDING"},
+        {"fieldPath": "workspace_id", "order": "ASCENDING"},
         {"fieldPath": "processing_status", "order": "ASCENDING"},
         {"fieldPath": "received_at", "order": "ASCENDING"}
       ]
@@ -108,7 +140,7 @@
       "collectionGroup": "external_events",
       "queryScope": "COLLECTION",
       "fields": [
-        {"fieldPath": "founder_id", "order": "ASCENDING"},
+        {"fieldPath": "workspace_id", "order": "ASCENDING"},
         {"fieldPath": "correlation_status", "order": "ASCENDING"},
         {"fieldPath": "updated_at", "order": "DESCENDING"}
       ]
@@ -117,7 +149,7 @@
       "collectionGroup": "founder_inbox",
       "queryScope": "COLLECTION",
       "fields": [
-        {"fieldPath": "founder_id", "order": "ASCENDING"},
+        {"fieldPath": "workspace_id", "order": "ASCENDING"},
         {"fieldPath": "status", "order": "ASCENDING"},
         {"fieldPath": "created_at", "order": "DESCENDING"}
       ]
@@ -126,9 +158,27 @@
       "collectionGroup": "external_actions",
       "queryScope": "COLLECTION",
       "fields": [
-        {"fieldPath": "founder_id", "order": "ASCENDING"},
+        {"fieldPath": "workspace_id", "order": "ASCENDING"},
         {"fieldPath": "status", "order": "ASCENDING"},
         {"fieldPath": "updated_at", "order": "DESCENDING"}
+      ]
+    },
+    {
+      "collectionGroup": "external_events",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {"fieldPath": "workspace_id", "order": "ASCENDING"},
+        {"fieldPath": "provider_thread_id", "order": "ASCENDING"},
+        {"fieldPath": "received_at", "order": "DESCENDING"}
+      ]
+    },
+    {
+      "collectionGroup": "approvals",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {"fieldPath": "workspace_id", "order": "ASCENDING"},
+        {"fieldPath": "status", "order": "ASCENDING"},
+        {"fieldPath": "created_at", "order": "DESCENDING"}
       ]
     },
     {
@@ -264,6 +314,71 @@
       "fields": [
         {"fieldPath": "sandbox_run_id", "order": "ASCENDING"},
         {"fieldPath": "state", "order": "ASCENDING"},
+        {"fieldPath": "created_at", "order": "ASCENDING"}
+      ]
+    },
+    {
+      "collectionGroup": "memory_items",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {"fieldPath": "workspace_id", "order": "ASCENDING"},
+        {"fieldPath": "status", "order": "ASCENDING"}
+      ]
+    },
+    {
+      "collectionGroup": "memory_items",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {"fieldPath": "workspace_id", "order": "ASCENDING"},
+        {"fieldPath": "source_ref", "order": "ASCENDING"}
+      ]
+    },
+    {
+      "collectionGroup": "investor_outreach",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {"fieldPath": "workspace_id", "order": "ASCENDING"},
+        {"fieldPath": "origin_session_id", "order": "ASCENDING"}
+      ]
+    },
+    {
+      "collectionGroup": "investor_candidates",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {"fieldPath": "workspace_id", "order": "ASCENDING"},
+        {"fieldPath": "outreach_id", "order": "ASCENDING"}
+      ]
+    },
+    {
+      "collectionGroup": "outreach_drafts",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {"fieldPath": "workspace_id", "order": "ASCENDING"},
+        {"fieldPath": "outreach_id", "order": "ASCENDING"}
+      ]
+    },
+    {
+      "collectionGroup": "outreach_drafts",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {"fieldPath": "workspace_id", "order": "ASCENDING"},
+        {"fieldPath": "provider_thread_id", "order": "ASCENDING"}
+      ]
+    },
+    {
+      "collectionGroup": "investor_replies",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {"fieldPath": "workspace_id", "order": "ASCENDING"},
+        {"fieldPath": "outreach_id", "order": "ASCENDING"}
+      ]
+    },
+    {
+      "collectionGroup": "command_outbox",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {"fieldPath": "status", "order": "ASCENDING"},
+        {"fieldPath": "command_type", "order": "ASCENDING"},
         {"fieldPath": "created_at", "order": "ASCENDING"}
       ]
     }

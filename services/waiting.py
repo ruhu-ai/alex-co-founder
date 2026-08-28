@@ -17,6 +17,7 @@ Two rules make that safe:
 
 from __future__ import annotations
 
+import inspect
 import logging
 from datetime import datetime, timezone
 from typing import Any, Awaitable, Callable
@@ -39,13 +40,24 @@ _SIGNAL_KINDS: dict[str, str] = {
     "portal_confirmation": WaitKind.PORTAL_CONFIRMATION,
 }
 
-_session_reader: Callable[[str], Awaitable[dict[str, Any] | None]] | None = None
+_session_reader: Callable[..., Awaitable[dict[str, Any] | None]] | None = None
 
 
 def configure(*, session_state_reader=None) -> None:
     """Wire the server-side session-state reader (app/main.py startup)."""
     global _session_reader
-    _session_reader = session_state_reader
+    if session_state_reader is None:
+        _session_reader = None
+        return
+    # One-argument readers are kept only for local compatibility fixtures.
+    # Production passes ``(workspace_id, session_id)`` so a conversation ID
+    # can never authorize a cross-workspace session read.
+    if len(inspect.signature(session_state_reader).parameters) == 1:
+        async def _legacy(_workspace_id: str, session_id: str):
+            return await session_state_reader(session_id)
+        _session_reader = _legacy
+    else:
+        _session_reader = session_state_reader
 
 
 def _now() -> datetime:
@@ -64,15 +76,13 @@ async def _read_pending_signals(founder_id: str, session_id: str | None,
     session. Founder-wide callers get the other three readers, which is why
     they are separate.
     """
-    if not session_id or _session_reader is None:
-        return []
-    state = await _session_reader(session_id)
-    if not state:
-        return []
-    signals = state.get(_K_PENDING_SIGNALS) or []
+    state = (await _session_reader(founder_id, session_id)
+             if session_id and _session_reader is not None else None)
+    signals = (state.get(_K_PENDING_SIGNALS) or []
+               if isinstance(state, dict) else [])
     if not isinstance(signals, list):
-        return []
-    application_id = str(state.get(_K_ACTIVE_APPLICATION_ID) or "")
+        signals = []
+    application_id = str((state or {}).get(_K_ACTIVE_APPLICATION_ID) or "")
     out: list[WaitView] = []
     for signal in signals:
         kind = _SIGNAL_KINDS.get(str(signal))
@@ -87,6 +97,24 @@ async def _read_pending_signals(founder_id: str, session_id: str | None,
             focus={"kind": "application", "id": application_id}
             if application_id else {},
             source="pending_signals", now=now))
+    # Portal verification is independently durable. Session projection may be
+    # absent after a restart, so it augments (and de-duplicates) the legacy
+    # pending signal instead of relying on it for correctness.
+    from services import firestore
+
+    registrations = await firestore.list_pending_portal_registrations(founder_id)
+    for row in registrations:
+        if session_id and str(row.get("session_id") or "") != session_id:
+            continue
+        row_app = str(row.get("application_id") or "")
+        if any(wait.wait_kind == WaitKind.PORTAL_CONFIRMATION
+               and wait.focus.get("id") == row_app for wait in out):
+            continue
+        out.append(act.build_wait(
+            WaitKind.PORTAL_CONFIRMATION,
+            since=str(row.get("updated_at") or ""), next_check=None,
+            focus={"kind": "application", "id": row_app} if row_app else {},
+            source="portal_registration", now=now))
     return out
 
 
@@ -96,7 +124,8 @@ async def _read_approvals(founder_id: str, session_id: str | None,
     from services import firestore
 
     rows = await firestore.list_pending_approvals(founder_id=founder_id,
-                                                  session_id=session_id or "")
+                                                  session_id=session_id or "",
+                                                  now=now)
     out: list[WaitView] = []
     for row in rows[:act.MAX_WAITS]:
         out.append(act.build_wait(
@@ -120,7 +149,8 @@ async def _read_followups(founder_id: str, session_id: str | None,
         opportunity_id = str(app.get("opportunity_id") or "")
         if opportunity_id:
             try:
-                opportunity = await firestore.get_opportunity(opportunity_id)
+                opportunity = await firestore.get_opportunity(
+                    opportunity_id, founder_id)
                 opportunity_name = str((opportunity or {}).get("name") or "")
             except Exception:  # noqa: BLE001 — a name is cosmetic
                 opportunity_name = ""
@@ -160,11 +190,38 @@ async def _read_discovery(founder_id: str, session_id: str | None,
     return out
 
 
+async def _read_browser_actions(founder_id: str, session_id: str | None,
+                                now: datetime) -> list[WaitView]:
+    """Ambiguous provider outcomes that require reconciliation, never retry."""
+    from services import firestore
+
+    rows = await firestore.list_external_actions(founder_id, limit=100)
+    out: list[WaitView] = []
+    for row in rows:
+        if session_id and str(row.get("session_id") or "") != session_id:
+            continue
+        if (row.get("status") != "UNCERTAIN"
+                and not (row.get("status") in {"PREPARED", "EXECUTING"}
+                         and row.get("provider_started_at"))):
+            continue
+        action_id = str(row.get("action_id") or row.get("id") or "")
+        out.append(act.build_wait(
+            WaitKind.ACTION_UNCERTAIN,
+            since=str(row.get("updated_at") or row.get("created_at") or ""),
+            next_check=None,
+            focus={"kind": "external_action", "id": action_id},
+            source="browser_action", now=now))
+        if len(out) >= act.MAX_WAITS:
+            break
+    return out
+
+
 _READERS: tuple[tuple[str, Callable], ...] = (
     ("pending_signals", _read_pending_signals),
     ("approval", _read_approvals),
     ("followup", _read_followups),
     ("discovery_receipt", _read_discovery),
+    ("browser_action", _read_browser_actions),
 )
 
 

@@ -73,7 +73,7 @@ async def test_model_drive_ingestion_validates_downloaded_bytes_before_extractio
         display_name="deck.pdf", allowed_ingestion_scopes=["profile"])
     monkeypatch.setattr(
         drive_adapter, "fetch_file_bytes",
-        lambda _file_id, _max_bytes: {
+            lambda _file_id, _max_bytes, _workspace_id: {
             "status": "success", "data": b"not a pdf",
             "detected_name": "deck.pdf",
             "declared_content_type": "application/pdf",

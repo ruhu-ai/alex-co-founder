@@ -102,8 +102,10 @@ A unit test imports each agent and diffs its tool list against this table.
    GRANTED, unexpired, unconsumed approval for `active_application_id`, then
    recomputes and compares `subject_hash` after the live staleness check; none or
    mismatch → refusal + audit. A mismatch expires the grant and requires a new
-   fill report and approval. On success it atomically marks the approval
-   CONSUMED. Judge answer to "could the model fabricate or leak the token?":
+   fill report and approval. Before any provider call, one Firestore transaction
+   marks the exact approval CONSUMED and creates the bound PREPARED action
+   receipt. A provider timeout becomes visible UNCERTAIN and never releases the
+   approval for blind retry. Judge answer to "could the model fabricate or leak the token?":
    it never sees one — there is nothing to fabricate or leak.
 4. Deny → status DENIED; the agent must receive a new explicit grant to proceed.
 5. Any validation failure → refusal + `audit` row `result=refused`.

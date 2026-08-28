@@ -92,11 +92,36 @@ gcloud tasks queues describe co-founder-events --location="$REGION" >/dev/null 2
 gcloud tasks queues describe co-founder-browser-expiry --location="$REGION" >/dev/null 2>&1 \
   || gcloud tasks queues create co-founder-browser-expiry --location="$REGION" \
        --max-concurrent-dispatches=4 --max-attempts=8
+gcloud tasks queues describe co-founder-timers --location="$REGION" >/dev/null 2>&1 \
+  || gcloud tasks queues create co-founder-timers --location="$REGION" \
+       --max-concurrent-dispatches=8 --max-attempts=8
+gcloud tasks queues describe co-founder-provider-events --location="$REGION" >/dev/null 2>&1 \
+  || gcloud tasks queues create co-founder-provider-events --location="$REGION" \
+       --max-concurrent-dispatches=8 --max-attempts=8
+gcloud tasks queues describe co-founder-discovery-ingestion --location="$REGION" >/dev/null 2>&1 \
+  || gcloud tasks queues create co-founder-discovery-ingestion --location="$REGION" \
+       --max-concurrent-dispatches=4 --max-attempts=8
+gcloud tasks queues describe co-founder-reconciliation --location="$REGION" >/dev/null 2>&1 \
+  || gcloud tasks queues create co-founder-reconciliation --location="$REGION" \
+       --max-concurrent-dispatches=4 --max-attempts=8
+gcloud tasks queues describe co-founder-interactive --location="$REGION" >/dev/null 2>&1 \
+  || gcloud tasks queues create co-founder-interactive --location="$REGION" \
+       --max-concurrent-dispatches=4 --max-attempts=8
 # `describe || create` cannot correct drift on an existing queue, so pin the
 # reviewed limits on every deploy (idempotent, and cheap).
 gcloud tasks queues update co-founder-events --location="$REGION" \
   --max-concurrent-dispatches=1 --max-attempts=8 >/dev/null
 gcloud tasks queues update co-founder-browser-expiry --location="$REGION" \
+  --max-concurrent-dispatches=4 --max-attempts=8 >/dev/null
+gcloud tasks queues update co-founder-timers --location="$REGION" \
+  --max-concurrent-dispatches=8 --max-attempts=8 >/dev/null
+gcloud tasks queues update co-founder-provider-events --location="$REGION" \
+  --max-concurrent-dispatches=8 --max-attempts=8 >/dev/null
+gcloud tasks queues update co-founder-discovery-ingestion --location="$REGION" \
+  --max-concurrent-dispatches=4 --max-attempts=8 >/dev/null
+gcloud tasks queues update co-founder-reconciliation --location="$REGION" \
+  --max-concurrent-dispatches=4 --max-attempts=8 >/dev/null
+gcloud tasks queues update co-founder-interactive --location="$REGION" \
   --max-concurrent-dispatches=4 --max-attempts=8 >/dev/null
 
 echo "==> Cloud SQL (sessions) — create is slow; runs once"
@@ -145,16 +170,35 @@ gcloud run deploy mock-portal --source ./mock_portal --region="$REGION" \
 MOCK_URL="$(gcloud run services describe mock-portal --region="$REGION" --format='value(status.url)')"
 echo "    mock portal: $MOCK_URL"
 
-echo "==> Deploy co-founder (single browser-owning instance, docs/13)"
+echo "==> Prepare isolated service identities"
 # scheduler-invoker SA is created below (idempotent) but the OIDC caller
 # check in app/main.py needs its email at boot, so pin it here too.
 SA="scheduler-invoker@${GOOGLE_CLOUD_PROJECT}.iam.gserviceaccount.com"
+PROVIDER_EVENTS_SA="provider-events-worker@${GOOGLE_CLOUD_PROJECT}.iam.gserviceaccount.com"
+DISCOVERY_INGESTION_SA="discovery-ingestion-worker@${GOOGLE_CLOUD_PROJECT}.iam.gserviceaccount.com"
+TIMERS_SA="timers-worker@${GOOGLE_CLOUD_PROJECT}.iam.gserviceaccount.com"
+BROWSER_SA="browser-worker@${GOOGLE_CLOUD_PROJECT}.iam.gserviceaccount.com"
+RECONCILIATION_SA="reconciliation-worker@${GOOGLE_CLOUD_PROJECT}.iam.gserviceaccount.com"
+INTERACTIVE_SA="interactive-worker@${GOOGLE_CLOUD_PROJECT}.iam.gserviceaccount.com"
+for worker_name in provider-events-worker discovery-ingestion-worker timers-worker browser-worker reconciliation-worker interactive-worker; do
+  worker_sa="${worker_name}@${GOOGLE_CLOUD_PROJECT}.iam.gserviceaccount.com"
+  gcloud iam service-accounts describe "$worker_sa" >/dev/null 2>&1 \
+    || gcloud iam service-accounts create "$worker_name" --display-name="Co-Founder ${worker_name}"
+done
+for browser_role in roles/datastore.user roles/storage.objectAdmin roles/secretmanager.secretAccessor roles/cloudtasks.enqueuer roles/aiplatform.user roles/logging.logWriter roles/cloudsql.client; do
+  gcloud projects add-iam-policy-binding "$GOOGLE_CLOUD_PROJECT" \
+    --member="serviceAccount:$BROWSER_SA" --role="$browser_role" \
+    --format=none >/dev/null
+done
 # Env file: secret keys stripped (bound via --set-secrets), duplicate keys
 # deduped keep-last, values JSON-quoted so ", ', and : survive YAML. The
 # freshly-deployed mock-portal URL is threaded in via env var (like the
 # invoker SA) rather than rewritten into .env.prod — no in-place mutation of
 # the file, and no BSD-vs-GNU `sed -i` portability trap.
-EXCLUDE_KEYS="${SECRET_ENV_KEYS[*]} ${RUNTIME_SECRET_KEYS[*]} ${FIXED_SECRET_BINDING_KEYS[*]}" TASKS_INVOKER_SA="$SA" \
+EXCLUDE_KEYS="${SECRET_ENV_KEYS[*]} ${RUNTIME_SECRET_KEYS[*]} ${FIXED_SECRET_BINDING_KEYS[*]} BROWSER_WORKER_URL BROWSER_WORKER_ROLE BROWSER_CALLER_SA" TASKS_INVOKER_SA="$SA" \
+  TASKS_PROVIDER_EVENTS_SA="$PROVIDER_EVENTS_SA" TASKS_DISCOVERY_INGESTION_SA="$DISCOVERY_INGESTION_SA" \
+  TASKS_TIMERS_SA="$TIMERS_SA" TASKS_BROWSER_SA="$BROWSER_SA" \
+  TASKS_RECONCILIATION_SA="$RECONCILIATION_SA" TASKS_INTERACTIVE_SA="$INTERACTIVE_SA" \
   MOCK_PORTAL_URL="$MOCK_URL" GOOGLE_CLOUD_REGION="$REGION" \
   "$PYTHON" - <<'PY' > /tmp/co_founder_env.yaml
 import json, os, re
@@ -165,6 +209,10 @@ for line in open(".env.prod"):
     if m and m.group(1) not in exclude:
         vals[m.group(1)] = m.group(2)          # duplicate keys: last one wins
 vals["TASKS_INVOKER_SA"] = os.environ["TASKS_INVOKER_SA"]
+for key in ("TASKS_PROVIDER_EVENTS_SA", "TASKS_DISCOVERY_INGESTION_SA",
+            "TASKS_TIMERS_SA", "TASKS_BROWSER_SA",
+            "TASKS_RECONCILIATION_SA", "TASKS_INTERACTIVE_SA"):
+    vals[key] = os.environ[key]
 vals["MOCK_PORTAL_URL"] = os.environ["MOCK_PORTAL_URL"]  # override with live URL
 vals["GOOGLE_CLOUD_REGION"] = os.environ["GOOGLE_CLOUD_REGION"]
 vals["HIRING_WORKLOAD_ALLOWLIST_JSON"] = json.dumps({
@@ -173,14 +221,36 @@ vals["HIRING_WORKLOAD_ALLOWLIST_JSON"] = json.dumps({
 for key, val in vals.items():
     print(f"{key}: {json.dumps(val)}")
 PY
+cp /tmp/co_founder_env.yaml /tmp/co_founder_browser_env.yaml
+cat >> /tmp/co_founder_browser_env.yaml <<EOF
+BROWSER_WORKER_ROLE: "1"
+BROWSER_CALLER_SA: "$COMPUTE_SA"
+EOF
+echo "==> Deploy isolated browser worker"
+gcloud run deploy co-founder-browser-worker --source . --region="$REGION" \
+  --no-allow-unauthenticated --min-instances 0 --max-instances 1 \
+  --concurrency=1 --cpu-throttling --memory 2Gi --timeout=3600s \
+  --service-account="$BROWSER_SA" \
+  --add-cloudsql-instances "${GOOGLE_CLOUD_PROJECT}:${REGION}:co-founder-sessions" \
+  --set-secrets="$SET_SECRETS" \
+  --env-vars-file /tmp/co_founder_browser_env.yaml
+BROWSER_URL="$(gcloud run services describe co-founder-browser-worker --region="$REGION" --format='value(status.url)')"
+rm -f /tmp/co_founder_browser_env.yaml
+gcloud run services add-iam-policy-binding co-founder-browser-worker --region="$REGION" \
+  --member="serviceAccount:$COMPUTE_SA" --role=roles/run.invoker >/dev/null
+cat >> /tmp/co_founder_env.yaml <<EOF
+BROWSER_WORKER_URL: "$BROWSER_URL"
+EOF
+echo "    browser worker: $BROWSER_URL"
 # --allow-unauthenticated stays: the mock portal webhook and Pub/Sub push have
 # no platform identity; the app-layer founder gate (app/auth.py) is the fence.
 # Request-bound workers and durable Cloud Tasks allow true scale-to-zero — the
 # ack-then-background pattern that would have needed CPU-always-allocated was
 # redesigned away, so that throttling flag is intentionally left off (enforced
 # by tests/unit/test_findings_hardening.py) to keep scale-to-zero economics.
+echo "==> Deploy co-founder modular monolith (Playwright remote)"
 gcloud run deploy co-founder --source . --region="$REGION" \
-  --allow-unauthenticated --min-instances 0 --max-instances 1 --cpu-throttling \
+  --allow-unauthenticated --min-instances 0 --max-instances 10 --cpu-throttling \
   --memory 2Gi --timeout=3600s \
   --add-cloudsql-instances "${GOOGLE_CLOUD_PROJECT}:${REGION}:co-founder-sessions" \
   --set-secrets="$SET_SECRETS" \
@@ -196,6 +266,8 @@ echo "==> Wire URLs both ways (mock portal webhooks → app; app → mock portal
 # of truth here).
 gcloud run services update co-founder --region="$REGION" \
   --update-env-vars "AGENT_BASE_URL=$APP_URL,MOCK_PORTAL_URL=$MOCK_URL"
+gcloud run services update co-founder-browser-worker --region="$REGION" \
+  --update-env-vars "AGENT_BASE_URL=$APP_URL,BROWSER_WORKER_URL=$BROWSER_URL,MOCK_PORTAL_URL=$MOCK_URL"
 gcloud run services update mock-portal --region="$REGION" \
   --update-env-vars "AGENT_BASE_URL=$APP_URL,MOCK_PORTAL_PUBLIC_URL=$MOCK_URL"
 
@@ -207,6 +279,14 @@ gcloud scheduler jobs describe deadline-scan-6h --location="$REGION" >/dev/null 
 echo "==> Pub/Sub push subscriptions → app (OIDC, idempotent)"
 gcloud iam service-accounts describe "$SA" >/dev/null 2>&1 \
   || gcloud iam service-accounts create scheduler-invoker --display-name="Scheduler → Cloud Run invoker"
+for worker_name in provider-events-worker discovery-ingestion-worker timers-worker browser-worker reconciliation-worker interactive-worker; do
+  worker_sa="${worker_name}@${GOOGLE_CLOUD_PROJECT}.iam.gserviceaccount.com"
+  gcloud iam service-accounts add-iam-policy-binding "$worker_sa" \
+    --member="serviceAccount:$COMPUTE_SA" --role="roles/iam.serviceAccountUser" \
+    --format=none >/dev/null
+  gcloud run services add-iam-policy-binding co-founder --region="$REGION" \
+    --member="serviceAccount:$worker_sa" --role=roles/run.invoker >/dev/null
+done
 gcloud iam service-accounts add-iam-policy-binding "$SA" \
   --member="serviceAccount:$COMPUTE_SA" --role="roles/iam.serviceAccountUser" \
   --format=none >/dev/null
@@ -218,6 +298,25 @@ PROJECT_NUMBER="$(gcloud projects describe "$GOOGLE_CLOUD_PROJECT" --format='val
 gcloud iam service-accounts add-iam-policy-binding "$SA" \
   --member="serviceAccount:service-${PROJECT_NUMBER}@gcp-sa-pubsub.iam.gserviceaccount.com" \
   --role=roles/iam.serviceAccountTokenCreator --format=none >/dev/null
+# The scheduler service agent mints the audience-bound token as the timers
+# worker. The app then verifies both token audience and exact caller email.
+gcloud iam service-accounts add-iam-policy-binding "$TIMERS_SA" \
+  --member="serviceAccount:service-${PROJECT_NUMBER}@gcp-sa-cloudscheduler.iam.gserviceaccount.com" \
+  --role=roles/iam.serviceAccountTokenCreator --format=none >/dev/null
+echo "==> Command outbox recovery scheduler (idempotent)"
+if gcloud scheduler jobs describe command-outbox-recovery-1m --location="$REGION" >/dev/null 2>&1; then
+  gcloud scheduler jobs update http command-outbox-recovery-1m --location="$REGION" \
+    --schedule="* * * * *" --uri="$APP_URL/tasks/dispatch_command_outbox" \
+    --http-method=POST --oidc-service-account-email="$TIMERS_SA" \
+    --oidc-token-audience="$APP_URL" --headers="Content-Type=application/json" \
+    --message-body='{}'
+else
+  gcloud scheduler jobs create http command-outbox-recovery-1m --location="$REGION" \
+    --schedule="* * * * *" --uri="$APP_URL/tasks/dispatch_command_outbox" \
+    --http-method=POST --oidc-service-account-email="$TIMERS_SA" \
+    --oidc-token-audience="$APP_URL" --headers="Content-Type=application/json" \
+    --message-body='{}'
+fi
 gcloud pubsub subscriptions describe deadline-tick-push >/dev/null 2>&1 \
   || gcloud pubsub subscriptions create deadline-tick-push --topic=deadline-tick \
        --push-endpoint="$APP_URL/webhooks/deadline" \

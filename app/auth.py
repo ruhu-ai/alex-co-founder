@@ -167,12 +167,17 @@ def session_claims(request) -> dict | None:
 
 
 def csrf_token(request) -> str:
-    """Session-bound CSRF token for hiring mutations; empty for token auth."""
+    """Cookie-bound CSRF token for every browser-authenticated mutation."""
     value = request.cookies.get(SESSION_COOKIE, "")
+    valid = bool(value and read_session(value) is not None)
+    if not valid:
+        value = request.cookies.get(COOKIE_NAME, "")
+        valid = bool(value and configured_token()
+                     and hmac.compare_digest(value, configured_token()))
     secret = _session_secret()
-    if not value or not secret or read_session(value) is None:
+    if not value or not secret or not valid:
         return ""
-    return hmac.new(secret.encode(), f"hiring-csrf-v1\x1f{value}".encode(),
+    return hmac.new(secret.encode(), f"platform-csrf-v2\x1f{value}".encode(),
                     "sha256").hexdigest()
 
 
@@ -368,12 +373,14 @@ def install(app) -> None:
                     "mode": "session",
                     "email": claims.get("email", ""),
                     "name": claims.get("name", ""),
+                    "csrf_token": csrf_token(request),
                     "sign_in_enabled": firebase_config()["enabled"]}
         if _token_ok(_presented_token(request.headers, request.cookies,
                                       request.query_params)):
             return {"status": "success", "authenticated": True,
                     "mode": "token" if configured_token() else "open",
                     "email": "", "name": "",
+                    "csrf_token": csrf_token(request),
                     "sign_in_enabled": firebase_config()["enabled"]}
         # This endpoint is a session probe used by the public login page.
         # Signed-out is a normal state, not a failed request; returning 200
@@ -411,6 +418,28 @@ def install(app) -> None:
                     status_code=303,
                 )
             return JSONResponse({"error": "unauthorized"}, status_code=401)
+
+        # SameSite is defense in depth, not the mutation authorization. A
+        # browser request relying on either HttpOnly auth cookie must prove it
+        # read a same-origin CSRF token. Explicit Authorization/X-App-Key
+        # clients and self-verifying task/webhook routes do not use this path.
+        cookie_authenticated = bool(
+            _session_claims(request.cookies)
+            or (request.cookies.get(COOKIE_NAME)
+                and configured_token()
+                and hmac.compare_digest(
+                    request.cookies.get(COOKIE_NAME, ""), configured_token())))
+        explicit_credential = bool(
+            request.headers.get("Authorization", "").startswith("Bearer ")
+            or request.headers.get("X-App-Key", ""))
+        if (request.method in {"POST", "PUT", "PATCH", "DELETE"}
+                and cookie_authenticated and not explicit_credential
+                and not csrf_is_valid(request)):
+            return JSONResponse(
+                {"status": "error", "error": True,
+                 "error_code": "csrf_failed",
+                 "message": "A valid same-origin CSRF token is required."},
+                status_code=403)
 
         # ?key= bootstrap: a valid token in the query and no cookie yet. Set the
         # grant cookie once. hmac.compare_digest, not ==, to keep the token

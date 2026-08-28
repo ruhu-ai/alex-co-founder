@@ -6,7 +6,7 @@ HTML = (Path(__file__).parents[2] / "app/static/index.html").read_text()
 
 
 def test_browser_uses_one_visibility_scoped_eventsource_without_refresh_poll():
-    assert "new EventSource(`/api/browser/events?session_id=" in HTML
+    assert "new EventSource(`/api/v1/browser/events?session_id=" in HTML
     assert "if (browserEventSource && browserEventSession === context) return" in HTML
     assert "const context = contextSessionId();" in HTML
     assert 'document.visibilityState === "hidden"' in HTML
@@ -42,3 +42,69 @@ def test_fill_stop_warns_and_sends_owned_run_id():
     assert "Unsaved portal entries may be discarded" in HTML
     assert "run_id: browserSnapshot.run_id" in HTML
     assert '$("browserStopBtn").hidden = !nonterminal' in HTML
+
+
+def test_approval_ui_uses_workspace_scoped_receipted_v1_api():
+    assert "/api/v1/approvals?session_id=" in HTML
+    assert "/api/v1/approvals/${id}:decide" in HTML
+    assert 'client_request_id: "approval_" + crypto.randomUUID()' in HTML
+    assert "/api/approvals/${id}/resolve" not in HTML
+
+
+def test_investor_outreach_ui_exposes_drafts_uncertainty_and_exact_send():
+    assert 'id="investorRuns"' in HTML
+    assert "/api/v1/investor-outreach?session_id=" in HTML
+    assert "/api/v1/outreach-drafts/${encodeURIComponent(draftId)}:request-approval" in HTML
+    assert "/api/v1/outreach-drafts/${encodeURIComponent(draftId)}:send" in HTML
+    assert "Send exact approved email" in HTML
+    assert "Delivery uncertain · reconciling, do not resend" in HTML
+    assert "/api/v1/runs/${encodeURIComponent(runId)}:${operation}" in HTML
+    assert "/api/v1/investor-outreach/${encodeURIComponent(outreachId)}:retry" in HTML
+    assert "Run closed · no action available" in HTML
+
+
+def test_feedback_ui_uses_workspace_scoped_receipted_v1_api():
+    assert 'api("/api/v1/feedback"' in HTML
+    assert 'api("/api/feedback"' not in HTML
+
+
+def test_founder_inbox_ui_uses_workspace_scoped_receipted_v1_api():
+    assert "/api/v1/founder-inbox?status=" in HTML
+    assert "/api/v1/founder-inbox/${encodeURIComponent(inboxId)}:resolve" in HTML
+    assert "/api/v1/founder-inbox/${encodeURIComponent(inboxId)}:dismiss" in HTML
+    assert "inbox_resolve_" in HTML and "inbox_dismiss_" in HTML
+
+
+def test_connector_mutations_use_workspace_scoped_receipted_v1_apis():
+    assert 'api("/api/v1/integrations")' in HTML
+    assert "/api/v1/integrations/${encodeURIComponent(row.connection_id)}" in HTML
+    assert 'api("/api/v1/integrations/drive/files"' in HTML
+    assert 'api("/api/v1/integrations/gmail/label"' in HTML
+    assert 'api("/api/v1/integrations/alex_mail:watch"' in HTML
+    assert "client_request_id" in HTML
+
+
+def test_chat_ui_uses_workspace_scoped_receipted_v1_messages():
+    assert 'api("/api/v1/messages"' in HTML
+    assert 'api("/wake"' not in HTML
+    assert "voice_message_" in HTML
+
+
+def test_browser_ui_uses_workspace_scoped_receipted_v1_apis():
+    assert "/api/v1/browser/state?session_id=" in HTML
+    assert 'api("/api/v1/browser:stop"' in HTML
+    assert "browser_stop_" in HTML
+
+
+def test_session_ui_uses_workspace_scoped_v1_resources():
+    for path in ("/api/v1/sessions", "/api/v1/waits", "/api/v1/search"):
+        assert path in HTML
+    assert "/api/v1/sessions/${encodeURIComponent(context)}/resources" in HTML
+    assert "session_delete_" in HTML
+
+
+def test_ingestion_ui_uses_workspace_scoped_receipted_v1_apis():
+    assert 'appFetch("/api/v1/ingestions"' in HTML
+    assert "/api/v1/ingestions/${encodeURIComponent(ref)}" in HTML
+    assert "profile_decision_" in HTML
+    assert "ingestion_upload_" in HTML

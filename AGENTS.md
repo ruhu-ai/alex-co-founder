@@ -6,7 +6,8 @@ spec doc ends with acceptance checks that define "done" for that work item.
 
 Binding principles (docs/README.md):
 
-1. The state machine grounds everything — session state, never chat history.
+1. Durable workflow/domain/action state authorizes everything. Reconciled
+   session state grounds model inference; chat history authorizes nothing.
 2. Tools return errors as data — never raise to the model.
 3. Dormancy by default — no polling; events wake the agent via `state_delta`.
 4. Every external action is idempotent and audited.

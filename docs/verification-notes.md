@@ -30,8 +30,9 @@ Python 3.11.9, `google-adk==2.7.1`.
 
 ## Environment deviations recorded
 
-- `cryptography` pinned `<50` in requirements.txt: 50.0.0 builds from source
-  (Rust toolchain absent); 49.0.0 ships a wheel.
+- `cryptography` pinned to `48.0.1` in requirements.txt: 49.0.0 removed the
+  x86_64 macOS wheel required by Rosetta-based local Python, and a source-linked
+  build crashed during Google ID-token certificate verification.
 - **Application Default Credentials not yet present** on this machine. Required
   user action: `gcloud auth application-default login`. Blocks: the model
   check in setup.sh (7/7), the live GoogleSearchTool spike, and any Gemini call.
@@ -186,3 +187,84 @@ when the PDF link is chosen.
   approved application**, which is the entity its `session_input` actually
   identifies; the successful `produce_document` result and download URL remain
   mandatory.
+
+## Platform convergence Phase 2A local verification (2026-08-28)
+
+- Interactive, workload, and seeded principals now converge on
+  `ActorPrincipal`; deployed worker routes accept workload OIDC only, while
+  seeded identities are local-only.
+- Public product mutations have `/api/v1` command receipts with normalized
+  request hashes, deterministic in-flight duplicate responses, and conflict on
+  changed reuse. Deployed legacy product mutations return `410`; local
+  compatibility remains available for deterministic fixtures.
+- Connector credentials are workspace-scoped opaque secret references. The
+  legacy global-token migration deliberately reads and copies no credential
+  value: it atomically marks affected connections `REAUTH_REQUIRED` and records
+  a receipt so verified OAuth consent establishes the workspace grant.
+- The tenancy manifest now includes opportunity, application, ingestion,
+  artifact, feedback, evidence, approval/action/event, inbox, connection,
+  source-grant, wake, and portal-receipt records. Ownerless historical rows
+  require an explicit operator workspace override, which is recorded in the
+  per-row migration receipt; an override conflicting with a durable owner is
+  refused.
+- Agent tools no longer default durable scope to a process-global founder.
+  Invocation/session identity supplies workspace scope, and missing authority
+  fails closed before durable reads or effects.
+- Adversarial tests cover foreign application, approval, opportunity, provider
+  binding, connector credential, and missing-workspace worker cases. The full
+  deterministic unit suite passed locally: **1,055 passed, 2 skipped** before
+  the final tool-scope tightening; focused post-tightening suites remained
+  green. Cloud index readiness, backup/restore, migration dry-run/apply, and
+  staging identity tests remain deployment gates rather than local claims.
+
+## Platform convergence Phases 0–7 implementation verification (2026-08-28)
+
+- Phases 0, 1, 2A, 3, and 2B now share the generic transactional runtime,
+  workspace principal, command/event receipts, consequence protocol, wake
+  delivery, timer checkpoints, queue identities, and replayable SSE projection.
+- Phase 6 adds the reviewed `investor_outreach:v1` vertical: source-cited
+  research, deterministic ranking, immutable recipient-bound drafts, exact
+  same-founder approval, one provider send receipt, provider-thread reply
+  correlation, evidence-bounded meeting brief, cold-start recovery, run
+  controls, and founder-visible uncertainty. Disabling it leaves grants and the
+  runtime healthy.
+- Phase 4A adds immutable per-key workspace facts and actor-private preference
+  facts, compatibility dual-write/read cutover, source lineage, untruncated
+  supersession, blob-aware deletion, durable deletion jobs, manifests, and
+  restore tombstones. Phase 4B adds a server-owned Firestore keyword fallback
+  implementing the portable memory adapter, ADK runner binding, pre-ranking
+  tenant/scope/sensitivity filters, untrusted-source delimiters, explicit
+  backend failure, source/workspace deletion, and an offline release metric.
+  Persistent memory remains disabled by default until the deployed evaluation
+  and privacy/deletion review pass.
+- Phase 5 validates exact code-reviewed templates against versioned capability
+  descriptors and budgets, limits agent context to the role/step intersection,
+  fences disabled capabilities, pauses dependent unexecuted runs, and requires
+  reapproval when replanning changes an effect subject. Dynamic/model-authored
+  plan composition remains deliberately disabled.
+- Phase 7 code supplies numeric SLO/error-budget contracts, content-free stuck
+  run/wait/action/approval/delivery inspection, operator inbox records,
+  priority/budget load shedding, recovery-drill receipts with RPO/RTO and
+  deletion/action/checksum proof, and versioned governance reports.
+- Run-creating public commands now close transaction boundary T8: command
+  receipt, dispatch outbox, immutable plan, initial run event/projection, and
+  discovery/investor domain root commit together. A closed dispatcher uses a
+  deterministic task name, records `DISPATCHED` only after enqueue, and a
+  one-minute timers-lane recovery job heals process death after commit.
+- The browser trust zone is extracted in code and deployment configuration.
+  `co-founder` uses a typed audience-bound OIDC gateway and scales independently;
+  private `co-founder-browser-worker` alone owns Playwright objects at
+  concurrency one. Worker notifications enter the durable workspace projection
+  stream, so cross-process UI recovery does not depend on an in-memory event
+  hub. Local development intentionally retains the same-process adapter.
+- Local release evidence after these changes: **1,105 passed, 2 skipped** for
+  the complete pytest suite; Ruff, `git diff --check`, JavaScript syntax,
+  contrast, browser invariants, deployment shell syntax, Firestore-index JSON,
+  index/deployment contracts, and collection lifecycle coverage passed.
+- A live strict ADK judge run reached the remote model call but returned no
+  result for more than two minutes and was cancelled cleanly. This is recorded
+  as an external evaluation limitation, not an architecture or unit-test
+  failure. Staging queue/load chaos, browser-worker identity/traffic
+  verification, migration dry-run/apply, backup restore, regional recovery, and measured
+  RPO/RTO remain required deployment evidence; local code must not be described
+  as proving those production properties.

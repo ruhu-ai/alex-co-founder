@@ -45,7 +45,7 @@ def _tool(name="produce_document"):
 # --- Finding 1: dedupe_check must not read a store outage as a duplicate ------
 
 async def test_dedupe_check_treats_store_outage_as_not_duplicate(monkeypatch):
-    async def boom(_digest):
+    async def boom(_digest, _founder_id):
         raise RuntimeError("pipeline store down")
 
     monkeypatch.setattr("services.firestore.find_opportunity_by_hash", boom)
@@ -55,7 +55,7 @@ async def test_dedupe_check_treats_store_outage_as_not_duplicate(monkeypatch):
 
 
 async def test_dedupe_check_reports_real_hit_and_id(monkeypatch):
-    async def hit(_digest):
+    async def hit(_digest, _founder_id):
         return "opp-123"
 
     monkeypatch.setattr("services.firestore.find_opportunity_by_hash", hit)
@@ -65,7 +65,7 @@ async def test_dedupe_check_reports_real_hit_and_id(monkeypatch):
 
 
 async def test_dedupe_check_no_hit_is_not_duplicate(monkeypatch):
-    async def miss(_digest):
+    async def miss(_digest, _founder_id):
         return None
 
     monkeypatch.setattr("services.firestore.find_opportunity_by_hash", miss)
@@ -81,9 +81,14 @@ async def test_register_account_code_entry_failure_is_not_verified(
     monkeypatch.setenv("PORTAL_SECRETS_FILE", str(tmp_path / "portal.json"))
     monkeypatch.delenv("GOOGLE_CLOUD_PROJECT", raising=False)
     portal_accounts._CACHE.clear()
+    portal_target = "portal:portal.example"
+    portal_details = {"portal_url": "https://portal.example",
+                      "email": "alex@ruhu.ai"}
     requested = await approval_service.request_approval(
-        "portal:portal.example", gate="create_portal_account",
-        founder_id="founder", session_id="session-1")
+        portal_target, gate="create_portal_account", details=portal_details,
+        founder_id="founder", session_id="session-1",
+        subject_hash=approval_service.action_subject_hash(
+            "create_portal_account", portal_target, portal_details))
     await approval_service.resolve(
         requested["approval_id"], "grant", "founder", "session-1")
 
@@ -126,7 +131,8 @@ async def test_register_account_code_entry_failure_is_not_verified(
         "https://portal.example", "alex@ruhu.ai",
         _context({ss.K_ACTIVE_APPLICATION_ID: "app-register"}))
     assert result["error"] is True
-    assert "code field missing" in result["message"]
+    assert result["error_code"] == "reconciliation_required"
+    assert result["uncertain"] is True
     assert closed == [("fill-run", "agent_close", "agent:form_filler")]
     assert portal_accounts.get_credential("portal.example") is None  # never stored
 
@@ -234,7 +240,8 @@ async def test_choose_opportunity_refuses_when_application_in_flight():
 async def test_choose_opportunity_allows_fresh_start(fake_store):
     fake_store.opportunities["opp1"] = {
         "id": "opp1", "state": "SHORTLISTED", "required_materials": [],
-        "deadline": None}
+        "deadline": None, "workspace_id": "founder",
+        "founder_id": "founder"}
     ctx = _context({ss.K_ACTIVE_APPLICATION_ID: "",
                     ss.K_CURRENT_STEP: ApplicationStep.IDLE,
                     ss.K_USER_PROFILE_ID: "founder"})

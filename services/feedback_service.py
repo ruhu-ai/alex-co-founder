@@ -52,7 +52,8 @@ async def record_feedback(founder_id: str, application_id: str, section_id: str,
         )
 
     # Synchronous distillation — the rule exists before the next draft
-    distill_result = await distill_service.run_distillation(feedback_id, session_service)
+    distill_result = await distill_service.run_distillation(
+        feedback_id, session_service, founder_id)
 
     # A requested change returns the application to DRAFTING. All sections
     # approved moves AWAITING_REVIEW → APPROVED (and mints the submit key).
@@ -60,12 +61,14 @@ async def record_feedback(founder_id: str, application_id: str, section_id: str,
     if feedback_type in ("edit", "reject"):
         if app_state == Step.AWAITING_REVIEW:
             result = await pipeline_service.advance_application(
-                application_id, Step.DRAFTING, actor="agent:orchestrator")
+                application_id, Step.DRAFTING, actor="agent:orchestrator",
+                founder_id=founder_id)
             transitioned = result.get("current_step")
     elif all(s.get("status") == SectionStatus.APPROVED for s in sections):
         if app_state == Step.AWAITING_REVIEW:
             result = await pipeline_service.advance_application(
-                application_id, Step.APPROVED, actor="agent:orchestrator")
+                application_id, Step.APPROVED, actor="agent:orchestrator",
+                founder_id=founder_id)
             transitioned = result.get("current_step")
 
     return {

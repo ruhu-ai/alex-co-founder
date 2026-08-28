@@ -38,6 +38,7 @@ import httpx  # noqa: E402
 APP = os.environ.get("E2E_APP_URL", "http://127.0.0.1:8090")
 PORTAL = os.environ.get("E2E_PORTAL_URL", "http://127.0.0.1:8091")
 PORTAL_HOST = "127.0.0.1:8091"
+FOUNDER_ID = os.environ.get("FOUNDER_ID", "founder")
 WAKE_TIMEOUT = 600.0
 FAILURES: list[str] = []
 REFUSAL_WORDS = ("can't", "cannot", "not allowed", "refused", "blocked",
@@ -306,7 +307,7 @@ async def run_adaptation_act(client) -> None:
     await wake(client, sid, f"Redraft the '{banned}' traction section now, "
                             "applying my feedback. Save it with save_draft_section.")
 
-    app = await firestore.get_application(app_id) or {}
+    app = await firestore.get_application(app_id, FOUNDER_ID) or {}
     sections = app.get("draft_sections", [])
 
     rejected = next((s for s in sections if s.get("section_id") == section_id), None)
@@ -380,7 +381,7 @@ async def check_document_is_grounded(blob: bytes, app_id: str) -> None:
     check("document names the founder's company", bool(company) and company.split(",")[0].lower() in low,
           f"expected {company!r}")
 
-    app = await firestore.get_application(app_id)
+    app = await firestore.get_application(app_id, FOUNDER_ID)
     opp = await firestore.get_opportunity(app.get("opportunity_id", "")) if app else None
     programme = (opp or {}).get("name", "")
     # The programme name belongs in the title, never as the applicant.

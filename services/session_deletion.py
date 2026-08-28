@@ -11,7 +11,8 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
-from services import browser_service, firestore, session_resources, storage
+from services import browser_gateway as browser_service
+from services import firestore, session_resources, storage
 
 _PAGE_SIZE = 250
 _MAX_LINKS = 10_000

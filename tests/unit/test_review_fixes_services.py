@@ -18,6 +18,7 @@ from services import (
     calendar_adapter,
     discovery_service,
     feedback_service,
+    firestore,
 )
 
 pytestmark = pytest.mark.asyncio
@@ -159,51 +160,39 @@ class _RaiseExec:
 class TestApprovalReservedBeforeAction:
     async def test_send_email_consumes_before_ambiguous_failure(
             self, monkeypatch, fake_store):
-        claims = []
-
         class _Svc:
             def users(self): return self
             def messages(self): return self
             def send(self, userId, body): return _RaiseExec(RuntimeError("smtp 502"))
         alex_mailbox.set_service_factory(lambda: _Svc())
 
-        async def _valid(target, **_k): return {"id": "ap1", "details": {}}
-        monkeypatch.setattr("services.alex_mailbox.firestore.find_valid_approval", _valid)
-
-        async def _claim(aid):
-            claims.append(aid)
-            return True
-        monkeypatch.setattr("services.alex_mailbox.firestore.claim_approval", _claim)
-
         async def _audit(*_a, **_k): pass
         monkeypatch.setattr("services.alex_mailbox.firestore.audit", _audit)
 
+        pending = await alex_mailbox.send_email(
+            "p@x.org", "s", "b", founder_id="founder", session_id="s1")
+        await firestore.grant_approval(pending["approval_id"], "founder")
         result = await alex_mailbox.send_email(
             "p@x.org", "s", "b", founder_id="founder", session_id="s1")
         assert result["status"] == "error"
-        assert claims == ["ap1"]  # retry cannot duplicate a possibly-sent email
+        assert fake_store.approvals[pending["approval_id"]]["status"] == "CONSUMED"
+        assert list(fake_store.external_actions.values())[0]["status"] == "UNCERTAIN"
         alex_mailbox.set_service_factory(None)
 
     async def test_create_event_consumes_before_ambiguous_failure(
             self, monkeypatch, fake_store):
-        claims = []
-
         class _Svc:
             def events(self): return self
             def insert(self, **_k): return _RaiseExec(RuntimeError("insert 500"))
         calendar_adapter.set_service_factory(lambda: _Svc())
 
-        async def _valid(target, **_k): return {"id": "ap1", "details": {}}
-        monkeypatch.setattr("services.calendar_adapter.firestore.find_valid_approval", _valid)
-
-        async def _claim(aid):
-            claims.append(aid)
-            return True
-        monkeypatch.setattr("services.calendar_adapter.firestore.claim_approval", _claim)
-
         async def _audit(*_a, **_k): pass
         monkeypatch.setattr("services.calendar_adapter.firestore.audit", _audit)
 
+        pending = await calendar_adapter.create_event(
+            "Intro", "2026-08-25T14:00:00+01:00", "2026-08-25T14:30:00+01:00",
+            ["a@b.co"], founder_id="founder", session_id="s1")
+        await firestore.grant_approval(pending["approval_id"], "founder")
         result = await calendar_adapter.create_event(
             "Intro", "2026-08-25T14:00:00+01:00", "2026-08-25T14:30:00+01:00",
             ["a@b.co"], founder_id="founder", session_id="s1")
@@ -213,7 +202,8 @@ class TestApprovalReservedBeforeAction:
         # than retrying (docs/24 §11.2).
         assert result["error_code"] == "provider_outcome_uncertain"
         assert result["uncertain"] is True and result["event_id"]
-        assert claims == ["ap1"]
+        assert fake_store.approvals[pending["approval_id"]]["status"] == "CONSUMED"
+        assert list(fake_store.external_actions.values())[0]["status"] == "UNCERTAIN"
         calendar_adapter.set_service_factory(None)
 
 

@@ -11,15 +11,18 @@ from __future__ import annotations
 from typing import Any, Protocol
 
 from services.actor_identity import ActorPrincipal
-from services.durable_store import DurableStore, production_store
+from services.capability_registry import require_controlled_action
+from services.durable_store import AtomicMutation, DurableStore, production_store
+from services.hiring_approval_service import validate_approval_claim
 from services.hiring_contracts import canonical_hash, stable_id, utc_now
 from services.hiring_sandbox import HiringSandboxService
 from services.workflow_runtime import WorkflowRuntime
 
 
 def _error(code: str, message: str, http_status: int = 409) -> dict[str, Any]:
+    del http_status
     return {"status": "error", "error": True, "error_code": code,
-            "message": message, "http_status": http_status}
+            "message": message}
 
 
 class H4SEffectAdapter(Protocol):
@@ -77,6 +80,11 @@ class H4SEffectService:
         consume the still-granted approval. Once ``provider_started_at`` is
         recorded, a retry is refused into reconciliation rather than sent again.
         """
+        try:
+            capability = require_controlled_action(action_kind, "h4s_google")
+        except ValueError:
+            return _error("capability_disabled",
+                          "This H4S effect is not in the reviewed manifest.", 403)
         built = await self.sandbox.build_exact_action(
             sandbox_run_id=sandbox_run_id, binding_id=binding_id,
             candidate_application_id=candidate_application_id,
@@ -110,15 +118,42 @@ class H4SEffectService:
                     await self._ensure_effect_followup(current)
                 return outcome
         if not current:
+            sandbox = await self.store.get("hiring_sandbox_runs", sandbox_run_id)
+            role = await self.store.get(
+                "hiring_roles", str((sandbox or {}).get("role_id") or ""))
+            runs = await self.store.list(
+                "workflow_runs",
+                filters={"workspace_id": principal.workspace_id,
+                         "domain_ref": str((sandbox or {}).get("role_id") or ""),
+                         "run_kind": "ROLE"}, limit=2)
+            if not sandbox or not role or len(runs) != 1:
+                return _error("sandbox_role_run_missing",
+                              "Sandbox requires exactly one durable role run.")
+            validated = await validate_approval_claim(
+                principal=principal, approval_id=approval_id,
+                run_id=runs[0]["run_id"],
+                policy_version_id=str(role.get("current_policy_version_id") or ""),
+                action_kind=action_kind, exact_action=exact_action,
+                store=self.store)
+            if validated.get("error"):
+                return validated
+            approval = validated["approval"]
+            claim_id = stable_id("claim", approval_id, action_id)
             row = {
-                "schema_version": 1, "action_id": action_id,
+                "schema_version": 2, "action_id": action_id,
                 "founder_id": principal.workspace_id, "workspace_id": principal.workspace_id,
                 "actor_id": principal.actor_id, "connection_id": f"h4s:{binding_id}",
                 "action_kind": action_kind, "idempotency_key": action_id,
+                "capability_id": capability.capability_id,
+                "capability_version": capability.semantic_version,
                 "request_hash": canonical_hash(exact_action),
                 "approval_id": approval_id, "sandbox_context": built["sandbox_context"],
                 "exact_action": exact_action, "status": "PREPARED",
-                "approval_consumed": False, "provider_started_at": None,
+                "claim_id": claim_id, "approval_consumed": False,
+                "provider_started_at": None,
+                "consequence_start_committed_at": None,
+                "provider_request_id": stable_id("providerrequest", action_id, "1"),
+                "provider_idempotency_key": stable_id("providerkey", action_id),
                 "provider_effect_id": None, "result_ref": {}, "error_code": None,
                 "uncertainty_reason": None, "synthetic": True,
                 "fixture_id": built["sandbox_context"]["fixture_id"],
@@ -126,7 +161,17 @@ class H4SEffectService:
                     "hiring_sandbox_runs", sandbox_run_id) or {}).get("synthetic_namespace"),
                 "created_at": utc_now(), "updated_at": utc_now(), "version": 1,
             }
-            if not await self.store.create("external_actions", action_id, row):
+            committed = await self.store.atomic_compare_and_set((
+                AtomicMutation(
+                    "approvals", approval_id, int(approval["version"]),
+                    updates={"status": "CLAIMED", "claim_id": claim_id,
+                             "claimed_action_id": action_id,
+                             "claimed_by_actor_id": principal.actor_id,
+                             "claimed_at": utc_now(),
+                             "updated_at": utc_now()}),
+                AtomicMutation("external_actions", action_id, None, record=row),
+            ))
+            if not committed:
                 current = await self.store.get("external_actions", action_id)
                 if current:
                     outcome = self._existing(current, principal.workspace_id, exact_action)
@@ -134,63 +179,65 @@ class H4SEffectService:
                         if outcome.get("status") == "success":
                             await self._ensure_effect_followup(current)
                         return outcome
-            current = await self.store.get("external_actions", action_id)
+                else:
+                    return _error("concurrency_conflict",
+                                  "Approval or action changed concurrently.")
+            else:
+                current = committed[("external_actions", action_id)]
         if not current:
             return _error("action_prepare_failed", "Could not prepare the H4S action.", 503)
         if current.get("approval_id") != approval_id:
             return _error("approval_binding_mismatch",
                           "A different approval names this H4S action.")
-        if not current.get("approval_consumed"):
-            # There is no cross-collection transaction in the durable-store
-            # contract. If a process dies after the approval CAS but before
-            # this action row is marked, recover only when that exact approval
-            # is demonstrably CONSUMED for this exact action. It is then safe
-            # to continue to the one provider attempt; we never re-claim or
-            # issue a fresh effect.
-            approval = await self.store.get("approvals", approval_id)
-            already_consumed = bool(
-                approval
-                and approval.get("status") == "CONSUMED"
-                and approval.get("workspace_id") == principal.workspace_id
-                and canonical_hash(approval.get("exact_action") or {})
-                == canonical_hash(exact_action))
-            if already_consumed:
-                current = await self.store.compare_and_set(
-                    "external_actions", action_id, int(current["version"]), {
-                        "approval_consumed": True, "updated_at": utc_now()})
-                if not current:
-                    return _error("concurrency_conflict", "Action changed concurrently.")
-            else:
-                claimed = await self.sandbox.claim_effect_approval(
-                    principal=principal, approval_id=approval_id,
-                    sandbox_run_id=sandbox_run_id, binding_id=binding_id,
-                    candidate_application_id=candidate_application_id,
-                    destination_ids=destination_ids, action_kind=action_kind,
-                    rendered_payload=rendered_payload)
-                if claimed.get("error"):
-                    return claimed
-                current = await self.store.compare_and_set(
-                    "external_actions", action_id, int(current["version"]), {
-                        "approval_consumed": True, "updated_at": utc_now()})
-                if not current:
-                    # The approval is consumed. Leave the prepared durable row
-                    # for the exact recovery path above; never call a provider
-                    # from this ambiguous ownership state.
-                    return _error("concurrency_conflict", "Action changed concurrently.")
         if current.get("provider_started_at"):
             return _error("reconciliation_required",
                           "The provider outcome is not yet known; reconcile first.")
-        leased = await self.store.compare_and_set(
-            "external_actions", action_id, int(current["version"]), {
-                "provider_started_at": utc_now(), "updated_at": utc_now()})
-        if not leased:
+        approval = await self.store.get("approvals", approval_id)
+        if not approval or approval.get("workspace_id") != principal.workspace_id:
+            return _error("approval_binding_mismatch",
+                          "The action approval is not available.")
+        legacy_consumed = bool(
+            int(current.get("schema_version") or 1) == 1
+            and approval.get("status") == "CONSUMED"
+            and canonical_hash(approval.get("exact_action") or {})
+            == canonical_hash(exact_action))
+        claimed = bool(
+            approval.get("status") == "CLAIMED"
+            and approval.get("claimed_action_id") == action_id
+            and approval.get("claim_id") == current.get("claim_id"))
+        if not claimed and not legacy_consumed:
+            return _error("approval_binding_mismatch",
+                          "The approval claim no longer belongs to this action.")
+        started_at = utc_now()
+        mutations = [AtomicMutation(
+            "external_actions", action_id, int(current["version"]),
+            updates={"status": "EXECUTING", "approval_consumed": True,
+                     "provider_started_at": started_at,
+                     "consequence_start_committed_at": started_at,
+                     "updated_at": started_at})]
+        if claimed:
+            mutations.insert(0, AtomicMutation(
+                "approvals", approval_id, int(approval["version"]),
+                updates={"status": "CONSUMED",
+                         "consumed_by_actor_id": principal.actor_id,
+                         "consumed_at": started_at,
+                         "terminal_action_id": action_id,
+                         "updated_at": started_at}))
+        started = await self.store.atomic_compare_and_set(tuple(mutations))
+        if not started:
             return _error("concurrency_conflict", "Action changed concurrently.")
+        leased = started[("external_actions", action_id)]
         binding = binding_result
-        result = await self.adapter.execute(
-            action_kind=action_kind, binding=binding["binding"],
-            normalized_destinations=exact_action["normalized_destinations"],
-            rendered_payload=rendered_payload, action_id=action_id,
-            causal_token=stable_id("h4scausal", action_id))
+        try:
+            result = await self.adapter.execute(
+                action_kind=action_kind, binding=binding["binding"],
+                normalized_destinations=exact_action["normalized_destinations"],
+                rendered_payload=rendered_payload, action_id=action_id,
+                causal_token=stable_id("h4scausal", action_id))
+        except Exception:
+            result = {"status": "uncertain",
+                      "error_code": "provider_outcome_unconfirmed",
+                      "uncertainty_reason": "provider_call_interrupted"}
         return await self._finish_provider_result(action_id, leased, result)
 
     async def reconcile(self, *, principal: ActorPrincipal,
@@ -198,7 +245,9 @@ class H4SEffectService:
         """Resolve only an uncertain H4S receipt using provider evidence."""
         action = await self.store.get("external_actions", action_id)
         if (not action or action.get("workspace_id") != principal.workspace_id
-                or action.get("status") != "UNCERTAIN"):
+                or action.get("status") not in {"UNCERTAIN", "EXECUTING"}
+                or (action.get("status") == "EXECUTING"
+                    and not action.get("provider_started_at"))):
             return _error("reconciliation_required", "No uncertain H4S action was found.", 404)
         context = action.get("sandbox_context") or {}
         if context.get("sandbox_run_id") != sandbox_run_id:
@@ -237,7 +286,8 @@ class H4SEffectService:
         if row.get("status") == "FAILED":
             return _error(str(row.get("error_code") or "provider_rejected"),
                           "The H4S action already failed.")
-        if row.get("status") == "UNCERTAIN" or row.get("provider_started_at"):
+        if row.get("status") in {"UNCERTAIN", "EXECUTING"} \
+                or row.get("provider_started_at"):
             return _error("reconciliation_required",
                           "The H4S action requires provider reconciliation.")
         return None

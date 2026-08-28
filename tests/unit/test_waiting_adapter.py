@@ -70,7 +70,9 @@ class TestReaders:
     async def test_followups_become_timer_waits_with_the_programme_name(self, wired):
         store, _ = wired
         store.opportunities["opp_1"] = {"id": "opp_1", "name": "Meridian",
-                                        "state": "SHORTLISTED"}
+                                        "state": "SHORTLISTED",
+                                        "workspace_id": FOUNDER,
+                                        "founder_id": FOUNDER}
         store.applications["app_1"] = {
             "id": "app_1", "founder_id": FOUNDER, "opportunity_id": "opp_1",
             "state": "FOLLOW_UP", "created_at": ISO, "updated_at": ISO,
@@ -110,6 +112,32 @@ class TestReaders:
             "origin_session_id": "s-a", "request_id": "req_1"}
         result = await waiting.list_waits(FOUNDER, session_id="s-a", now=NOW)
         assert result["waits"] == []
+
+    async def test_durable_portal_verification_survives_missing_session_state(
+            self, wired):
+        store, _ = wired
+        store.portal_registrations["example.org"] = {
+            "host": "example.org", "founder_id": FOUNDER,
+            "session_id": "s-a", "application_id": "app_1",
+            "status": "PENDING", "updated_at": ISO,
+        }
+        waiting.configure(session_state_reader=None)
+        result = await waiting.list_waits(FOUNDER, session_id="s-a", now=NOW)
+        assert any(wait.wait_kind == "portal_confirmation"
+                   for wait in result["waits"])
+
+    async def test_uncertain_action_is_a_founder_visible_wait(self, wired):
+        store, _ = wired
+        store.external_actions["act_1"] = {
+            "action_id": "act_1", "founder_id": FOUNDER,
+            "session_id": "s-a", "status": "UNCERTAIN",
+            "created_at": ISO, "updated_at": ISO,
+        }
+        result = await waiting.list_waits(FOUNDER, session_id="s-a", now=NOW)
+        wait = next(item for item in result["waits"]
+                    if item.wait_kind == "action_uncertain")
+        assert wait.focus == {"kind": "external_action", "id": "act_1"}
+        assert "won't resubmit blind" in wait.next_check_action
 
 
 class TestReaderIndependence:

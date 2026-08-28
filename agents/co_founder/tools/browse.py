@@ -44,7 +44,7 @@ def open_page(url: str, purpose: str, tool_context: ToolContext) -> dict:
         A dict containing the run id, current URL, title, short excerpt, links,
         and screenshot artifact, or the documented browser error schema.
     """
-    from services import browser_service
+    from services import browser_gateway as browser_service
 
     try:
         result = run(browser_service.open_run(_session_key(tool_context), url, purpose))
@@ -68,7 +68,7 @@ def read_page(question: str, tool_context: ToolContext) -> dict:
         A dict with an isolated-reader answer and an artifact character range,
         or the documented browser error schema. This function never acts.
     """
-    from services import browser_service
+    from services import browser_gateway as browser_service
 
     try:
         active = run(
@@ -96,7 +96,7 @@ def browser_action(tool_context: ToolContext) -> dict:
         A dict describing the single action, resulting URL, excerpt, and
         screenshot, or the documented browser error schema.
     """
-    from services import browser_service
+    from services import browser_gateway as browser_service
 
     try:
         key = _session_key(tool_context)
@@ -136,7 +136,7 @@ def close_browser(tool_context: ToolContext) -> dict:
     Returns:
         A success dict; when already closed, ``already_closed`` is true.
     """
-    from services import browser_service
+    from services import browser_gateway as browser_service
 
     try:
         key = _session_key(tool_context)

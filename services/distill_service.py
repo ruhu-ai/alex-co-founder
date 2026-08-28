@@ -26,7 +26,8 @@ def attach(runner, session_service) -> None:
     _session_service = session_service
 
 
-async def run_distillation(feedback_id: str, session_service=None) -> dict[str, Any]:
+async def run_distillation(feedback_id: str, session_service=None,
+                           founder_id: str = "") -> dict[str, Any]:
     """Run the distiller agent on one feedback record (isolated session)."""
     session_service = session_service or _session_service
     if _distill_runner is None or session_service is None:
@@ -36,7 +37,7 @@ async def run_distillation(feedback_id: str, session_service=None) -> dict[str, 
 
     from services import firestore
 
-    record = await firestore.get_feedback(feedback_id)
+    record = await firestore.get_feedback(feedback_id, founder_id)
     if not record:
         return {"status": "error", "error": True, "message": f"feedback {feedback_id} not found"}
     if record.get("distilled"):
@@ -79,11 +80,24 @@ async def run_distillation(feedback_id: str, session_service=None) -> dict[str, 
             session_id=session_id,
             new_message=types.Content(role="user", parts=[types.Part.from_text(text=message)]),
         ):
-            logger.info(json.dumps({"severity": "INFO", "message": f"distill event: {event}",
-                                    "event": "distill_runner_event", "session_id": session_id}))
+            # ADK events can contain the founder's verbatim feedback and model
+            # output. Standard logs carry routing metadata only.
+            logger.info(json.dumps({
+                "severity": "INFO",
+                "message": "distill runner event",
+                "event": "distill_runner_event",
+                "session_id": session_id,
+                "author": getattr(event, "author", None),
+                "invocation_id": getattr(event, "invocation_id", None),
+                "part_count": len(getattr(getattr(event, "content", None),
+                                          "parts", None) or []),
+            }))
     except Exception as exc:  # surfaced as data; feedback row stays distilled=false
-        logger.warning("distillation failed for %s: %s", feedback_id, exc)
-        return {"status": "error", "error": True, "message": f"distillation failed: {exc}"}
+        logger.warning("distillation failed for %s (%s)", feedback_id,
+                       type(exc).__name__)
+        return {"status": "error", "error": True,
+                "error_code": "distillation_failed",
+                "message": "distillation failed; the feedback remains queued for retry"}
 
     # The run succeeded — record which rules it learned and flip the row so it is
     # never re-distilled. Deterministic (a diff of the profile), not model-driven.
@@ -94,9 +108,9 @@ async def run_distillation(feedback_id: str, session_service=None) -> dict[str, 
         new_rule_ids = sorted(
             r["id"] for r in after_profile.get("voice_rules", [])
             if r.get("id") and r["id"] not in before_rule_ids)
-        fresh = await firestore.get_feedback(feedback_id)
+        fresh = await firestore.get_feedback(feedback_id, founder_id)
         if fresh and not fresh.get("distilled"):
-            await firestore.mark_distilled(feedback_id, new_rule_ids)
+            await firestore.mark_distilled(feedback_id, new_rule_ids, founder_id)
     except Exception as exc:  # noqa: BLE001
         logger.warning("mark_distilled bookkeeping failed for %s: %s", feedback_id, exc)
     return {"status": "success", "feedback_id": feedback_id, "rule_ids": new_rule_ids}

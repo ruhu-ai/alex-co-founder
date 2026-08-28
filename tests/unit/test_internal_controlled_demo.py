@@ -7,7 +7,7 @@ import time
 import pytest
 
 from services.actor_identity import ActorPrincipal, WorkspaceRole
-from services.durable_store import InMemoryDurableStore
+from services.durable_store import AtomicMutation, InMemoryDurableStore
 from services.internal_controlled_demo import (
     InternalControlledDemoService,
     build_exact_action,
@@ -102,6 +102,62 @@ async def test_internal_demo_effect_consumes_only_the_exact_granted_approval(mon
     again = await effect.execute(principal=owner, demo_run_id=created["demo_run_id"],
                                  approval_id=approval["approval_id"], action_kind="INTERNAL_DEMO_SEND_RECAP")
     assert again["duplicate"] is True
+
+
+@pytest.mark.asyncio
+async def test_atomic_store_batch_rolls_back_every_write_on_one_stale_fence():
+    store = InMemoryDurableStore()
+    await store.create("internal_demo_approvals", "approval-1", {
+        "status": "GRANTED", "version": 1})
+    committed = await store.atomic_compare_and_set((
+        AtomicMutation("internal_demo_approvals", "approval-1", 9,
+                       updates={"status": "CONSUMED"}),
+        AtomicMutation("internal_demo_actions", "action-1", None,
+                       record={"status": "PREPARED"}),
+    ))
+    assert committed is None
+    assert (await store.get("internal_demo_approvals", "approval-1"))[
+        "status"] == "GRANTED"
+    assert await store.get("internal_demo_actions", "action-1") is None
+
+
+@pytest.mark.asyncio
+async def test_internal_demo_provider_crash_becomes_reconcilable(
+        monkeypatch, owner):
+    _enable(monkeypatch)
+    store = InMemoryDurableStore()
+    runs = InternalControlledDemoService(store)
+    created = await runs.create_run(
+        principal=owner, client_request_id="create-crash",
+        role_id=await _ready_role(store, owner))
+    approval = await runs.request_approval(
+        principal=owner, demo_run_id=created["demo_run_id"],
+        action_kind="INTERNAL_DEMO_SEND_RECAP",
+        client_request_id="approve-crash")
+    await runs.resolve_approval(
+        principal=owner, approval_id=approval["approval_id"], decision="GRANT")
+
+    class CrashThenReconcile:
+        async def execute(self, **_kwargs):
+            raise RuntimeError("process died after provider transmission")
+
+        async def reconcile(self, **_kwargs):
+            return {"status": "success", "provider_effect_id": "message-crash",
+                    "result_ref": {"id": "message-crash"}}
+
+    effects = InternalDemoEffectService(store=store, adapter=CrashThenReconcile())
+    uncertain = await effects.execute(
+        principal=owner, demo_run_id=created["demo_run_id"],
+        approval_id=approval["approval_id"],
+        action_kind="INTERNAL_DEMO_SEND_RECAP")
+    assert uncertain["error_code"] == "reconciliation_required"
+    actions = await store.list(
+        "external_actions", filters={"demo_run_id": created["demo_run_id"]})
+    assert actions[0]["status"] == "UNCERTAIN"
+    resolved = await effects.reconcile(
+        principal=owner, demo_run_id=created["demo_run_id"],
+        action_id=actions[0]["action_id"])
+    assert resolved["receipt_status"] == "SUCCEEDED"
 
 
 @pytest.mark.asyncio

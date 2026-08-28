@@ -26,6 +26,7 @@ import base64
 import hashlib
 import hmac
 import json
+import logging
 import os
 import secrets
 import time
@@ -39,6 +40,41 @@ from app import auth
 STATE_COOKIE = "google_login_state"
 STATE_TTL_SECONDS = 10 * 60
 LOGIN_SCOPES = ["openid", "email", "profile"]
+_OAUTH_CALLBACK_PATHS = (
+    "/auth/google/callback",
+    "/api/integrations/google/callback",
+)
+
+
+class _OAuthCallbackAccessLogFilter(logging.Filter):
+    """Remove OAuth codes and state from Uvicorn's raw request-target log.
+
+    Uvicorn stores the request target as the third positional formatting
+    argument. OAuth callbacks must remain observable, but their single-use
+    credentials must never be copied into terminal or collected access logs.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if not isinstance(record.args, tuple) or len(record.args) < 3:
+            return True
+        target = record.args[2]
+        if not isinstance(target, str):
+            return True
+        if any(target.startswith(f"{path}?") for path in _OAUTH_CALLBACK_PATHS):
+            args = list(record.args)
+            args[2] = target.split("?", 1)[0] + "?[redacted]"
+            record.args = tuple(args)
+        return True
+
+
+def _install_access_log_redaction() -> None:
+    logger = logging.getLogger("uvicorn.access")
+    if not any(isinstance(item, _OAuthCallbackAccessLogFilter)
+               for item in logger.filters):
+        logger.addFilter(_OAuthCallbackAccessLogFilter())
+
+
+_install_access_log_redaction()
 
 
 def configured() -> bool:

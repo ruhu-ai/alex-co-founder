@@ -91,5 +91,5 @@ PY
 
 echo
 echo "Setup complete. Next:"
-echo "  source .venv/bin/activate"
-echo "  adk web agents --port 8000 --session_service_uri=\"sqlite+aiosqlite:///sessions.db\" --artifact_service_uri=\"file://./artifacts\""
+echo "  python scripts/seed_demo.py"
+echo "  ./scripts/run_local.sh"

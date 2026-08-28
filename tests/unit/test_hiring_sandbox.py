@@ -15,6 +15,7 @@ from services.hiring_h4s_reply import H4SReplyService
 from services.hiring_run_answer import HiringRunAnswerService, validate_answer_text
 from services.hiring_sandbox import HiringSandboxService, require_sandbox
 from services.hiring_sandbox_config import configured_test_connector
+from services.hiring_workflow_adapter import HiringWorkflowAdapter, hiring_provenance
 from services.workflow_runtime import WorkflowRuntime
 
 
@@ -43,12 +44,13 @@ async def _seed_h4s_candidate(store, owner, *, role_id="role_h4s",
                                fixture_id="fixture_h4s"):
     """Create the role/candidate run hierarchy an H4S effect must name."""
     namespace = "synthetic_hiring_h4s"
-    runtime = WorkflowRuntime(store)
+    runtime = WorkflowRuntime(store, domain_adapter=HiringWorkflowAdapter())
     role_run = await runtime.create_run(
         workspace_id=owner.workspace_id, journey_id="journey_h4s",
         run_kind=RunKind.ROLE, idempotency_key=f"role:{role_id}", domain_ref=role_id,
-        synthetic_guard={"synthetic": True, "fixture_id": fixture_id,
-                         "synthetic_namespace": namespace})
+        provenance=hiring_provenance({
+            "synthetic": True, "fixture_id": fixture_id,
+            "synthetic_namespace": namespace}))
     role = await store.get("hiring_roles", role_id)
     if not role:
         await store.create("hiring_roles", role_id, {
@@ -64,8 +66,9 @@ async def _seed_h4s_candidate(store, owner, *, role_id="role_h4s",
         workspace_id=owner.workspace_id, journey_id="journey_h4s",
         run_kind=RunKind.CANDIDATE, idempotency_key=candidate_id,
         domain_ref=candidate_id, parent_run_id=role_run["run_id"],
-        synthetic_guard={"synthetic": True, "fixture_id": fixture_id,
-                         "synthetic_namespace": namespace})
+        provenance=hiring_provenance({
+            "synthetic": True, "fixture_id": fixture_id,
+            "synthetic_namespace": namespace}))
     await store.create("candidate_applications", candidate_id, {
         "candidate_application_id": candidate_id, "workspace_id": owner.workspace_id,
         "role_id": role_id, "run_id": candidate_run["run_id"], "synthetic": True,
@@ -236,8 +239,7 @@ async def test_h4s_approval_is_hiring_run_bound(owner, monkeypatch):
         candidate_application_id=candidate_id,
         action_kind="H4S_SEND_EMAIL",
         rendered_payload={"subject": "Interview", "body": "Hello"})
-    # The founder has not granted the approval yet; executor authority refuses.
-    assert claimed["error_code"] == "approval_binding_mismatch"
+    assert claimed["error_code"] == "claim_requires_action_prepare"
     assert (await resolve_approval(principal=owner, approval_id=result["approval_id"],
                                    decision="GRANT", store=store))["status"] == "success"
     granted = await service.claim_effect_approval(principal=owner,
@@ -246,7 +248,7 @@ async def test_h4s_approval_is_hiring_run_bound(owner, monkeypatch):
         candidate_application_id=candidate_id,
         action_kind="H4S_SEND_EMAIL",
         rendered_payload={"subject": "Interview", "body": "Hello"})
-    assert granted["status"] == "success"
+    assert granted["error_code"] == "claim_requires_action_prepare"
 
 
 @pytest.mark.asyncio
@@ -427,32 +429,33 @@ async def test_h4s_provider_preflight_does_not_consume_approval(owner, monkeypat
 
 @pytest.mark.asyncio
 async def test_h4s_recovers_after_approval_claim_crash_without_resend(owner, monkeypatch):
-    """A PREPARED row plus consumed exact approval safely resumes one call."""
+    """A T1 CLAIMED+PREPARED crash safely resumes the same action at T2."""
     monkeypatch.setenv("HIRING_ENABLE_H4_SANDBOX", "1")
     store = InMemoryDurableStore()
     sandbox_service = HiringSandboxService(store)
     sandbox, binding, destination, approval, candidate_id = await _effect_fixture(owner, store, sandbox_service)
     payload = {"subject": "Interview", "body": "Hello"}
-    claimed = await sandbox_service.claim_effect_approval(
-        principal=owner, approval_id=approval["approval_id"],
-        sandbox_run_id=sandbox["sandbox_run_id"], binding_id=binding["binding_id"],
-        candidate_application_id=candidate_id,
-        destination_ids=[destination["destination_id"]], action_kind="H4S_SEND_EMAIL",
-        rendered_payload=payload)
-    assert claimed["status"] == "success"
     built = await sandbox_service.build_exact_action(
         sandbox_run_id=sandbox["sandbox_run_id"], binding_id=binding["binding_id"],
         candidate_application_id=candidate_id,
         destination_ids=[destination["destination_id"]], action_kind="H4S_SEND_EMAIL",
         rendered_payload=payload)
     action_id = H4SEffectService._action_id(owner.workspace_id, built["exact_action"])
-    # This is the precise durable state left by a crash after approval
-    # consumption and before the executor can mark its PREPARED row.
+    approval_row = await store.get("approvals", approval["approval_id"])
+    claim_id = stable_id("claim", approval["approval_id"], action_id)
+    claimed = await store.compare_and_set(
+        "approvals", approval["approval_id"], approval_row["version"], {
+            "status": "CLAIMED", "claim_id": claim_id,
+            "claimed_action_id": action_id})
+    assert claimed["status"] == "CLAIMED"
+    # This is the precise durable state left by a crash after T1 and before T2.
     await store.create("external_actions", action_id, {
-        "action_id": action_id, "workspace_id": owner.workspace_id,
+        "schema_version": 2, "action_id": action_id,
+        "workspace_id": owner.workspace_id,
         "approval_id": approval["approval_id"], "request_hash": built["subject_hash"],
         "exact_action": built["exact_action"], "status": "PREPARED",
-        "approval_consumed": False, "provider_started_at": None, "version": 1,
+        "claim_id": claim_id, "approval_consumed": False,
+        "provider_started_at": None, "version": 1,
     })
     provider = _FakeH4SProvider({"status": "success", "provider_effect_id": "gmail_crash"})
     effects = H4SEffectService(sandbox=sandbox_service, adapter=provider, store=store)

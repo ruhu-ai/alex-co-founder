@@ -1,5 +1,6 @@
 """Current-tab Google founder login security and session contracts."""
 
+import logging
 from types import SimpleNamespace
 
 import pytest
@@ -61,6 +62,24 @@ def _successful_claims():
         "name": "Founder",
         "auth_time": 1_700_000_000,
     }
+
+
+@pytest.mark.parametrize("target", [
+    "/auth/google/callback?state=s&code=one-time-secret",
+    "/api/integrations/google/callback?code=one-time-secret&state=s",
+])
+def test_oauth_callback_credentials_are_redacted_from_access_logs(target):
+    record = logging.LogRecord(
+        "uvicorn.access", logging.INFO, __file__, 1,
+        '%s - "%s %s HTTP/%s" %d',
+        ("127.0.0.1", "GET", target, "1.1", 303),
+        None,
+    )
+
+    assert google_login._OAuthCallbackAccessLogFilter().filter(record)
+    assert record.args[2].endswith("?[redacted]")
+    assert "one-time-secret" not in record.getMessage()
+    assert "state=s" not in record.getMessage()
 
 
 def test_start_is_current_tab_redirect_with_signed_short_lived_state(

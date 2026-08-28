@@ -27,6 +27,7 @@ from services.actor_identity import (
     authorize,
     create_membership,
     resolve_actor_from_claims,
+    resolve_seeded_principal,
 )
 from services.connector_credential_broker import (
     ConnectorCredentialBroker,
@@ -46,6 +47,7 @@ from services.hiring_data_rights import HiringDataRightsService
 from services.hiring_identity_vault import CandidateIdentityVault, fixture_key_wrapper
 from services.hiring_mailbox import HiringMailboxService
 from services.hiring_service import HiringService
+from services.hiring_workflow_adapter import HiringWorkflowAdapter, hiring_provenance
 from services.workflow_runtime import WorkflowRuntime
 
 
@@ -109,7 +111,7 @@ def _services(store: InMemoryDurableStore):
     wrap, unwrap = fixture_key_wrapper(bytes(range(32)))
     vault = CandidateIdentityVault(wrap_key=wrap, unwrap_key=unwrap,
                                    dedup_key=bytes(range(32)), store=store)
-    runtime = WorkflowRuntime(store)
+    runtime = WorkflowRuntime(store, domain_adapter=HiringWorkflowAdapter())
     hiring = HiringService(store=store, identity_vault=vault, runtime=runtime)
     return runtime, hiring, HiringMailboxService(hiring, store=store), vault
 
@@ -139,13 +141,15 @@ def test_h0_policy_is_hard_synthetic_non_scoring():
 
 
 @pytest.mark.asyncio
-async def test_synthetic_records_carry_reviewed_fixture_marker_aliases():
+async def test_generic_store_does_not_inject_hiring_fixture_aliases():
     store = InMemoryDurableStore()
     await store.create("hiring_roles", "role_fixture", {
-        "synthetic": True, "fixture_id": "fixture_h3_acceptance", "version": 1})
+        "provenance": {"provenance_class": "SYNTHETIC",
+                       "fixture_set_id": "fixture_h3_acceptance"},
+        "version": 1})
     row = await store.get("hiring_roles", "role_fixture")
-    assert row["is_synthetic"] is True
-    assert row["fixture_set_id"] == "fixture_h3_acceptance"
+    assert "is_synthetic" not in row and "fixture_set_id" not in row
+    assert row["provenance"]["fixture_set_id"] == "fixture_h3_acceptance"
 
 
 def test_closed_analyst_schema_rejects_rank_recommendation_and_unknown_fields():
@@ -205,6 +209,41 @@ async def test_actor_is_current_membership_and_freshness_not_client_identity():
     stale = ActorPrincipal(**{**principal.__dict__,
                               "session_auth_time": int(time.time()) - 901})
     assert authorize(stale, "read_role", require_fresh=True)["error_code"] == "step_up_required"
+
+
+@pytest.mark.asyncio
+async def test_multi_workspace_actor_requires_explicit_selection():
+    store = InMemoryDurableStore()
+    for suffix in ("one", "two"):
+        await create_membership(
+            actor_id=f"member_{suffix}", workspace_id=f"workspace_{suffix}",
+            auth_subject="shared_subject", role=WorkspaceRole.OWNER,
+            created_by="bootstrap", store=store)
+    claims = {"sub": "shared_subject", "auth_time": int(time.time())}
+    ambiguous = await resolve_actor_from_claims(claims, store=store)
+    assert ambiguous["error_code"] == "workspace_selection_required"
+    selected = await resolve_actor_from_claims(
+        claims, store=store, workspace_id="workspace_two")
+    assert isinstance(selected, ActorPrincipal)
+    assert selected.workspace_id == "workspace_two"
+
+
+@pytest.mark.asyncio
+async def test_seeded_principal_is_local_only(monkeypatch):
+    store = InMemoryDurableStore()
+    await create_membership(
+        actor_id="seeded_user", workspace_id="user",
+        auth_subject="seeded:user", role=WorkspaceRole.OWNER,
+        created_by="seed", store=store, local_only=True)
+    monkeypatch.delenv("K_SERVICE", raising=False)
+    local = await resolve_seeded_principal(
+        "user", workspace_id="user", store=store)
+    assert isinstance(local, ActorPrincipal)
+    assert local.principal_kind == "SEEDED"
+    monkeypatch.setenv("K_SERVICE", "service")
+    deployed = await resolve_seeded_principal(
+        "user", workspace_id="user", store=store)
+    assert deployed["error_code"] == "seeded_identity_forbidden"
 
 
 @pytest.mark.asyncio
@@ -343,17 +382,17 @@ async def test_credential_broker_is_request_scoped_and_cross_workspace_safe():
 @pytest.mark.asyncio
 async def test_runtime_duplicate_wake_lease_restart_and_cancel_are_durable():
     store = InMemoryDurableStore()
-    runtime = WorkflowRuntime(store)
+    runtime = WorkflowRuntime(store, domain_adapter=HiringWorkflowAdapter())
     role = await runtime.create_run(
         workspace_id="workspace_test", journey_id="journey_test",
         run_kind=RunKind.ROLE, idempotency_key="role_run",
-        domain_ref="role_test", synthetic_guard=_guard(),
+        domain_ref="role_test", provenance=hiring_provenance(_guard()),
         originating_actor_id="member_owner")
     candidate = await runtime.create_run(
         workspace_id="workspace_test", journey_id="journey_test",
         run_kind=RunKind.CANDIDATE, idempotency_key="candidate_run",
         domain_ref="candidateapp_test", parent_run_id=role["run_id"],
-        synthetic_guard=_guard())
+        provenance=hiring_provenance(_guard()))
     wait = await runtime.create_wait(candidate["run_id"], wait_kind="EMAIL_REPLY",
                                      correlation_key="thread_token")
     first = await runtime.resolve_wait(wait["wait_id"], event_id="event_mail_1")
@@ -377,13 +416,13 @@ async def test_runtime_duplicate_wake_lease_restart_and_cancel_are_durable():
     assert paused["runtime_status"] == "PAUSED"
     resumed = await WorkflowRuntime(store).resume_run(
         candidate["run_id"], actor_id="member_owner")
-    assert resumed["runtime_status"] == "DORMANT"
+    assert resumed["runtime_status"] == "WAITING"
     await runtime.resolve_wait(long_wait["wait_id"], event_id="event_months_later")
     onboarding = await runtime.create_run(
         workspace_id="workspace_test", journey_id="journey_test",
         run_kind=RunKind.ONBOARDING, idempotency_key="onboarding_run",
         domain_ref="onboarding_test", parent_run_id=candidate["run_id"],
-        synthetic_guard=_guard())
+        provenance=hiring_provenance(_guard()))
     cancelled = await WorkflowRuntime(store).cancel_run(
         role["run_id"], actor_id="member_owner", reason="role closed")
     assert cancelled["runtime_status"] == "CANCELLED"

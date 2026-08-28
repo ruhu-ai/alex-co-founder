@@ -8,6 +8,7 @@ from services import (
     calendar_adapter,
     discovery_service,
     drive_adapter,
+    firestore,
     gmail_adapter,
     pipeline_service,
     profile_service,
@@ -71,6 +72,7 @@ class TestSelectionIdempotency:
             self, fake_store):
         fake_store.opportunities["opp-null"] = {
             "id": "opp-null", "state": "SHORTLISTED",
+            "workspace_id": "founder", "founder_id": "founder",
             "name": "Google Africa Applied AI Lab",
             "required_materials": None, "application_url": None,
             "created_at": "", "updated_at": "",
@@ -89,6 +91,7 @@ class TestSelectionIdempotency:
             self, fake_store):
         fake_store.opportunities["opp-one"] = {
             "id": "opp-one", "state": "SHORTLISTED", "name": "One Program",
+            "workspace_id": "founder", "founder_id": "founder",
             "required_materials": ["deck"], "created_at": "", "updated_at": "",
         }
 
@@ -111,6 +114,7 @@ class TestBoardProjection:
                           ("b", "Google Africa Applied AI Lab for Founders")):
             fake_store.opportunities[oid] = {
                 "id": oid, "name": name, "state": "SHORTLISTED",
+                "workspace_id": "founder", "founder_id": "founder",
                 "deadline": "2026-08-31", "created_at": "2026-08-20",
                 "required_materials": [], "raw_excerpt": "source",
             }
@@ -123,6 +127,7 @@ class TestBoardProjection:
     async def test_legacy_random_id_application_is_reused(self, fake_store):
         fake_store.opportunities["opp-legacy"] = {
             "id": "opp-legacy", "state": "SHORTLISTED", "name": "Legacy Program",
+            "workspace_id": "founder", "founder_id": "founder",
             "required_materials": [], "created_at": "", "updated_at": "",
         }
         fake_store.applications["legacy-random-id"] = {
@@ -827,21 +832,24 @@ class TestAlexMailbox:
     async def test_send_with_approval_sends_and_consumes(
             self, monkeypatch, fake_store):
         sent = []
-        consumed = []
         alex_mailbox.set_service_factory(lambda: _FakeAlexGmail(_FakeAlexMessages(sent=sent)))
-        async def _valid(target, **kwargs): return {"id": "ap1"}
-        monkeypatch.setattr("services.alex_mailbox.firestore.find_valid_approval", _valid)
-        async def _claim(aid):
-            consumed.append(aid)
-            return True
-        monkeypatch.setattr("services.alex_mailbox.firestore.claim_approval", _claim)
         async def _audit(*a, **k): pass
         monkeypatch.setattr("services.alex_mailbox.firestore.audit", _audit)
+        target = "email:general"
+        details = {"to": "program@example.org", "subject": "Question",
+                   "body": "Hi"}
+        subject_hash = approval_service.action_subject_hash(
+            "send_email", target, details)
+        approval_id = await firestore.create_approval(
+            target, "send_email", 30, details=details, founder_id="founder",
+            session_id="session-1", subject_hash=subject_hash)
+        await firestore.grant_approval(approval_id, "founder")
         result = await alex_mailbox.send_email(
             "program@example.org", "Question", "Hi",
             founder_id="founder", session_id="session-1")
         assert result["status"] == "success" and result["message_id"] == "sent-1"
-        assert len(sent) == 1 and consumed == ["ap1"]
+        assert len(sent) == 1
+        assert fake_store.approvals[approval_id]["status"] == "CONSUMED"
 
     async def test_send_rejects_bad_recipient(self):
         alex_mailbox.set_service_factory(lambda: _FakeAlexGmail(_FakeAlexMessages()))
@@ -979,23 +987,31 @@ class TestCalendarBooking:
 
     async def test_booking_with_approval_inserts_and_consumes(
             self, monkeypatch, fake_store):
-        inserted, consumed = [], []
+        import datetime as dt
+
+        inserted = []
         calendar_adapter.set_service_factory(lambda: _FakeCalendarInsert(inserted))
-        async def _valid(target, **kwargs): return {"id": "ap1"}
-        monkeypatch.setattr("services.calendar_adapter.firestore.find_valid_approval", _valid)
-        async def _claim(aid):
-            consumed.append(aid)
-            return True
-        monkeypatch.setattr("services.calendar_adapter.firestore.claim_approval", _claim)
         async def _audit(*a, **k): pass
         monkeypatch.setattr("services.calendar_adapter.firestore.audit", _audit)
+        target = "calendar:general"
+        start = dt.datetime.fromisoformat("2026-08-25T14:00:00+01:00")
+        end = dt.datetime.fromisoformat("2026-08-25T14:30:00+01:00")
+        details = calendar_adapter.subject_details(
+            "Intro call", start, end, ["investor@fund.com"], "")
+        subject_hash = approval_service.action_subject_hash(
+            "book_meeting", target, details)
+        approval_id = await firestore.create_approval(
+            target, "book_meeting", 30, details=details,
+            founder_id="founder", session_id="session-1",
+            subject_hash=subject_hash)
+        await firestore.grant_approval(approval_id, "founder")
         result = await calendar_adapter.create_event(
             "Intro call", "2026-08-25T14:00:00+01:00", "2026-08-25T14:30:00+01:00",
             ["investor@fund.com"], founder_id="founder", session_id="session-1")
         assert result["status"] == "success"
         assert result["meet_link"] == "https://meet.google.com/abc-defg-hij"
         assert inserted[0]["attendees"] == [{"email": "investor@fund.com"}]
-        assert consumed == ["ap1"]
+        assert fake_store.approvals[approval_id]["status"] == "CONSUMED"
 
     async def test_booking_validates_times(self):
         calendar_adapter.set_service_factory(lambda: _FakeCalendarInsert([]))

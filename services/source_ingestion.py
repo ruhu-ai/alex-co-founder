@@ -154,7 +154,7 @@ async def register_source_ingestion(
         try:
             fetched = await asyncio.wait_for(asyncio.to_thread(
                 drive_adapter.fetch_file_bytes, provider_source_id,
-                MAX_SOURCE_BYTES), timeout=45)
+                MAX_SOURCE_BYTES, founder_id), timeout=45)
         except TimeoutError:
             fetched = _error("provider_timeout", "Drive fetch timed out.", 504)
         from services import connection_registry
@@ -261,7 +261,8 @@ async def register_source_ingestion(
 
         dispatch = await asyncio.to_thread(
             task_queue.enqueue, "/tasks/ingest_document",
-            {"ingestion_id": ingestion_id}, f"ingest:{ingestion_id}")
+            {"ingestion_id": ingestion_id}, f"ingest:{ingestion_id}",
+            queue_name="co-founder-discovery-ingestion")
         if dispatch.get("status") != "success":
             message = "Document worker could not be queued."
             await _mark_failed(ingestion_id, "dispatch_failed", message)

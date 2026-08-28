@@ -12,8 +12,8 @@ import asyncio
 import base64
 import hashlib
 import os
-from email.utils import parseaddr
 from email.message import EmailMessage
+from email.utils import parseaddr
 from typing import Any
 
 from services import secrets

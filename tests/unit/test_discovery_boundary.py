@@ -51,7 +51,11 @@ def known_sessions(appmod, monkeypatch):
     async def _exists(session_id):
         return session_id in sessions
 
+    async def _workspace_exists(_workspace_id, session_id):
+        return session_id in sessions
+
     monkeypatch.setattr(appmod, "_founder_session_exists", _exists)
+    monkeypatch.setattr(appmod, "_workspace_session_exists", _workspace_exists)
     return sessions
 
 
@@ -69,14 +73,14 @@ def quiet_worker(appmod, monkeypatch, fake_store):
                      "provider": "web_search", "status": "ok",
                      "result_count": 3}]}
 
-    async def _unscored(limit=10):
+    async def _unscored(limit=10, founder_id=""):
         return []
 
     async def _board(founder_id):
         return {"status": "success",
                 "opportunities": {"SHORTLISTED": []}, "applications": []}
 
-    async def _notify(notice, session_id=None):
+    async def _notify(notice, session_id=None, **_kwargs):
         calls["notices"].append((notice, session_id))
 
     monkeypatch.setattr(appmod.discovery_service, "run_sweep", _sweep)
@@ -198,7 +202,8 @@ class TestDiscoveredLinks:
         fake_store.opportunities["opp_1"] = {
             "id": "opp_1", "name": "Lagos AI Accelerator",
             "description": "Accelerator for African AI startups",
-            "state": "DISCOVERED"}
+            "state": "DISCOVERED", "workspace_id": "founder",
+            "founder_id": "founder"}
         body = _post(client).json()
 
         receipt = fake_store.discovery_requests[body["discovery_request_id"]]
@@ -224,7 +229,8 @@ class TestDiscoveredLinks:
             self, client, fake_store, known_sessions, quiet_worker):
         fake_store.opportunities["opp_1"] = {
             "id": "opp_1", "name": "Lagos AI Accelerator",
-            "description": "x", "state": "DISCOVERED"}
+            "description": "x", "state": "DISCOVERED",
+            "workspace_id": "founder", "founder_id": "founder"}
         body = _post(client).json()
         before = dict(fake_store.session_resource_links)
         # Redeliver: receipt is COMPLETE → duplicate, no second sweep.
@@ -239,7 +245,8 @@ class TestDiscoveredLinks:
             self, client, fake_store, known_sessions, quiet_worker):
         fake_store.opportunities["opp_1"] = {
             "id": "opp_1", "name": "Lagos AI Accelerator",
-            "description": "x", "state": "DISCOVERED"}
+            "description": "x", "state": "DISCOVERED",
+            "workspace_id": "founder", "founder_id": "founder"}
         _post(client, request_id="req_first", context="fintech")
         _post(client, request_id="req_second", context="fintech again",
               session_id="s-latest")

@@ -29,13 +29,15 @@ from services.hiring_contracts import (
     utc_now,
 )
 from services.hiring_identity_vault import CandidateIdentityVault
+from services.hiring_workflow_adapter import HiringWorkflowAdapter, hiring_provenance
 from services.resource_sensitivity import registration_policy
 from services.workflow_runtime import WorkflowRuntime
 
 
 def _error(code: str, message: str, http_status: int = 409) -> dict[str, Any]:
+    del http_status
     return {"status": "error", "error": True, "error_code": code,
-            "message": message, "http_status": http_status}
+            "message": message}
 
 
 def _is_https_url(value: str) -> bool:
@@ -58,7 +60,8 @@ class HiringService:
                  runtime: WorkflowRuntime | None = None):
         self.store = store or production_store()
         self.identity_vault = identity_vault
-        self.runtime = runtime or WorkflowRuntime(self.store)
+        self.runtime = runtime or WorkflowRuntime(
+            self.store, domain_adapter=HiringWorkflowAdapter())
 
     async def create_role(self, *, principal: ActorPrincipal,
                           contract: RoleContract, client_request_id: str,
@@ -73,7 +76,7 @@ class HiringService:
         run = await self.runtime.create_run(
             workspace_id=principal.workspace_id, journey_id=journey_id,
             run_kind=RunKind.ROLE, idempotency_key=f"role:{role_id}",
-            domain_ref=role_id, synthetic_guard=synthetic_guard,
+            domain_ref=role_id, provenance=hiring_provenance(synthetic_guard),
             originating_actor_id=principal.actor_id)
         if run.get("error"):
             return run
@@ -218,7 +221,7 @@ class HiringService:
                 workspace_id=role["workspace_id"], journey_id=role["journey_id"],
                 run_kind=RunKind.CANDIDATE, idempotency_key=application_id,
                 domain_ref=application_id, parent_run_id=role["run_id"],
-                synthetic_guard=synthetic_guard)
+                provenance=hiring_provenance(synthetic_guard))
             if run.get("error"):
                 return run
             identity = await self.identity_vault.store_identity(

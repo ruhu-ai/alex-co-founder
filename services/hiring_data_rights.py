@@ -11,8 +11,9 @@ from services.hiring_identity_vault import CandidateIdentityVault
 
 
 def _error(code: str, message: str, http_status: int = 409) -> dict[str, Any]:
+    del http_status
     return {"status": "error", "error": True, "error_code": code,
-            "message": message, "http_status": http_status}
+            "message": message}
 
 
 class HiringDataRightsService:

@@ -41,7 +41,7 @@ _SHARED = OwnershipMode.SHARED
 # Every top-level collection is explicit. Entries marked SHARED are still part
 # of inventory/coverage, but are never exported as founder-owned or deleted.
 TOP_LEVEL_LIFECYCLE: dict[str, CollectionLifecycle] = {
-    "opportunities": CollectionLifecycle("opportunities", _SHARED),
+    "opportunities": CollectionLifecycle("opportunities", _FIELD),
     "applications": CollectionLifecycle("applications", _FIELD),
     "profiles": CollectionLifecycle("profiles", _DOC),
     "ingestions": CollectionLifecycle("ingestions", _FIELD),
@@ -69,9 +69,64 @@ TOP_LEVEL_LIFECYCLE: dict[str, CollectionLifecycle] = {
     "external_events": CollectionLifecycle("external_events", _FIELD),
     "founder_inbox": CollectionLifecycle("founder_inbox", _FIELD),
     "external_actions": CollectionLifecycle("external_actions", _FIELD),
+    "wake_deliveries": CollectionLifecycle("wake_deliveries", _FIELD),
+    "portal_event_receipts": CollectionLifecycle("portal_event_receipts", _FIELD),
+    "command_receipts": CollectionLifecycle(
+        "command_receipts", _FIELD, "workspace_id"),
+    "command_outbox": CollectionLifecycle(
+        "command_outbox", _FIELD, "workspace_id"),
+    "projection_streams": CollectionLifecycle(
+        "projection_streams", _FIELD, "workspace_id"),
+    "projection_events": CollectionLifecycle(
+        "projection_events", _FIELD, "workspace_id"),
+    "tenancy_migration_receipts": CollectionLifecycle(
+        "tenancy_migration_receipts", _FIELD, "workspace_id"),
+    "connector_credential_migration_receipts": CollectionLifecycle(
+        "connector_credential_migration_receipts", _FIELD, "workspace_id"),
+    "consequence_migration_receipts": CollectionLifecycle(
+        "consequence_migration_receipts", _FIELD, "workspace_id"),
+    "workflow_migration_receipts": CollectionLifecycle(
+        "workflow_migration_receipts", _FIELD, "workspace_id"),
+    "action_execution_outbox": CollectionLifecycle(
+        "action_execution_outbox", _FIELD, "workspace_id"),
     # docs/25 uses workspace ownership rather than the legacy founder id.
     "workspace_members": CollectionLifecycle("workspace_members", _FIELD, "workspace_id"),
     "workflow_runs": CollectionLifecycle("workflow_runs", _FIELD, "workspace_id"),
+    "investor_outreach": CollectionLifecycle(
+        "investor_outreach", _FIELD, "workspace_id"),
+    "investor_candidates": CollectionLifecycle(
+        "investor_candidates", _FIELD, "workspace_id"),
+    "outreach_drafts": CollectionLifecycle(
+        "outreach_drafts", _FIELD, "workspace_id"),
+    "investor_replies": CollectionLifecycle(
+        "investor_replies", _FIELD, "workspace_id"),
+    "meeting_briefs": CollectionLifecycle(
+        "meeting_briefs", _FIELD, "workspace_id"),
+    "workspace_profiles": CollectionLifecycle(
+        "workspace_profiles", _FIELD, "workspace_id"),
+    "actor_preference_profiles": CollectionLifecycle(
+        "actor_preference_profiles", _FIELD, "workspace_id"),
+    "profile_fact_pointers": CollectionLifecycle(
+        "profile_fact_pointers", _FIELD, "workspace_id"),
+    "profile_facts": CollectionLifecycle(
+        "profile_facts", _FIELD, "workspace_id"),
+    "profile_fact_receipts": CollectionLifecycle(
+        "profile_fact_receipts", _FIELD, "workspace_id"),
+    "memory_items": CollectionLifecycle(
+        "memory_items", _FIELD, "workspace_id"),
+    "memory_write_receipts": CollectionLifecycle(
+        "memory_write_receipts", _FIELD, "workspace_id"),
+    "memory_search_receipts": CollectionLifecycle(
+        "memory_search_receipts", _FIELD, "workspace_id"),
+    "deletion_jobs": CollectionLifecycle("deletion_jobs", _SHARED),
+    "deletion_work_items": CollectionLifecycle(
+        "deletion_work_items", _FIELD, "workspace_id"),
+    "deletion_receipts": CollectionLifecycle("deletion_receipts", _SHARED),
+    "capability_states": CollectionLifecycle("capability_states", _SHARED),
+    "operational_snapshots": CollectionLifecycle("operational_snapshots", _SHARED),
+    "recovery_drills": CollectionLifecycle("recovery_drills", _SHARED),
+    "governance_reports": CollectionLifecycle("governance_reports", _SHARED),
+    "workflow_plans": CollectionLifecycle("workflow_plans", _FIELD, "workspace_id"),
     "workflow_steps": CollectionLifecycle("workflow_steps", _FIELD, "workspace_id"),
     "step_attempts": CollectionLifecycle("step_attempts", _FIELD, "workspace_id"),
     "waits": CollectionLifecycle("waits", _FIELD, "workspace_id"),
@@ -123,6 +178,14 @@ TOP_LEVEL_LIFECYCLE: dict[str, CollectionLifecycle] = {
         "hiring_process_retrospectives", _FIELD, "workspace_id"),
     "hiring_reply_correlations": CollectionLifecycle(
         "hiring_reply_correlations", _FIELD, "workspace_id"),
+    "internal_demo_runs": CollectionLifecycle(
+        "internal_demo_runs", _FIELD, "workspace_id"),
+    "internal_demo_approvals": CollectionLifecycle(
+        "internal_demo_approvals", _FIELD, "workspace_id"),
+    "internal_demo_actions": CollectionLifecycle(
+        "internal_demo_actions", _FIELD, "workspace_id"),
+    "internal_demo_applications": CollectionLifecycle(
+        "internal_demo_applications", _FIELD, "workspace_id"),
 }
 
 SUBCOLLECTION_LIFECYCLE: dict[str, CollectionLifecycle] = {
@@ -262,9 +325,28 @@ async def delete_founder_data(founder_id: str, *, execute: bool = False,
             "message": "deletion inventory changed; run a new dry-run",
         }
     deleted = 0
+    blob_deleted = 0
+    blob_errors: list[str] = []
     for snapshot in ordered_snapshots:
+        collection = snapshot.reference.path.split("/", 1)[0]
+        if collection in {"artifacts", "documents", "document_versions"}:
+            from services import storage
+
+            row = snapshot.to_dict() or {}
+            name = str(row.get("storage_name") or row.get("artifact_name")
+                       or row.get("artifact") or "")
+            if name:
+                try:
+                    blob_deleted += bool(storage.delete_artifact(name))
+                except Exception:
+                    blob_errors.append(snapshot.reference.path)
+                    continue
         await snapshot.reference.delete()
         deleted += 1
-    return {"status": "success", "dry_run": False,
+    return {"status": "error" if blob_errors else "success",
+            "error": bool(blob_errors),
+            "error_code": "deletion_degraded" if blob_errors else None,
+            "dry_run": False,
             "founder_id": founder_id, "inventory_hash": plan_hash,
-            "deleted": deleted}
+            "deleted": deleted, "blobs_deleted": blob_deleted,
+            "blob_errors": blob_errors}

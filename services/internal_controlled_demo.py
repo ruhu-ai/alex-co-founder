@@ -28,8 +28,9 @@ _KINDS = frozenset({
 
 
 def _error(code: str, message: str, http_status: int = 409) -> dict[str, Any]:
+    del http_status
     return {"status": "error", "error": True, "error_code": code,
-            "message": message, "http_status": http_status}
+            "message": message}
 
 
 @lru_cache(maxsize=1)
@@ -213,19 +214,50 @@ class InternalControlledDemoService:
             calendar_start_at=str(run["demo_run"].get("calendar_start_at") or ""))
         if built.get("error"):
             return built
+        from services.capability_registry import require_controlled_action
+
+        try:
+            capability = require_controlled_action(
+                action_kind, "internal_demo_google")
+        except ValueError:
+            return _error("capability_disabled",
+                          "This internal-demo action is not reviewed.", 403)
         approval_id = stable_id("idemoapproval", principal.workspace_id, client_request_id)
         now = datetime.now(timezone.utc)
-        row = {"schema_version": 1, "approval_id": approval_id,
+        row = {"schema_version": 2, "approval_id": approval_id,
                "approval_domain": "INTERNAL_CONTROLLED_DEMO", "workspace_id": principal.workspace_id,
+               "founder_id": principal.workspace_id,
                "demo_run_id": demo_run_id, "action_kind": action_kind,
+               "run_id": demo_run_id,
+               "plan_hash": canonical_hash({
+                   "policy_id": policy()["policy_id"],
+                   "demo_run_id": demo_run_id}),
+               "step_id": action_kind,
+               "capability_id": capability.capability_id,
+               "capability_version": capability.semantic_version,
+               "connector_id": "internal_demo_google",
+               "connector_binding_version": "pinned-two-account-v1",
+               "policy_id": policy()["policy_id"], "policy_version": "1",
+               "domain_ref": demo_run_id, "domain_version": 1,
+               "target_hash": canonical_hash({
+                   "alex": built["exact_action"].get("alex_subject_hash"),
+                   "founder": built["exact_action"].get(
+                       "founder_subject_hash")}),
+               "normalized_payload_hash": canonical_hash(
+                   built["exact_action"]),
                "exact_action": built["exact_action"], "subject_hash": built["subject_hash"],
                "status": "PENDING", "requested_by_actor_id": principal.actor_id,
+               "approving_actor_requirement": "INTERACTIVE_MEMBER",
+               "decided_by_actor_id": None,
+               "claim_id": None, "claimed_action_id": None,
+               "claimed_at": None, "consumed_at": None,
+               "voided_at": None, "void_reason": None,
                "expires_at": min(str(run["demo_run"]["expires_at"]),
                                  (now + timedelta(minutes=30)).isoformat()),
                "created_at": now.isoformat(), "updated_at": now.isoformat(), "version": 1,
                "internal_demo": True, "fixture_id": run["demo_run"]["fixture_id"]}
-        created = await self.store.create("internal_demo_approvals", approval_id, row)
-        existing = row if created else await self.store.get("internal_demo_approvals", approval_id)
+        created = await self.store.create("approvals", approval_id, row)
+        existing = row if created else await self.store.get("approvals", approval_id)
         if not existing or existing.get("subject_hash") != built["subject_hash"]:
             return _error("idempotency_conflict", "Request id names another approval.")
         return {"status": "success", "duplicate": not created, "approval_id": approval_id,
@@ -236,7 +268,7 @@ class InternalControlledDemoService:
         gate = self._owner(principal, fresh=True)
         if gate.get("error"):
             return gate
-        approval = await self.store.get("internal_demo_approvals", approval_id)
+        approval = await self.store.get("approvals", approval_id)
         if (not approval or approval.get("workspace_id") != principal.workspace_id
                 or approval.get("approval_domain") != "INTERNAL_CONTROLLED_DEMO"):
             return _error("approval_not_found", "Internal-demo approval does not exist.", 404)
@@ -250,9 +282,11 @@ class InternalControlledDemoService:
         if run.get("error"):
             return run
         committed = await self.store.compare_and_set(
-            "internal_demo_approvals", approval_id, int(approval["version"]),
+            "approvals", approval_id, int(approval["version"]),
             {"status": "GRANTED" if decision == "GRANT" else "DENIED",
-             "resolved_by_actor_id": principal.actor_id, "resolved_at": utc_now(),
+             "resolved_by_actor_id": principal.actor_id,
+             "decided_by_actor_id": principal.actor_id,
+             "resolved_at": utc_now(),
              "updated_at": utc_now()})
         if not committed:
             return _error("concurrency_conflict", "Approval changed concurrently.")
@@ -287,7 +321,9 @@ class InternalControlledDemoService:
         if run.get("state") != "ACTIVE":
             return _error("demo_run_not_active", "Internal demo run cannot be reset.")
         actions = await self.store.list(
-            "internal_demo_actions", filters={"demo_run_id": demo_run_id}, limit=100)
+            "external_actions",
+            filters={"demo_run_id": demo_run_id,
+                     "action_domain": "INTERNAL_CONTROLLED_DEMO"}, limit=100)
         created_invite = any(
             row.get("action_kind") == "INTERNAL_DEMO_CREATE_CALENDAR_EVENT"
             and row.get("status") == "SUCCEEDED" for row in actions)

@@ -11,6 +11,8 @@ from google.adk.tools.tool_context import ToolContext
 
 from services import alex_mailbox
 
+from ._common import actor_id, workspace_id
+
 
 async def check_alex_inbox(tool_context: ToolContext) -> dict:
     """Check Alex's mailbox (alex@ruhu.ai) for new program mail.
@@ -23,7 +25,8 @@ async def check_alex_inbox(tool_context: ToolContext) -> dict:
         {"status": "success", "events": [{from, subject, kind, excerpt}]}
         or {"error": true, "message": ...} when the mailbox is not connected.
     """
-    return await alex_mailbox.scan_unread()
+    return await alex_mailbox.scan_unread(
+        workspace_id=workspace_id(tool_context))
 
 
 async def search_alex_mail(tool_context: ToolContext, query: str,
@@ -42,7 +45,9 @@ async def search_alex_mail(tool_context: ToolContext, query: str,
         {"status": "success", "results": [{id, thread_id, from, subject, date, snippet}]}
         or {"error": true, "message": ...} when the mailbox is not connected.
     """
-    return await alex_mailbox.search_messages(query=query, max_results=max_results)
+    return await alex_mailbox.search_messages(
+        query=query, max_results=max_results,
+        workspace_id=workspace_id(tool_context))
 
 
 async def read_alex_message(tool_context: ToolContext, message_id: str) -> dict:
@@ -58,7 +63,9 @@ async def read_alex_message(tool_context: ToolContext, message_id: str) -> dict:
         {"status": "success", "message": {from, to, subject, date, body}}
         or {"error": true, "message": ...}.
     """
-    return await alex_mailbox.get_message(message_id)
+    return await alex_mailbox.get_message(
+        message_id,
+        workspace_id=workspace_id(tool_context))
 
 
 async def send_alex_email(tool_context: ToolContext, to: str, subject: str,
@@ -83,6 +90,7 @@ async def send_alex_email(tool_context: ToolContext, to: str, subject: str,
     session = getattr(tool_context, "session", None)
     return await alex_mailbox.send_email(
         to=to, subject=subject, body=body, application_id=application_id,
-        founder_id=tool_context.state.get("user:profile_id", "founder"),
+        founder_id=workspace_id(tool_context),
+        requested_by_actor_id=actor_id(tool_context),
         session_id=(getattr(session, "id", "")
                     or getattr(session, "session_id", "")))

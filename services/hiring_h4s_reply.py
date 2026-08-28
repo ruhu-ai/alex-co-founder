@@ -22,8 +22,9 @@ _OPAQUE = re.compile(r"^[A-Za-z0-9._:@+-]{3,512}$")
 
 
 def _error(code: str, message: str, http_status: int = 409) -> dict[str, Any]:
+    del http_status
     return {"status": "error", "error": True, "error_code": code,
-            "message": message, "http_status": http_status}
+            "message": message}
 
 
 def _message_hash(value: str) -> str:

@@ -8,6 +8,7 @@ approvals, audit, ingestions, browser_runs.
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import re
 import uuid
@@ -57,13 +58,45 @@ TOP_LEVEL_COLLECTIONS: frozenset[str] = frozenset({
     "external_events",
     "founder_inbox",
     "external_actions",
+    "wake_deliveries",
+    "portal_event_receipts",
+    "command_receipts",
+    "command_outbox",
+    "projection_streams",
+    "projection_events",
+    "tenancy_migration_receipts",
+    "connector_credential_migration_receipts",
+    "consequence_migration_receipts",
+    "workflow_migration_receipts",
+    "action_execution_outbox",
     # docs/25 H1-H3 durable hiring foundation
     "workspace_members",
     "workflow_runs",
+    "workflow_plans",
     "workflow_steps",
     "step_attempts",
     "waits",
     "run_events",
+    "investor_outreach",
+    "investor_candidates",
+    "outreach_drafts",
+    "investor_replies",
+    "meeting_briefs",
+    "workspace_profiles",
+    "actor_preference_profiles",
+    "profile_fact_pointers",
+    "profile_facts",
+    "profile_fact_receipts",
+    "memory_items",
+    "memory_write_receipts",
+    "memory_search_receipts",
+    "deletion_jobs",
+    "deletion_work_items",
+    "deletion_receipts",
+    "capability_states",
+    "operational_snapshots",
+    "recovery_drills",
+    "governance_reports",
     "connector_credential_grants",
     "hiring_roles",
     "hiring_policy_versions",
@@ -89,6 +122,13 @@ TOP_LEVEL_COLLECTIONS: frozenset[str] = frozenset({
     "hiring_conversation_turns",
     "hiring_process_retrospectives",
     "hiring_reply_correlations",
+    # Internal controlled-demo records are durable workspace data too. They
+    # must participate in export/deletion coverage even though they use the
+    # generic DurableStore adapter rather than accessors in this module.
+    "internal_demo_runs",
+    "internal_demo_approvals",
+    "internal_demo_actions",
+    "internal_demo_applications",
 })
 
 SUBCOLLECTIONS: frozenset[str] = frozenset({
@@ -134,9 +174,13 @@ def _new_id() -> str:
 # opportunities
 # ---------------------------------------------------------------------------
 
-async def find_opportunity_by_hash(dedup_hash: str) -> Optional[str]:
+async def find_opportunity_by_hash(dedup_hash: str,
+                                   founder_id: str = "") -> Optional[str]:
     """Return the existing opportunity id for a dedup hash, else None."""
-    query = get_client().collection("opportunities").where("dedup_hash", "==", dedup_hash).limit(1)
+    query = get_client().collection("opportunities")
+    if founder_id:
+        query = query.where("workspace_id", "==", founder_id)
+    query = query.where("dedup_hash", "==", dedup_hash)
     async for doc in query.stream():
         return doc.id
     return None
@@ -150,7 +194,9 @@ async def create_opportunity(record: dict[str, Any]) -> str:
     duplicate opportunities (the old query-then-write was racy)."""
     from google.cloud import firestore as gc_firestore
 
-    doc_id = hashlib.sha256(record["dedup_hash"].encode()).hexdigest()[:24]
+    workspace_id = str(record.get("workspace_id") or record.get("founder_id") or "")
+    identity = f"{workspace_id}\x1e{record['dedup_hash']}"
+    doc_id = hashlib.sha256(identity.encode()).hexdigest()[:24]
     ref = get_client().collection("opportunities").document(doc_id)
     transaction = get_client().transaction()
 
@@ -159,32 +205,47 @@ async def create_opportunity(record: dict[str, Any]) -> str:
         snap = await ref.get(transaction=txn)
         if snap.exists:
             return doc_id  # already discovered — never a duplicate
-        txn.set(ref, {**record, "state": "DISCOVERED",
+        txn.set(ref, {**record, "workspace_id": workspace_id or None,
+                      "founder_id": workspace_id or None,
+                      "opportunity_domain": "OPPORTUNITY",
+                      "tenancy_schema_version": 1,
+                      "state": "DISCOVERED",
                       "created_at": _now(), "updated_at": _now()})
         return doc_id
 
     return await _create(transaction)
 
 
-async def get_opportunity(opportunity_id: str) -> Optional[dict[str, Any]]:
+async def get_opportunity(opportunity_id: str,
+                          founder_id: str = "") -> Optional[dict[str, Any]]:
     if not opportunity_id:  # empty id would build an invalid document path
         return None
     doc = await get_client().collection("opportunities").document(opportunity_id).get()
-    return doc.to_dict() | {"id": doc.id} if doc.exists else None
+    if not doc.exists:
+        return None
+    row = doc.to_dict() | {"id": doc.id}
+    return row if (not founder_id or row.get("workspace_id") == founder_id) else None
 
 
-async def list_unscored_opportunities(limit: int = 10) -> list[dict[str, Any]]:
-    # single-field filter only; sort client-side — no composite index required
-    query = get_client().collection("opportunities").where("state", "==", "DISCOVERED")
+async def list_unscored_opportunities(limit: int = 10,
+                                      founder_id: str = "") -> list[dict[str, Any]]:
+    query = get_client().collection("opportunities")
+    if founder_id:
+        query = query.where("workspace_id", "==", founder_id)
+    query = query.where("state", "==", "DISCOVERED")
     docs = [doc.to_dict() | {"id": doc.id} async for doc in query.stream()]
     docs.sort(key=lambda d: d.get("created_at", ""))
     return docs[:limit]
 
 
-async def set_opportunity_state(opportunity_id: str, state: str, **fields: Any) -> None:
-    await get_client().collection("opportunities").document(opportunity_id).update(
-        {"state": state, **fields, "updated_at": _now()}
-    )
+async def set_opportunity_state(opportunity_id: str, state: str,
+                                founder_id: str = "", **fields: Any) -> None:
+    ref = get_client().collection("opportunities").document(opportunity_id)
+    if founder_id:
+        snapshot = await ref.get()
+        if not snapshot.exists or snapshot.to_dict().get("workspace_id") != founder_id:
+            return
+    await ref.update({"state": state, **fields, "updated_at": _now()})
 
 
 # ---------------------------------------------------------------------------
@@ -205,8 +266,9 @@ async def find_application_by_founder_opportunity(
     invariant shipped used UUIDs. This compatibility lookup prevents selecting
     one of those opportunities from creating a second application.
     """
-    query = get_client().collection("applications").where(
-        "founder_id", "==", founder_id)
+    query = (get_client().collection("applications")
+             .where("workspace_id", "==", founder_id)
+             .where("founder_id", "==", founder_id))
     matches = [doc.to_dict() | {"id": doc.id} async for doc in query.stream()
                if doc.to_dict().get("opportunity_id") == opportunity_id]
     if not matches:
@@ -241,7 +303,10 @@ async def get_or_create_application(
         now = _now()
         record = {
             "opportunity_id": opportunity_id,
+            "workspace_id": founder_id,
             "founder_id": founder_id,
+            "application_domain": "GRANT_APPLICATION",
+            "tenancy_schema_version": 1,
             "state": "INTERVIEWING",
             "checklist": checklist,
             "interview_qa": [],
@@ -259,8 +324,28 @@ async def get_or_create_application(
     return await _create(transaction)
 
 
-async def get_application(application_id: str) -> Optional[dict[str, Any]]:
+async def get_application(application_id: str,
+                          founder_id: str) -> Optional[dict[str, Any]]:
+    """Return an application only through its workspace ownership boundary."""
     doc = await get_client().collection("applications").document(application_id).get()
+    if not doc.exists:
+        return None
+    row = doc.to_dict() | {"id": doc.id}
+    return row if (row.get("workspace_id") == founder_id
+                   and row.get("founder_id") == founder_id) else None
+
+
+async def get_application_for_provider_event(
+        application_id: str) -> Optional[dict[str, Any]]:
+    """Provider-correlation lookup; callers must verify transport first.
+
+    The returned workspace is routing authority for a globally unique opaque
+    application ID. It is never exposed as a founder-facing point read.
+    """
+    if not application_id:
+        return None
+    doc = await get_client().collection("applications").document(
+        application_id).get()
     return doc.to_dict() | {"id": doc.id} if doc.exists else None
 
 
@@ -325,7 +410,9 @@ async def get_evidence_check(report_id: str, founder_id: str,
     if not snap.exists:
         return None
     row = snap.to_dict()
-    if row.get("founder_id") != founder_id or row.get("application_id") != application_id:
+    if (row.get("workspace_id") != founder_id
+            or row.get("founder_id") != founder_id
+            or row.get("application_id") != application_id):
         return None
     return {**row, "report_id": report_id}
 
@@ -357,7 +444,12 @@ async def claim_evidence_check(report_id: str, row: dict[str, Any],
             started = float(current.get("lease_started_epoch") or 0)
             if (_time.time() - started) <= float(current.get("lease_seconds") or lease_seconds):
                 return {"claimed": False, "existing": None}   # someone else holds it
-        txn.set(ref, {**row, "execution_status": "PREPARED", "lease_owner": owner,
+        workspace_id = str(row.get("workspace_id") or row.get("founder_id") or "")
+        txn.set(ref, {**row, "workspace_id": workspace_id,
+                      "founder_id": workspace_id,
+                      "evidence_domain": "APPLICATION_EVIDENCE",
+                      "tenancy_schema_version": 1,
+                      "execution_status": "PREPARED", "lease_owner": owner,
                       "lease_started_epoch": _time.time(), "lease_seconds": lease_seconds,
                       "created_at": _now()})
         return {"claimed": True, "existing": None, "lease_owner": owner}
@@ -472,6 +564,8 @@ async def update_draft_section(application_id: str, founder_id: str,
 async def create_oauth_state(state: str, verifier: str, scopes: list[str] | None,
                              account: str, connector: str = "",
                              redirect_uri: str = "",
+                             workspace_id: str = "",
+                             actor_id: str = "",
                              ttl_minutes: int = 10) -> None:
     """Persist one PKCE consent transaction across restarts and instances.
 
@@ -487,6 +581,8 @@ async def create_oauth_state(state: str, verifier: str, scopes: list[str] | None
         "account": account,
         "connector": connector,
         "redirect_uri": redirect_uri,
+        "workspace_id": workspace_id,
+        "actor_id": actor_id,
         "expires_at": expires.isoformat(),
         "created_at": _now(),
     })
@@ -642,6 +738,38 @@ async def apply_profile_update(founder_id: str, kind: str, payload: dict, eviden
             detail=f"{kind}: {evidence[:200]}",
             idempotency_key=idempotency_key,
         )
+    if applied:
+        # Phase 4A dual-write: compatibility document remains readable during
+        # migration, while immutable per-key facts become the target authority.
+        from services.durable_store import production_store
+        from services.profile_fact_service import ProfileFactService
+
+        fact_service = ProfileFactService(production_store())
+        source_id = str((provenance or {}).get("source_id") or "")
+        source_ref = (f"source:{source_id}" if source_id else
+                      f"profile-update:{hashlib.sha256(evidence.encode()).hexdigest()[:24]}")
+        if kind == "fact_update":
+            items = [(str(key), value, "WORKSPACE_BUSINESS")
+                     for key, value in payload.items()]
+        elif kind == "canonical_answer_update":
+            items = [(f"canonical_answer:{payload.get('question_key', 'unknown')}",
+                      payload, "WORKSPACE_BUSINESS")]
+        else:
+            digest = hashlib.sha256(
+                json.dumps(payload, sort_keys=True, default=str).encode()).hexdigest()[:24]
+            items = [(f"{kind}:{digest}", payload, "ACTOR_PREFERENCE")]
+        for key, value, scope in items:
+            mirrored = await fact_service.put(
+                workspace_id=founder_id, actor_id=founder_id, scope=scope,
+                key=key, value=value, verification_status=level.value,
+                source_refs=[source_ref],
+                idempotency_key=(idempotency_key or
+                                 f"compat:{version}:{kind}:{key}"))
+            if mirrored.get("error"):
+                await audit(
+                    actor="system:profile_migration", action="profile_fact_mirror",
+                    target=f"profiles/{founder_id}", result="degraded",
+                    detail=f"error_code={mirrored.get('error_code', 'unknown')}")
     return version
 
 
@@ -743,6 +871,17 @@ async def record_interview_answer(founder_id: str, application_id: str,
             result="success",
             detail=f"question_key={question_key[:100]}",
         )
+        from services.durable_store import production_store
+        from services.profile_fact_service import ProfileFactService
+
+        await ProfileFactService(production_store()).put(
+            workspace_id=founder_id, actor_id=founder_id,
+            scope="WORKSPACE_BUSINESS", key=question_key, value=answer,
+            verification_status="FOUNDER_CONFIRMED",
+            source_refs=[f"application:{application_id}"],
+            idempotency_key=(
+                f"interview:{application_id}:{question_key}:"
+                f"{hashlib.sha256(answer.encode()).hexdigest()[:24]}"))
     return result
 
 
@@ -751,22 +890,26 @@ async def record_interview_answer(founder_id: str, application_id: str,
 # ---------------------------------------------------------------------------
 
 async def list_opportunities(limit: int = 40,
-                             start_after: str | None = None) -> list[dict[str, Any]]:
+                             start_after: str | None = None,
+                             founder_id: str = "") -> list[dict[str, Any]]:
     """Newest-first opportunities. `start_after` (a created_at cursor) pages
     through the whole collection so a full scan is not capped at one page —
     deadline_scan pages until the collection is exhausted."""
-    query = get_client().collection("opportunities").order_by(
-        "created_at", direction="DESCENDING")
+    query = get_client().collection("opportunities")
+    if founder_id:
+        query = query.where("workspace_id", "==", founder_id)
+    rows = [doc.to_dict() | {"id": doc.id} async for doc in query.stream()]
+    rows.sort(key=lambda row: row.get("created_at", ""), reverse=True)
     if start_after is not None:
-        query = query.start_after({"created_at": start_after})
-    query = query.limit(limit)
-    return [doc.to_dict() | {"id": doc.id} async for doc in query.stream()]
+        rows = [row for row in rows if row.get("created_at", "") < start_after]
+    return rows[:limit]
 
 
 async def list_inflight_applications(founder_id: str) -> list[dict[str, Any]]:
-    # single-field filter only; CLOSED filtered and sorted client-side —
-    # no composite index required (demo-scale data, reproducible setup)
-    query = get_client().collection("applications").where("founder_id", "==", founder_id)
+    # Workspace scope is in the datastore query; CLOSED remains a local
+    # projection filter so no second composite index is required.
+    query = get_client().collection("applications").where(
+        "workspace_id", "==", founder_id)
     docs = [doc.to_dict() | {"id": doc.id} async for doc in query.stream()]
     docs = [d for d in docs if d.get("state") != "CLOSED"]
     docs.sort(key=lambda d: d.get("created_at", ""), reverse=True)
@@ -821,7 +964,10 @@ async def claim_discovery_request(request_id: str, founder_id: str,
         txn.set(ref, {
             **preserved,
             "request_id": request_id,
+            "workspace_id": founder_id,
             "founder_id": founder_id,
+            "request_domain": "OPPORTUNITY_DISCOVERY",
+            "tenancy_schema_version": 1,
             "context_hash": context_hash,
             "status": "RUNNING",
             "lease_owner": owner,
@@ -839,6 +985,41 @@ async def claim_discovery_request(request_id: str, founder_id: str,
 def discovery_receipt_id(founder_id: str, request_id: str) -> str:
     """The receipt document id IS the discovery_request_id (docs/23 §5.5)."""
     return hashlib.sha256(f"{founder_id}:{request_id}".encode()).hexdigest()[:32]
+
+
+def discovery_receipt_record(
+        request_id: str, founder_id: str, context_hash: str, *,
+        origin_session_id: str, display_query: str, context: str = "",
+        origin_message_id: str | None = None,
+        workflow_run_id: str = "", workflow_plan_hash: str = "",
+        workflow_plan_version: str = "") -> dict[str, Any]:
+    """Build the canonical create-only domain root for command transaction T8."""
+    now = _now()
+    return {
+        "request_id": request_id,
+        "workspace_id": founder_id,
+        "founder_id": founder_id,
+        "request_domain": "OPPORTUNITY_DISCOVERY",
+        "tenancy_schema_version": 1,
+        "context_hash": context_hash,
+        "status": "ACCEPTED",
+        "origin_session_id": origin_session_id,
+        "origin_message_id": origin_message_id,
+        "display_query": display_query,
+        "context": context,
+        "executed_queries": [],
+        "result_opportunity_ids": [],
+        "resource_id": "",
+        "dispatch_status": "pending",
+        "dispatch_error": "",
+        "lease_owner": "",
+        "workflow_run_id": workflow_run_id,
+        "workflow_plan_hash": workflow_plan_hash or None,
+        "workflow_plan_version": workflow_plan_version or None,
+        "created_at": now,
+        "updated_at": now,
+        "version": 1,
+    }
 
 
 async def create_discovery_receipt(request_id: str, founder_id: str,
@@ -872,26 +1053,15 @@ async def create_discovery_receipt(request_id: str, founder_id: str,
             return {"accepted": True, "duplicate": True,
                     "discovery_request_id": doc_id,
                     "status": current.get("status", "ACCEPTED"),
-                    "resource_id": current.get("resource_id", "")}
-        now = _now()
-        txn.set(ref, {
-            "request_id": request_id,
-            "founder_id": founder_id,
-            "context_hash": context_hash,
-            "status": "ACCEPTED",
-            "origin_session_id": origin_session_id,
-            "origin_message_id": origin_message_id,
-            "display_query": display_query,
-            "context": context,
-            "executed_queries": [],
-            "result_opportunity_ids": [],
-            "resource_id": "",
-            "dispatch_status": "pending",
-            "dispatch_error": "",
-            "lease_owner": "",
-            "created_at": now,
-            "updated_at": now,
-        })
+                    "resource_id": current.get("resource_id", ""),
+                    "workflow_run_id": current.get("workflow_run_id", ""),
+                    "workflow_plan_hash": current.get("workflow_plan_hash"),
+                    "workflow_plan_version": current.get("workflow_plan_version")}
+        txn.set(ref, discovery_receipt_record(
+            request_id, founder_id, context_hash,
+            origin_session_id=origin_session_id,
+            display_query=display_query, context=context,
+            origin_message_id=origin_message_id))
         return {"accepted": True, "duplicate": False,
                 "discovery_request_id": doc_id, "status": "ACCEPTED",
                 "resource_id": ""}
@@ -968,7 +1138,10 @@ async def create_feedback(founder_id: str, application_id: str, section_id: str,
     doc_id = _new_id()
     await get_client().collection("feedback").document(doc_id).set(
         {
+            "workspace_id": founder_id,
             "founder_id": founder_id,
+            "feedback_domain": "FOUNDER_DRAFT",
+            "tenancy_schema_version": 1,
             "application_id": application_id,
             "section_id": section_id,
             # The stable, cross-application key ("describe_traction"). section_id
@@ -987,15 +1160,29 @@ async def create_feedback(founder_id: str, application_id: str, section_id: str,
     return doc_id
 
 
-async def get_feedback(feedback_id: str) -> Optional[dict[str, Any]]:
+async def get_feedback(feedback_id: str,
+                       founder_id: str = "") -> Optional[dict[str, Any]]:
     doc = await get_client().collection("feedback").document(feedback_id).get()
-    return doc.to_dict() | {"id": doc.id} if doc.exists else None
+    if not doc.exists:
+        return None
+    row = doc.to_dict() | {"id": doc.id}
+    if founder_id and (row.get("workspace_id") != founder_id
+                       or row.get("founder_id") != founder_id):
+        return None
+    return row
 
 
-async def mark_distilled(feedback_id: str, rule_ids: list[str]) -> None:
-    await get_client().collection("feedback").document(feedback_id).update(
-        {"distilled": True, "distilled_rule_ids": rule_ids}
-    )
+async def mark_distilled(feedback_id: str, rule_ids: list[str],
+                         founder_id: str = "") -> bool:
+    ref = get_client().collection("feedback").document(feedback_id)
+    if founder_id:
+        snapshot = await ref.get()
+        if (not snapshot.exists
+                or snapshot.to_dict().get("workspace_id") != founder_id
+                or snapshot.to_dict().get("founder_id") != founder_id):
+            return False
+    await ref.update({"distilled": True, "distilled_rule_ids": rule_ids})
+    return True
 
 
 # ---------------------------------------------------------------------------
@@ -1005,7 +1192,8 @@ async def mark_distilled(feedback_id: str, rule_ids: list[str]) -> None:
 async def create_approval(application_id: str, gate: str, ttl_minutes: int,
                           details: Optional[dict[str, Any]] = None,
                           founder_id: str = "", session_id: str = "",
-                          subject_hash: str = "") -> str:
+                          subject_hash: str = "",
+                          bindings: Optional[dict[str, Any]] = None) -> str:
     from datetime import timedelta
 
     doc_id = _new_id()
@@ -1013,14 +1201,27 @@ async def create_approval(application_id: str, gate: str, ttl_minutes: int,
     await get_client().collection("approvals").document(doc_id).set(
         {
             "application_id": application_id,
+            # Only the platform approval service mints v2 records.  Keeping a
+            # v1 marker when the internal low-level helper is called without
+            # bindings makes the migration window explicit; the Phase 3
+            # backfill can identify those rows rather than treating missing
+            # fields as a valid v2 approval.
+            "schema_version": 2 if bindings else 1,
+            "approval_domain": "GRANT_APPLICATION",
+            "workspace_id": founder_id,
             "gate": gate,
             "founder_id": founder_id,
+            "requested_by_actor_id": founder_id,
+            "approving_actor_requirement": "INTERACTIVE_MEMBER",
             "session_id": session_id,
             "details": details or {},  # what the founder is approving (e.g. email to/subject/body)
             # Immutable identity of the subject (docs/02): for
             # submit_application, application id + fill-report portal/mapping
             # hashes. Submit must match it after any reopen.
             "subject_hash": subject_hash or None,
+            **dict(bindings or {}),
+            "claim_id": None, "claimed_action_id": None,
+            "claimed_at": None, "voided_at": None, "void_reason": None,
             "token": None,
             "status": "PENDING",
             "expires_at": expires.isoformat(),
@@ -1032,16 +1233,28 @@ async def create_approval(application_id: str, gate: str, ttl_minutes: int,
     return doc_id
 
 
-async def list_pending_approvals(founder_id: str = "", session_id: str = "") -> list[dict[str, Any]]:
-    """Pending approvals scoped to one founder session, newest first."""
-    now = _now()
+async def list_pending_approvals(founder_id: str = "", session_id: str = "",
+                                 *, now: datetime | str | None = None) -> list[dict[str, Any]]:
+    """Pending approvals scoped to one founder session, newest first.
+
+    ``now`` is injectable because waiting views must be a pure function of the
+    caller's checkpoint time.  Production callers omit it and use UTC wall
+    time; deterministic replay and tests pass the workflow checkpoint.
+    """
+    if isinstance(now, datetime):
+        now_stamp = now.astimezone(timezone.utc).isoformat()
+    else:
+        now_stamp = str(now or _now())
     query = get_client().collection("approvals").where("status", "==", "PENDING")
+    if founder_id:
+        query = query.where("workspace_id", "==", founder_id)
     out = []
     async for doc in query.stream():
         record = doc.to_dict()
-        if record.get("expires_at", "") <= now:
+        if record.get("expires_at", "") <= now_stamp:
             continue
-        if founder_id and record.get("founder_id") != founder_id:
+        if founder_id and (record.get("workspace_id") != founder_id
+                           or record.get("founder_id") != founder_id):
             continue
         if session_id and record.get("session_id") != session_id:
             continue
@@ -1059,9 +1272,120 @@ async def deny_approval(approval_id: str) -> None:
     await get_client().collection("approvals").document(approval_id).update({"status": "DENIED"})
 
 
+async def resolve_approval_decision(approval_id: str, decision: str,
+                                    founder_id: str,
+                                    session_id: str, *,
+                                    deciding_actor_id: str = "") -> dict[str, Any]:
+    """Linearize one founder decision and its audit record.
+
+    Reading a PENDING row and updating it in separate calls lets two browser
+    requests both report success. Firestore retries this transaction when the
+    approval changes, so exactly one decision can win and the losing caller
+    receives a stable conflict instead of a false confirmation.
+    """
+    from google.cloud import firestore as gc_firestore
+
+    if decision not in {"grant", "deny"}:
+        return _contract_error("decision must be grant|deny")
+    if not founder_id or not session_id:
+        return _contract_error("approval requires a founder-bound session",
+                               "owner_mismatch")
+
+    client = get_client()
+    ref = client.collection("approvals").document(approval_id)
+    audit_ref = client.collection("audit").document(_new_id())
+    wake_id = "wake_" + hashlib.sha256(
+        f"approval\x1f{approval_id}\x1f{session_id}".encode()).hexdigest()[:32]
+    wake_ref = client.collection("wake_deliveries").document(wake_id)
+    transaction = client.transaction()
+
+    @gc_firestore.async_transactional
+    async def _resolve(txn):
+        snapshot = await ref.get(transaction=txn)
+        if not snapshot.exists:
+            return _contract_error("approval not found", "not_found")
+        approval = snapshot.to_dict()
+        if ((approval.get("workspace_id") or approval.get("founder_id")) != founder_id
+                or approval.get("founder_id") != founder_id
+                or approval.get("session_id") != session_id):
+            return _contract_error(
+                "approval does not belong to this founder session",
+                "owner_mismatch")
+        if approval.get("status") != "PENDING":
+            return _contract_error(
+                f"approval already {approval.get('status', 'resolved')}",
+                "approval_terminal")
+
+        now = _now()
+        if approval.get("expires_at", "") <= now:
+            txn.update(ref, {"status": "EXPIRED", "token": None,
+                             "updated_at": now})
+            return _contract_error(
+                "approval request expired; request a new one",
+                "approval_expired")
+
+        fields: dict[str, Any] = {
+            "status": "GRANTED" if decision == "grant" else "DENIED",
+            "decided_by_actor_id": deciding_actor_id or founder_id,
+            "decided_at": now,
+            "updated_at": now,
+        }
+        if decision == "grant":
+            fields.update(token=_new_id(), granted_by=founder_id)
+        else:
+            fields.update(token=None, denied_by=founder_id)
+        txn.update(ref, fields)
+        txn.create(audit_ref, {
+            "workspace_id": founder_id,
+            "actor": f"founder:{founder_id}",
+            "actor_id": deciding_actor_id or founder_id,
+            "action": f"approval_{decision}",
+            "idempotency_key": None,
+            "target": f"approvals/{approval_id}",
+            "result": "success",
+            "detail": "",
+            "created_at": now,
+        })
+        if decision == "grant":
+            txn.create(wake_ref, {
+                "schema_version": 1, "delivery_id": wake_id,
+                "workspace_id": founder_id, "delivery_domain": "FOUNDER_WAKE",
+                "founder_id": founder_id, "session_id": session_id,
+                "source_kind": "approval", "source_id": approval_id,
+                "notice": ("Resume: founder approved "
+                           f"{approval.get('gate', 'action')} at the approval gate."),
+                "state_delta": {"pending_signals": []},
+                "status": "PENDING", "attempt": 0,
+                "lease_owner": None, "lease_started_at": None,
+                "lease_seconds": 120, "last_error_code": None,
+                "created_at": now, "updated_at": now,
+                "delivered_at": None,
+            })
+        return {
+            "status": "success", "approval_id": approval_id,
+            "decision": decision, "gate": approval.get("gate", ""),
+            "application_id": approval.get("application_id", ""),
+            "session_id": approval.get("session_id", ""),
+            "decided_by_actor_id": deciding_actor_id or founder_id,
+            "wake_delivery_id": wake_id if decision == "grant" else None,
+        }
+
+    return await _resolve(transaction)
+
+
 async def get_approval(approval_id: str) -> Optional[dict[str, Any]]:
     doc = await get_client().collection("approvals").document(approval_id).get()
     return doc.to_dict() | {"id": doc.id} if doc.exists else None
+
+
+async def get_approval_for_workspace(
+        founder_id: str, approval_id: str) -> Optional[dict[str, Any]]:
+    """Workspace-scoped point read with collapsed cross-tenant absence."""
+    row = await get_approval(approval_id)
+    if not row:
+        return None
+    owner = row.get("workspace_id") or row.get("founder_id")
+    return row if owner == founder_id else None
 
 
 async def find_valid_approval(application_id: str, gate: str = "",
@@ -1081,6 +1405,8 @@ async def find_valid_approval(application_id: str, gate: str = "",
         .where("application_id", "==", application_id)
         .where("status", "==", "GRANTED")
     )
+    if founder_id:
+        query = query.where("workspace_id", "==", founder_id)
     async for doc in query.stream():
         record = doc.to_dict()
         if (record.get("expires_at", "") > now
@@ -1132,6 +1458,8 @@ async def find_pending_approval(application_id: str, gate: str = "",
         .where("application_id", "==", application_id)
         .where("status", "==", "PENDING")
     )
+    if founder_id:
+        query = query.where("workspace_id", "==", founder_id)
     async for doc in query.stream():
         record = doc.to_dict()
         if record.get("expires_at", "") <= now:
@@ -1623,7 +1951,10 @@ async def register_artifact_ingestion(
     audit_id = hashlib.sha256(f"ingestion-audit:{doc_id}".encode()).hexdigest()[:32]
     audit_ref = get_client().collection("audit").document(audit_id)
     artifact_row = {
+        "workspace_id": founder_id,
         "founder_id": founder_id,
+        "artifact_domain": "FOUNDER_EVIDENCE",
+        "tenancy_schema_version": 1,
         "session_id": session_id,
         "scope": scope,
         "source_type": source_type,
@@ -1655,7 +1986,10 @@ async def register_artifact_ingestion(
     }
     ingestion_row = {
         "artifact_id": doc_id,
+        "workspace_id": founder_id,
         "founder_id": founder_id,
+        "ingestion_domain": "FOUNDER_SOURCE",
+        "tenancy_schema_version": 1,
         "session_id": session_id,
         "scope": scope,
         "source_type": source_type,
@@ -1710,6 +2044,17 @@ async def register_artifact_ingestion(
 async def get_artifact(artifact_id: str) -> Optional[dict[str, Any]]:
     doc = await get_client().collection("artifacts").document(artifact_id).get()
     return doc.to_dict() | {"id": doc.id} if doc.exists else None
+
+
+async def get_artifact_by_storage_name(
+        founder_id: str, storage_name: str) -> Optional[dict[str, Any]]:
+    """Authorize a blob through its workspace-scoped artifact metadata."""
+    query = (get_client().collection("artifacts")
+             .where("founder_id", "==", founder_id)
+             .where("storage_name", "==", storage_name).limit(1))
+    async for doc in query.stream():
+        return doc.to_dict() | {"id": doc.id}
+    return None
 
 
 async def delete_session_artifact_records(founder_id: str, session_id: str,
@@ -1968,7 +2313,10 @@ async def create_ingestion(founder_id: str, source_type: str, source_ref: str,
     doc_id = _new_id()
     await get_client().collection("ingestions").document(doc_id).set(
         {
+            "workspace_id": founder_id,
             "founder_id": founder_id,
+            "ingestion_domain": "FOUNDER_SOURCE",
+            "tenancy_schema_version": 1,
             "source_type": source_type,
             "source_ref": source_ref,
             "artifact": artifact,
@@ -2033,18 +2381,28 @@ async def update_integrations(founder_id: str, **fields: Any) -> None:
     await get_client().collection("integrations").document(founder_id).set(fields, merge=True)
 
 
-async def get_processed_gmail_ids() -> list[str]:
-    doc = await get_client().collection("gmail_state").document("processed").get()
+def _connector_state_doc(kind: str, founder_id: str = "") -> str:
+    if not founder_id:
+        return kind
+    digest = hashlib.sha256(founder_id.encode()).hexdigest()[:40]
+    return f"{kind}_{digest}"
+
+
+async def get_processed_gmail_ids(founder_id: str = "") -> list[str]:
+    doc = await get_client().collection("gmail_state").document(
+        _connector_state_doc("processed", founder_id)).get()
     return doc.to_dict().get("ids", []) if doc.exists else []
 
 
-async def _append_processed_ids(collection: str, ids: list[str]) -> None:
+async def _append_processed_ids(
+        collection: str, ids: list[str], founder_id: str = "") -> None:
     """Atomic, bounded append. A transaction (not a bare read-modify-write) so
     concurrent scans cannot drop each other's ids and re-emit duplicate
     follow-ups; the last-2000 bound keeps rescans idempotent yet finite."""
     from google.cloud import firestore as gc_firestore
 
-    ref = get_client().collection(collection).document("processed")
+    ref = get_client().collection(collection).document(
+        _connector_state_doc("processed", founder_id))
     transaction = get_client().transaction()
 
     @gc_firestore.async_transactional
@@ -2058,49 +2416,59 @@ async def _append_processed_ids(collection: str, ids: list[str]) -> None:
     await _append(transaction)
 
 
-async def add_processed_gmail_ids(ids: list[str]) -> None:
-    await _append_processed_ids("gmail_state", ids)
+async def add_processed_gmail_ids(ids: list[str], founder_id: str = "") -> None:
+    await _append_processed_ids("gmail_state", ids, founder_id)
 
 
-async def set_last_gmail_scan(summary: dict[str, Any]) -> None:
-    await get_client().collection("gmail_state").document("last_scan").set(
-        {**summary, "at": _now()})
+async def set_last_gmail_scan(
+        summary: dict[str, Any], founder_id: str = "") -> None:
+    await get_client().collection("gmail_state").document(
+        _connector_state_doc("last_scan", founder_id)).set(
+        {**summary, "workspace_id": founder_id or None, "at": _now()})
 
 
-async def get_last_gmail_scan() -> Optional[dict[str, Any]]:
-    doc = await get_client().collection("gmail_state").document("last_scan").get()
+async def get_last_gmail_scan(founder_id: str = "") -> Optional[dict[str, Any]]:
+    doc = await get_client().collection("gmail_state").document(
+        _connector_state_doc("last_scan", founder_id)).get()
     return doc.to_dict() if doc.exists else None
 
 
 # alex_mail_state (adr/001 v2): same pattern as gmail_state, separate collection
 # — Alex's mailbox is a different account with its own idempotency store.
 
-async def get_processed_alex_ids() -> list[str]:
-    doc = await get_client().collection("alex_mail_state").document("processed").get()
+async def get_processed_alex_ids(founder_id: str = "") -> list[str]:
+    doc = await get_client().collection("alex_mail_state").document(
+        _connector_state_doc("processed", founder_id)).get()
     return doc.to_dict().get("ids", []) if doc.exists else []
 
 
-async def add_processed_alex_ids(ids: list[str]) -> None:
-    await _append_processed_ids("alex_mail_state", ids)
+async def add_processed_alex_ids(ids: list[str], founder_id: str = "") -> None:
+    await _append_processed_ids("alex_mail_state", ids, founder_id)
 
 
-async def get_alex_history_id() -> Optional[str]:
-    doc = await get_client().collection("alex_mail_state").document("watch").get()
+async def get_alex_history_id(founder_id: str = "") -> Optional[str]:
+    doc = await get_client().collection("alex_mail_state").document(
+        _connector_state_doc("watch", founder_id)).get()
     return doc.to_dict().get("history_id") if doc.exists else None
 
 
-async def set_alex_history_id(history_id: str) -> None:
-    await get_client().collection("alex_mail_state").document("watch").set(
-        {"history_id": history_id, "at": _now()})
+async def set_alex_history_id(history_id: str, founder_id: str = "") -> None:
+    await get_client().collection("alex_mail_state").document(
+        _connector_state_doc("watch", founder_id)).set(
+        {"history_id": history_id, "workspace_id": founder_id or None,
+         "at": _now()})
 
 
-async def set_last_alex_scan(summary: dict[str, Any]) -> None:
-    await get_client().collection("alex_mail_state").document("last_scan").set(
-        {**summary, "at": _now()})
+async def set_last_alex_scan(
+        summary: dict[str, Any], founder_id: str = "") -> None:
+    await get_client().collection("alex_mail_state").document(
+        _connector_state_doc("last_scan", founder_id)).set(
+        {**summary, "workspace_id": founder_id or None, "at": _now()})
 
 
-async def get_last_alex_scan() -> Optional[dict[str, Any]]:
-    doc = await get_client().collection("alex_mail_state").document("last_scan").get()
+async def get_last_alex_scan(founder_id: str = "") -> Optional[dict[str, Any]]:
+    doc = await get_client().collection("alex_mail_state").document(
+        _connector_state_doc("last_scan", founder_id)).get()
     return doc.to_dict() if doc.exists else None
 
 
@@ -2635,6 +3003,12 @@ def _contract_error(message: str, code: str = "invalid_contract") -> dict[str, A
             "error_code": code, "message": message}
 
 
+def _workspace_owner_matches(row: dict[str, Any], workspace_id: str) -> bool:
+    """Require both the migrated tenant boundary and compatibility owner."""
+    return bool(workspace_id and row.get("workspace_id") == workspace_id
+                and row.get("founder_id") == workspace_id)
+
+
 def _lease_is_active(row: dict[str, Any]) -> bool:
     owner = str(row.get("lease_owner") or "")
     started = str(row.get("lease_started_at") or "")
@@ -2654,7 +3028,8 @@ async def upsert_data_connection(
         founder_id: str, connector_id: str, *, account_ref: str = "default",
         account_hint: str = "", roles: list[str] | None = None,
         auth_kind: str = "google_oauth", credential_ref: str | None = None,
-        granted_scopes: list[str] | None = None, status: str = "CONNECTED",
+        granted_scopes: list[str] | None = None,
+        provider_account_hash: str = "", status: str = "CONNECTED",
         expected_version: int | None = None) -> dict[str, Any]:
     """Create/update one owner-scoped connection with optimistic versioning."""
     from google.cloud import firestore as gc_firestore
@@ -2690,12 +3065,16 @@ async def upsert_data_connection(
         now = _now()
         row = {
             "schema_version": 1, "connection_id": connection_id,
-            "founder_id": founder_id, "connector_id": connector.value,
+            "workspace_id": founder_id, "founder_id": founder_id,
+            "connector_id": connector.value,
             "account_ref": str(account_ref)[:256],
             "account_hint": str(account_hint)[:120],
             "roles": sorted(role.value for role in closed_roles),
             "auth_kind": auth.value,
             "credential_ref": str(credential_ref)[:256] if credential_ref else None,
+            "provider_account_hash": (str(provider_account_hash)[:96]
+                                      or (current or {}).get(
+                                          "provider_account_hash")),
             "granted_scopes": sorted({str(scope)[:256]
                                       for scope in (granted_scopes or []) if scope}),
             "status": state.value,
@@ -2722,15 +3101,33 @@ async def get_data_connection(founder_id: str,
     if not snapshot.exists:
         return None
     row = snapshot.to_dict() | {"id": snapshot.id}
-    return row if row.get("founder_id") == founder_id else None
+    return row if (row.get("workspace_id") == founder_id
+                   and row.get("founder_id") == founder_id) else None
 
 
 async def list_data_connections(founder_id: str) -> list[dict[str, Any]]:
     query = get_client().collection("data_connections").where(
-        "founder_id", "==", founder_id)
+        "workspace_id", "==", founder_id)
     rows = [doc.to_dict() | {"id": doc.id} async for doc in query.stream()]
     return sorted(rows, key=lambda row: (row.get("connector_id", ""),
                                          row.get("account_ref", "")))
+
+
+async def find_data_connections_by_provider(
+        connector_id: str, provider_account_hash: str) -> list[dict[str, Any]]:
+    """Resolve provider ingress to an exact active workspace connection.
+
+    This is deliberately a provider-correlation query, not a user read. It
+    returns only closed connector metadata and never scans user content.
+    """
+    if not connector_id or not provider_account_hash:
+        return []
+    query = get_client().collection("data_connections").where(
+        "connector_id", "==", connector_id)
+    rows = [doc.to_dict() | {"id": doc.id} async for doc in query.stream()]
+    return [row for row in rows
+            if row.get("provider_account_hash") == provider_account_hash
+            and row.get("status") in {"CONNECTED", "DEGRADED"}]
 
 
 async def transition_data_connection(
@@ -2865,7 +3262,8 @@ async def create_source_grant(
         now = _now()
         row = {
             "schema_version": 1, "source_grant_id": grant_id,
-            "founder_id": founder_id, "connection_id": connection_id,
+            "workspace_id": founder_id, "founder_id": founder_id,
+            "connection_id": connection_id,
             "connector_id": dsc.ConnectorId.DRIVE.value,
             "provider_source_id": str(provider_source_id)[:512],
             "display_name": str(display_name)[:240], "source_kind": "file",
@@ -2893,13 +3291,13 @@ async def get_source_grant(founder_id: str,
     if not snapshot.exists:
         return None
     row = snapshot.to_dict() | {"id": snapshot.id}
-    return row if row.get("founder_id") == founder_id else None
+    return row if _workspace_owner_matches(row, founder_id) else None
 
 
 async def list_source_grants(founder_id: str, *,
                              connection_id: str | None = None) -> list[dict[str, Any]]:
     query = get_client().collection("source_grants").where(
-        "founder_id", "==", founder_id)
+        "workspace_id", "==", founder_id)
     rows = [doc.to_dict() | {"id": doc.id} async for doc in query.stream()]
     if connection_id:
         rows = [row for row in rows if row.get("connection_id") == connection_id]
@@ -2986,6 +3384,7 @@ async def create_external_event(
         now = _now()
         row = {
             "schema_version": 1, "event_id": event_id,
+            "workspace_id": founder_id, "event_domain": "CONNECTOR_EVENT",
             "founder_id": founder_id, "connection_id": connection_id,
             "connector_id": connector_id,
             "provider_event_id": str(provider_event_id)[:512],
@@ -2994,6 +3393,9 @@ async def create_external_event(
             "event_kind": kind.value, "payload_hash": payload_hash,
             "source_ref": refs, "safe_display": safe,
             "content_risk": risk.value,
+            "verification_status": "VERIFIED",
+            "verified_at": now,
+            "business_disposition": "RECEIVED",
             "processing_status": dsc.EventProcessingStatus.RECEIVED.value,
             "lease_owner": None, "lease_started_at": None, "lease_seconds": 0,
             "correlation_status": dsc.CorrelationStatus.PENDING.value,
@@ -3016,18 +3418,17 @@ async def get_external_event(founder_id: str,
     if not snapshot.exists:
         return None
     row = snapshot.to_dict() | {"id": snapshot.id}
-    return row if row.get("founder_id") == founder_id else None
+    return row if _workspace_owner_matches(row, founder_id) else None
 
 
 async def list_external_events_by_thread(
         founder_id: str, provider_thread_id: str, *,
         limit: int = 20) -> list[dict[str, Any]]:
     """Owner-scoped thread evidence; only previously exact rows may correlate."""
-    query = get_client().collection("external_events").where(
-        "founder_id", "==", founder_id)
+    query = (get_client().collection("external_events")
+             .where("workspace_id", "==", founder_id)
+             .where("provider_thread_id", "==", provider_thread_id))
     rows = [doc.to_dict() | {"id": doc.id} async for doc in query.stream()]
-    rows = [row for row in rows
-            if row.get("provider_thread_id") == provider_thread_id]
     rows.sort(key=lambda row: row.get("received_at", ""), reverse=True)
     return rows[:limit]
 
@@ -3058,6 +3459,7 @@ async def claim_external_event(founder_id: str, event_id: str, *,
         owner = lease_owner or uuid.uuid4().hex
         fields = {
             "processing_status": dsc.EventProcessingStatus.APPLYING.value,
+            "business_disposition": "APPLYING",
             "lease_owner": owner, "lease_started_at": _now(),
             "lease_seconds": max(1, min(int(lease_seconds), 900)),
             "attempt_count": min(int(row.get("attempt_count") or 0) + 1, 100),
@@ -3112,6 +3514,7 @@ async def create_founder_inbox_item(
         else:
             row = {
                 "schema_version": 1, "inbox_item_id": inbox_id,
+                "workspace_id": founder_id, "inbox_domain": "EXTERNAL_EVENT",
                 "founder_id": founder_id, "event_id": event_id,
                 "item_kind": kind.value,
                 "status": dsc.FounderInboxStatus.UNREAD.value,
@@ -3125,6 +3528,7 @@ async def create_founder_inbox_item(
             duplicate = False
         txn.update(event_ref, {
             "processing_status": dsc.EventProcessingStatus.INBOXED.value,
+            "business_disposition": "INBOXED",
             "correlation_status": (dsc.CorrelationStatus.AMBIGUOUS.value
                                    if kind == dsc.FounderInboxKind.AMBIGUOUS_EVENT
                                    else dsc.CorrelationStatus.UNMATCHED.value),
@@ -3182,6 +3586,7 @@ async def apply_external_event_to_application(
         effect_ref = f"applications/{application_id}/followups/{event_id}"
         txn.update(event_ref, {
             "processing_status": dsc.EventProcessingStatus.APPLIED.value,
+            "business_disposition": "APPLIED",
             "correlation_status": dsc.CorrelationStatus.EXACT.value,
             "application_id": application_id, "session_id": session_id,
             "resource_id": application_id, "correlation_basis": basis.value,
@@ -3225,6 +3630,7 @@ async def apply_external_event_signal(
         effect_ref = f"signals/{event_id}"
         txn.update(ref, {
             "processing_status": dsc.EventProcessingStatus.APPLIED.value,
+            "business_disposition": "APPLIED",
             "correlation_status": dsc.CorrelationStatus.EXACT.value,
             "session_id": session_id, "resource_id": resource_id,
             "correlation_basis": basis.value, "effect_ref": effect_ref,
@@ -3238,8 +3644,9 @@ async def apply_external_event_signal(
 
 
 async def claim_external_event_delivery(founder_id: str,
-                                        event_id: str) -> dict[str, Any]:
-    """Claim one founder wake; concurrent/redelivered consumers get duplicate."""
+                                        event_id: str,
+                                        lease_seconds: int = 120) -> dict[str, Any]:
+    """Lease one founder wake; an expired ENQUEUED delivery is reclaimable."""
     from google.cloud import firestore as gc_firestore
 
     from services import data_source_contracts as dsc
@@ -3254,28 +3661,388 @@ async def claim_external_event_delivery(founder_id: str,
             return _contract_error("external event not found", "owner_mismatch")
         row = snapshot.to_dict()
         if row.get("delivery_status") in {
-                dsc.DeliveryStatus.ENQUEUED.value,
                 dsc.DeliveryStatus.DELIVERED.value,
                 dsc.DeliveryStatus.NOT_REQUIRED.value}:
             return {"status": "success", "duplicate": True,
                     "delivery_status": row.get("delivery_status")}
-        txn.update(ref, {"delivery_status": dsc.DeliveryStatus.ENQUEUED.value,
-                         "updated_at": _now()})
-        return {"status": "success", "claimed": True}
+        if (row.get("delivery_status") == dsc.DeliveryStatus.ENQUEUED.value
+                and _lease_is_active(row)):
+            return {"status": "success", "duplicate": True,
+                    "delivery_status": row.get("delivery_status")}
+        now = _now()
+        owner = uuid.uuid4().hex
+        txn.update(ref, {
+            "delivery_status": dsc.DeliveryStatus.ENQUEUED.value,
+            "lease_owner": owner, "lease_started_at": now,
+            "lease_seconds": max(1, min(lease_seconds, 900)),
+            "delivery_attempt": int(row.get("delivery_attempt") or 0) + 1,
+            "updated_at": now,
+        })
+        return {"status": "success", "claimed": True,
+                "lease_owner": owner}
 
     return await _claim(transaction)
 
 
 async def finish_external_event_delivery(founder_id: str, event_id: str,
-                                         *, delivered: bool) -> dict[str, Any]:
-    row = await get_external_event(founder_id, event_id)
-    if not row:
-        return _contract_error("external event not found", "owner_mismatch")
-    value = "DELIVERED" if delivered else "FAILED"
-    await get_client().collection("external_events").document(event_id).update({
-        "delivery_status": value, "updated_at": _now(),
-    })
-    return {"status": "success", "delivery_status": value}
+                                         lease_owner: str, *,
+                                         delivered: bool) -> dict[str, Any]:
+    """Fence a wake receipt to the worker that owns its current lease."""
+    from google.cloud import firestore as gc_firestore
+
+    ref = get_client().collection("external_events").document(event_id)
+    transaction = get_client().transaction()
+
+    @gc_firestore.async_transactional
+    async def _finish(txn):
+        snapshot = await ref.get(transaction=txn)
+        if (not snapshot.exists
+                or snapshot.to_dict().get("founder_id") != founder_id):
+            return _contract_error("external event not found", "owner_mismatch")
+        row = snapshot.to_dict()
+        if row.get("delivery_status") == "DELIVERED":
+            return {"status": "success", "duplicate": True,
+                    "delivery_status": "DELIVERED"}
+        if (not lease_owner or row.get("lease_owner") != lease_owner
+                or row.get("delivery_status") != "ENQUEUED"):
+            return _contract_error("wake delivery lease changed",
+                                   "lease_conflict")
+        value = "DELIVERED" if delivered else "FAILED"
+        txn.update(ref, {
+            "delivery_status": value, "lease_owner": None,
+            "lease_started_at": None, "updated_at": _now(),
+        })
+        return {"status": "success", "delivery_status": value}
+
+    return await _finish(transaction)
+
+
+async def receive_portal_event(founder_id: str, application_id: str,
+                               event_kind: str, confirmation_id: str,
+                               session_id: str = "") -> dict[str, Any]:
+    """Durably receive one verified portal event before changing its domain."""
+    from google.cloud import firestore as gc_firestore
+
+    if (event_kind not in {"submission_confirmed", "result_posted"}
+            or not founder_id or not application_id or not confirmation_id
+            or len(confirmation_id) > 256):
+        return _contract_error("invalid portal event contract")
+    payload_hash = hashlib.sha256(
+        f"{event_kind}\x1f{application_id}\x1f{confirmation_id}\x1f{session_id}".encode()
+    ).hexdigest()
+    receipt_id = "portal_" + hashlib.sha256(
+        f"{founder_id}\x1f{event_kind}\x1f{application_id}\x1f{confirmation_id}".encode()
+    ).hexdigest()[:32]
+    ref = get_client().collection("portal_event_receipts").document(receipt_id)
+    transaction = get_client().transaction()
+
+    @gc_firestore.async_transactional
+    async def _receive(txn):
+        snapshot = await ref.get(transaction=txn)
+        if snapshot.exists:
+            row = snapshot.to_dict()
+            if (row.get("founder_id") != founder_id
+                    or row.get("payload_hash") != payload_hash):
+                return _contract_error("portal event identity changed",
+                                       "version_conflict")
+            return {"status": "success", "duplicate": True, **row}
+        now = _now()
+        row = {
+            "schema_version": 1, "receipt_id": receipt_id,
+            "workspace_id": founder_id, "event_domain": "PORTAL_EVENT",
+            "founder_id": founder_id, "application_id": application_id,
+            "session_id": session_id, "event_kind": event_kind,
+            "confirmation_id": confirmation_id, "payload_hash": payload_hash,
+            "status": "RECEIVED", "attempt": 0, "lease_owner": None,
+            "lease_started_at": None, "lease_seconds": 30,
+            "wake_delivery_id": None, "created_at": now, "updated_at": now,
+        }
+        txn.create(ref, row)
+        return {"status": "success", "duplicate": False, **row}
+
+    return await _receive(transaction)
+
+
+async def claim_portal_event(founder_id: str, receipt_id: str,
+                             lease_seconds: int = 30) -> dict[str, Any]:
+    """Lease a non-terminal portal receipt so concurrent deliveries collapse."""
+    from google.cloud import firestore as gc_firestore
+
+    ref = get_client().collection("portal_event_receipts").document(receipt_id)
+    transaction = get_client().transaction()
+
+    @gc_firestore.async_transactional
+    async def _claim(txn):
+        snapshot = await ref.get(transaction=txn)
+        if (not snapshot.exists
+                or snapshot.to_dict().get("founder_id") != founder_id):
+            return _contract_error("portal event not found", "owner_mismatch")
+        row = snapshot.to_dict()
+        if row.get("status") == "APPLIED":
+            return {"status": "success", "duplicate": True, **row}
+        if row.get("status") == "APPLYING" and _lease_is_active(row):
+            return {"status": "success", "in_progress": True,
+                    "receipt_id": receipt_id}
+        owner = uuid.uuid4().hex
+        now = _now()
+        txn.update(ref, {
+            "status": "APPLYING", "lease_owner": owner,
+            "lease_started_at": now,
+            "lease_seconds": max(1, min(lease_seconds, 300)),
+            "attempt": int(row.get("attempt") or 0) + 1, "updated_at": now,
+        })
+        return {"status": "success", "claimed": True,
+                "lease_owner": owner, "receipt_id": receipt_id}
+
+    return await _claim(transaction)
+
+
+async def finish_portal_event(founder_id: str, receipt_id: str,
+                              lease_owner: str, *, notice: str = "",
+                              state_delta: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Atomically terminalize a portal receipt and create its optional wake."""
+    from google.cloud import firestore as gc_firestore
+
+    receipt_ref = get_client().collection(
+        "portal_event_receipts").document(receipt_id)
+    transaction = get_client().transaction()
+
+    @gc_firestore.async_transactional
+    async def _finish(txn):
+        snapshot = await receipt_ref.get(transaction=txn)
+        if (not snapshot.exists
+                or snapshot.to_dict().get("founder_id") != founder_id):
+            return _contract_error("portal event not found", "owner_mismatch")
+        row = snapshot.to_dict()
+        if row.get("status") == "APPLIED":
+            return {"status": "success", "duplicate": True, **row}
+        if row.get("status") != "APPLYING" or row.get("lease_owner") != lease_owner:
+            return _contract_error("portal event lease changed", "lease_conflict")
+        wake_id = None
+        session_id = str(row.get("session_id") or "")
+        if session_id:
+            wake_id = "wake_" + hashlib.sha256(
+                f"portal_event\x1f{receipt_id}\x1f{session_id}".encode()
+            ).hexdigest()[:32]
+            wake_ref = get_client().collection("wake_deliveries").document(wake_id)
+            wake_snapshot = await wake_ref.get(transaction=txn)
+            if not wake_snapshot.exists:
+                now = _now()
+                txn.create(wake_ref, {
+                    "schema_version": 1, "delivery_id": wake_id,
+                    "workspace_id": founder_id,
+                    "delivery_domain": "FOUNDER_WAKE",
+                    "founder_id": founder_id, "session_id": session_id,
+                    "source_kind": "portal_event", "source_id": receipt_id,
+                    "notice": notice[:300],
+                    "state_delta": dict(state_delta or {}),
+                    "status": "PENDING", "attempt": 0,
+                    "lease_owner": None, "lease_started_at": None,
+                    "lease_seconds": 120, "last_error_code": None,
+                    "created_at": now, "updated_at": now,
+                    "delivered_at": None,
+                })
+        now = _now()
+        txn.update(receipt_ref, {
+            "status": "APPLIED", "wake_delivery_id": wake_id,
+            "lease_owner": None, "lease_started_at": None,
+            "applied_at": now, "updated_at": now,
+        })
+        return {"status": "success", "receipt_status": "APPLIED",
+                "receipt_id": receipt_id, "wake_delivery_id": wake_id}
+
+    return await _finish(transaction)
+
+
+async def create_wake_delivery(founder_id: str, session_id: str,
+                               source_kind: str, source_id: str,
+                               notice: str,
+                               state_delta: dict[str, Any]) -> dict[str, Any]:
+    """Create a content-bounded durable wake receipt for a committed event."""
+    from google.cloud import firestore as gc_firestore
+
+    if (source_kind not in {"approval", "feedback", "deadline",
+                           "discovery", "portal_event", "external_event",
+                           "system_notice"}
+            or not founder_id
+            or not session_id or not source_id or len(notice) > 300):
+        return _contract_error("invalid wake delivery contract")
+    delivery_id = "wake_" + hashlib.sha256(
+        f"{source_kind}\x1f{source_id}\x1f{session_id}".encode()).hexdigest()[:32]
+    ref = get_client().collection("wake_deliveries").document(delivery_id)
+    transaction = get_client().transaction()
+
+    @gc_firestore.async_transactional
+    async def _create(txn):
+        snapshot = await ref.get(transaction=txn)
+        if snapshot.exists:
+            row = snapshot.to_dict()
+            if (row.get("founder_id") != founder_id
+                    or row.get("session_id") != session_id
+                    or row.get("source_kind") != source_kind
+                    or row.get("source_id") != source_id):
+                return _contract_error("wake delivery identity changed",
+                                       "version_conflict")
+            return {"status": "success", "duplicate": True,
+                    "delivery_id": delivery_id,
+                    "delivery_status": row.get("status")}
+        now = _now()
+        txn.create(ref, {
+            "schema_version": 1, "delivery_id": delivery_id,
+            "workspace_id": founder_id, "delivery_domain": "FOUNDER_WAKE",
+            "founder_id": founder_id, "session_id": session_id,
+            "source_kind": source_kind, "source_id": source_id,
+            "notice": notice, "state_delta": dict(state_delta),
+            "status": "PENDING", "attempt": 0,
+            "max_attempts": 8, "next_attempt_at": None,
+            "lease_owner": None, "lease_started_at": None,
+            "lease_seconds": 120, "last_error_code": None,
+            "created_at": now, "updated_at": now, "delivered_at": None,
+        })
+        return {"status": "success", "duplicate": False,
+                "delivery_id": delivery_id, "delivery_status": "PENDING"}
+
+    return await _create(transaction)
+
+
+async def get_wake_delivery(founder_id: str,
+                            delivery_id: str) -> Optional[dict[str, Any]]:
+    snapshot = await get_client().collection("wake_deliveries").document(
+        delivery_id).get()
+    if not snapshot.exists:
+        return None
+    row = snapshot.to_dict() | {"id": snapshot.id}
+    return row if (row.get("workspace_id") == founder_id
+                   and row.get("founder_id") == founder_id) else None
+
+
+async def claim_wake_delivery(founder_id: str, delivery_id: str,
+                              lease_seconds: int = 120) -> dict[str, Any]:
+    """Lease a pending/failed/expired wake for one bounded delivery attempt."""
+    from google.cloud import firestore as gc_firestore
+
+    ref = get_client().collection("wake_deliveries").document(delivery_id)
+    transaction = get_client().transaction()
+
+    @gc_firestore.async_transactional
+    async def _claim(txn):
+        snapshot = await ref.get(transaction=txn)
+        if (not snapshot.exists
+                or snapshot.to_dict().get("founder_id") != founder_id):
+            return _contract_error("wake delivery not found", "owner_mismatch")
+        row = snapshot.to_dict()
+        if row.get("status") == "DELIVERED":
+            return {"status": "success", "duplicate": True,
+                    "delivery_status": "DELIVERED"}
+        if row.get("status") == "DEAD_LETTER":
+            return {"status": "success", "duplicate": True,
+                    "delivery_status": "DEAD_LETTER"}
+        if row.get("status") == "ENQUEUED" and _lease_is_active(row):
+            return {"status": "success", "duplicate": True,
+                    "delivery_status": "ENQUEUED"}
+        now = _now()
+        owner = uuid.uuid4().hex
+        txn.update(ref, {
+            "status": "ENQUEUED", "lease_owner": owner,
+            "lease_started_at": now,
+            "lease_seconds": max(1, min(lease_seconds, 900)),
+            "attempt": int(row.get("attempt") or 0) + 1,
+            "updated_at": now,
+        })
+        return {"status": "success", "claimed": True,
+                "lease_owner": owner, "delivery": row}
+
+    return await _claim(transaction)
+
+
+async def finish_wake_delivery(founder_id: str, delivery_id: str,
+                               lease_owner: str, *, delivered: bool,
+                               error_code: str | None = None) -> dict[str, Any]:
+    """Commit a fenced wake result; FAILED remains durably retryable."""
+    from google.cloud import firestore as gc_firestore
+
+    ref = get_client().collection("wake_deliveries").document(delivery_id)
+    transaction = get_client().transaction()
+
+    @gc_firestore.async_transactional
+    async def _finish(txn):
+        snapshot = await ref.get(transaction=txn)
+        if (not snapshot.exists
+                or snapshot.to_dict().get("founder_id") != founder_id):
+            return _contract_error("wake delivery not found", "owner_mismatch")
+        row = snapshot.to_dict()
+        if row.get("status") == "DELIVERED":
+            return {"status": "success", "duplicate": True,
+                    "delivery_status": "DELIVERED"}
+        if (row.get("status") != "ENQUEUED"
+                or row.get("lease_owner") != lease_owner):
+            return _contract_error("wake delivery lease changed",
+                                   "lease_conflict")
+        now = _now()
+        exhausted = (not delivered
+                     and int(row.get("attempt") or 0)
+                     >= int(row.get("max_attempts") or 8))
+        value = ("DELIVERED" if delivered else
+                 "DEAD_LETTER" if exhausted else "FAILED")
+        txn.update(ref, {
+            "status": value, "lease_owner": None, "lease_started_at": None,
+            "last_error_code": None if delivered else (error_code or "dispatch_failed"),
+            "updated_at": now, "delivered_at": now if delivered else None,
+        })
+        inbox_item_id = None
+        if exhausted:
+            inbox_item_id = "inbox_" + hashlib.sha256(
+                f"wake-dead-letter\x1f{founder_id}\x1f{delivery_id}".encode()
+            ).hexdigest()[:32]
+            inbox_ref = get_client().collection("founder_inbox").document(
+                inbox_item_id)
+            txn.set(inbox_ref, {
+                "schema_version": 1, "inbox_item_id": inbox_item_id,
+                "workspace_id": founder_id, "inbox_domain": "DELIVERY_EXCEPTION",
+                "founder_id": founder_id, "event_id": None,
+                "delivery_id": delivery_id,
+                "item_kind": "DELIVERY_DEAD_LETTER", "status": "UNREAD",
+                "title": "A workflow update could not be delivered",
+                "summary": "Retry the durable delivery after checking the session.",
+                "candidate_refs": [], "resolved_resource_id": None,
+                "resolved_session_id": row.get("session_id"),
+                "resolution": None, "created_at": now, "updated_at": now,
+                "resolved_at": None,
+            })
+        return {"status": "success", "delivery_status": value,
+                "inbox_item_id": inbox_item_id}
+
+    return await _finish(transaction)
+
+
+async def requeue_wake_delivery(founder_id: str,
+                                delivery_id: str) -> dict[str, Any]:
+    """Explicitly drain one dead letter; never fabricates a new delivery."""
+    from google.cloud import firestore as gc_firestore
+
+    ref = get_client().collection("wake_deliveries").document(delivery_id)
+    transaction = get_client().transaction()
+
+    @gc_firestore.async_transactional
+    async def _requeue(txn):
+        snapshot = await ref.get(transaction=txn)
+        if (not snapshot.exists
+                or snapshot.to_dict().get("workspace_id") != founder_id):
+            return _contract_error("wake delivery not found", "owner_mismatch")
+        row = snapshot.to_dict()
+        if row.get("status") != "DEAD_LETTER":
+            return _contract_error(
+                "only a dead-letter delivery can be retried", "version_conflict")
+        now = _now()
+        txn.update(ref, {
+            "status": "FAILED", "attempt": 0,
+            "lease_owner": None, "lease_started_at": None,
+            "next_attempt_at": now, "updated_at": now,
+        })
+        return {"status": "success", "delivery_id": delivery_id,
+                "delivery_status": "FAILED"}
+
+    return await _requeue(transaction)
 
 
 async def get_founder_inbox_item(founder_id: str,
@@ -3285,7 +4052,7 @@ async def get_founder_inbox_item(founder_id: str,
     if not snapshot.exists:
         return None
     row = snapshot.to_dict() | {"id": snapshot.id}
-    return row if row.get("founder_id") == founder_id else None
+    return row if _workspace_owner_matches(row, founder_id) else None
 
 
 async def list_founder_inbox(
@@ -3298,7 +4065,7 @@ async def list_founder_inbox(
     except ValueError:
         return []
     query = (get_client().collection("founder_inbox")
-             .where("founder_id", "==", founder_id)
+             .where("workspace_id", "==", founder_id)
              .where("status", "==", state.value)
              .order_by("created_at", direction="DESCENDING")
              .limit(max(1, min(limit, 100))))
@@ -3437,9 +4204,22 @@ async def prepare_external_action(
         idempotency_key: str, request_hash: str, *, session_id: str | None = None,
         application_id: str | None = None, resource_id: str | None = None,
         subject_hash: str | None = None, approval_id: str | None = None,
+        consume_approval: bool = False,
+        approval_gate: str | None = None,
+        approval_target: str | None = None,
+        capability_id: str | None = None,
+        capability_version: str | None = None,
+        approval_bindings: dict[str, Any] | None = None,
         sandbox_context: dict[str, Any] | None = None,
         lease_seconds: int = 120) -> dict[str, Any]:
-    """Create/claim PREPARED before a provider effect; never overwrite drift."""
+    """T1: claim exact approval and create PREPARED; never call a provider.
+
+    When ``consume_approval`` is true, the exact GRANTED approval becomes
+    CLAIMED in the same transaction that creates the PREPARED action.  T2
+    (``start_external_action``) spends that claim immediately before provider
+    execution.  A crash on either side is therefore distinguishable and
+    recoverable without minting a second action or reusing an approval.
+    """
     from google.cloud import firestore as gc_firestore
 
     from services import data_source_contracts as dsc
@@ -3456,6 +4236,7 @@ async def prepare_external_action(
     except ValueError:
         return _contract_error("invalid external action")
     context = dict(sandbox_context or {})
+    exact_bindings = dict(approval_bindings or {})
     # H4S effect kinds exist only inside a provisioned sandbox: the context is
     # mandatory for them and forbidden for every other kind, so neither an
     # omission nor a stray context can widen an action's authority.
@@ -3476,6 +4257,13 @@ async def prepare_external_action(
                        for item in context["destination_ids"])):
             return _contract_error("invalid sandbox action context")
     ref = get_client().collection("external_actions").document(action_id)
+    approval_ref = (get_client().collection("approvals").document(approval_id)
+                    if consume_approval and approval_id else None)
+    if consume_approval and (approval_ref is None or not approval_gate
+                             or not (approval_target or application_id)
+                             or not subject_hash):
+        return _contract_error("approved action binding is incomplete",
+                               "approval_binding_missing")
     transaction = get_client().transaction()
 
     @gc_firestore.async_transactional
@@ -3484,7 +4272,16 @@ async def prepare_external_action(
         now = _now()
         if snapshot.exists:
             row = snapshot.to_dict()
-            if row.get("request_hash") != request_hash:
+            immutable = {
+                "request_hash": request_hash,
+                "founder_id": founder_id,
+                "connection_id": connection_id,
+                "session_id": session_id,
+                "application_id": application_id,
+                "resource_id": resource_id,
+                "subject_hash": subject_hash,
+            }
+            if any(row.get(key) != value for key, value in immutable.items()):
                 return _contract_error("idempotency key payload changed",
                                        "version_conflict")
             if row.get("status") in {
@@ -3495,46 +4292,351 @@ async def prepare_external_action(
                 return _contract_error("action requires reconciliation",
                                        "reconciliation_required") | {
                                            "action_id": action_id}
+            if row.get("status") == dsc.ExternalActionStatus.EXECUTING.value:
+                if _lease_is_active(row):
+                    return {"status": "success", "in_progress": True,
+                            "action_id": action_id}
+                fields = {
+                    "status": dsc.ExternalActionStatus.UNCERTAIN.value,
+                    "uncertainty_reason": "executing_lease_expired",
+                    "error_code": dsc.SafeErrorCode.RECONCILIATION_REQUIRED.value,
+                    "lease_owner": None, "lease_started_at": None,
+                    "updated_at": now, "completed_at": now,
+                }
+                txn.update(ref, fields)
+                return _contract_error("action requires reconciliation",
+                                       "reconciliation_required") | {
+                                           "action_id": action_id, **fields}
             if _lease_is_active(row):
                 return {"status": "success", "in_progress": True,
                         "action_id": action_id}
-            # A dead worker may have crashed after transmitting the provider
-            # request but before recording its receipt. Reclaiming PREPARED
-            # would blindly duplicate an email/invite/file. Fail closed into
-            # UNCERTAIN; provider-specific reconciliation decides the truth.
+            # PREPARED proves T2 never committed, so no provider call was
+            # authorized. Reclaim the same action and same approval claim.
+            approval_id_existing = row.get("approval_id")
+            approval_existing_ref = (
+                get_client().collection("approvals").document(
+                    approval_id_existing) if row.get("approval_consumed")
+                and approval_id_existing else None)
+            approval_existing = None
+            if approval_existing_ref is not None:
+                approval_existing_snapshot = await approval_existing_ref.get(
+                    transaction=txn)
+                if not approval_existing_snapshot.exists:
+                    return _contract_error("approval claim is missing",
+                                           "approval_binding_missing")
+                approval_existing = approval_existing_snapshot.to_dict()
+                if (approval_existing.get("status") != "CLAIMED"
+                        or approval_existing.get("claimed_action_id") != action_id
+                        or approval_existing.get("claim_id") != row.get("claim_id")):
+                    return _contract_error("approval claim changed",
+                                           "approval_binding_mismatch")
+            owner = uuid.uuid4().hex
+            generation = int(row.get("lease_generation") or 0) + 1
             fields = {
-                "status": dsc.ExternalActionStatus.UNCERTAIN.value,
-                "uncertainty_reason": "prepared_lease_expired",
-                "error_code": dsc.SafeErrorCode.RECONCILIATION_REQUIRED.value,
-                "lease_owner": None, "lease_started_at": None,
-                "updated_at": now, "completed_at": now,
+                "lease_owner": owner, "lease_started_at": now,
+                "lease_generation": generation, "updated_at": now,
             }
             txn.update(ref, fields)
-            return _contract_error("action requires reconciliation",
-                                   "reconciliation_required") | {
-                                       "action_id": action_id, **fields}
+            if approval_existing_ref is not None:
+                txn.update(approval_existing_ref, {
+                    "claim_lease_generation": generation,
+                    "claim_lease_started_at": now, "updated_at": now,
+                })
+            return {"status": "success", "claimed": True,
+                    "reclaimed": True, "action_id": action_id,
+                    "lease_owner": owner}
+        approval = None
+        authority_fields: dict[str, Any] = {}
+        if approval_ref is not None:
+            approval_snapshot = await approval_ref.get(transaction=txn)
+            if not approval_snapshot.exists:
+                return _contract_error("approval not found", "approval_missing")
+            approval = approval_snapshot.to_dict()
+            if (approval.get("status") != "GRANTED"
+                    or approval.get("expires_at", "") <= now):
+                return _contract_error(
+                    "approval is not granted and current", "approval_terminal")
+            expected = {
+                "founder_id": founder_id,
+                "session_id": session_id,
+                "application_id": approval_target or application_id,
+                "gate": approval_gate,
+                "subject_hash": subject_hash,
+            }
+            if int(approval.get("schema_version") or 1) >= 2:
+                required_binding_keys = {
+                    "action_kind", "capability_id", "capability_version",
+                    "target_hash", "normalized_payload_hash", "policy_id",
+                    "policy_version", "connector_id",
+                    "connector_binding_version",
+                }
+                if set(exact_bindings) != required_binding_keys:
+                    return _contract_error(
+                        "approved action binding is incomplete",
+                        "approval_binding_missing")
+                expected.update(exact_bindings)
+                # Rows minted by PlatformApprovalService carry the aggregate
+                # v2 approval subject. Older migration-window rows may have
+                # schema_version=2 bindings but no real run/step; they remain
+                # dual-readable locally and are forbidden from new production
+                # creation by approval_service.
+                if approval.get("approval_subject_hash"):
+                    run_id = str(approval.get("run_id") or "")
+                    step_id = str(approval.get("step_id") or "")
+                    plan_hash = str(approval.get("plan_hash") or "")
+                    deciding_actor_id = str(
+                        approval.get("decided_by_actor_id") or "")
+                    if not all((run_id, step_id, plan_hash, deciding_actor_id)):
+                        return _contract_error(
+                            "approval control authority is incomplete",
+                            "approval_binding_missing")
+                    from services.workflow_contracts import stable_id
+
+                    membership_id = stable_id(
+                        "membership", founder_id, deciding_actor_id)
+                    run_ref = get_client().collection("workflow_runs").document(run_id)
+                    step_ref = get_client().collection("workflow_steps").document(step_id)
+                    membership_ref = get_client().collection(
+                        "workspace_members").document(membership_id)
+                    run_snapshot = await run_ref.get(transaction=txn)
+                    step_snapshot = await step_ref.get(transaction=txn)
+                    membership_snapshot = await membership_ref.get(transaction=txn)
+                    if (not run_snapshot.exists or not step_snapshot.exists
+                            or not membership_snapshot.exists):
+                        return _contract_error(
+                            "approval run, step, or deciding membership is missing",
+                            "approval_authority_missing")
+                    run = run_snapshot.to_dict()
+                    step = step_snapshot.to_dict()
+                    membership = membership_snapshot.to_dict()
+                    if (run.get("workspace_id") != founder_id
+                            or step.get("workspace_id") != founder_id
+                            or step.get("run_id") != run_id
+                            or run.get("plan_hash") != plan_hash
+                            or membership.get("workspace_id") != founder_id
+                            or membership.get("actor_id") != deciding_actor_id
+                            or membership.get("status") != "ACTIVE"):
+                        return _contract_error(
+                            "approval control authority changed",
+                            "approval_authority_missing")
+                    runtime_status = str(
+                        run.get("runtime_status") or run.get("status") or "")
+                    if runtime_status in {
+                            "CANCELLING", "CANCELLED", "SUCCEEDED", "COMPLETED",
+                            "FAILED", "REJECTED"}:
+                        return _contract_error(
+                            "workflow run no longer authorizes consequences",
+                            "run_fenced")
+                    authority_fields = {
+                        "run_id": run_id, "step_id": step_id,
+                        "plan_hash": plan_hash,
+                        "observed_cancellation_generation": int(
+                            run.get("cancellation_generation") or 0),
+                        "deciding_actor_id": deciding_actor_id,
+                        "deciding_membership_id": membership_id,
+                    }
+            if any((approval.get(key) or "") != (value or "")
+                   for key, value in expected.items()):
+                return _contract_error(
+                    "approval does not cover this exact action",
+                    "approval_binding_mismatch")
         owner = uuid.uuid4().hex
+        claim_id = dsc.canonical_hash({
+            "approval_id": approval_id or "", "action_id": action_id,
+            "request_hash": request_hash,
+        })
         row = {
-            "schema_version": 1, "action_id": action_id,
+            "schema_version": 2, "action_id": action_id,
+            "workspace_id": founder_id, "action_domain": "CONNECTOR_ACTION",
             "founder_id": founder_id, "connection_id": connection_id,
             "session_id": session_id, "application_id": application_id,
             "resource_id": resource_id, "action_kind": kind.value,
             "idempotency_key": str(idempotency_key)[:512],
             "request_hash": request_hash, "subject_hash": subject_hash,
             "approval_id": approval_id,
+            "approval_target": approval_target,
+            "capability_id": capability_id,
+            "capability_version": capability_version,
+            "target_hash": exact_bindings.get("target_hash"),
+            "normalized_payload_hash": exact_bindings.get(
+                "normalized_payload_hash"),
+            "policy_id": exact_bindings.get("policy_id"),
+            "policy_version": exact_bindings.get("policy_version"),
+            "connector_id": exact_bindings.get("connector_id"),
+            "connector_binding_version": exact_bindings.get(
+                "connector_binding_version"),
+            **authority_fields,
+            "approval_consumed": bool(approval_ref), "claim_id": claim_id,
             "sandbox_context": context or None,
             "status": dsc.ExternalActionStatus.PREPARED.value,
+            "provider_request_id": None,
+            "provider_idempotency_key": dsc.canonical_hash({
+                "workspace_id": founder_id, "action_id": action_id}),
+            "consequence_start_committed_at": None,
             "provider_effect_id": None, "result_ref": {},
             "uncertainty_reason": None, "error_code": None,
             "lease_owner": owner, "lease_started_at": now,
+            "lease_generation": 1,
             "lease_seconds": max(1, min(lease_seconds, 900)),
             "created_at": now, "updated_at": now, "completed_at": None,
         }
+        if approval_ref is not None:
+            txn.update(approval_ref, {
+                "status": "CLAIMED", "claim_id": claim_id,
+                "claimed_action_id": action_id, "claimed_at": now,
+                "claim_lease_generation": 1,
+                "claim_lease_started_at": now, "updated_at": now,
+            })
         txn.create(ref, row)
         return {"status": "success", "claimed": True,
                 "action_id": action_id, "lease_owner": owner}
 
     return await _prepare(transaction)
+
+
+async def start_external_action(
+        founder_id: str, action_id: str, lease_owner: str) -> dict[str, Any]:
+    """T2: atomically spend a claim and authorize exactly one provider call."""
+    from google.cloud import firestore as gc_firestore
+
+    from services import data_source_contracts as dsc
+
+    ref = get_client().collection("external_actions").document(action_id)
+    transaction = get_client().transaction()
+
+    @gc_firestore.async_transactional
+    async def _start(txn):
+        snapshot = await ref.get(transaction=txn)
+        if not snapshot.exists:
+            return _contract_error("external action not found", "owner_mismatch")
+        row = snapshot.to_dict()
+        if not _workspace_owner_matches(row, founder_id):
+            return _contract_error("external action not found", "owner_mismatch")
+        if row.get("status") == dsc.ExternalActionStatus.EXECUTING.value:
+            if row.get("lease_owner") == lease_owner:
+                return {**row, "status": "success", "duplicate": True,
+                        "claimed": True, "receipt_status": "EXECUTING"}
+            return _contract_error("external action lease changed", "lease_conflict")
+        if row.get("status") != dsc.ExternalActionStatus.PREPARED.value:
+            if row.get("status") == dsc.ExternalActionStatus.UNCERTAIN.value:
+                return _contract_error("action requires reconciliation",
+                                       "reconciliation_required")
+            return {"status": "success", "duplicate": True, **row}
+        if row.get("lease_owner") != lease_owner:
+            return _contract_error("external action lease changed", "lease_conflict")
+        approval_ref = (get_client().collection("approvals").document(
+            row["approval_id"]) if row.get("approval_consumed")
+            and row.get("approval_id") else None)
+        approval = None
+        run_ref = step_ref = membership_ref = None
+        run = step = membership = None
+        next_budget_usage = None
+        if approval_ref is not None:
+            approval_snapshot = await approval_ref.get(transaction=txn)
+            if not approval_snapshot.exists:
+                return _contract_error("approval claim is missing",
+                                       "approval_binding_missing")
+            approval = approval_snapshot.to_dict()
+            if (approval.get("status") != "CLAIMED"
+                    or approval.get("claimed_action_id") != action_id
+                    or approval.get("claim_id") != row.get("claim_id")):
+                return _contract_error("approval claim changed",
+                                       "approval_binding_mismatch")
+            if (int(approval.get("schema_version") or 1) >= 2
+                    and approval.get("approval_subject_hash")):
+                run_id = str(row.get("run_id") or "")
+                step_id = str(row.get("step_id") or "")
+                membership_id = str(row.get("deciding_membership_id") or "")
+                if not all((run_id, step_id, membership_id, row.get("plan_hash"))):
+                    return _contract_error(
+                        "action control authority is incomplete",
+                        "approval_binding_missing")
+                run_ref = get_client().collection("workflow_runs").document(run_id)
+                step_ref = get_client().collection("workflow_steps").document(step_id)
+                membership_ref = get_client().collection(
+                    "workspace_members").document(membership_id)
+                run_snapshot = await run_ref.get(transaction=txn)
+                step_snapshot = await step_ref.get(transaction=txn)
+                membership_snapshot = await membership_ref.get(transaction=txn)
+                run = run_snapshot.to_dict() if run_snapshot.exists else None
+                step = step_snapshot.to_dict() if step_snapshot.exists else None
+                membership = (membership_snapshot.to_dict()
+                              if membership_snapshot.exists else None)
+                runtime_status = str(
+                    (run or {}).get("runtime_status")
+                    or (run or {}).get("status") or "")
+                budget_usage = dict((run or {}).get("budget_usage") or {})
+                budget_limits = dict((run or {}).get("budgets") or {})
+                provider_budget_exhausted = int(
+                    budget_usage.get("provider_calls") or 0) >= int(
+                        budget_limits.get("max_provider_calls", 20))
+                fenced = (
+                    not run or not step or not membership
+                    or run.get("workspace_id") != founder_id
+                    or step.get("workspace_id") != founder_id
+                    or step.get("run_id") != run_id
+                    or run.get("plan_hash") != row.get("plan_hash")
+                    or int(run.get("cancellation_generation") or 0)
+                    != int(row.get("observed_cancellation_generation") or 0)
+                    or runtime_status in {
+                        "CANCELLING", "CANCELLED", "SUCCEEDED", "COMPLETED",
+                        "FAILED", "REJECTED"}
+                    or membership.get("workspace_id") != founder_id
+                    or membership.get("actor_id") != row.get("deciding_actor_id")
+                    or membership.get("status") != "ACTIVE"
+                    or provider_budget_exhausted)
+                if fenced:
+                    now = _now()
+                    fence_reason = ("budget_exhausted"
+                                    if provider_budget_exhausted
+                                    else "authority_fenced_before_provider")
+                    txn.update(ref, {
+                        "status": dsc.ExternalActionStatus.FAILED.value,
+                        "error_code": dsc.SafeErrorCode.PERMISSION_DENIED.value,
+                        "uncertainty_reason": fence_reason,
+                        "lease_owner": None, "lease_started_at": None,
+                        "updated_at": now, "completed_at": now,
+                    })
+                    txn.update(approval_ref, {
+                        "status": "VOIDED", "voided_at": now,
+                        "void_reason": fence_reason,
+                        "terminal_action_id": action_id, "updated_at": now,
+                    })
+                    return _contract_error(
+                        "run, plan, or deciding membership no longer authorizes this action",
+                        fence_reason)
+                next_budget_usage = {
+                    **budget_usage,
+                    "provider_calls": int(
+                        budget_usage.get("provider_calls") or 0) + 1,
+                }
+        now = _now()
+        provider_request_id = dsc.canonical_hash({
+            "action_id": action_id,
+            "lease_generation": int(row.get("lease_generation") or 1),
+        })
+        fields = {
+            "status": dsc.ExternalActionStatus.EXECUTING.value,
+            "provider_request_id": provider_request_id,
+            "consequence_start_committed_at": now,
+            "provider_started_at": now, "updated_at": now,
+        }
+        txn.update(ref, fields)
+        if run_ref is not None and next_budget_usage is not None:
+            txn.update(run_ref, {
+                "budget_usage": next_budget_usage,
+                "version": int((run or {}).get("version") or 0) + 1,
+                "updated_at": now})
+        if approval_ref is not None:
+            txn.update(approval_ref, {
+                "status": "CONSUMED", "consumed_at": now,
+                "terminal_action_id": action_id, "updated_at": now,
+            })
+        return {**fields, "status": "success", "duplicate": False,
+                "claimed": True, "receipt_status": "EXECUTING",
+                "action_id": action_id, "lease_owner": lease_owner}
+
+    return await _start(transaction)
 
 
 async def finish_external_action(
@@ -3549,7 +4651,8 @@ async def finish_external_action(
 
     try:
         terminal = dsc.require_closed(status, dsc.ExternalActionStatus)
-        if terminal == dsc.ExternalActionStatus.PREPARED:
+        if terminal in {dsc.ExternalActionStatus.PREPARED,
+                        dsc.ExternalActionStatus.EXECUTING}:
             raise ValueError("not terminal")
         if error_code:
             dsc.require_closed(error_code, dsc.SafeErrorCode)
@@ -3564,10 +4667,32 @@ async def finish_external_action(
         if not snapshot.exists or snapshot.to_dict().get("founder_id") != founder_id:
             return _contract_error("external action not found", "owner_mismatch")
         current = snapshot.to_dict()
-        if current.get("status") != dsc.ExternalActionStatus.PREPARED.value:
+        allowed = {dsc.ExternalActionStatus.EXECUTING.value}
+        # Dual-read compatibility for a worker deployed under schema v1 that
+        # prepared and consumed authority before this protocol rolled out.
+        if int(current.get("schema_version") or 1) == 1:
+            allowed.add(dsc.ExternalActionStatus.PREPARED.value)
+        if current.get("status") not in allowed:
             return {"status": "success", "duplicate": True, **current}
         if current.get("lease_owner") != lease_owner:
             return _contract_error("external action lease changed", "lease_conflict")
+        application_ref = None
+        application = None
+        if (current.get("action_kind") == "submit_application"
+                and terminal is dsc.ExternalActionStatus.SUCCEEDED):
+            application_id = str(current.get("application_id") or "")
+            application_ref = get_client().collection("applications").document(
+                application_id)
+            application_snapshot = await application_ref.get(transaction=txn)
+            if (not application_snapshot.exists
+                    or application_snapshot.to_dict().get("founder_id") != founder_id):
+                # The provider may already have accepted the submission. Leave
+                # EXECUTING to expire into UNCERTAIN so reconciliation can
+                # repair the coupled domain transition without a blind retry.
+                return _contract_error(
+                    "submission domain authority is missing",
+                    "reconciliation_required")
+            application = application_snapshot.to_dict()
         safe_result = {str(key)[:64]: str(value)[:280]
                        for key, value in (result_ref or {}).items()}
         now = _now()
@@ -3583,6 +4708,19 @@ async def finish_external_action(
             "completed_at": now,
         }
         txn.update(ref, fields)
+        if application_ref is not None and application is not None:
+            txn.update(application_ref, {
+                "state": "SUBMITTED",
+                "submission": {
+                    "confirmation_id": str(
+                        safe_result.get("confirmation_id")
+                        or provider_effect_id or "")[:512],
+                    "portal_url": str(safe_result.get("portal_url") or "")[:1000],
+                    "external_action_id": action_id,
+                },
+                "updated_at": now,
+                "version": int(application.get("version") or 0) + 1,
+            })
         return {"status": "success", "duplicate": False,
                 "action_id": action_id, **fields}
 
@@ -3624,6 +4762,20 @@ async def reconcile_external_action(
         if current.get("status") != dsc.ExternalActionStatus.UNCERTAIN.value:
             return _contract_error("action is not awaiting reconciliation",
                                    "version_conflict")
+        application_ref = None
+        application = None
+        if (current.get("action_kind") == "submit_application"
+                and terminal is dsc.ExternalActionStatus.SUCCEEDED):
+            application_id = str(current.get("application_id") or "")
+            application_ref = get_client().collection("applications").document(
+                application_id)
+            application_snapshot = await application_ref.get(transaction=txn)
+            if (not application_snapshot.exists
+                    or application_snapshot.to_dict().get("founder_id") != founder_id):
+                return _contract_error(
+                    "submission domain authority is missing",
+                    "reconciliation_required")
+            application = application_snapshot.to_dict()
         safe_result = {str(key)[:64]: str(value)[:280]
                        for key, value in (result_ref or {}).items()}
         now = _now()
@@ -3636,6 +4788,19 @@ async def reconcile_external_action(
             "updated_at": now, "completed_at": now,
         }
         txn.update(ref, fields)
+        if application_ref is not None and application is not None:
+            txn.update(application_ref, {
+                "state": "SUBMITTED",
+                "submission": {
+                    "confirmation_id": str(
+                        safe_result.get("confirmation_id")
+                        or provider_effect_id or "")[:512],
+                    "portal_url": str(safe_result.get("portal_url") or "")[:1000],
+                    "external_action_id": action_id,
+                },
+                "updated_at": now,
+                "version": int(application.get("version") or 0) + 1,
+            })
         return {"status": "success", "duplicate": False,
                 "action_id": action_id, **fields}
 
@@ -3649,13 +4814,13 @@ async def get_external_action(founder_id: str,
     if not snapshot.exists:
         return None
     row = snapshot.to_dict() | {"id": snapshot.id}
-    return row if row.get("founder_id") == founder_id else None
+    return row if _workspace_owner_matches(row, founder_id) else None
 
 
 async def list_external_actions(founder_id: str, *,
                                 limit: int = 100) -> list[dict[str, Any]]:
     query = get_client().collection("external_actions").where(
-        "founder_id", "==", founder_id)
+        "workspace_id", "==", founder_id)
     rows = [doc.to_dict() | {"id": doc.id} async for doc in query.stream()]
     rows.sort(key=lambda row: row.get("created_at", ""), reverse=True)
     return rows[:limit]

@@ -40,7 +40,6 @@ from services.hiring_service import HiringService
 from services.internal_controlled_demo import InternalControlledDemoService
 from services.internal_controlled_demo_effects import InternalDemoEffectService
 from services.internal_controlled_demo_intake import InternalDemoInboxImportService
-from services.workflow_runtime import WorkflowRuntime
 
 
 class ClosedRequest(BaseModel):
@@ -264,7 +263,9 @@ def _fixture_id_allowed(fixture_id: str) -> bool:
 
 def _response(result: dict[str, Any]):
     if result.get("error"):
-        return JSONResponse(result, status_code=int(result.get("http_status") or 409))
+        from services.error_contracts import http_status
+
+        return JSONResponse(result, status_code=http_status(result))
     return result
 
 
@@ -320,8 +321,7 @@ def _services() -> tuple[HiringService, HiringMailboxService] | None:
     store = production_store()
     vault = CandidateIdentityVault(wrap_key=wrap, unwrap_key=unwrap,
                                    dedup_key=key, store=store)
-    hiring = HiringService(store=store, identity_vault=vault,
-                           runtime=WorkflowRuntime(store))
+    hiring = HiringService(store=store, identity_vault=vault)
     return hiring, HiringMailboxService(hiring, store=store)
 
 
@@ -415,10 +415,16 @@ def register(app: FastAPI) -> None:
         run = await store.get("internal_demo_runs", demo_run_id)
         if not run or run.get("workspace_id") != principal.workspace_id:
             return JSONResponse({"error": "not found"}, status_code=404)
-        approvals = await store.list("internal_demo_approvals", filters={"demo_run_id": demo_run_id},
-                                     order_by="created_at", descending=False, limit=100)
-        actions = await store.list("internal_demo_actions", filters={"demo_run_id": demo_run_id},
-                                   order_by="created_at", descending=False, limit=100)
+        approvals = await store.list(
+            "approvals",
+            filters={"demo_run_id": demo_run_id,
+                     "approval_domain": "INTERNAL_CONTROLLED_DEMO"},
+            order_by="created_at", descending=False, limit=100)
+        actions = await store.list(
+            "external_actions",
+            filters={"demo_run_id": demo_run_id,
+                     "action_domain": "INTERNAL_CONTROLLED_DEMO"},
+            order_by="created_at", descending=False, limit=100)
         applications = await store.list(
             "internal_demo_applications", filters={"demo_run_id": demo_run_id},
             order_by="created_at", descending=False, limit=20)
@@ -609,6 +615,8 @@ def register(app: FastAPI) -> None:
         principal = await _actor(request)
         if isinstance(principal, dict):
             return _response(principal)
+        # Compatibility route is deliberately fail-closed. The execution
+        # endpoint owns atomic approval claim + action preparation.
         return _response(
             await HiringSandboxService(production_store()).claim_effect_approval(
                 principal=principal, approval_id=payload.approval_id,
@@ -1118,7 +1126,8 @@ def register(app: FastAPI) -> None:
             store=production_store()).export_candidate(
                 principal=principal, application_id=application_id,
                 client_request_id=payload.client_request_id)
-        return JSONResponse(result, status_code=int(result.get("http_status") or 200),
+        from services.error_contracts import http_status
+        return JSONResponse(result, status_code=http_status(result, default=400),
                             headers={"Cache-Control": "no-store"})
 
     @app.post("/api/hiring/applications/{application_id}/data-deletion")
@@ -1140,8 +1149,7 @@ def register(app: FastAPI) -> None:
             if not payload.expected_inventory_hash:
                 return _response({"status": "error", "error": True,
                                   "error_code": "inventory_hash_required",
-                                  "message": "Execute requires the exact dry-run hash.",
-                                  "http_status": 400})
+                                  "message": "Execute requires the exact dry-run hash."})
             result = await rights.execute_deletion(
                 principal=principal, application_id=application_id,
                 expected_inventory_hash=payload.expected_inventory_hash,
@@ -1149,7 +1157,8 @@ def register(app: FastAPI) -> None:
         else:
             result = await rights.deletion_plan(
                 principal=principal, application_id=application_id)
-        return JSONResponse(result, status_code=int(result.get("http_status") or 200),
+        from services.error_contracts import http_status
+        return JSONResponse(result, status_code=http_status(result, default=400),
                             headers={"Cache-Control": "no-store"})
 
     @app.post("/api/hiring/applications/{application_id}/legal-hold")

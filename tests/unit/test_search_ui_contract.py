@@ -24,7 +24,7 @@ class TestSurface:
         assert 'placeholder="Search sessions"' in UI
 
     def test_uses_the_server_search_endpoint(self):
-        assert '"/api/search?"' in UI
+        assert '"/api/v1/search?"' in UI
         assert 'params.set("types", "session")' in UI
         # The old client-side substring filter over previews is gone.
         assert "s.preview || \"\").toLowerCase().includes(q)" not in UI
@@ -160,11 +160,11 @@ class TestSessionWorkbenchContext:
         assert "contextSessionId()" in block
 
     def test_every_workbench_read_uses_the_visible_session_context(self):
-        assert '/api/pipeline?session_id=${encodeURIComponent(context)}' in UI
-        assert '/api/sessions/${encodeURIComponent(context)}/resources?limit=2000' in UI
-        assert '/api/documents?session_id=${encodeURIComponent(context)}' in UI
-        assert '/api/browser/state?session_id=${encodeURIComponent(session)}' in UI
-        assert '/api/waiting?session_id=${encodeURIComponent(context)}' in UI
+        assert '/api/v1/pipeline?session_id=${encodeURIComponent(context)}' in UI
+        assert '/api/v1/sessions/${encodeURIComponent(context)}/resources?limit=2000' in UI
+        assert '/api/v1/documents?session_id=${encodeURIComponent(context)}' in UI
+        assert '/api/v1/browser/state?session_id=${encodeURIComponent(session)}' in UI
+        assert '/api/v1/waits?session_id=${encodeURIComponent(context)}' in UI
 
     def test_session_outputs_are_visible_and_focusable(self):
         assert 'id="sessionWork"' in UI

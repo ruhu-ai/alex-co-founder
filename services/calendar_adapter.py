@@ -55,10 +55,11 @@ def set_service_factory(fn: Callable[[], Any] | None) -> None:
     _service_factory = fn
 
 
-def _service():
+def _service(workspace_id: str = ""):
     if _service_factory is not None:
         return _service_factory()
-    creds = google_oauth.get_credentials()
+    creds = (google_oauth.get_credentials("founder", workspace_id)
+             if workspace_id else google_oauth.get_credentials())
     if creds is None:
         return None
     from googleapiclient.discovery import build
@@ -77,11 +78,12 @@ def _no_oauth() -> dict:
             "message": "Google OAuth not configured (run scripts/oauth_setup.py)"}
 
 
-async def list_upcoming(days_ahead: int = 7, max_results: int = 10) -> dict:
+async def list_upcoming(days_ahead: int = 7, max_results: int = 10,
+                        workspace_id: str = "") -> dict:
     """Upcoming events on the founder's primary calendar."""
     import asyncio
 
-    svc = await asyncio.to_thread(_service)  # cred refresh is blocking HTTP
+    svc = await asyncio.to_thread(_service, workspace_id)
     if svc is None:
         return _no_oauth()
     time_min, time_max = _window(days_ahead)
@@ -102,7 +104,8 @@ async def list_upcoming(days_ahead: int = 7, max_results: int = 10) -> dict:
     return {"status": "success", "events": events, "window_end": time_max}
 
 
-async def check_availability(days_ahead: int = 7) -> dict:
+async def check_availability(days_ahead: int = 7,
+                             workspace_id: str = "") -> dict:
     """Busy blocks on the founder's primary calendar via the free/busy API.
 
     Returns busy intervals only — the model reasons about the free gaps.
@@ -111,7 +114,7 @@ async def check_availability(days_ahead: int = 7) -> dict:
     """
     import asyncio
 
-    svc = await asyncio.to_thread(_service)
+    svc = await asyncio.to_thread(_service, workspace_id)
     if svc is None:
         return _no_oauth()
     time_min, time_max = _window(days_ahead)
@@ -194,7 +197,7 @@ def event_idempotency_id(target: str, founder_id: str, subject_hash: str) -> str
     return "cal" + base64.b32hexencode(digest).decode().rstrip("=").lower()
 
 
-async def _write_scope_missing() -> bool:
+async def _write_scope_missing(workspace_id: str = "") -> bool:
     """True only when the write scope is KNOWN to be absent.
 
     The pre-check exists to turn a confusing provider 403 into a "reconnect
@@ -206,11 +209,14 @@ async def _write_scope_missing() -> bool:
     """
     import asyncio
 
-    scopes = getattr(google_oauth, "_granted", {}).get("founder")
+    scopes = getattr(google_oauth, "_granted", {}).get(
+        (workspace_id, "founder"))
     if scopes is None:
         try:
             scopes = await asyncio.wait_for(
-                asyncio.to_thread(google_oauth.granted_scopes), timeout=2.0)
+                asyncio.to_thread(
+                    google_oauth.granted_scopes, "founder", workspace_id),
+                timeout=2.0)
         except Exception:
             return False
     return bool(scopes) and _CAL_WRITE_SCOPE not in scopes
@@ -227,7 +233,7 @@ async def reconcile_event(event_id: str, *, founder_id: str = "",
     """
     import asyncio
 
-    svc = await asyncio.to_thread(_service)
+    svc = await asyncio.to_thread(_service, founder_id)
     if svc is None:
         return _no_oauth()
     try:
@@ -298,7 +304,8 @@ async def reconcile_event(event_id: str, *, founder_id: str = "",
 async def create_event(summary: str, start_iso: str, end_iso: str,
                        attendees: list[str], description: str = "",
                        application_id: str = "", founder_id: str = "",
-                       session_id: str = "") -> dict:
+                       session_id: str = "",
+                       requested_by_actor_id: str = "") -> dict:
     """Create an event on the founder's primary calendar and email invites —
     approval-gated (principle 5).
 
@@ -313,10 +320,10 @@ async def create_event(summary: str, start_iso: str, end_iso: str,
     """
     import asyncio
 
-    svc = await asyncio.to_thread(_service)
+    svc = await asyncio.to_thread(_service, founder_id)
     if svc is None:
         return _no_oauth()
-    if _service_factory is None and await _write_scope_missing():
+    if _service_factory is None and await _write_scope_missing(founder_id):
         return {"status": "error", "error": True,
                 "message": "Calendar write not granted — reconnect Calendar in the "
                            "Connectors panel to enable booking."}
@@ -385,7 +392,8 @@ async def create_event(summary: str, start_iso: str, end_iso: str,
         requested = await approval_service.request_approval(
             target, gate="book_meeting", details=details,
             founder_id=founder_id, session_id=session_id,
-            subject_hash=subject_hash)
+            subject_hash=subject_hash,
+            requested_by_actor_id=requested_by_actor_id)
         if requested.get("status") != "success":
             return requested
         await firestore.audit(
@@ -422,7 +430,9 @@ async def create_event(summary: str, start_iso: str, end_iso: str,
         founder_id, "calendar", "create_calendar_event", idempotency_key,
         {"event_id": event_id, "subject_hash": subject_hash},
         session_id=session_id, application_id=application_id or None,
-        subject_hash=subject_hash, approval_id=claimable["approval_id"])
+        subject_hash=subject_hash, approval_id=claimable["approval_id"],
+        consume_approval=True, approval_gate="book_meeting",
+        approval_target=target)
     if prepared.get("duplicate"):
         return external_action_service.duplicate_result(prepared)
     if prepared.get("error"):
@@ -432,20 +442,8 @@ async def create_event(summary: str, start_iso: str, end_iso: str,
                 "error_code": "lease_conflict",
                 "action_id": prepared.get("action_id"),
                 "message": "This calendar action is already in progress."}
-    # Reserve the single-use approval before Calendar creates the event and
-    # emails invitations.  A timeout after insert is outcome-ambiguous, so a
-    # retry under the same approval must never be allowed to double-book.
-    if not await firestore.claim_approval(claimable["approval_id"]):
-        await external_action_service.finish(
-            founder_id, prepared["action_id"], prepared["lease_owner"], "FAILED",
-            action_kind="create_calendar_event", idempotency_key=idempotency_key,
-            error_code="approval_missing")
-        await firestore.audit("agent:orchestrator", "book_meeting", target,
-                              "refused", "approval already consumed",
-                              idempotency_key=event_id)
-        return {"status": "error", "error": True,
-                "error_code": "approval_consumed",
-                "message": "Action blocked: this meeting approval was already used."}
+    # The exact approval and PREPARED action committed atomically above. A
+    # timeout after insert therefore cannot release authority for a blind retry.
     try:
         event = await asyncio.to_thread(lambda: svc.events().insert(
             calendarId="primary", body=event_body,
@@ -455,7 +453,7 @@ async def create_event(summary: str, start_iso: str, end_iso: str,
             # The id already exists: this exact meeting is on the calendar and
             # the invites went out on the first attempt. Report the outcome the
             # caller asked for — do NOT insert again.
-            existing = await reconcile_event(event_id)
+            existing = await reconcile_event(event_id, founder_id=founder_id)
             await firestore.audit(
                 "agent:orchestrator", "book_meeting", target, "success",
                 f"duplicate insert ignored — event_id={event_id} already exists",

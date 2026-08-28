@@ -1788,15 +1788,35 @@ def _event_session_key(run: dict[str, Any]) -> tuple[str, str, str]:
 async def _publish_browser_event(
     record: dict[str, Any], event_type: str, **payload: Any
 ) -> None:
+    event = {
+        "type": event_type,
+        "run_id": record.get("run_id"),
+        "version": int(payload.get("version", record.get("version", 0))),
+        **payload,
+    }
     await browser_event_hub.publish(
         _event_session_key(record),
-        {
-            "type": event_type,
-            "run_id": record.get("run_id"),
-            "version": int(payload.get("version", record.get("version", 0))),
-            **payload,
-        },
+        event,
     )
+    # The worker and public API are separate processes in production. Publish
+    # a content-free durable notification so the workspace SSE can trigger an
+    # authoritative browser snapshot; the process-local hub remains the fast
+    # path for local development and is never required for correctness.
+    if os.environ.get("K_SERVICE"):
+        from services.projection_stream import publish_best_effort
+
+        frame = payload.get("frame") or {}
+        await publish_best_effort(
+            workspace_id=str(record.get("user_id") or ""),
+            projection_type="browser",
+            aggregate_id=str(record.get("run_id") or ""),
+            aggregate_version=int(event["version"]),
+            run_id=str(record.get("run_id") or ""),
+            safe_payload={"event_type": event_type,
+                          "status": str(record.get("status") or "")[:40],
+                          "frame_seq": int(frame.get("seq") or 0)},
+            idempotency_key=(f"browser:{record.get('run_id')}:{event_type}:"
+                             f"{event['version']}:{int(frame.get('seq') or 0)}"))
 
 
 async def _mutate_run_view(run_id: str, **fields: Any) -> dict[str, Any]:
@@ -2960,7 +2980,9 @@ def _run_view(run: dict | None) -> dict | None:
         "url": run.get("current_url"),
         "title": run.get("title"),
         "goal": run.get("goal"),
-        "screenshot_url": f"/api/artifacts/{artifact}/preview" if artifact else None,
+        "screenshot_url": (
+            f"/api/v1/artifacts/{artifact}/preview?session_id={run.get('session_id', '')}"
+            if artifact else None),
         "screenshot_artifact": artifact,
         "last_action": run.get("last_action"),
         "status": status,

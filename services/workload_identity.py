@@ -84,10 +84,14 @@ def _route_audience(request, route_path: str) -> str:
     ``task_queue.enqueue_hiring`` puts in the OIDC token. AGENT_BASE_URL is the
     one canonical origin both sides already agree on.
     """
-    base = os.environ.get("AGENT_BASE_URL", "").rstrip("/")
-    if not base:
-        base = (f"https://{request.url.hostname}" if os.environ.get("K_SERVICE")
-                else f"{request.url.scheme}://{request.url.netloc}")
+    # Local signed-dispatch tests bind to the actual test server. They must not
+    # inherit a deployment origin left in the process by another test or local
+    # launcher. Production alone uses the configured canonical HTTPS origin.
+    if not os.environ.get("K_SERVICE"):
+        base = f"{request.url.scheme}://{request.url.netloc}"
+    else:
+        base = (os.environ.get("AGENT_BASE_URL", "").rstrip("/")
+                or f"https://{request.url.hostname}")
     return f"{base}{route_path}"
 
 

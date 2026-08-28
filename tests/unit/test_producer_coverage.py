@@ -66,7 +66,7 @@ def test_voice_note_requires_a_session_at_the_api_boundary():
     source = (REPO / "app/main.py").read_text()
     voice = source.split('@app.post("/api/voice-note")')[1].split("@app.")[0]
     assert "session_id: str = Form(...)" in voice
-    assert "_founder_session_exists(session_id)" in voice
+    assert "_workspace_session_exists(founder_id, session_id)" in voice
     assert "create_voice_note_artifact" in voice
 
 
@@ -74,7 +74,7 @@ def test_voice_note_requires_a_session_at_the_api_boundary():
 # (mail connector admin buttons). They are recorded rather than tolerated
 # silently: this list may shrink, never grow. Discovery is NOT on it — the
 # founder-facing boundary landed in WI-3.
-LEGACY_UI_TASK_CALLS = {"/tasks/gmail_scan", "/tasks/alex_mail_scan"}
+LEGACY_UI_TASK_CALLS = set()
 
 
 def test_internal_task_routes_are_not_ui_authority_shortcuts():

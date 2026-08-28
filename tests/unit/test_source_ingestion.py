@@ -38,7 +38,7 @@ async def test_upload_and_drive_share_metadata_and_provenance_contract(
     connection, grant = await _ready_drive_grant()
     monkeypatch.setattr(
         drive_adapter, "fetch_file_bytes",
-        lambda _source, _limit: {
+            lambda _source, _limit, _workspace_id: {
             "status": "success", "data": b"drive text",
             "detected_name": "Deck.txt", "declared_content_type": "text/plain",
             "provider_content_type": "text/plain", "provider_version": "7",

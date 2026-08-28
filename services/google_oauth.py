@@ -17,6 +17,7 @@ Adapters degrade to errors-as-data when OAuth is not configured.
 from __future__ import annotations
 
 import hashlib
+import logging
 import os
 import urllib.parse
 import urllib.request
@@ -50,6 +51,22 @@ CONNECTOR_ACCOUNT = {"alex_mail": "alex", "alex_calendar": "alex"}
 ACCOUNT_ENV = {"founder": "GOOGLE_OAUTH_REFRESH_TOKEN",
                "alex": "ALEX_OAUTH_REFRESH_TOKEN"}
 
+
+def expected_account_email(account: str) -> str:
+    """Exact provider identity required for a role-owned OAuth slot."""
+    if account == "alex":
+        return os.environ.get("ALEX_ROLE_EMAIL", "alex@ruhu.ai").strip().lower()
+    return ""
+
+
+def provider_account_hash(email: str) -> str:
+    """Stable opaque correlation key for provider-originated notifications."""
+    normalized = (email or "").strip().lower()
+    if not normalized:
+        return ""
+    return "sha256:" + hashlib.sha256(
+        f"google-account-v1\x1e{normalized}".encode()).hexdigest()
+
 # Subset that decides "connected" in the panel — write scopes are upgrades,
 # not status requirements (a readonly-granted calendar still shows Connected;
 # booking degrades to an error until the founder re-consents).
@@ -69,8 +86,8 @@ SCOPES = [scope for connector, group in SCOPE_MAP.items()
 # oauthlib's scope check never trips on an alex_mail consent.
 ALL_SCOPES = [s for group in SCOPE_MAP.values() for s in group]
 
-_creds: dict = {}          # per-account cached credential, refreshed on expiry
-_granted: dict = {}        # per-account frozenset of scopes the token carries
+_creds: dict = {}          # per-workspace/account credential, refreshed on expiry
+_granted: dict = {}        # per-workspace/account frozenset of granted scopes
 
 # Refresh this far ahead of stated expiry so a token cannot lapse mid-call.
 _TOKEN_REFRESH_SKEW = timedelta(seconds=120)
@@ -86,7 +103,7 @@ def _expires_within(creds, skew: timedelta) -> bool:
     return expiry - skew <= datetime.now(timezone.utc)
 
 
-_sm_missing: set = set()  # accounts whose token Secret Manager does NOT have —
+_sm_missing: set = set()  # credential slots Secret Manager does NOT have —
 # cached for the process: without this, every panel status check re-blocks on
 # a slow Secret Manager call (grpc retries can stall the server for minutes).
 # Only negatives are cached, so a token added later via Connect still wins
@@ -108,16 +125,36 @@ def runtime_value(key: str) -> str:
         return ""
 
 
-def _refresh_token(account: str = "founder") -> str:
-    token = runtime_value(ACCOUNT_ENV.get(account, ""))
+def credential_ref(account: str = "founder", workspace_id: str = "") -> str:
+    """Opaque secret/.env key for one workspace's provider account.
+
+    The legacy unscoped key remains available to local compatibility callers.
+    Platform requests always supply ``workspace_id`` and therefore cannot read
+    another workspace's OAuth grant, even for the same provider account role.
+    """
+    base = ACCOUNT_ENV.get(account, ACCOUNT_ENV["founder"])
+    if not workspace_id:
+        return base
+    digest = hashlib.sha256(
+        f"google-oauth-v1\x1e{workspace_id}\x1e{account}".encode()).hexdigest()[:40]
+    return f"{base}_W_{digest}"
+
+
+def _cache_key(account: str, workspace_id: str) -> tuple[str, str]:
+    return (workspace_id, account)
+
+
+def _refresh_token(account: str = "founder", workspace_id: str = "") -> str:
+    slot = credential_ref(account, workspace_id)
+    token = runtime_value(slot)
     if token:
         return token
-    if account in _sm_missing:
+    if slot in _sm_missing:
         return ""
     try:
         from services import secrets
 
-        return secrets.get(ACCOUNT_ENV.get(account, ""))
+        return secrets.get(slot)
     except Exception as exc:
         # Negative-cache ONLY a definitive "not configured" — no project set
         # (KeyError) or the secret genuinely does not exist (NotFound). A
@@ -126,11 +163,12 @@ def _refresh_token(account: str = "founder") -> str:
         from google.api_core import exceptions as gexc
 
         if isinstance(exc, (KeyError, gexc.NotFound)):
-            _sm_missing.add(account)
+            _sm_missing.add(slot)
         return ""
 
 
-def configured(connector: str | None = None, account: str = "founder") -> bool:
+def configured(connector: str | None = None, account: str = "founder",
+               workspace_id: str = "") -> bool:
     """OAuth ready? With `connector`, True only when that connector's scopes
     were actually granted on its account (per-connector Connect buttons,
     incremental auth)."""
@@ -139,20 +177,21 @@ def configured(connector: str | None = None, account: str = "founder") -> bool:
     if not (
         os.environ.get("GOOGLE_OAUTH_CLIENT_ID")
         and os.environ.get("GOOGLE_OAUTH_CLIENT_SECRET")
-        and _refresh_token(account)
+        and _refresh_token(account, workspace_id)
     ):
         return False
     if connector is None:
         return True
     required = STATUS_SCOPES.get(connector, SCOPE_MAP.get(connector, ()))
-    return set(required) <= set(granted_scopes(account))
+    return set(required) <= set(granted_scopes(account, workspace_id))
 
 
-def granted_scopes(account: str = "founder") -> frozenset:
+def granted_scopes(account: str = "founder", workspace_id: str = "") -> frozenset:
     """Scopes the stored token really carries (tokeninfo), cached per token."""
-    if account in _granted:
-        return _granted[account]
-    creds = get_credentials(account)
+    cache_key = _cache_key(account, workspace_id)
+    if cache_key in _granted:
+        return _granted[cache_key]
+    creds = get_credentials(account, workspace_id)
     if creds is None or not creds.token:
         return frozenset()
     try:
@@ -160,19 +199,19 @@ def granted_scopes(account: str = "founder") -> frozenset:
 
         info = build("oauth2", "v2", credentials=creds,
                      cache_discovery=False).tokeninfo(access_token=creds.token).execute()
-        _granted[account] = frozenset((info.get("scope") or "").split())
+        _granted[cache_key] = frozenset((info.get("scope") or "").split())
     except Exception:
         return frozenset()
-    return _granted[account]
+    return _granted[cache_key]
 
 
-def get_credentials(account: str = "founder"):
+def get_credentials(account: str = "founder", workspace_id: str = ""):
     """User credentials minted from the account's stored refresh token, or
     None when OAuth is not configured for that account."""
     if not (
         os.environ.get("GOOGLE_OAUTH_CLIENT_ID")
         and os.environ.get("GOOGLE_OAUTH_CLIENT_SECRET")
-        and _refresh_token(account)
+        and _refresh_token(account, workspace_id)
     ):
         return None
     import google.auth.transport.requests
@@ -183,8 +222,9 @@ def get_credentials(account: str = "founder"):
     # token-endpoint round trip every time (docs/25 §7.8). The cache is keyed by
     # the refresh token in use, so rotating or revoking a grant — or switching
     # accounts — can never hand back the previous grant's access token.
-    refresh_token = _refresh_token(account)
-    cached = _creds.get(account)
+    refresh_token = _refresh_token(account, workspace_id)
+    cache_key = _cache_key(account, workspace_id)
+    cached = _creds.get(cache_key)
     if (cached is not None and cached.refresh_token == refresh_token
             and cached.token and not _expires_within(cached, _TOKEN_REFRESH_SKEW)):
         return cached
@@ -198,45 +238,40 @@ def get_credentials(account: str = "founder"):
         # for MORE than granted fails the refresh with invalid_scope
     )
     creds.refresh(google.auth.transport.requests.Request())
-    _creds[account] = creds
+    _creds[cache_key] = creds
     return creds
 
 
 def reset_for_tests() -> None:
-    global _account_email
     _creds.clear()
     _granted.clear()
     _sm_missing.clear()
-    _account_email = ""
+    _account_emails.clear()
 
 
-def clear_account_cache(account: str) -> None:
+def clear_account_cache(account: str, workspace_id: str = "") -> None:
     """Drop every in-process credential/status cache for one Google account."""
-    global _account_email
-    _creds.pop(account, None)
-    _granted.pop(account, None)
-    _sm_missing.discard(account)
-    if account == "founder":
-        _account_email = ""
+    key = _cache_key(account, workspace_id)
+    _creds.pop(key, None)
+    _granted.pop(key, None)
+    _sm_missing.discard(credential_ref(account, workspace_id))
+    _account_emails.pop(key, None)
 
 
-_account_email = ""
+_account_emails: dict[tuple[str, str], str] = {}
 
 
-def account_email(account: str = "founder") -> str:
+def account_email(account: str = "founder", workspace_id: str = "") -> str:
     """Email of the connected Google account (for the Connections panel).
     Cached; empty string when unconfigured. Gmail profile is the cheapest
     endpoint our read-only scopes can call; Drive about works as fallback."""
-    global _account_email
-    if account != "founder":
-        return _account_email_for(account)
-    if _account_email:
-        return _account_email
-    _account_email = _account_email_for(account)
-    return _account_email
+    key = _cache_key(account, workspace_id)
+    if key not in _account_emails:
+        _account_emails[key] = _account_email_for(account, workspace_id)
+    return _account_emails[key]
 
 
-def account_subject_hash(account: str = "founder") -> str:
+def account_subject_hash(account: str = "founder", workspace_id: str = "") -> str:
     """Return the opaque Google OAuth subject hash, never the raw subject.
 
     Provider effect lanes use this to pin an account before an irreversible
@@ -244,7 +279,7 @@ def account_subject_hash(account: str = "founder") -> str:
     to an email address: an email is mutable account metadata, while the
     provider subject is the stable identity being approved.
     """
-    creds = get_credentials(account)
+    creds = get_credentials(account, workspace_id)
     if creds is None:
         return ""
     try:
@@ -258,8 +293,8 @@ def account_subject_hash(account: str = "founder") -> str:
         return ""
 
 
-def _account_email_for(account: str) -> str:
-    creds = get_credentials(account)
+def _account_email_for(account: str, workspace_id: str = "") -> str:
+    creds = get_credentials(account, workspace_id)
     if creds is None:
         return ""
     from googleapiclient.discovery import build
@@ -317,12 +352,13 @@ def save_env_var(key: str, value: str) -> dict:
     return {"status": "success"}
 
 
-def save_refresh_token(token: str, account: str = "founder") -> dict:
+def save_refresh_token(token: str, account: str = "founder",
+                       workspace_id: str = "") -> dict:
     """Persist a newly-consented refresh token — no restart needed (cached
     creds and account identity are reset)."""
-    result = save_env_var(ACCOUNT_ENV.get(account, "GOOGLE_OAUTH_REFRESH_TOKEN"), token)
+    result = save_env_var(credential_ref(account, workspace_id), token)
     if result.get("status") == "success":
-        reset_for_tests()
+        clear_account_cache(account, workspace_id)
     return result
 
 
@@ -349,7 +385,15 @@ def verify_consent(credentials, connector: str) -> dict:
             return {"status": "error", "error": True,
                     "error_code": "scope_missing",
                     "message": "required Google scope was not granted"}
-        if connector == "drive":
+        if connector in {"calendar", "alex_calendar"}:
+            # These grants intentionally include userinfo.email so account
+            # identity can be verified without broad Calendar metadata access.
+            # calendar.events permits event operations but does not permit
+            # calendarList.get("primary"), which returns a misleading 403.
+            identity = build("oauth2", "v2", credentials=credentials,
+                             cache_discovery=False).userinfo().get().execute()
+            hint = identity.get("email", "")
+        elif connector == "drive":
             identity = build("drive", "v3", credentials=credentials,
                              cache_discovery=False).about().get(
                                  fields="user").execute().get("user", {})
@@ -359,26 +403,33 @@ def verify_consent(credentials, connector: str) -> dict:
                              cache_discovery=False).users().getProfile(
                                  userId="me").execute()
             hint = identity.get("emailAddress", "")
-        else:
-            identity = build("calendar", "v3", credentials=credentials,
-                             cache_discovery=False).calendarList().get(
-                                 calendarId="primary").execute()
-            hint = identity.get("id", "")
         if not hint:
             return {"status": "error", "error": True,
                     "error_code": "provider_rejected",
                     "message": "Google account identity could not be verified"}
+        account = CONNECTOR_ACCOUNT.get(connector, "founder")
+        expected_email = expected_account_email(account)
+        if expected_email and hint.strip().lower() != expected_email:
+            return {"status": "error", "error": True,
+                    "error_code": "account_mismatch",
+                    "message": ("Sign in as the configured Alex role account; "
+                                "the selected Google account was not accepted")}
         local, sep, domain = hint.partition("@")
         masked = ((local[:1] + "***@" + domain) if sep else "Google account")
         return {"status": "success", "granted_scopes": granted,
-                "account_hint": masked}
-    except Exception:
+                "account_hint": masked,
+                "provider_account_hash": provider_account_hash(hint)}
+    except Exception as exc:
+        logging.getLogger(__name__).warning(
+            "Google consent verification failed for %s: %s",
+            connector, type(exc).__name__)
         return {"status": "error", "error": True,
                 "error_code": "provider_unavailable",
                 "message": "Google account verification failed"}
 
 
-def revoke_account_grant(account: str = "founder", timeout_seconds: int = 10
+def revoke_account_grant(account: str = "founder", timeout_seconds: int = 10,
+                         workspace_id: str = ""
                          ) -> dict:
     """Revoke the account-wide refresh-token grant at Google.
 
@@ -386,7 +437,7 @@ def revoke_account_grant(account: str = "founder", timeout_seconds: int = 10
     A missing token is uncertain, not success: local absence does not prove the
     provider grant was revoked.
     """
-    token = _refresh_token(account)
+    token = _refresh_token(account, workspace_id)
     if not token:
         return {"status": "error", "error": True,
                 "error_code": "remote_revocation_uncertain",
@@ -406,14 +457,15 @@ def revoke_account_grant(account: str = "founder", timeout_seconds: int = 10
     return {"status": "success"}
 
 
-def delete_account_credential(account: str = "founder") -> dict:
+def delete_account_credential(account: str = "founder",
+                              workspace_id: str = "") -> dict:
     """Delete the named refresh-token secret and invalidate live caches."""
-    key = ACCOUNT_ENV.get(account)
+    key = credential_ref(account, workspace_id) if account in ACCOUNT_ENV else ""
     if not key:
         return {"status": "error", "error": True,
                 "error_code": "invalid_contract",
                 "message": "unknown Google account"}
     result = save_env_var(key, "")
     if result.get("status") == "success":
-        clear_account_cache(account)
+        clear_account_cache(account, workspace_id)
     return result

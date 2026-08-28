@@ -222,9 +222,14 @@ async def test_registration_parks_without_polling_and_persists_wake_route(
     monkeypatch.setenv("PORTAL_SECRETS_FILE", str(tmp_path / "portal.json"))
     monkeypatch.delenv("GOOGLE_CLOUD_PROJECT", raising=False)
     portal_accounts._CACHE.clear()
+    portal_target = "portal:portal.example"
+    portal_details = {"portal_url": "https://portal.example",
+                      "email": "alex@ruhu.ai"}
     requested = await approval_service.request_approval(
-        "portal:portal.example", gate="create_portal_account",
-        founder_id="founder", session_id="session-1")
+        portal_target, gate="create_portal_account", details=portal_details,
+        founder_id="founder", session_id="session-1",
+        subject_hash=approval_service.action_subject_hash(
+            "create_portal_account", portal_target, portal_details))
     await approval_service.resolve(
         requested["approval_id"], "grant", "founder", "session-1")
 

@@ -9,8 +9,9 @@ from __future__ import annotations
 
 from typing import Any
 
-from services import connection_registry, data_source_metrics, firestore
+from services import capability_registry, connection_registry, data_source_metrics, firestore
 from services import data_source_contracts as dsc
+from services.canonical import canonical_hash
 
 
 async def _connection(founder_id: str, connector_id: str) -> dict[str, Any]:
@@ -24,11 +25,13 @@ async def _connection(founder_id: str, connector_id: str) -> dict[str, Any]:
     # M1/M2 compatibility: credentials predated durable connection rows.  A
     # real operation may create that projection, but status rendering never
     # calls this bridge and therefore never probes or invents provider health.
+    connector = dsc.require_closed(connector_id, dsc.ConnectorId)
+    contract = dsc.CONNECTOR_REGISTRY[connector]
     account = connection_registry.account_for_connector(connector_id)
     account_ref = "alex-role-mailbox" if account == "alex" else "default"
     return await firestore.upsert_data_connection(
         founder_id, connector_id, account_ref=account_ref,
-        auth_kind="google_oauth", status="CONNECTED")
+        auth_kind=contract.auth_kind.value, status="CONNECTED")
 
 
 async def prepare(
@@ -37,10 +40,15 @@ async def prepare(
         session_id: str | None = None, application_id: str | None = None,
         resource_id: str | None = None, subject_hash: str | None = None,
         approval_id: str | None = None,
+        consume_approval: bool = False,
+        approval_gate: str | None = None,
+        approval_target: str | None = None,
         sandbox_context: dict[str, Any] | None = None) -> dict[str, Any]:
     """Persist PREPARED before an effect and return any original receipt."""
     try:
         dsc.require_closed(action_kind, dsc.ExternalActionKind)
+        capability = capability_registry.require_external_action(
+            action_kind, connector_id)
         request_hash = dsc.canonical_hash(request_metadata)
     except ValueError:
         return {"status": "error", "error": True,
@@ -49,12 +57,40 @@ async def prepare(
     connection = await _connection(founder_id, connector_id)
     if connection.get("error"):
         return connection
+    approval_bindings = None
+    if consume_approval:
+        target = approval_target or application_id or ""
+        approval_bindings = {
+            "action_kind": action_kind,
+            "capability_id": capability.capability_id,
+            "capability_version": capability.semantic_version,
+            "target_hash": canonical_hash(
+                {"target": target}, domain="approval-target"),
+            "normalized_payload_hash": canonical_hash(
+                {"subject_hash": subject_hash or ""},
+                domain="approval-payload"),
+            "policy_id": capability.approval_policy_id,
+            "policy_version": "1",
+            "connector_id": connector_id,
+            "connector_binding_version": "connection-v1",
+        }
     result = await firestore.prepare_external_action(
         founder_id, connection["connection_id"], action_kind,
         idempotency_key, request_hash, session_id=session_id,
         application_id=application_id, resource_id=resource_id,
         subject_hash=subject_hash, approval_id=approval_id,
+        consume_approval=consume_approval, approval_gate=approval_gate,
+        approval_target=approval_target,
+        capability_id=capability.capability_id,
+        capability_version=capability.semantic_version,
+        approval_bindings=approval_bindings,
         sandbox_context=sandbox_context)
+    # Preserve the existing adapter contract while enforcing two distinct
+    # durable boundaries. Every current caller invokes the provider only after
+    # this facade returns, so a claimed T1 result must pass T2 here first.
+    if result.get("claimed") and not result.get("duplicate"):
+        result = await firestore.start_external_action(
+            founder_id, result["action_id"], result["lease_owner"])
     outcome = ("success" if result.get("status") == "success" else
                "refused")
     detail = ("duplicate" if result.get("duplicate") else
@@ -68,6 +104,18 @@ async def prepare(
         "external_action_prepare", action_kind=action_kind,
         status=result.get("status"), error_code=result.get("error_code"))
     return result
+
+
+async def get_by_idempotency_key(founder_id: str, action_kind: str,
+                                 idempotency_key: str) -> dict[str, Any] | None:
+    """Read the durable receipt addressed by one closed action identity."""
+    try:
+        kind = dsc.require_closed(action_kind, dsc.ExternalActionKind)
+        action_id = dsc.external_action_id(founder_id, kind.value,
+                                           idempotency_key)
+    except ValueError:
+        return None
+    return await firestore.get_external_action(founder_id, action_id)
 
 
 async def finish(
@@ -121,6 +169,10 @@ def duplicate_result(receipt: dict[str, Any]) -> dict[str, Any]:
     if receipt.get("status") == "SUCCEEDED":
         kind = receipt.get("action_kind")
         message = {
+            "submit_application": ("This application was already submitted; "
+                                   "nothing was submitted twice."),
+            "create_portal_account": ("This portal-account action already "
+                                      "completed; no second account was created."),
             "send_email": "This email was already sent; nothing was sent twice.",
             "create_calendar_event": ("This meeting was already booked; no invites "
                                       "were sent twice."),

@@ -5,7 +5,7 @@ import hashlib
 
 from google.adk.tools import ToolContext
 
-from ._common import failed, run
+from ._common import failed, run, workspace_id
 
 
 def search_programs(query: str, tool_context: ToolContext) -> dict:
@@ -79,7 +79,8 @@ def dedupe_check(name: str, application_url: str, tool_context: ToolContext) -> 
     from services import firestore
 
     digest = hashlib.sha256(f"{name.strip().lower()}|{application_url.strip().lower()}".encode()).hexdigest()
-    existing_id = run(firestore.find_opportunity_by_hash(digest))
+    existing_id = run(firestore.find_opportunity_by_hash(
+        digest, workspace_id(tool_context)))
     # run() returns a truthy error dict (never raises) when the lookup fails, so
     # `existing_id is not None` would wrongly report a duplicate. failed() is the
     # only correct way to tell a store outage from a genuine hit.
@@ -104,4 +105,6 @@ def save_opportunity(record: dict, tool_context: ToolContext) -> dict:
     from agents.co_founder.workflow import get_workflow
     from services import discovery_service
 
-    return run(discovery_service.save_opportunity_record(record, get_workflow().entity_schema))
+    return run(discovery_service.save_opportunity_record(
+        record, get_workflow().entity_schema,
+        workspace_id(tool_context)))
