@@ -107,6 +107,9 @@ gcloud tasks queues describe co-founder-reconciliation --location="$REGION" >/de
 gcloud tasks queues describe co-founder-interactive --location="$REGION" >/dev/null 2>&1 \
   || gcloud tasks queues create co-founder-interactive --location="$REGION" \
        --max-concurrent-dispatches=4 --max-attempts=8
+gcloud tasks queues describe co-founder-background-pilot --location="$REGION" >/dev/null 2>&1 \
+  || gcloud tasks queues create co-founder-background-pilot --location="$REGION" \
+       --max-concurrent-dispatches=1 --max-attempts=3
 # `describe || create` cannot correct drift on an existing queue, so pin the
 # reviewed limits on every deploy (idempotent, and cheap).
 gcloud tasks queues update co-founder-events --location="$REGION" \
@@ -123,6 +126,8 @@ gcloud tasks queues update co-founder-reconciliation --location="$REGION" \
   --max-concurrent-dispatches=4 --max-attempts=8 >/dev/null
 gcloud tasks queues update co-founder-interactive --location="$REGION" \
   --max-concurrent-dispatches=4 --max-attempts=8 >/dev/null
+gcloud tasks queues update co-founder-background-pilot --location="$REGION" \
+  --max-concurrent-dispatches=1 --max-attempts=3 >/dev/null
 
 echo "==> Cloud SQL (sessions) — create is slow; runs once"
 gcloud sql instances describe co-founder-sessions >/dev/null 2>&1 \
@@ -180,7 +185,8 @@ TIMERS_SA="timers-worker@${GOOGLE_CLOUD_PROJECT}.iam.gserviceaccount.com"
 BROWSER_SA="browser-worker@${GOOGLE_CLOUD_PROJECT}.iam.gserviceaccount.com"
 RECONCILIATION_SA="reconciliation-worker@${GOOGLE_CLOUD_PROJECT}.iam.gserviceaccount.com"
 INTERACTIVE_SA="interactive-worker@${GOOGLE_CLOUD_PROJECT}.iam.gserviceaccount.com"
-for worker_name in provider-events-worker discovery-ingestion-worker timers-worker browser-worker reconciliation-worker interactive-worker; do
+BACKGROUND_PILOT_SA="background-pilot-worker@${GOOGLE_CLOUD_PROJECT}.iam.gserviceaccount.com"
+for worker_name in provider-events-worker discovery-ingestion-worker timers-worker browser-worker reconciliation-worker interactive-worker background-pilot-worker; do
   worker_sa="${worker_name}@${GOOGLE_CLOUD_PROJECT}.iam.gserviceaccount.com"
   gcloud iam service-accounts describe "$worker_sa" >/dev/null 2>&1 \
     || gcloud iam service-accounts create "$worker_name" --display-name="Co-Founder ${worker_name}"
@@ -199,6 +205,7 @@ EXCLUDE_KEYS="${SECRET_ENV_KEYS[*]} ${RUNTIME_SECRET_KEYS[*]} ${FIXED_SECRET_BIN
   TASKS_PROVIDER_EVENTS_SA="$PROVIDER_EVENTS_SA" TASKS_DISCOVERY_INGESTION_SA="$DISCOVERY_INGESTION_SA" \
   TASKS_TIMERS_SA="$TIMERS_SA" TASKS_BROWSER_SA="$BROWSER_SA" \
   TASKS_RECONCILIATION_SA="$RECONCILIATION_SA" TASKS_INTERACTIVE_SA="$INTERACTIVE_SA" \
+  TASKS_BACKGROUND_PILOT_SA="$BACKGROUND_PILOT_SA" \
   MOCK_PORTAL_URL="$MOCK_URL" GOOGLE_CLOUD_REGION="$REGION" \
   "$PYTHON" - <<'PY' > /tmp/co_founder_env.yaml
 import json, os, re
@@ -211,12 +218,17 @@ for line in open(".env.prod"):
 vals["TASKS_INVOKER_SA"] = os.environ["TASKS_INVOKER_SA"]
 for key in ("TASKS_PROVIDER_EVENTS_SA", "TASKS_DISCOVERY_INGESTION_SA",
             "TASKS_TIMERS_SA", "TASKS_BROWSER_SA",
-            "TASKS_RECONCILIATION_SA", "TASKS_INTERACTIVE_SA"):
+            "TASKS_RECONCILIATION_SA", "TASKS_INTERACTIVE_SA",
+            "TASKS_BACKGROUND_PILOT_SA"):
     vals[key] = os.environ[key]
 vals["MOCK_PORTAL_URL"] = os.environ["MOCK_PORTAL_URL"]  # override with live URL
 vals["GOOGLE_CLOUD_REGION"] = os.environ["GOOGLE_CLOUD_REGION"]
 vals["HIRING_WORKLOAD_ALLOWLIST_JSON"] = json.dumps({
     "/tasks/hiring/process_mailbox_batch": [os.environ["TASKS_INVOKER_SA"]],
+}, separators=(",", ":"))
+vals["BACKGROUND_PILOT_WORKLOAD_ALLOWLIST_JSON"] = json.dumps({
+    "/tasks/background-artifact-pilot": [
+        os.environ["TASKS_BACKGROUND_PILOT_SA"]],
 }, separators=(",", ":"))
 for key, val in vals.items():
     print(f"{key}: {json.dumps(val)}")
@@ -279,7 +291,7 @@ gcloud scheduler jobs describe deadline-scan-6h --location="$REGION" >/dev/null 
 echo "==> Pub/Sub push subscriptions → app (OIDC, idempotent)"
 gcloud iam service-accounts describe "$SA" >/dev/null 2>&1 \
   || gcloud iam service-accounts create scheduler-invoker --display-name="Scheduler → Cloud Run invoker"
-for worker_name in provider-events-worker discovery-ingestion-worker timers-worker browser-worker reconciliation-worker interactive-worker; do
+for worker_name in provider-events-worker discovery-ingestion-worker timers-worker browser-worker reconciliation-worker interactive-worker background-pilot-worker; do
   worker_sa="${worker_name}@${GOOGLE_CLOUD_PROJECT}.iam.gserviceaccount.com"
   gcloud iam service-accounts add-iam-policy-binding "$worker_sa" \
     --member="serviceAccount:$COMPUTE_SA" --role="roles/iam.serviceAccountUser" \

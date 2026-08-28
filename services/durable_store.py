@@ -56,6 +56,8 @@ def _collection_ref(name: str):
         "data_connections": client.collection("data_connections"),
         "source_grants": client.collection("source_grants"),
         "wake_deliveries": client.collection("wake_deliveries"),
+        "conversation_deliveries": client.collection("conversation_deliveries"),
+        "background_pilot_capacity": client.collection("background_pilot_capacity"),
         "portal_event_receipts": client.collection("portal_event_receipts"),
         "command_receipts": client.collection("command_receipts"),
         "command_outbox": client.collection("command_outbox"),

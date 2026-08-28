@@ -84,6 +84,10 @@ def _internal(capability_id: str, role: str, side_effect_class: str,
 
 
 STATIC_CAPABILITIES: dict[str, CapabilityDescriptor] = {
+    "background.artifact.inspect": _internal(
+        "background.artifact.inspect", "deterministic_worker", "NO_EFFECT",
+        output="background.artifact_inventory.v1",
+        implementation="service:background_pilot.execute_artifact_inventory"),
     "investor.search": _internal(
         "investor.search", "researcher", "READ_ONLY",
         output="investor.candidate_set.v1",

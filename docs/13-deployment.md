@@ -115,6 +115,7 @@ its audit receipt.
 | Cloud Tasks queue | `co-founder-discovery-ingestion` | Crawling and document ingestion; route-scoped `discovery-ingestion-worker@` identity, max concurrency 4. |
 | Cloud Tasks queue | `co-founder-reconciliation` | Uncertain-effect reconciliation only; route-scoped `reconciliation-worker@` identity, max concurrency 4. |
 | Cloud Tasks queue | `co-founder-interactive` | Bounded founder-triggered reasoning/distillation; route-scoped `interactive-worker@` identity, max concurrency 4. |
+| Cloud Tasks queue | `co-founder-background-pilot` | Default-off founder artifact-analysis pilot only; route-scoped `background-pilot-worker@` identity, max concurrency 1, max attempts 3, zero provider/model/effect authority. |
 | Cloud Run ×3 | `co-founder`, `co-founder-browser-worker`, `mock-portal` | `co-founder` scales independently (`0..10`) and reaches browser work only through the typed OIDC gateway. `co-founder-browser-worker` is private, `0..1`, concurrency 1, owns every Playwright object, and accepts only the API service identity. `mock-portal` is a non-authoritative demo provider (`0..2`). |
 
 Reference commands (`scripts/deploy.sh` implements them idempotently):

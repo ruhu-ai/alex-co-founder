@@ -18,6 +18,7 @@ _MAX_CLOCK_SKEW_SECONDS = 120
 
 
 class WorkspaceRole(str, Enum):
+    FOUNDER = "FOUNDER"
     OWNER = "OWNER"
     HIRING_MANAGER = "HIRING_MANAGER"
     INTERVIEWER = "INTERVIEWER"
@@ -163,7 +164,7 @@ def authorize(principal: ActorPrincipal, operation: str, *, role_id: str = "",
         if age < -_MAX_CLOCK_SKEW_SECONDS or age > maximum:
             return _error("step_up_required",
                           "Recent sign-in is required for this operation.", 401)
-    if principal.role is WorkspaceRole.OWNER:
+    if principal.role in {WorkspaceRole.FOUNDER, WorkspaceRole.OWNER}:
         return {"status": "success"}
     if operation in {"read_role", "read_candidate"} and principal.role is WorkspaceRole.OBSERVER:
         if candidate_application_id:

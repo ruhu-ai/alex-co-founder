@@ -35,20 +35,36 @@ def _error(code: str = "workload_unauthorized") -> dict[str, Any]:
 
 
 def _allowlist(path: str) -> set[str]:
+    variable = (
+        "BACKGROUND_PILOT_WORKLOAD_ALLOWLIST_JSON"
+        if path == "/tasks/background-artifact-pilot"
+        else "HIRING_WORKLOAD_ALLOWLIST_JSON")
     try:
-        configured = json.loads(os.environ.get("HIRING_WORKLOAD_ALLOWLIST_JSON", "{}"))
+        configured = json.loads(os.environ.get(variable, "{}"))
     except ValueError:
         return set()
     values = configured.get(path, []) if isinstance(configured, dict) else []
     return {str(value) for value in values if value}
 
 
-def _test_principal(request, audience: str) -> WorkloadPrincipal | dict[str, Any]:
-    if os.environ.get("K_SERVICE") or os.environ.get("HIRING_ALLOW_TEST_DISPATCH") != "1":
+def _test_principal(request, audience: str,
+                    route_path: str) -> WorkloadPrincipal | dict[str, Any]:
+    pilot = route_path == "/tasks/background-artifact-pilot"
+    enabled_name = (
+        "BACKGROUND_PILOT_ALLOW_TEST_DISPATCH" if pilot
+        else "HIRING_ALLOW_TEST_DISPATCH")
+    secret_name = (
+        "BACKGROUND_PILOT_TEST_DISPATCH_SECRET" if pilot
+        else "HIRING_TEST_DISPATCH_SECRET")
+    if os.environ.get("K_SERVICE") or os.environ.get(enabled_name) != "1":
         return _error()
-    secret = os.environ.get("HIRING_TEST_DISPATCH_SECRET", "")
-    encoded = request.headers.get("X-Hiring-Test-Principal", "")
-    signature = request.headers.get("X-Hiring-Test-Signature", "")
+    secret = os.environ.get(secret_name, "")
+    encoded = request.headers.get(
+        "X-Background-Pilot-Test-Principal" if pilot
+        else "X-Hiring-Test-Principal", "")
+    signature = request.headers.get(
+        "X-Background-Pilot-Test-Signature" if pilot
+        else "X-Hiring-Test-Signature", "")
     if not secret or not encoded or not hmac.compare_digest(
             hmac.new(secret.encode(), encoded.encode(), hashlib.sha256).hexdigest(), signature):
         return _error()
@@ -99,7 +115,7 @@ async def verify_request(request, route_path: str) -> WorkloadPrincipal | dict[s
     """Verify issuer, exact route audience, expiry and route service-account pin."""
     audience = _route_audience(request, route_path)
     if not os.environ.get("K_SERVICE"):
-        return _test_principal(request, audience)
+        return _test_principal(request, audience, route_path)
     header = request.headers.get("Authorization", "")
     if not header.startswith("Bearer "):
         return _error()

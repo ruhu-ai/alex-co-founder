@@ -59,6 +59,8 @@ TOP_LEVEL_COLLECTIONS: frozenset[str] = frozenset({
     "founder_inbox",
     "external_actions",
     "wake_deliveries",
+    "conversation_deliveries",
+    "background_pilot_capacity",
     "portal_event_receipts",
     "command_receipts",
     "command_outbox",

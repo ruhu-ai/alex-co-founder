@@ -192,6 +192,17 @@
       ]
     },
     {
+      "collectionGroup": "workflow_runs",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {"fieldPath": "workspace_id", "order": "ASCENDING"},
+        {"fieldPath": "originating_actor_id", "order": "ASCENDING"},
+        {"fieldPath": "execution_mode", "order": "ASCENDING"},
+        {"fieldPath": "visibility_scope", "order": "ASCENDING"},
+        {"fieldPath": "updated_at", "order": "DESCENDING"}
+      ]
+    },
+    {
       "collectionGroup": "workflow_steps",
       "queryScope": "COLLECTION",
       "fields": [
@@ -215,6 +226,14 @@
       "fields": [
         {"fieldPath": "run_id", "order": "ASCENDING"},
         {"fieldPath": "sequence", "order": "ASCENDING"}
+      ]
+    },
+    {
+      "collectionGroup": "run_events",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {"fieldPath": "run_id", "order": "ASCENDING"},
+        {"fieldPath": "sequence", "order": "DESCENDING"}
       ]
     },
     {

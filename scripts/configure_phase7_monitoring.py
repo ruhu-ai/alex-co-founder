@@ -28,6 +28,7 @@ QUEUE_DEPTH_LIMITS = {
     "co-founder-discovery-ingestion": 5_000,
     "co-founder-reconciliation": 2_000,
     "co-founder-interactive": 2_000,
+    "co-founder-background-pilot": 100,
 }
 
 
@@ -295,7 +296,8 @@ def configure(
     if not channel_names:
         raise ConfigurationError("at least one notification channel is required")
 
-    uptime_checks = _json_command(runner, "monitoring", "uptime", "list", "--project", project)
+    uptime_checks = _json_command(
+        runner, "monitoring", "uptime", "list-configs", "--project", project)
     if not isinstance(uptime_checks, list):
         raise ConfigurationError("uptime check list is unreadable")
     matches = [item for item in uptime_checks if item.get("displayName") == UPTIME_DISPLAY_NAME]

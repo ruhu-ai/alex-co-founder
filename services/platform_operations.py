@@ -30,6 +30,12 @@ SERVICE_OBJECTIVES: dict[str, dict[str, Any]] = {
                               "degrade": "disable_capability"},
     "projection_freshness": {"target_percent": 99.0, "threshold_seconds": 5,
                              "window_days": 28, "degrade": "snapshot_reads"},
+    "background_pilot_start": {
+        "target_percent": 99.0, "threshold_seconds": 30,
+        "window_days": 28, "degrade": "disable_background_pilot_admission"},
+    "background_pilot_completion": {
+        "target_percent": 99.0, "threshold_seconds": 120,
+        "window_days": 28, "degrade": "activate_background_pilot_kill_switch"},
 }
 
 QUEUE_CAPACITY_POLICIES: dict[str, dict[str, int]] = {
@@ -39,6 +45,7 @@ QUEUE_CAPACITY_POLICIES: dict[str, dict[str, int]] = {
     "browser-actions": {"max_depth": 500, "max_oldest_age_seconds": 300},
     "timers-expiry": {"max_depth": 10_000, "max_oldest_age_seconds": 60},
     "reconciliation": {"max_depth": 2_000, "max_oldest_age_seconds": 900},
+    "background-pilot": {"max_depth": 100, "max_oldest_age_seconds": 120},
 }
 
 BUDGET_DIMENSIONS = frozenset({
