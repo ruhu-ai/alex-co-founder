@@ -1,0 +1,41 @@
+skills/readiness.py
+  s_bccedf1352f42d::t_b7992693ca10a3 1-57
+skills/selection.py
+  s_bccedf1352f42d::t_7d233d6f0b0e41 41-42,44,46
+  s_bccedf1352f42d::t_b7992693ca10a3 1-40,43,45,47-51
+skills/models.py
+  s_bccedf1352f42d::t_e07cb84f724212 1-221
+skills/compiler.py
+  s_bccedf1352f42d::t_e07cb84f724212 1-16,23-30,38-125,127-174,178-207,209-242,245-266
+  s_bccedf1352f42d::t_6ea253a0350641 17-22,31-37,126,175-177,208
+  s_bccedf1352f42d::t_7d233d6f0b0e41 243-244
+scripts/compile_skills.py
+  s_bccedf1352f42d::t_271634b8d73daf 1-33
+skills/contracts.py
+  s_bccedf1352f42d::t_e07cb84f724212 1-51
+skills/context.py
+  s_bccedf1352f42d::t_b7992693ca10a3 1-76
+skills/__init__.py
+  s_bccedf1352f42d::t_e07cb84f724212 1-11
+skills/policy.py
+  s_bccedf1352f42d::t_b7992693ca10a3 1-32,39-79,87-147
+  s_bccedf1352f42d::t_7d233d6f0b0e41 33-38,80-86
+skills/audit.py
+  s_bccedf1352f42d::t_b7992693ca10a3 1-29
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "1b9e639799b44438a760a72554a9ed1266ef62e1",
+  "prompts": {},
+  "sessions": {
+    "s_bccedf1352f42d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a04628-cc3e-79b0-a0fb-269f8d727b3b",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Ijidai Lassa <ijidai@cued.app>"
+    }
+  }
+}
