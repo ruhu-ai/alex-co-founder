@@ -5,6 +5,16 @@ implementation approval under §15. Documentation only; this document does not
 itself authorize implementation, deployment, a live effect, or a migration.
 Each rollout gate in §15 requires its own recorded approval.
 
+One authenticated Founder **release-stage approval** may cover an exact,
+hash-pinned batch of skills within one rollout gate. That avoids repeated
+product prompts for compiler, fixture, model-evaluation, and evidence-recording
+steps inside the same bounded gate. It does not span gates, survive a skill,
+model-policy, fixture, threshold, capability, or scope hash change, or count as
+an in-product action approval. Every skill in the batch must still pass every
+applicable technical, security, privacy, quality, citation, cost, lifecycle,
+independent-review, and rollback check. `NO_DATA` or one failed check blocks the
+whole batch; the Founder approval cannot override or mark a check passed.
+
 **External review disposition (2026-08-28):** findings-first gate review
 SHA-256 `6d353a60c2e16201d9e53f78001537368bde282d5bf3ff026ef4ed78fe2a0dd6`
 was reconciled into this revision. The architecture remains proposed and must

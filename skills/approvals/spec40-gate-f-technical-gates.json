@@ -1,0 +1,28 @@
+{
+  "schema_version": "cofounder.gate-f-technical-state.v1",
+  "canonical_specs_pinned": true,
+  "catalog_reproducible": true,
+  "contract_catalog_closed": true,
+  "fixtures_frozen": true,
+  "synthetic_only": true,
+  "secret_scan_passed": true,
+  "model_policy_pinned": true,
+  "provider_auth_verified": false,
+  "model_availability_verified": false,
+  "cost_budget_pinned": true,
+  "cost_preflight_passed": false,
+  "data_governance_pinned": true,
+  "live_surfaces_disabled": true,
+  "independent_review_complete": false,
+  "evidence_refs": {
+    "structural_suite": "tests/unit/test_spec40_gate_f_offline.py",
+    "approval_suite": "tests/unit/test_spec40_founder_stage_approval.py",
+    "qualification_plan": "tests/eval/spec40_gate_f_qualification_plan.json",
+    "fixture_bundle": "tests/eval/spec40_gate_f_cases.json",
+    "model_policy": "skills/model_policies/spec40-gate-f-offline-v1.json",
+    "provider_auth": "NOT_VERIFIED",
+    "model_availability": "NOT_VERIFIED",
+    "cost_preflight": "NOT_RUN",
+    "independent_review": "NOT_RECORDED"
+  }
+}

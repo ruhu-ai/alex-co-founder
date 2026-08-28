@@ -169,11 +169,29 @@ that no external/effect/approval/memory/conversation path exists.
 
 ## Exact next decision after these blockers are cleared
 
-Obtain independent review of the S0/S1 diff and authorize only offline model
-qualification for the exact compiled definition and 40-case evidence bundle.
-That decision must pin the model and data-governance policy and must still
-forbid runtime selection, durable admission, live flags, routes, queues,
-workers, cloud mutation, deployment, and canary.
+The Founder supplied one release-stage approval for the exact hash-pinned Gate
+F offline qualification batch. It is recorded in
+`skills/approvals/spec40-gate-f-offline-qualification.json`. No additional
+Founder prompt is required for independent review, model-policy pinning,
+synthetic offline evaluation, or evidence recording while every approved hash,
+scope, budget, and expiry remains exact.
+
+The approval is necessary but not sufficient. Independent review, provider
+authentication, current model availability, model/data-governance pinning,
+cost preflight, secret/content checks, frozen thresholds, budgets, and all
+other technical gates must evaluate true before a model call. The approval
+cannot override `NO_DATA`, turn a failed check green, authorize runtime
+selection or durable admission, or cover live flags, routes, queues, workers,
+cloud-resource mutation, deployment, canary, approval creation, or effects.
+Any skill/hash/scope/gate change requires a new Founder release-stage approval.
+
+The approval record SHA-256 is
+`f3dc686f6cc3b0a2fa9f1b3e0b6caa6432b69c87e9c36146592839d690e60190`.
+It expires at `2026-09-04T22:51:49Z` and pins the one skill definition, catalog,
+qualification plan, 40-case fixtures, and synthetic-only model policy. Current
+technical state still blocks model calls on four checks:
+`independent_review_complete`, `provider_auth_verified`,
+`model_availability_verified`, and `cost_preflight_passed`.
 
 Only a later recorded decision, after every frozen threshold passes, may
 authorize implementation of the bounded reader/draft services and synthetic

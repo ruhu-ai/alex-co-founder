@@ -12,10 +12,10 @@ created. The integrated file hashes are:
 | Document | Integrated SHA-256 |
 |---|---|
 | `36-unified-alex-product-experience.md` | `af4667c2b3182601b9f7ce0ac3dbde751070949a229ff544fb2326eb83768689` |
-| `37-production-skills-system.md` | `142a1d21034f019616c048ea2e522ffe1077344ef6f711a7e7309575854703f2` |
+| `37-production-skills-system.md` | `74e69a887f2be19d8b783cdc056d9fa381ff2168e384f10e0744ff83483f4742` |
 | `38-user-facing-vision.md` | `07941f7878cf03faa2b502c4fbce1cdfc3a523688a44fa9633968c518c152670` |
 | `39-durable-cross-session-memory.md` | `9ad20f819e0af5160f885976cb0e272803f731456438c01f19f4da250fe51806` |
-| `40-durable-background-work.md` | `d4ed64d1ce77e80af08a7a8a8f90a1881303023e056c69e988dd8c772cbd5bf0` |
+| `40-durable-background-work.md` | `4d6b117a94044c8bcd892ea4b27d16157167161390b8e5956913ec755251b4e3` |
 
 Doc 37's §2.3 table records hashes of earlier reviewed source snapshots before
 integration reconciliation. Those historical source hashes are not silently
@@ -28,3 +28,8 @@ architecture; the Founder authorization for this branch is limited to its
 offline S0/S1 compiler, one `DRAFT` skill, closed contracts, and synthetic
 fixtures. Models, runtime selection, durable admission, providers, deployment,
 cloud mutation, and canary remain disabled and separately gated.
+
+The Doc 37 and Doc 40 hashes above include the later Founder policy amendment
+allowing one exact release-stage approval per rollout gate while preserving all
+per-skill technical checks. Their earlier byte-preserved integration hashes
+remain in Git history and are not reused as current hashes.

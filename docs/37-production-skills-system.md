@@ -878,6 +878,13 @@ If a draft changes after approval, or target/payload/scope/version bindings no
 longer match, execution fails safely and a new exact decision is required.
 There is no blanket “approve this skill” control.
 
+A separate repository-governance approval may authorize qualification work for
+an exact hash-pinned skill batch inside one rollout gate. That release-stage
+approval is not presented to the model, grants no runtime capability, cannot
+approve a draft or consequence, and cannot waive any per-skill technical gate.
+Adding or changing a skill, definition, model policy, fixture bundle,
+threshold, capability, or rollout gate invalidates its coverage.
+
 ### 9.3 Consequential execution boundary
 
 V1 skills should normally end at an internal draft or `ACTION_PROPOSAL`. The
