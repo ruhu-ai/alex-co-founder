@@ -1,0 +1,31 @@
+tests/unit/test_phase7_cloud_audit.py
+  s_0bfc183a530608::t_e0d1ae564bee78 52-54
+  s_242b3d56a67da0::t_78e9e5c3182875 63-68,70
+scripts/phase7_cloud_audit.py
+  s_242b3d56a67da0::t_78e9e5c3182875 86-91,96-97
+  s_0bfc183a530608::t_e0d1ae564bee78 108-110,113-114
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "29996183d10b98aaace8e7d5cfd932dbdac79100",
+  "prompts": {},
+  "sessions": {
+    "s_0bfc183a530608": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a044e4-5750-7651-a442-0b09fff86ca9",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Ijidai Lassa <ijidai@cued.app>"
+    },
+    "s_242b3d56a67da0": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a04614-329d-7fe3-9083-3b3c6b051963",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Ijidai Lassa <ijidai@cued.app>"
+    }
+  }
+}
