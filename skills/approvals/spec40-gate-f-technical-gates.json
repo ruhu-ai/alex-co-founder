@@ -7,8 +7,8 @@
   "synthetic_only": true,
   "secret_scan_passed": true,
   "model_policy_pinned": true,
-  "provider_auth_verified": false,
-  "model_availability_verified": false,
+  "provider_auth_verified": true,
+  "model_availability_verified": true,
   "cost_budget_pinned": true,
   "cost_preflight_passed": true,
   "data_governance_pinned": true,
@@ -20,8 +20,8 @@
     "qualification_plan": "tests/eval/spec40_gate_f_qualification_plan.json",
     "fixture_bundle": "tests/eval/spec40_gate_f_cases.json",
     "model_policy": "skills/model_policies/spec40-gate-f-offline-v1.json",
-    "provider_auth": "BLOCKED_ADC_QUOTA_PROJECT_UNSET",
-    "model_availability": "BLOCKED_PROVIDER_PREFLIGHT",
+    "provider_auth": "skills/approvals/spec40-gate-f-provider-preflight.json",
+    "model_availability": "skills/approvals/spec40-gate-f-provider-preflight.json",
     "cost_preflight": "skills/approvals/spec40-gate-f-cost-preflight.json",
     "independent_review": "NOT_RECORDED"
   }

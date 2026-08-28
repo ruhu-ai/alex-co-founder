@@ -24,6 +24,9 @@ APPROVAL_PATH = (
 TECHNICAL_PATH = REPO / "skills/approvals/spec40-gate-f-technical-gates.json"
 MODEL_POLICY_PATH = REPO / "skills/model_policies/spec40-gate-f-offline-v1.json"
 COST_PREFLIGHT_PATH = REPO / "skills/approvals/spec40-gate-f-cost-preflight.json"
+PROVIDER_PREFLIGHT_PATH = (
+    REPO / "skills/approvals/spec40-gate-f-provider-preflight.json"
+)
 PLAN_PATH = REPO / "tests/eval/spec40_gate_f_qualification_plan.json"
 FIXTURE_PATH = REPO / "tests/eval/spec40_gate_f_cases.json"
 CATALOG_PATH = REPO / "skills/catalog.v1.json"
@@ -87,11 +90,7 @@ def test_current_approval_preserves_every_unfinished_technical_preflight():
     decision = _decision()
 
     assert not decision.authorized
-    assert set(decision.blockers) == {
-        "independent_review_complete",
-        "model_availability_verified",
-        "provider_auth_verified",
-    }
+    assert decision.blockers == ("independent_review_complete",)
 
 
 def test_same_approval_authorizes_after_all_technical_checks_pass():
@@ -224,11 +223,31 @@ def test_cost_preflight_is_worst_case_bounded_and_under_approval_cap():
     assert cost["passed"] is True
 
 
+def test_provider_preflight_is_exact_read_only_and_performed_no_inference():
+    provider = json.loads(PROVIDER_PREFLIGHT_PATH.read_text())
+
+    assert provider["project_id"] == "co-founder-506001"
+    assert provider["project_lifecycle"] == "ACTIVE"
+    assert provider["quota_project_id"] == provider["project_id"]
+    assert provider["vertex_api"] == "aiplatform.googleapis.com"
+    assert provider["vertex_api_enabled"] is True
+    assert provider["model_resource"] == (
+        "publishers/google/models/gemini-3.6-flash"
+    )
+    assert provider["model_available"] is True
+    assert provider["billing_project_explicit"] is True
+    assert provider["model_inference_performed"] is False
+    assert provider["cloud_resource_mutation_performed"] is False
+    assert provider["secrets_recorded"] is False
+    assert provider["passed"] is True
+
+
 def test_approved_files_contain_no_recognizable_secret_material():
     paths = (
         APPROVAL_PATH,
         TECHNICAL_PATH,
         COST_PREFLIGHT_PATH,
+        PROVIDER_PREFLIGHT_PATH,
         MODEL_POLICY_PATH,
         PLAN_PATH,
         FIXTURE_PATH,

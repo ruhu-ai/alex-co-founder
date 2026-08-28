@@ -157,10 +157,11 @@ that no external/effect/approval/memory/conversation path exists.
    are contracts only. Their offline descriptors are not in the live registry,
    no live worker can resolve them, and the one-authority/runtime tool-closure
    proof does not exist.
-2. No model/version/data-governance policy is pinned or authorized. The 40
-   cases are frozen fixtures, not an executed model evidence bundle; task
-   quality, cost, citation performance, and independent review therefore have
-   `NO_DATA` and block qualification.
+2. The model/version/data-governance policy and conservative cost ceiling are
+   pinned, and provider/model availability preflight passed without inference.
+   The 40 cases are still frozen fixtures rather than an executed evidence
+   bundle; task quality, citation performance, and output review therefore
+   retain `NO_DATA` and block qualification.
 3. Duplicate, crash/retry, cancel/complete, progress-coalescing, session-order,
    privacy lifecycle, retention/deletion, and rollback must be rerun against a
    later offline harness and then a separately authorized synthetic runtime.
@@ -189,13 +190,14 @@ The approval record SHA-256 is
 `f3dc686f6cc3b0a2fa9f1b3e0b6caa6432b69c87e9c36146592839d690e60190`.
 It expires at `2026-09-04T22:51:49Z` and pins the one skill definition, catalog,
 qualification plan, 40-case fixtures, and synthetic-only model policy. Current
-technical state still blocks model calls on three checks:
-`independent_review_complete`, `provider_auth_verified`, and
-`model_availability_verified`. Cost preflight passed at a conservative $1.16928
+technical state still blocks model calls on one check:
+`independent_review_complete`. Cost preflight passed at a conservative $1.16928
 including 20% contingency against the $5 approval cap, using Google's current
-global Gemini 3.6 Flash pricing. Provider/model preflight remains blocked
-because local ADC has no quota project and the API reported `SERVICE_DISABLED`
-for its current consumer; no auth or cloud configuration was changed.
+global Gemini 3.6 Flash pricing. Local ADC now uses `co-founder-506001` as its
+quota project; the Vertex API is enabled and Model Garden returned the exact
+`publishers/google/models/gemini-3.6-flash` resource when the billing project
+was supplied explicitly. That check performed no model inference or cloud
+resource mutation.
 
 Only a later recorded decision, after every frozen threshold passes, may
 authorize implementation of the bounded reader/draft services and synthetic
