@@ -150,7 +150,10 @@ def test_catalog_is_deterministic_single_draft_and_matches_generated_artifact():
     assert len(first.skills) == 1
     assert first.skills[0].identity == "documents.produce-grounded-artifact@1.0.0"
     assert first.skills[0].manifest.status.value == "DRAFT"
-    assert first.skills[0].qualification.status == "NOT_RUN"
+    assert first.skills[0].qualification.status == "PASSED"
+    assert first.skills[0].qualification.suite_result_refs == (
+        "skills/evidence/spec40-gate-f-offline-qualification-20260829.json",
+    )
 
 
 def test_catalog_progressive_disclosure_and_atomic_failed_refresh(tmp_path):
@@ -463,9 +466,10 @@ def test_lifecycle_and_unrun_runtime_cases_remain_blocked(case):
     else:
         plan = json.loads(PLAN_PATH.read_text())
         assert case["expected"] == "BLOCKED_NOT_RUN"
-        assert skill.qualification.status == "NOT_RUN"
+        assert skill.qualification.status == "PASSED"
         assert plan["activation_authorized"] is False
         assert plan["model_evaluation_authorized"] is False
+        assert plan["model_evaluation_completed"] is True
 
 
 def test_readiness_packet_records_structural_progress_but_cannot_approve():
@@ -477,9 +481,7 @@ def test_readiness_packet_records_structural_progress_but_cannot_approve():
     assert packet.capability_closure_verified
     assert packet.typed_contracts_verified
     assert packet.negative_authority_tests_passed
-    assert set(packet.blockers()) == {
-        "one_authority_verified", "qualification_passed",
-    }
+    assert set(packet.blockers()) == {"one_authority_verified"}
     assert not packet.implementation_approved()
 
 

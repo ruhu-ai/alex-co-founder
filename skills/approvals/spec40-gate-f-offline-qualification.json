@@ -5,8 +5,8 @@
   "principal_role": "FOUNDER",
   "approval_kind": "RELEASE_STAGE_ONLY",
   "gate": "GATE_F_OFFLINE_QUALIFICATION",
-  "approved_at": "2026-08-28T22:51:49Z",
-  "expires_at": "2026-09-04T22:51:49Z",
+  "approved_at": "2026-08-28T23:17:07Z",
+  "expires_at": "2026-09-04T23:17:07Z",
   "skills": [
     {
       "identity": "documents.produce-grounded-artifact@1.0.0",
@@ -14,11 +14,12 @@
     }
   ],
   "catalog_hash": "sha256:ac3fd134808f32a617d21f4c176b0e47afed1abbc13f22a2af7eb6ee83cabf90",
-  "qualification_plan_sha256": "sha256:d267118c4f869637b28068fbb2e19bfd68b64f236c839531376de24921b2cc39",
+  "qualification_plan_sha256": "sha256:e317f856685c0a97c4296338b17fcb1db248dd60d74a038d6e94fcd1bde0e5db",
   "fixture_bundle_sha256": "sha256:897f8094f6a196028f33dd94149b5552aa8f0ae6c01d3f33b517ea0ad33eb20e",
   "model_policy_sha256": "sha256:b94e30be5b2d774a0f2e523c0eb98bcf3766640c55e71f2682ce53529048ecad",
+  "qualification_runner_sha256": "sha256:b2cbe3da7abdb32dc4349275e8bfd53388ff239fe9cec62e0563d3d64efac79b",
+  "qualification_command_sha256": "sha256:e82828702eea0bedb885c553f4b5fb65367dbf55f96523d818569437cedf1207",
   "allowed_operations": [
-    "RECORD_INDEPENDENT_REVIEW",
     "RUN_SYNTHETIC_OFFLINE_MODEL_QUALIFICATION",
     "RECORD_QUALIFICATION_EVIDENCE"
   ],

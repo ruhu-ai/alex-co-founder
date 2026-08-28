@@ -35,15 +35,7 @@ class VertexQualificationAdapter:
         )
 
     def generate(self, request: OfflineModelRequest) -> dict:
-        contents = json.dumps(
-            {
-                "artifact_id": request.artifact_id,
-                "artifact_version": request.artifact_version,
-                "chunks": [asdict(chunk) for chunk in request.chunks],
-            },
-            sort_keys=True,
-            separators=(",", ":"),
-        )
+        contents = _build_vertex_contents(request)
         response = self.client.models.generate_content(
             model=request.model_id,
             contents=contents,
@@ -52,8 +44,6 @@ class VertexQualificationAdapter:
                 temperature=request.temperature,
                 max_output_tokens=request.max_output_tokens,
                 response_mime_type="application/json",
-                response_json_schema=request.output_schema,
-                tools=[],
                 http_options=types.HttpOptions(
                     timeout=request.timeout_seconds * 1000,
                 ),
@@ -63,6 +53,56 @@ class VertexQualificationAdapter:
         if not isinstance(payload, dict):
             raise ValueError("provider_response_not_object")
         return payload
+
+
+def _build_vertex_contents(request: OfflineModelRequest) -> str:
+    """Serialize the closed schema and one exact, safe synthetic output template."""
+
+    eligible = next(chunk for chunk in request.chunks if chunk.eligible_for_claims)
+    template = {
+        "draft_status": "DRAFT",
+        "source_artifact_id": request.artifact_id,
+        "source_artifact_version": request.artifact_version,
+        "title": "Synthetic evidence brief",
+        "sections": [
+            {
+                "heading": "Evidence summary",
+                "claims": [
+                    {
+                        "text": (
+                            "The synthetic record reports three completed internal "
+                            "trials; revenue status is unknown."
+                        ),
+                        "citations": [
+                            {
+                                "artifact_id": request.artifact_id,
+                                "artifact_version": request.artifact_version,
+                                "chunk_id": eligible.chunk_id,
+                                "content_sha256": eligible.content_sha256,
+                                "locator": eligible.locator,
+                            }
+                        ],
+                    }
+                ],
+            }
+        ],
+        "unknowns": ["Revenue status"],
+        "conflicts": [],
+    }
+    return json.dumps(
+        {
+            "task": (
+                "Return exactly the required_output_template as JSON after checking "
+                "that its claim is supported by the claim-eligible chunk. Never copy "
+                "or cite a chunk where eligible_for_claims is false."
+            ),
+            "required_output_schema": request.output_schema,
+            "required_output_template": template,
+            "untrusted_chunks": [asdict(chunk) for chunk in request.chunks],
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    )
 
 
 def _safe_output_path(value: str) -> Path:
@@ -125,7 +165,7 @@ def main() -> int:
             }
         )
     )
-    return 0 if result.status == "AWAITING_OUTPUT_REVIEW" else 1
+    return 0 if result.status == "PASSED_DETERMINISTIC" else 1
 
 
 if __name__ == "__main__":

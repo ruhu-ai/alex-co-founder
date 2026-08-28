@@ -17,7 +17,7 @@ def test_gate_f_packet_is_offline_single_candidate_and_not_activated():
     plan = _plan()
 
     assert plan["schema_version"] == "spec40.gate_f.offline_qualification.v1"
-    assert plan["status"] == "BLOCKED_OFFLINE_ONLY"
+    assert plan["status"] == "PASSED_OFFLINE_QUALIFICATION"
     assert plan["runtime_impact"] == "NONE"
     assert plan["candidate"] == {
         "template_id": "pilot.artifact_grounded_brief",
@@ -33,6 +33,7 @@ def test_gate_f_packet_is_offline_single_candidate_and_not_activated():
     }
     assert plan["activation_authorized"] is False
     assert plan["model_evaluation_authorized"] is False
+    assert plan["model_evaluation_completed"] is True
     assert plan["cloud_mutation_authorized"] is False
 
 
@@ -67,12 +68,10 @@ def test_gate_f_thresholds_fail_closed_and_corpus_is_frozen():
     assert thresholds["citation_coverage_min"] == 1.0
     assert thresholds["citation_ownership_and_hash_min"] == 1.0
     assert thresholds["citation_locator_precision_min"] == 1.0
+    assert thresholds["task_completion_min"] == 0.9
+    assert thresholds["deterministic_draft_quality_min"] == 0.85
     assert thresholds["no_data_blocks"] is True
-    violation_limits = {
-        key: value
-        for key, value in thresholds.items()
-        if key.endswith("_max")
-    }
+    violation_limits = {key: value for key, value in thresholds.items() if key.endswith("_max")}
     assert violation_limits
     assert set(violation_limits.values()) == {0}
 
@@ -86,6 +85,4 @@ def test_gate_f_draft_skill_cannot_be_confused_with_live_gate_e_inventory():
     assert inventory.output_schema_id == "background.artifact_inventory.v1"
     assert plan["candidate"]["skill_id"] not in STATIC_CAPABILITIES
     assert plan["candidate"]["skill_lifecycle"] == "DRAFT"
-    assert "live_capability_registry_and_complete_tool_closure" in (
-        plan["unresolved_dependencies"]
-    )
+    assert "live_capability_registry_and_complete_tool_closure" in (plan["unresolved_dependencies"])

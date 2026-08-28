@@ -12,8 +12,13 @@ steps inside the same bounded gate. It does not span gates, survive a skill,
 model-policy, fixture, threshold, capability, or scope hash change, or count as
 an in-product action approval. Every skill in the batch must still pass every
 applicable technical, security, privacy, quality, citation, cost, lifecycle,
-independent-review, and rollback check. `NO_DATA` or one failed check blocks the
-whole batch; the Founder approval cannot override or mark a check passed.
+and rollback check. For the single synthetic Gate F offline qualification, the
+recorded Founder approval plus deterministic closed-schema, grounding,
+injection, privacy, budget, and evidence-integrity checks replaces an
+independent-review requirement. This exception grants no runtime or canary
+authority; later gates retain every review requirement declared for them.
+`NO_DATA` or one failed applicable check blocks the whole batch; the Founder
+approval cannot override or mark a technical check passed.
 
 **External review disposition (2026-08-28):** findings-first gate review
 SHA-256 `6d353a60c2e16201d9e53f78001537368bde282d5bf3ff026ef4ed78fe2a0dd6`

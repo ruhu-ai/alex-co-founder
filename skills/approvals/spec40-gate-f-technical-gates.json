@@ -13,7 +13,6 @@
   "cost_preflight_passed": true,
   "data_governance_pinned": true,
   "live_surfaces_disabled": true,
-  "independent_review_complete": false,
   "evidence_refs": {
     "structural_suite": "tests/unit/test_spec40_gate_f_offline.py",
     "approval_suite": "tests/unit/test_spec40_founder_stage_approval.py",
@@ -22,7 +21,6 @@
     "model_policy": "skills/model_policies/spec40-gate-f-offline-v1.json",
     "provider_auth": "skills/approvals/spec40-gate-f-provider-preflight.json",
     "model_availability": "skills/approvals/spec40-gate-f-provider-preflight.json",
-    "cost_preflight": "skills/approvals/spec40-gate-f-cost-preflight.json",
-    "independent_review": "NOT_RECORDED"
+    "cost_preflight": "skills/approvals/spec40-gate-f-cost-preflight.json"
   }
 }

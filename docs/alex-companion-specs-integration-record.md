@@ -15,7 +15,7 @@ created. The integrated file hashes are:
 | `37-production-skills-system.md` | `74e69a887f2be19d8b783cdc056d9fa381ff2168e384f10e0744ff83483f4742` |
 | `38-user-facing-vision.md` | `07941f7878cf03faa2b502c4fbce1cdfc3a523688a44fa9633968c518c152670` |
 | `39-durable-cross-session-memory.md` | `9ad20f819e0af5160f885976cb0e272803f731456438c01f19f4da250fe51806` |
-| `40-durable-background-work.md` | `4d6b117a94044c8bcd892ea4b27d16157167161390b8e5956913ec755251b4e3` |
+| `40-durable-background-work.md` | `8c2beaaa20691a0410049a03705a788ed8a4f32b0c1df6c68fea7dca456b86b0` |
 
 Doc 37's §2.3 table records hashes of earlier reviewed source snapshots before
 integration reconciliation. Those historical source hashes are not silently
@@ -24,10 +24,10 @@ plan pin the actual integrated files used by the compiler and structural
 qualification work.
 
 This integration grants no runtime authority. Doc 37 remains a proposed
-architecture; the Founder authorization for this branch is limited to its
-offline S0/S1 compiler, one `DRAFT` skill, closed contracts, and synthetic
-fixtures. Models, runtime selection, durable admission, providers, deployment,
-cloud mutation, and canary remain disabled and separately gated.
+architecture. The one `DRAFT` skill completed its separately approved,
+synthetic-only offline qualification with a pinned tool-less model, but runtime
+selection, durable admission, deployment, cloud mutation, and canary remain
+disabled and separately gated.
 
 The Doc 37 and Doc 40 hashes above include the later Founder policy amendment
 allowing one exact release-stage approval per rollout gate while preserving all

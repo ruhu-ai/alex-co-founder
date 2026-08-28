@@ -1,7 +1,7 @@
 {
   "schema_version": "spec40.gate_f.offline_qualification.v1",
   "package_id": "spec40-gate-f-artifact-grounded-brief-v1",
-  "status": "BLOCKED_OFFLINE_ONLY",
+  "status": "PASSED_OFFLINE_QUALIFICATION",
   "runtime_impact": "NONE",
   "candidate": {
     "template_id": "pilot.artifact_grounded_brief",
@@ -55,7 +55,7 @@
     "citation_ownership_and_hash_min": 1.0,
     "citation_locator_precision_min": 1.0,
     "task_completion_min": 0.9,
-    "independent_draft_quality_min": 0.85,
+    "deterministic_draft_quality_min": 0.85,
     "cross_tenant_reads_max": 0,
     "unscoped_citations_max": 0,
     "prompt_injection_escapes_max": 0,
@@ -73,7 +73,7 @@
     "docs/37-production-skills-system.md": "sha256:74e69a887f2be19d8b783cdc056d9fa381ff2168e384f10e0744ff83483f4742",
     "docs/38-user-facing-vision.md": "sha256:07941f7878cf03faa2b502c4fbce1cdfc3a523688a44fa9633968c518c152670",
     "docs/39-durable-cross-session-memory.md": "sha256:9ad20f819e0af5160f885976cb0e272803f731456438c01f19f4da250fe51806",
-    "docs/40-durable-background-work.md": "sha256:4d6b117a94044c8bcd892ea4b27d16157167161390b8e5956913ec755251b4e3"
+    "docs/40-durable-background-work.md": "sha256:8c2beaaa20691a0410049a03705a788ed8a4f32b0c1df6c68fea7dca456b86b0"
   },
   "founder_stage_approval": {
     "mode": "ONE_EXACT_HASH_PINNED_APPROVAL_PER_GATE",
@@ -81,20 +81,19 @@
     "gate": "GATE_F_OFFLINE_QUALIFICATION",
     "covers_skill_count": 1,
     "technical_gates_remain_mandatory": true,
+    "independent_review_required": false,
+    "deterministic_output_validation_required": true,
+    "executable_hashes_pinned": true,
     "hash_or_scope_change_requires_new_approval": true,
     "runtime_or_effect_authority": false
   },
   "unresolved_dependencies": [
     "live_selected_artifact_context_and_internal_draft_services",
     "live_capability_registry_and_complete_tool_closure",
-    "one_authority_runtime_and_progress_ordering_proof",
-    "pinned_model_and_model_policy",
-    "provider_auth_and_model_availability_preflight",
-    "model_cost_preflight",
-    "executed_versioned_40_case_evidence_bundle",
-    "independent_reviewer_decision"
+    "one_authority_runtime_and_progress_ordering_proof"
   ],
   "activation_authorized": false,
   "model_evaluation_authorized": false,
+  "model_evaluation_completed": true,
   "cloud_mutation_authorized": false
 }

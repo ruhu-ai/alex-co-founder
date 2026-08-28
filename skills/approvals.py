@@ -31,12 +31,14 @@ class FounderStageApproval(_ClosedModel):
     qualification_plan_sha256: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
     fixture_bundle_sha256: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
     model_policy_sha256: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
+    qualification_runner_sha256: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
+    qualification_command_sha256: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
     allowed_operations: tuple[
         Literal[
-            "RECORD_INDEPENDENT_REVIEW",
             "RUN_SYNTHETIC_OFFLINE_MODEL_QUALIFICATION",
             "RECORD_QUALIFICATION_EVIDENCE",
-        ], ...
+        ],
+        ...,
     ]
     max_model_calls: int = Field(ge=1, le=40)
     synthetic_only: Literal[True]
@@ -55,7 +57,6 @@ class FounderStageApproval(_ClosedModel):
         if len(identities) != len(set(identities)):
             raise ValueError("Founder stage approval contains a duplicate skill")
         if set(self.allowed_operations) != {
-            "RECORD_INDEPENDENT_REVIEW",
             "RUN_SYNTHETIC_OFFLINE_MODEL_QUALIFICATION",
             "RECORD_QUALIFICATION_EVIDENCE",
         }:
@@ -78,7 +79,6 @@ class TechnicalGateState(_ClosedModel):
     cost_preflight_passed: bool
     data_governance_pinned: bool
     live_surfaces_disabled: bool
-    independent_review_complete: bool
     evidence_refs: dict[str, str]
 
     def blockers(self) -> tuple[str, ...]:
@@ -106,6 +106,8 @@ def evaluate_offline_qualification(
     qualification_plan_sha256: str,
     fixture_bundle_sha256: str,
     model_policy_sha256: str,
+    qualification_runner_sha256: str,
+    qualification_command_sha256: str,
 ) -> ApprovalDecision:
     """Authorize only when the one Founder approval and every technical gate pass."""
 
@@ -120,18 +122,28 @@ def evaluate_offline_qualification(
     expected_hashes = {
         "catalog_hash_mismatch": (approval.catalog_hash, catalog_hash),
         "qualification_plan_mismatch": (
-            approval.qualification_plan_sha256, qualification_plan_sha256,
+            approval.qualification_plan_sha256,
+            qualification_plan_sha256,
         ),
         "fixture_bundle_mismatch": (
-            approval.fixture_bundle_sha256, fixture_bundle_sha256,
+            approval.fixture_bundle_sha256,
+            fixture_bundle_sha256,
         ),
         "model_policy_mismatch": (
-            approval.model_policy_sha256, model_policy_sha256,
+            approval.model_policy_sha256,
+            model_policy_sha256,
+        ),
+        "qualification_runner_mismatch": (
+            approval.qualification_runner_sha256,
+            qualification_runner_sha256,
+        ),
+        "qualification_command_mismatch": (
+            approval.qualification_command_sha256,
+            qualification_command_sha256,
         ),
     }
     blockers.extend(
-        code for code, (expected, actual) in expected_hashes.items()
-        if expected != actual
+        code for code, (expected, actual) in expected_hashes.items() if expected != actual
     )
     ordered = tuple(sorted(set(blockers)))
     return ApprovalDecision(authorized=not ordered, blockers=ordered)

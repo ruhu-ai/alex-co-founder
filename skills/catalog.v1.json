@@ -1,6 +1,6 @@
 {
   "schema_version": "cofounder.skill-catalog.v1",
-  "catalog_hash": "sha256:ac3fd134808f32a617d21f4c176b0e47afed1abbc13f22a2af7eb6ee83cabf90",
+  "catalog_hash": "sha256:6580e30bd5dd53311ad058872ada8839fb3dd338c6ef335261184def1bb0b7d3",
   "skills": [
     {
       "manifest": {
@@ -130,14 +130,16 @@
       "qualification": {
         "schema_version": "cofounder.skill-qualification.v1",
         "evidence_version": "1.0.0",
-        "status": "NOT_RUN",
+        "status": "PASSED",
         "skill_id": "documents.produce-grounded-artifact",
         "skill_version": "1.0.0",
-        "model_policy_version": "unqualified-no-model-calls-authorized",
-        "suite_result_refs": [],
+        "model_policy_version": "spec40-gate-f-offline-v1",
+        "suite_result_refs": [
+          "skills/evidence/spec40-gate-f-offline-qualification-20260829.json"
+        ],
         "capability_set_hash": "sha256:1e69fea1a478b65d08faa3e8ca993bfdd9b7c7ed102153fb4f1208ebf2bbfb52"
       },
-      "qualification_hash": "sha256:fb52ec096163cc1af6647ba1780c0e26bd7345b0f070db6180d325ed78673df9",
+      "qualification_hash": "sha256:bb88c73da2192c6985cae04a5238aea64953e6d751256e17d06a5b46fe6a7cae",
       "package_path": "documents/produce_grounded_artifact"
     }
   ]

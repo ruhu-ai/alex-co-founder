@@ -1,10 +1,12 @@
 {
   "schema_version": "cofounder.skill-qualification.v1",
   "evidence_version": "1.0.0",
-  "status": "NOT_RUN",
+  "status": "PASSED",
   "skill_id": "documents.produce-grounded-artifact",
   "skill_version": "1.0.0",
-  "model_policy_version": "unqualified-no-model-calls-authorized",
-  "suite_result_refs": [],
+  "model_policy_version": "spec40-gate-f-offline-v1",
+  "suite_result_refs": [
+    "skills/evidence/spec40-gate-f-offline-qualification-20260829.json"
+  ],
   "capability_set_hash": "sha256:1e69fea1a478b65d08faa3e8ca993bfdd9b7c7ed102153fb4f1208ebf2bbfb52"
 }
