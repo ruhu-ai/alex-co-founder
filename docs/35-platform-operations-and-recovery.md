@@ -93,6 +93,34 @@ The apply step enables Firestore PITR/delete protection, Cloud SQL automated
 backups/PITR/delete protection and retained backups, and GCS versioning/soft
 delete. It does not claim that restoration works.
 
+## Monitoring and paging
+
+Cloud Monitoring covers infrastructure-visible symptoms: public health-check
+failure or missing data, Cloud Run 5xx responses from the API/browser worker,
+and each closed Cloud Tasks queue depth. The installer is dry-run by default,
+owns only resources labelled `managed_by=cofounder_phase7`, and refuses to
+create an alert without an existing enabled, verified notification channel:
+
+```bash
+.venv/bin/python scripts/configure_phase7_monitoring.py \
+  --project "$GOOGLE_CLOUD_PROJECT" \
+  --region "$GOOGLE_CLOUD_REGION" \
+  --app-url "$AGENT_BASE_URL" \
+  --notification-channel projects/PROJECT/notificationChannels/CHANNEL
+
+.venv/bin/python scripts/configure_phase7_monitoring.py --apply \
+  --confirm-project "$GOOGLE_CLOUD_PROJECT" \
+  --project "$GOOGLE_CLOUD_PROJECT" \
+  --region "$GOOGLE_CLOUD_REGION" \
+  --app-url "$AGENT_BASE_URL" \
+  --notification-channel projects/PROJECT/notificationChannels/CHANNEL
+```
+
+Infrastructure policies do not replace the durable application SLOs. The
+`slo_observations` window must contain measurements produced by real
+command/event/wake/action paths; `NO_DATA` remains release-blocking and must
+never be converted to a synthetic healthy observation.
+
 Data residency is currently the configured GCP project/database/bucket/SQL
 region. A new region is not added silently. Before a workspace enters a region,
 policy records the allowed Firestore, SQL, GCS, Vertex/model, memory, logs, and

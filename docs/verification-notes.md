@@ -293,3 +293,26 @@ when the PDF link is chosen.
   chaos, migration rollback, cross-region restore and measured RPO/RTO remain
   external evidence gates; they are not represented as completed by local
   tests.
+
+### Post-authentication production continuation (2026-08-28)
+
+- User and Application Default Credentials were reauthenticated. The public
+  API is healthy at revision `co-founder-00027-79d`; the isolated private
+  browser service is at `co-founder-browser-worker-00002-x7b`.
+- Firestore PITR and delete protection, Cloud SQL automated backups/PITR/delete
+  protection/retained backups, and artifact-bucket versioning/soft delete are
+  enabled. The API scales independently and all seven bounded queue lanes and
+  dedicated worker identities are deployed.
+- The content-free cloud audit reports no resource-read errors. The current
+  working policy matches the live queue retry bounds, but clean commit
+  `4b758d0` still expects the preceding retry values; this is recorded as
+  commit/deployment drift and is not hidden by the audit.
+- Cloud Monitoring has zero notification channels and zero alert policies.
+  `configure_phase7_monitoring.py` now fails closed without an enabled,
+  verified channel and manages public health/missing-data, Cloud Run 5xx, and
+  per-lane queue-depth policies without user content.
+- All seven durable production SLO reports currently return `NO_DATA` with
+  `measurement_count=0` and `release_blocked=true`. No healthy observations
+  were synthesized. No isolated Co-Founder recovery project/region is declared,
+  so load/chaos, rollback, cross-region restore, deletion replay, and measured
+  RPO/RTO remain unexecuted production-completion gates.

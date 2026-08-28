@@ -10,7 +10,8 @@ RUFF="$ROOT/.venv/bin/ruff"
   || { echo "missing locked .venv; run scripts/setup.sh"; exit 1; }
 
 "$RUFF" check services/platform_operations.py scripts/platform_ops.py \
-  scripts/phase7_cloud_audit.py tests/unit/test_phase7_operations.py
+  scripts/phase7_cloud_audit.py scripts/configure_phase7_monitoring.py \
+  tests/unit/test_phase7_operations.py tests/unit/test_phase7_monitoring.py
 "$PYTEST" -q \
   tests/unit/test_command_service.py \
   tests/unit/test_workflow_runtime_platform.py \
@@ -18,6 +19,7 @@ RUFF="$ROOT/.venv/bin/ruff"
   tests/unit/test_workflow_timer_service.py \
   tests/unit/test_projection_stream.py \
   tests/unit/test_phase7_operations.py \
+  tests/unit/test_phase7_monitoring.py \
   tests/unit/test_phase7_cloud_audit.py \
   tests/unit/test_collection_registry.py
 python -m compileall -q services scripts
