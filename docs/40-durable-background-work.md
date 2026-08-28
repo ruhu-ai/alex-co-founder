@@ -1,24 +1,18 @@
 # 40 — Durable background work behind one Alex
 
-**Status:** Review-complete production specification, ready for recorded staged
-implementation approval under §15. Documentation only; this document does not
-itself authorize implementation, deployment, a live effect, or a migration.
-Each rollout gate in §15 requires its own recorded approval.
+**Status:** Review-complete production specification under technical-gate
+controlled rollout. Documentation alone authorizes nothing; code-owned checks,
+versioned evidence, default-off flags, and proven rollback govern each stage.
 
-One authenticated Founder **release-stage approval** may cover an exact,
-hash-pinned batch of skills within one rollout gate. That avoids repeated
-product prompts for compiler, fixture, model-evaluation, and evidence-recording
-steps inside the same bounded gate. It does not span gates, survive a skill,
-model-policy, fixture, threshold, capability, or scope hash change, or count as
-an in-product action approval. Every skill in the batch must still pass every
-applicable technical, security, privacy, quality, citation, cost, lifecycle,
-and rollback check. For the single synthetic Gate F offline qualification, the
-recorded Founder approval plus deterministic closed-schema, grounding,
-injection, privacy, budget, and evidence-integrity checks replaces an
-independent-review requirement. This exception grants no runtime or canary
-authority; later gates retain every review requirement declared for them.
-`NO_DATA` or one failed applicable check blocks the whole batch; the Founder
-approval cannot override or mark a technical check passed.
+**Release-governance amendment (2026-08-29):** repeated Founder release-stage
+approvals are no longer required after a gate's predeclared technical checks
+pass. Exact hashes, security/privacy/quality/citation/cost thresholds, lifecycle
+closure, monitoring, and rollback proof remain mandatory and fail closed.
+`NO_DATA`, hash drift, or one failed applicable check blocks progression. This
+amendment does not weaken authentication, tenant/actor scoping, capability
+authority, or the separate exact in-product human approval required before any
+irreversible external action. The historical Gate F offline approval remains
+audit evidence for the already completed batch but grants no current authority.
 
 **External review disposition (2026-08-28):** findings-first gate review
 SHA-256 `6d353a60c2e16201d9e53f78001537368bde282d5bf3ff026ef4ed78fe2a0dd6`
@@ -924,7 +918,9 @@ Dependency, Runner-mode, plugin, persistence, or session-service changes rerun
 Gate B as a CI/release invariant; mismatch fails the release or forces that
 capability off before traffic.
 
-Roll out in this order:
+Roll out in this order. Passing and recording every technical exit check moves
+work to the next stage without a separate Founder release prompt; failing any
+check activates the documented rollback or keeps the next stage disabled:
 
 1. **Gate A — inventory and contracts.** Classify every current specialist path
    and capability; no undeclared or effectful path is eligible. Freeze golden

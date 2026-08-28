@@ -179,14 +179,14 @@ that no external/effect/approval/memory/conversation path exists.
    Existing Gate E inventory evidence cannot be relabelled as Gate F drafting
    evidence.
 
-## Exact next decision
+## Technical progression after qualification
 
 The Founder supplied one release-stage approval for the exact hash-pinned Gate
-F offline qualification batch. It is recorded in
+F offline qualification batch under the policy then in force. It is recorded in
 `skills/approvals/spec40-gate-f-offline-qualification.json`. No additional
 Founder prompt was required inside that bounded evaluation and evidence batch.
 
-The approval was necessary but not sufficient: provider authentication,
+That historical approval was necessary but not sufficient: provider authentication,
 model/data-governance pinning, cost preflight, secret/content checks, frozen
 thresholds, budgets, and all other technical gates evaluated true before the
 model calls. Publishing the result changed both the catalog and qualification
@@ -209,10 +209,11 @@ quota project; the Vertex API is enabled and Model Garden returned the exact
 was supplied explicitly. That check performed no model inference or cloud
 resource mutation.
 
-Every frozen offline threshold passed. The next gate is implementation and
-synthetic proof of the bounded selected-artifact reader, private-draft writer,
-single workflow authority, recovery, cancellation, privacy, and ordered
-Activity behavior. That work requires a separately scoped runtime-stage
-Founder approval. A still later decision is required for a default-off Gate F
-canary. Gate G approvals and every external or consequential capability remain
-out of scope.
+Every frozen offline threshold passed. Under Doc 40's 2026-08-29 governance
+amendment, the next gate proceeds when its bounded selected-artifact reader,
+private-draft writer, single workflow authority, recovery, cancellation,
+privacy, ordered Activity behavior, monitoring, and rollback checks pass and
+are recorded; no repeated Founder release prompt is required. Default-off
+flags and kill switches remain mandatory. Gate G's approval-wait machinery and
+every external or consequential capability remain technically separate, and
+irreversible actions still require exact in-product human approval.

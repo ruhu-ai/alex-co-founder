@@ -33,3 +33,10 @@ The Doc 37 and Doc 40 hashes above include the later Founder policy amendment
 allowing one exact release-stage approval per rollout gate while preserving all
 per-skill technical checks. Their earlier byte-preserved integration hashes
 remain in Git history and are not reused as current hashes.
+
+Doc 40 was subsequently amended on 2026-08-29 to make passed, recorded
+technical gates and rollback controls sufficient for release progression,
+without repeated Founder release prompts. Its current SHA-256 is
+`fe88704da348abbb316651720a1942b33c476bae50cc403d5b2d1a208fe2ad93`.
+The table retains the exact canonical snapshot used by the completed offline
+qualification; the later governance hash is not retroactively substituted.

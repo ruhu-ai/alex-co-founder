@@ -4478,8 +4478,12 @@ function renderSessionActivity() {
       : ["FAILED", "CANCELLED"].includes(job.runtime_status) ? "danger"
       : job.runtime_status === "CANCELLING" ? "attn" : "info";
     const output = job.output
-      ? `${Number(job.output.chunk_count || 0)} evidence sections · ${Number(job.output.word_count || 0)} words`
-      : "No external action, provider call, or message can occur.";
+      ? job.output.artifact_kind === "BACKGROUND_GROUNDED_EVIDENCE_DRAFT"
+        ? `Private draft · ${Number(job.output.citation_count || 0)} citations · ${job.output.title || "Grounded evidence brief"}`
+        : `${Number(job.output.chunk_count || 0)} evidence sections · ${Number(job.output.word_count || 0)} words`
+      : job.template_id === "pilot.artifact_grounded_brief"
+        ? "One bounded model call; no web, connector, approval, action, or message can occur."
+        : "No external action, provider call, or message can occur.";
     return `<div class="audit-item" data-background-job="${esc(job.run_id)}">
       <span><span class="who">Alex background work</span>
         <span class="badge" data-tone="${tone}">${esc(job.runtime_status)}</span></span>

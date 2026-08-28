@@ -139,6 +139,34 @@ def _internal(capability_id: str, role: str, side_effect_class: str,
         provenance_contract_id="run_step_evidence.v1")
 
 
+def _gate_f_internal(
+        capability_id: str, *, side_effect_class: str, output: str,
+        implementation: str, permission: str) -> CapabilityDescriptor:
+    """Closed Gate F service descriptor; registration creates no callable route."""
+
+    return CapabilityDescriptor(
+        capability_id=capability_id, semantic_version="1.0.0",
+        implementation_binding=implementation,
+        input_schema_id=f"{capability_id}.input.v1",
+        output_schema_id=output, error_schema_id="model.error.v1",
+        allowed_agent_roles=frozenset({"deterministic_worker"}),
+        required_permissions=frozenset({permission}),
+        side_effect_class=side_effect_class, approval_policy_id="none.v1",
+        idempotency_contract="idempotency.skill-invocation.v1",
+        retry_contract="retry.gate-f-offline.v1",
+        timeout_contract="bounded_step_timeout.v1",
+        reconciliation_contract="durable_output_receipt.v1",
+        lifecycle="ACTIVE", reviewing_owner="platform-security",
+        decision_reference="docs/background-work-gate-f-offline-qualification.md",
+        evidence_reference="tests/unit/test_spec40_gate_f_runtime.py",
+        completion_contract_id="documents.grounded-artifact-draft.v1",
+        budget_contract_id="budget.gate-f.available",
+        observability_contract_id="offline.content-free-trace.v1",
+        eval_suite_id="skill.gate-f-runtime.v1",
+        provenance_contract_id="evidence.artifact-chunk-citation.v1",
+    )
+
+
 STATIC_CAPABILITIES: dict[str, CapabilityDescriptor] = {
     "background.contract.validate": _internal(
         "background.contract.validate", "deterministic_worker", "NO_EFFECT",
@@ -148,6 +176,17 @@ STATIC_CAPABILITIES: dict[str, CapabilityDescriptor] = {
         "background.artifact.inspect", "deterministic_worker", "NO_EFFECT",
         output="background.artifact_inventory.v1",
         implementation="service:background_pilot.execute_artifact_inventory"),
+    "background.artifact.read_selected_evidence": _gate_f_internal(
+        "background.artifact.read_selected_evidence", side_effect_class="READ_ONLY",
+        output="evidence.selected-artifact-context.v1",
+        implementation="service:background_skill_runtime.read_selected_evidence",
+        permission="artifact.read_selected"),
+    "documents.persist_internal_draft": _gate_f_internal(
+        "documents.persist_internal_draft",
+        side_effect_class="INTERNAL_REVERSIBLE",
+        output="skill.documents.grounded-artifact.output.v1",
+        implementation="service:background_skill_runtime.persist_internal_draft",
+        permission="artifact.write_private_draft"),
     "investor.search": _internal(
         "investor.search", "researcher", "READ_ONLY",
         output="investor.candidate_set.v1",

@@ -49,6 +49,22 @@ _CAPTION_BY_EVENT = {
         "SUCCEEDED",
         "I finished the artifact analysis. The evidence inventory is ready."),
 }
+_SKILL_CAPTION_BY_EVENT = {
+    "RUN_CREATED": ("QUEUED", "I’ve queued the private evidence brief. You can keep chatting."),
+    "STEP_STARTED": ("RUNNING", "I’m preparing a grounded private draft."),
+    "STEP_FAILED": ("RUNNING", "I hit a temporary problem and will retry safely."),
+    "RUN_FAILED": ("FAILED", "I couldn’t prepare the evidence brief. Nothing was sent."),
+    "RUN_CANCELLING": ("CANCELLING", "I’m stopping the draft preparation safely."),
+    "RUN_CANCELLED": ("CANCELLED", "I stopped the draft preparation. Nothing was sent."),
+    "RUN_SUCCEEDED": (
+        "SUCCEEDED", "I finished the grounded evidence brief. The private draft is ready."),
+}
+
+
+def _captions(run: dict[str, Any]) -> dict[str, tuple[str, str]]:
+    if run.get("job_template_id") == "pilot.artifact_grounded_brief":
+        return _SKILL_CAPTION_BY_EVENT
+    return _CAPTION_BY_EVENT
 
 
 def _error(code: str, message: str, *, retryable: bool = False) -> dict[str, Any]:
@@ -435,9 +451,10 @@ class BackgroundArtifactPilot:
             order_by="sequence", limit=100)
         messages = []
         seen: set[int] = set()
+        captions = _captions(visible["job"])
         for event in events:
             sequence = int(event.get("sequence") or 0)
-            contract = _CAPTION_BY_EVENT.get(str(event.get("event_kind") or ""))
+            contract = captions.get(str(event.get("event_kind") or ""))
             if not contract or sequence < 1 or sequence in seen:
                 continue
             seen.add(sequence)
@@ -505,16 +522,17 @@ class BackgroundArtifactPilot:
         }.get(status, "RUN_CREATED")
         event_kind = fallback_event_kind
         caption_sequence = 0
+        captions = _captions(run)
         events = await self.store.list(
             "run_events", filters={"run_id": run["run_id"]},
             order_by="sequence", descending=True, limit=10)
         for event in events:
             candidate = str(event.get("event_kind") or "")
-            if candidate in _CAPTION_BY_EVENT:
+            if candidate in captions:
                 event_kind = candidate
                 caption_sequence = int(event.get("sequence") or 0)
                 break
-        caption = _CAPTION_BY_EVENT[event_kind][1]
+        caption = captions[event_kind][1]
         output = None
         output_ref = str(run.get("output_manifest_ref") or "")
         if output_ref.startswith("artifacts/"):
@@ -522,6 +540,9 @@ class BackgroundArtifactPilot:
             if row and row.get("subject_id") == run.get("subject_id"):
                 output = {
                     "output_id": row.get("artifact_id"),
+                    "artifact_kind": row.get("artifact_kind"),
+                    "title": row.get("title"),
+                    "draft_status": row.get("draft_status"),
                     "chunk_count": row.get("chunk_count"),
                     "word_count": row.get("word_count"),
                     "citation_count": row.get("citation_count"),

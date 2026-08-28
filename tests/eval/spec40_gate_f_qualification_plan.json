@@ -75,17 +75,17 @@
     "docs/39-durable-cross-session-memory.md": "sha256:9ad20f819e0af5160f885976cb0e272803f731456438c01f19f4da250fe51806",
     "docs/40-durable-background-work.md": "sha256:8c2beaaa20691a0410049a03705a788ed8a4f32b0c1df6c68fea7dca456b86b0"
   },
-  "founder_stage_approval": {
-    "mode": "ONE_EXACT_HASH_PINNED_APPROVAL_PER_GATE",
-    "approval_ref": "skills/approvals/spec40-gate-f-offline-qualification.json",
-    "gate": "GATE_F_OFFLINE_QUALIFICATION",
-    "covers_skill_count": 1,
+  "release_progression": {
+    "mode": "TECHNICAL_GATES_AUTOMATIC",
+    "historical_approval_ref": "skills/approvals/spec40-gate-f-offline-qualification.json",
+    "founder_release_approval_required": false,
     "technical_gates_remain_mandatory": true,
     "independent_review_required": false,
     "deterministic_output_validation_required": true,
     "executable_hashes_pinned": true,
-    "hash_or_scope_change_requires_new_approval": true,
-    "runtime_or_effect_authority": false
+    "hash_or_scope_change_blocks_progression": true,
+    "in_product_effect_approval_unchanged": true,
+    "runtime_or_effect_authority_from_documentation": false
   },
   "unresolved_dependencies": [
     "live_selected_artifact_context_and_internal_draft_services",

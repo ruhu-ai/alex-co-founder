@@ -290,21 +290,23 @@ def test_approved_files_contain_no_recognizable_secret_material():
         assert not any(pattern.search(text) for pattern in forbidden), path.name
 
 
-def test_plan_distinguishes_one_stage_approval_from_technical_success():
+def test_plan_uses_technical_gate_progression_without_release_prompt():
     plan = json.loads(PLAN_PATH.read_text())
-    policy = plan["founder_stage_approval"]
+    policy = plan["release_progression"]
 
     assert policy == {
-        "mode": "ONE_EXACT_HASH_PINNED_APPROVAL_PER_GATE",
-        "approval_ref": ("skills/approvals/spec40-gate-f-offline-qualification.json"),
-        "gate": "GATE_F_OFFLINE_QUALIFICATION",
-        "covers_skill_count": 1,
+        "mode": "TECHNICAL_GATES_AUTOMATIC",
+        "historical_approval_ref": (
+            "skills/approvals/spec40-gate-f-offline-qualification.json"
+        ),
+        "founder_release_approval_required": False,
         "technical_gates_remain_mandatory": True,
         "independent_review_required": False,
         "deterministic_output_validation_required": True,
         "executable_hashes_pinned": True,
-        "hash_or_scope_change_requires_new_approval": True,
-        "runtime_or_effect_authority": False,
+        "hash_or_scope_change_blocks_progression": True,
+        "in_product_effect_approval_unchanged": True,
+        "runtime_or_effect_authority_from_documentation": False,
     }
     assert plan["unresolved_dependencies"] == [
         "live_selected_artifact_context_and_internal_draft_services",

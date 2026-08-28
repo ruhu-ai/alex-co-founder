@@ -218,17 +218,24 @@ def test_compiler_attacks_fail_closed(tmp_path, attack):
         compile_catalog(copied)
 
 
-def test_offline_capabilities_are_draft_only_and_absent_from_live_registry():
+def test_offline_descriptors_match_the_unrouted_runtime_capability_closure():
     assert set(OFFLINE_DRAFT_CAPABILITIES) == {
         "background.artifact.read_selected_evidence",
         "documents.persist_internal_draft",
     }
-    assert CAPABILITY_IDS.isdisjoint(STATIC_CAPABILITIES)
+    assert CAPABILITY_IDS <= set(STATIC_CAPABILITIES)
     for capability_id, descriptor in OFFLINE_DRAFT_CAPABILITIES.items():
         assert descriptor.lifecycle == "DRAFT"
         assert descriptor.implementation_binding.startswith("offline-contract:")
-        with pytest.raises(ValueError):
-            require_capability(capability_id)
+        live = require_capability(capability_id)
+        assert live.lifecycle == "ACTIVE"
+        assert live.capability_id == descriptor.capability_id
+        assert live.semantic_version == descriptor.semantic_version
+        assert live.side_effect_class == descriptor.side_effect_class
+        assert live.approval_policy_id == descriptor.approval_policy_id
+        assert live.required_permissions == descriptor.required_permissions
+        assert live.implementation_binding.startswith(
+            "service:background_skill_runtime.")
 
 
 def test_contract_catalog_is_closed_owned_and_evidenced():
@@ -491,8 +498,11 @@ def test_live_app_agent_and_capability_registry_do_not_import_offline_skills():
             if path.name == "capability_registry.py":
                 assert "documents.produce-grounded-artifact" not in path.read_text()
             text = path.read_text()
-            assert "from skills" not in text
-            assert "import skills" not in text
+            if path.name == "background_skill_runtime.py":
+                assert "from skills.grounding import" in text
+            else:
+                assert "from skills" not in text
+                assert "import skills" not in text
 
 
 def test_no_gate_f_flag_route_queue_or_deploy_surface_exists():
