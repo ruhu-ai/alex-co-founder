@@ -1,0 +1,19 @@
+tests/unit/test_deploy_firestore_indexes.py
+  s_0bfc183a530608::t_545ce4435b351f 111-117
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "d7046e6991758132ece82e82f5a30664efb0895b",
+  "prompts": {},
+  "sessions": {
+    "s_0bfc183a530608": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a044e4-5750-7651-a442-0b09fff86ca9",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": null
+    }
+  }
+}
