@@ -1,0 +1,83 @@
+tests/unit/test_spec40_founder_stage_approval.py
+  s_16e75b10efee22::t_23f7221db18aaa 29-30,58-59,87-88,128-129,305
+  s_16e75b10efee22::t_e92ada51a715d2 154-168
+  s_16e75b10efee22::t_aa9d8f5856b2f5 316
+  s_16e75b10efee22::t_0033803f4ba24f 21,25,52,79,107-115,122,139-153,169-170,189-199,261,299
+  s_16e75b10efee22::t_caa2b369327e97 31,69,73,81-84,91,95-98,132-136,279,317-341
+  s_16e75b10efee22::t_817c8150848cf0 99-102,105,131,303-304,309-313
+skills/evidence/spec40-gate-f-offline-qualification-20260829.json
+  s_16e75b10efee22::t_1775325dad5df8 1-99
+skills/approvals.py
+  s_16e75b10efee22::t_a4f9bfdf760e95 34-35,109-110,135-142
+  s_16e75b10efee22::t_e13c261a065c22 40-41,125-126,129-130,133-134,146
+tests/eval/spec40_gate_f_qualification_plan.json
+  s_16e75b10efee22::t_1775325dad5df8 4,93
+  s_16e75b10efee22::t_aa9d8f5856b2f5 97
+  s_16e75b10efee22::t_e0ee9c117c4a65 58,84-85
+  s_16e75b10efee22::t_26afdcc379af79 76
+  s_16e75b10efee22::t_a4f9bfdf760e95 86
+tests/unit/test_spec40_gate_f_qualification_plan.py
+  s_16e75b10efee22::t_1775325dad5df8 20
+  s_16e75b10efee22::t_f98d035b9f1efe 71-72
+  s_16e75b10efee22::t_aa9d8f5856b2f5 36
+  s_16e75b10efee22::t_0033803f4ba24f 74,88
+skills/approvals/spec40-gate-f-technical-gates.json
+  s_16e75b10efee22::t_60f10b22ced779 24
+skills/pilots/gate-f-artifact-grounded-brief.json
+  s_16e75b10efee22::t_caa2b369327e97 15,20
+tests/unit/test_spec40_gate_f_offline.py
+  s_16e75b10efee22::t_1775325dad5df8 153-156,469,484
+  s_16e75b10efee22::t_aa9d8f5856b2f5 472
+docs/background-work-gate-f-offline-qualification.md
+  s_16e75b10efee22::t_012fe1cd1a3338 57-58
+  s_16e75b10efee22::t_a3531a5ddaf695 4,7-11,43,45,47-48,51-54,62-76,176,182,187-197,200,212-218
+  s_16e75b10efee22::t_ffb9b67066b008 129-130,136,141,201-204
+skills/documents/produce_grounded_artifact/qualification.json
+  s_16e75b10efee22::t_1775325dad5df8 4,7-10
+docs/40-durable-background-work.md
+  s_16e75b10efee22::t_8a63d32e34e60c 15-21
+tests/unit/test_spec40_gate_f_qualification_command.py
+  s_16e75b10efee22::t_7a9091268e29b3 10-12,46-77
+  s_16e75b10efee22::t_9878fdc835e17c 5
+  s_16e75b10efee22::t_caa2b369327e97 17,27-32
+tests/unit/test_spec40_gate_f_qualification_runner.py
+  s_16e75b10efee22::t_95653fe3aa43cc 66,71,73,78,91,112,136,151,169
+  s_16e75b10efee22::t_097e582c0724a7 124-135,137-148,173-174
+  s_16e75b10efee22::t_3f1d46bb934d5b 5,58,63-65,187-200
+  s_16e75b10efee22::t_23f7221db18aaa 178
+skills/qualification_runner.py
+  s_16e75b10efee22::t_a4f9bfdf760e95 103,127-128
+  s_16e75b10efee22::t_097e582c0724a7 130-149,152-188,190-225,227-231
+  s_16e75b10efee22::t_e13c261a065c22 150-151,189,226
+  s_16e75b10efee22::t_0033803f4ba24f 307,419
+  s_16e75b10efee22::t_aa1d288d203fd3 89,241,258,282,308-321,408-418,420-423
+docs/alex-companion-specs-integration-record.md
+  s_16e75b10efee22::t_26afdcc379af79 18
+  s_16e75b10efee22::t_a3531a5ddaf695 27-30
+skills/approvals/spec40-gate-f-offline-qualification.json
+  s_16e75b10efee22::t_13de18a5554f33 8-9
+  s_16e75b10efee22::t_63e44c55df97ef 17,20
+  s_16e75b10efee22::t_248ca1be0e4a37 21
+scripts/run_spec40_gate_f_qualification.py
+  s_16e75b10efee22::t_593de11c0ed299 106-107
+  s_16e75b10efee22::t_a671a2fff6eb93 168
+  s_16e75b10efee22::t_7a9091268e29b3 38,58-105
+skills/catalog.v1.json
+  s_16e75b10efee22::t_de0f6ae3ccc95a 3,133,136-139,142
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "c23450a61594951cffc7b5523d702300aeb4b724",
+  "prompts": {},
+  "sessions": {
+    "s_16e75b10efee22": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0484d-a6bd-7182-90ae-527ccfd2a966",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Ijidai Lassa <ijidai@cued.app>"
+    }
+  }
+}
