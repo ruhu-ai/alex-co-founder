@@ -1,0 +1,59 @@
+services/platform_operations.py
+  s_0bfc183a530608::t_383bfa6cdf5b30 11,231-234,288-292,320-321,397,431,436,443,452
+  s_0bfc183a530608::t_4f0c745d3ef6e8 379-382
+  s_0bfc183a530608::t_642ec028db33c2 1-7,14,35-55,60,68-84,86-87,91-106,108-110,113-126,133-134,139-140,144-146,176,180-183,185,190-212,219,221-230,235-287,293-319,322-330,335-378,383-396,398-404,411-430,432-435,437-442,444-451,453-497,504-537,544-547,550-551,555-567,570-576,578-582,589-590,595,605-607,610-618,621,623-627,629-635,637-648,650-651
+  s_0bfc183a530608::t_03839c774a3e62 213-218,220,331-334,405-410,498-503,538-543,596-604
+tests/unit/test_phase7_operations.py
+  s_0bfc183a530608::t_8cddcfbed2b42e 9,43-64,69-76,78-103,108-113,115-128,130-131,133-139,144-146,149-150,153-155,158-170,172-173,176,181-188,191-192
+  s_0bfc183a530608::t_fae18258ed5a8c 65-68,77,104-107,114
+  s_0bfc183a530608::t_383bfa6cdf5b30 129,132
+scripts/phase7_cloud_audit.py
+  s_0bfc183a530608::t_10f086a1859373 30-36,38-45,70-91,102-113
+  s_0bfc183a530608::t_ce710c9609b55e 1-29,37,46-69,92-101,114-146
+scripts/check_phase7.sh
+  s_0bfc183a530608::t_ce710c9609b55e 1-20,22-26
+  s_0bfc183a530608::t_5699de2c2b446f 21
+scripts/configure_phase7_reliability.sh
+  s_0bfc183a530608::t_ec94f605d629ab 1-52
+services/durable_store.py
+  s_0bfc183a530608::t_8dda7e6a393e9a 291,294,296-299,306-308
+  s_0bfc183a530608::t_9d8265129f0a80 295,304
+  s_0bfc183a530608::t_974a88ac6e095a 100-106
+docs/verification-notes.md
+  s_0bfc183a530608::t_dc5e8e92ad26bc 271-295
+services/data_lifecycle.py
+  s_0bfc183a530608::t_974a88ac6e095a 131,133-135
+  s_0bfc183a530608::t_e42e008c3fd060 127-130,132
+tests/unit/test_phase7_cloud_audit.py
+  s_0bfc183a530608::t_c05845a5058e1d 1-71
+docs/35-platform-operations-and-recovery.md
+  s_0bfc183a530608::t_ec94f605d629ab 1-177
+scripts/platform_ops.py
+  s_0bfc183a530608::t_ce710c9609b55e 1-13,15-17,21-39,42-59,62-82
+  s_0bfc183a530608::t_effb75d9145508 40-41,60-61
+  s_0bfc183a530608::t_fba4f4b43006ae 14,18-20
+services/firestore.py
+  s_0bfc183a530608::t_974a88ac6e095a 98-103
+docs/README.md
+  s_0bfc183a530608::t_ec94f605d629ab 68
+docs/13-deployment.md
+  s_0bfc183a530608::t_ec94f605d629ab 205-210
+docs/34-platform-architecture-and-convergence.md
+  s_0bfc183a530608::t_dc5e8e92ad26bc 2009-2013,2030-2031
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "037dc2ab97bdd49b62c1b89f5af5d034d0c880b0",
+  "prompts": {},
+  "sessions": {
+    "s_0bfc183a530608": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a044e4-5750-7651-a442-0b09fff86ca9",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Ijidai Lassa <ijidai@cued.app>"
+    }
+  }
+}
