@@ -2,8 +2,8 @@
 
 **Recorded:** 2026-08-28  
 **Scope:** one default-off, founder-only, read-only live pilot  
-**Release state:** implemented and exercised end to end in an isolated,
-off-cloud synthetic FOUNDER host; not deployed
+**Release state:** Gate E Activity soak completed in the existing project;
+normal service deployed with every pilot gate off and kill switch on
 
 This slice is a deliberately narrower controlled pilot than the generic Gate C
 through Gate E progression in `40-durable-background-work.md`. It does not
@@ -445,12 +445,94 @@ events/audits, content-free output, unchanged source deck, and the two durable
 visibility indexes remain. Final inventory found exactly one real Founder
 background run and no standing execution resource.
 
+## Controlled Gate E Activity soak
+
+The Founder then approved the next narrow rollout stage on the normal product
+topology. Repository verification passed before deployment: `1158` tests passed
+with `2` skipped, the focused pilot suite passed, and Ruff, shell syntax,
+Firestore index JSON, diff hygiene, and the Document-16 contrast check were
+green. The reviewed implementation was frozen at `37048fc`; the tombstone-safe
+queue delta was frozen at `63af518`; and the replay-budget remediation described
+below was frozen at `5a23f0b` with `1159` tests passing and `2` skipped.
+
+The normal `co-founder` service first received the immutable image with all
+pilot variables absent/off. A no-traffic tagged revision passed `/health` and a
+signed FOUNDER read with `enabled: false` before normal traffic moved. The two
+required Firestore indexes were `READY`. Because the two earlier queue names
+were still under Cloud Tasks deletion tombstones, the dispatcher added exactly
+one further code-owned name, `co-founder-background-pilot-gate-e`; arbitrary
+configured queues remain refused. That queue used concurrency one, dispatch
+rate one, and three attempts. The route-scoped
+`background-pilot-worker@co-founder-506001.iam.gserviceaccount.com` identity,
+exact OIDC audience/allowlist, and two content-free policies were provisioned.
+The policies remain bound only to the pre-existing enabled Google email channel
+`Spec 40 Canary Failures`:
+
+- `Spec 40 Gate E queue stalled` alerts when the exact queue remains non-empty
+  for five minutes; and
+- `Spec 40 Gate E service 5xx` alerts on Cloud Run 5xx responses.
+
+The two eligible PDFs were healthy but referred to a conversation that no
+longer existed in Cloud SQL, so the normal Activity/session gate correctly
+returned 404. A metadata-only consistency repair created empty normal Founder
+session `s-534555d5582fb374f8f4790b0c614b05`, changed only those two artifacts'
+session binding, registered both as selected Activity resources, and wrote
+content-free audits. Source bytes, objects, hashes, generation, size, READY
+status, and 14-chunk indexes did not change.
+
+The three-admissions-per-hour window comprised the retained exact pitch-deck
+run plus two normal Activity admissions:
+
+```text
+run_8008372ce4ef81088bc2fd86f912  SUCCEEDED  output artifact_be2bdc8343e8b93819eb235cd90d
+run_1ee88e98416ebc2878961d018a6e  SUCCEEDED  output artifact_7824d9a607438c843ac32c453afd
+run_208853ef9cd74e2e9f013da698c7  SUCCEEDED  output artifact_7c4454c8c6809bc001ef53c997cd
+```
+
+Every run had one complete attempt and the unique ordered sequence
+`RUN_CREATED(1) -> STEP_STARTED(2) -> RUN_SUCCEEDED(3)`. The actor-private
+Activity projection returned the same `QUEUED -> RUNNING -> SUCCEEDED` order.
+Each output contained 14 citations and 1,090 counted words, no content/text/raw
+text/source text/prompt/transcript/routing fields, and no linked approval,
+external action, conversation or wake delivery, memory item, or memory-write
+receipt. The two source records remained byte-identical at 1,503,104 bytes,
+SHA-256 `4b9e92b6c975c3a731059d7d7a9dc09f6f3c4e3e270e1c22067d94cc7091cc17`,
+generation `04e7a87b743486aed032`, READY, and 14 chunks. Crash, retry,
+cancellation, synthetic deletion/cleanup, and verified email delivery remain
+covered by the immediately preceding controlled synthetic canary; they were not
+re-induced against the real deck.
+
+The live soak found one bounded defect: a valid duplicate returned the same run
+but reached rate evaluation before the command point-read, so the replay could
+consume an hourly admission slot. No duplicate run, output, event, or effect was
+created. Admission was stopped, and `CommandService.replay` now validates and
+returns an existing idempotent receipt before any capacity check. New focused
+tests prove a replay at the full hourly counter succeeds without changing the
+counter. The fixed image passed the full suite and a seconds-long live
+regression at `window_admissions=3`: the existing key returned 202,
+`duplicate: true`, and `run_208853ef9cd74e2e9f013da698c7`; a fresh key still
+returned 409 `background_rate_limited`; job count remained three and the
+counter remained `3 -> 3`.
+
+Final rollback is authoritative. Revision `co-founder-00035-vvd` serves 100%
+of traffic with shared and pilot admission/execution flags false, conversation
+delivery false, and kill switch true. A signed post-rollback request returned
+403 `background_pilot_killed` and created no fourth run. The exact Gate E queue
+is empty and `PAUSED`; both zero-traffic enabled revisions and all enabled
+traffic tags were deleted. The route identity, READY indexes, paused queue, and
+the two content-free email policies remain as disabled Gate E infrastructure.
+No model/provider, web/browser, connector, approval/effect, memory, generic
+Runs/SSE, hiring automation, multi-user access, or proactive conversation
+delivery was added or enabled by this stage.
+
 ## Decision
 
-The single founder-only synthetic canary and one exact real pitch-deck inventory
-completed successfully. This evidence authorizes no standing execution and no
-broader background work. The repository remains safe-by-default: pilot flags
-default off, the kill switch defaults on, and no pilot service, queue, worker,
-secret, or alert policy remains. The real actor-private result and required
-visibility indexes are intentionally durable. Any further artifact or rollout
-requires a new exact authorization window and the residual gates above.
+The synthetic canary, exact real pitch-deck pilot, and three-run Gate E Activity
+window completed with one replay-budget defect found, fixed, fully retested, and
+verified live. This evidence authorizes no standing execution and no broader
+background work. The repository and serving revision remain safe-by-default:
+pilot flags are off, the kill switch is on, the queue is paused, and no enabled
+pilot revision or traffic tag remains. Actor-private runs, audits, outputs,
+Activity links, monitoring, route identity, and required indexes are
+intentionally durable. Gate F and every broader capability remain blocked
+pending a new exact authorization and the residual gates above.
