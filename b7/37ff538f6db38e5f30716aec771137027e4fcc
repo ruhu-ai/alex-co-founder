@@ -1,0 +1,67 @@
+services/background_work.py
+  s_16e75b10efee22::t_f05a70e3e81491 93-95,133-175,189-192
+  s_16e75b10efee22::t_b8b7b2df6a9df6 24,50
+  s_16e75b10efee22::t_979cab80f4e599 255,263-275,277,280-284,286-288,446,462,464
+  s_16e75b10efee22::t_1702a7ae38076b 285
+  s_16e75b10efee22::t_c2824640724ee2 292
+  s_16e75b10efee22::t_5be1f1bfa553f0 193-195
+tests/unit/test_spec40_gate_f_runtime.py
+  s_16e75b10efee22::t_a0e109c42c27e4 124,127,158,385-396
+  s_16e75b10efee22::t_18dcac71779240 227-244
+  s_16e75b10efee22::t_d1e82a51692888 13
+  s_16e75b10efee22::t_e6b3f5831deffe 7,516-548
+  s_16e75b10efee22::t_1b38f49ccd44e2 514-515
+  s_16e75b10efee22::t_85f91d87f41915 332-366
+  s_16e75b10efee22::t_35a5d879669ea4 1-6,8-12,14-123,125-126,128-157,159-226,245-303,310-331,367-384,397-474,479-513
+  s_16e75b10efee22::t_e9ac9febbca6d2 304-309,475-478
+tests/eval/spec40_gate_f_qualification_plan.json
+  s_16e75b10efee22::t_4911df07bfe114 78-81,86-88
+services/capability_registry.py
+  s_16e75b10efee22::t_b8b7b2df6a9df6 86-113,119-129
+docs/40-durable-background-work.md
+  s_16e75b10efee22::t_4911df07bfe114 3-15,921-923
+tests/unit/test_spec40_gate_f_offline.py
+  s_16e75b10efee22::t_f05942a5b90567 221,226,230-238,501-505
+app/static/index.html
+  s_16e75b10efee22::t_a3b71635e63289 2514-2516
+  s_16e75b10efee22::t_a528bff309989a 2517-2519
+services/workflow_plan_validator.py
+  s_16e75b10efee22::t_b8b7b2df6a9df6 15-16
+docs/background-work-gate-f-offline-qualification.md
+  s_16e75b10efee22::t_ceeb318241eb2d 182,185,189,212-219
+services/workflow_contracts.py
+  s_16e75b10efee22::t_b8b7b2df6a9df6 55-67,123-127,208-209
+docs/alex-companion-specs-integration-record.md
+  s_16e75b10efee22::t_611e114f5f4c14 36-42
+services/background_pilot.py
+  s_16e75b10efee22::t_a3b71635e63289 52-67,454,457,525,531,535,543-545
+skills/evidence/spec40-gate-f-synthetic-runtime-20260829.json
+  s_16e75b10efee22::t_611e114f5f4c14 1-73
+tests/unit/test_spec40_founder_stage_approval.py
+  s_16e75b10efee22::t_4911df07bfe114 293,295,298-302,307-309
+docs/background-work-gate-f-synthetic-runtime-evidence.md
+  s_16e75b10efee22::t_611e114f5f4c14 1-51
+services/background_skill_runtime.py
+  s_16e75b10efee22::t_efe77783efa558 1-18,20-39,46-62,80-322,329-375,390-417,424-453,458-535,546-555,559-706,717-793,806-811
+  s_16e75b10efee22::t_891b4ab27975fd 556-558
+  s_16e75b10efee22::t_ea4fe24fbaf506 19,63-79,323-328,376-389,418-423,454-457,707-716,794-805
+  s_16e75b10efee22::t_a0e109c42c27e4 40-45,536-545
+services/workflow_runtime.py
+  s_16e75b10efee22::t_d2dd4e097140f7 18,31-77,172-173,192-201,210-211
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "b737ff538f6db38e5f30716aec771137027e4fcc",
+  "prompts": {},
+  "sessions": {
+    "s_16e75b10efee22": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0484d-a6bd-7182-90ae-527ccfd2a966",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Ijidai Lassa <ijidai@cued.app>"
+    }
+  }
+}
