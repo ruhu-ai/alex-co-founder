@@ -108,3 +108,10 @@ def test_deploy_uses_the_verified_virtualenv_interpreter_only():
     for script in ("check_browser_invariants.py", "deploy_firestore_indexes.py",
                    "migrate_browser_runs.py"):
         assert f'"$PYTHON" scripts/{script}' in deploy
+
+
+def test_repository_manifest_has_no_duplicate_index_signatures():
+    declared = deploy_indexes.load_manifest(
+        ROOT / "infra" / "firestore.indexes.json")
+    signatures = [deploy_indexes.index_signature(index) for index in declared]
+    assert len(signatures) == len(set(signatures))
