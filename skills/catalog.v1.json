@@ -1,194 +1,81 @@
 {
   "schema_version": "cofounder.skill-catalog.v1",
-  "catalog_hash": "sha256:0cca7adebeebd06f2d6b35d4a2c302b00b0f6368309657ec8b56671403065e35",
+  "catalog_hash": "sha256:ac3fd134808f32a617d21f4c176b0e47afed1abbc13f22a2af7eb6ee83cabf90",
   "skills": [
     {
       "manifest": {
         "schema_version": "cofounder.skill.v1",
-        "skill_id": "funding.discover-opportunities",
+        "skill_id": "documents.produce-grounded-artifact",
         "version": "1.0.0",
         "status": "DRAFT",
-        "owner": "funding-product",
+        "owner": "documents-product",
         "engineering_owner": "platform-runtime",
         "evaluation_owner": "safety-evaluation",
-        "summary": "Discover evidence-backed funding opportunities for one bounded founder request.",
+        "summary": "Prepare one private grounded evidence brief from one selected artifact.",
         "goal_contract": {
           "supported_intents": [
-            "funding_discovery"
+            "artifact_grounded_brief"
           ],
           "invocation_modes": [
-            "CONVERSATION",
             "WORKFLOW_STEP"
           ],
           "non_goals": [
-            "application_submission",
-            "authenticated_browsing",
-            "outreach"
+            "external_research",
+            "sharing_or_sending",
+            "submission_or_prefill",
+            "approval_or_effect",
+            "memory_access",
+            "canonical_domain_mutation"
           ]
         },
         "assignments": {
           "agent_roles": [
-            "researcher"
+            "deterministic_worker"
           ],
           "workflow_steps": [
-            "funding.discovery"
+            "background.artifact_grounded_brief"
           ]
         },
         "contracts": {
-          "input_schema_id": "skill.funding.discover.input.v1",
+          "input_schema_id": "skill.documents.grounded-artifact.input.v1",
           "input_schema_path": "schemas/input.v1.json",
-          "output_schema_id": "skill.funding.discover.output.v1",
+          "output_schema_id": "skill.documents.grounded-artifact.output.v1",
           "output_schema_path": "schemas/output.v1.json",
           "error_schema_id": "model.error.v1",
-          "completion_contract_id": "funding.candidate-set.v1",
-          "context_contract_id": "context.funding-discovery.v1",
-          "evidence_contract_id": "evidence.source-citation.v1",
-          "citation_policy_id": "citations.material-claims-required.v1"
+          "completion_contract_id": "documents.grounded-artifact-draft.v1",
+          "context_contract_id": "context.selected-artifact-evidence.v1",
+          "evidence_contract_id": "evidence.artifact-chunk-citation.v1",
+          "citation_policy_id": "citations.all-material-claims-required.v1"
         },
         "capabilities": {
           "allow": [
             {
-              "capability_id": "opportunity.search",
+              "capability_id": "background.artifact.read_selected_evidence",
               "version": "1.0.0"
-            }
-          ],
-          "effect_policy": {
-            "ceiling": "READ_ONLY",
-            "authority_impacts": [
-              "ADVISORY"
-            ]
-          },
-          "required_permissions": []
-        },
-        "policy": {
-          "precondition_ids": [
-            "workspace.active",
-            "budget.funding.available"
-          ],
-          "approval_policy_id": "none.v1",
-          "accepted_data_classes": [
-            "PUBLIC",
-            "WORKSPACE_INTERNAL"
-          ],
-          "produced_data_classes": [
-            "WORKSPACE_INTERNAL"
-          ],
-          "tenant_scope": "CURRENT_WORKSPACE",
-          "required_feature_flags": []
-        },
-        "execution": {
-          "max_tool_calls": 4,
-          "max_resource_reads": 0,
-          "max_resource_bytes": 0,
-          "timeout_seconds": 90,
-          "retry_policy_id": "retry.read-transient.v1",
-          "idempotency_contract_id": "idempotency.skill-invocation.v1",
-          "context_token_budget": 8000,
-          "output_size_bytes": 32768
-        },
-        "provenance": {
-          "playbook_path": "PLAYBOOK.md",
-          "decision_ref": "docs/37-production-skills-system.md#18"
-        },
-        "resources": [],
-        "evaluation": {
-          "suite_ids": [
-            "skill.funding.discover.contract.v1",
-            "skill.funding.discover.safety.v1"
-          ],
-          "release_gate_id": "skill.standard-read-only.v1",
-          "qualification_path": "qualification.json"
-        },
-        "lifecycle": {
-          "rollout_policy_id": "canary.internal-workspaces.v1",
-          "rollback_to": null,
-          "replaces": null,
-          "deprecated_after": null
-        }
-      },
-      "definition_hash": "sha256:317fb293a7d25c73e5b50b78c4db21c02499510e907319d59fbecefbb6820b69",
-      "playbook_hash": "sha256:9d74babcaf2d20c086ebb6608f3a98ebef8dced3b40367453d9ad223feb2cec3",
-      "schema_hashes": {
-        "skill.funding.discover.input.v1": "sha256:0af96511154805070f4e8f63b895b2145c10e28566164b9e3c554c05f108316e",
-        "skill.funding.discover.output.v1": "sha256:922a18db388ab2e926637e0865c29340668d5076171a562f744f50f6d63cd417"
-      },
-      "resource_hashes": {},
-      "qualification": {
-        "schema_version": "cofounder.skill-qualification.v1",
-        "evidence_version": "1.0.0",
-        "status": "NOT_RUN",
-        "skill_id": "funding.discover-opportunities",
-        "skill_version": "1.0.0",
-        "model_policy_version": "unqualified",
-        "suite_result_refs": [],
-        "capability_set_hash": "sha256:6834f63aaa65c2e8f7c85f11c187550ebea01b94ae1b3af9124abffb5dbbee69"
-      },
-      "qualification_hash": "sha256:acb1b83624b5b73e66fdfafba9704b6b98a0ec090e0aa5e8c6b77d23171e594b",
-      "package_path": "skills/funding/discover_opportunities"
-    },
-    {
-      "manifest": {
-        "schema_version": "cofounder.skill.v1",
-        "skill_id": "funding.draft-grounded-section",
-        "version": "1.0.0",
-        "status": "DRAFT",
-        "owner": "funding-product",
-        "engineering_owner": "platform-runtime",
-        "evaluation_owner": "safety-evaluation",
-        "summary": "Draft one funding-application section from supplied, cited founder evidence.",
-        "goal_contract": {
-          "supported_intents": [
-            "funding_grounded_draft"
-          ],
-          "invocation_modes": [
-            "CONVERSATION",
-            "WORKFLOW_STEP"
-          ],
-          "non_goals": [
-            "application_submission",
-            "fact_invention",
-            "approval_resolution"
-          ]
-        },
-        "assignments": {
-          "agent_roles": [
-            "writer"
-          ],
-          "workflow_steps": [
-            "funding.drafting"
-          ]
-        },
-        "contracts": {
-          "input_schema_id": "skill.funding.draft.input.v1",
-          "input_schema_path": "schemas/input.v1.json",
-          "output_schema_id": "skill.funding.draft.output.v1",
-          "output_schema_path": "schemas/output.v1.json",
-          "error_schema_id": "model.error.v1",
-          "completion_contract_id": "funding.grounded-draft.v1",
-          "context_contract_id": "context.grounded-drafting.v1",
-          "evidence_contract_id": "evidence.run-citation.v1",
-          "citation_policy_id": "citations.material-claims-required.v1"
-        },
-        "capabilities": {
-          "allow": [
+            },
             {
-              "capability_id": "grant.draft",
+              "capability_id": "documents.persist_internal_draft",
               "version": "1.0.0"
             }
           ],
           "effect_policy": {
             "ceiling": "INTERNAL_REVERSIBLE",
             "authority_impacts": [
-              "DRAFT_PREPARATION"
+              "ADVISORY",
+              "DRAFT"
             ]
           },
-          "required_permissions": []
+          "required_permissions": [
+            "artifact.read_selected",
+            "artifact.write_private_draft"
+          ]
         },
         "policy": {
           "precondition_ids": [
             "workspace.active",
-            "budget.funding.available",
-            "source.scope.current-workspace"
+            "artifact.selected-ready-current",
+            "budget.gate-f.available",
+            "gate-f.offline-only"
           ],
           "approval_policy_id": "none.v1",
           "accepted_data_classes": [
@@ -201,54 +88,57 @@
           "required_feature_flags": []
         },
         "execution": {
-          "max_tool_calls": 2,
+          "max_tool_calls": 3,
           "max_resource_reads": 0,
           "max_resource_bytes": 0,
-          "timeout_seconds": 90,
-          "retry_policy_id": "retry.internal-reversible.v1",
+          "timeout_seconds": 120,
+          "retry_policy_id": "retry.gate-f-offline.v1",
           "idempotency_contract_id": "idempotency.skill-invocation.v1",
           "context_token_budget": 12000,
-          "output_size_bytes": 32768
+          "output_size_bytes": 65536
         },
         "provenance": {
           "playbook_path": "PLAYBOOK.md",
-          "decision_ref": "docs/37-production-skills-system.md#18"
+          "decision_ref": "docs/background-work-gate-f-offline-qualification.md"
         },
         "resources": [],
         "evaluation": {
           "suite_ids": [
-            "skill.funding.draft.contract.v1",
-            "skill.funding.draft.safety.v1"
+            "skill.documents.grounded-artifact.contract.v1",
+            "skill.documents.grounded-artifact.grounding.v1",
+            "skill.documents.grounded-artifact.safety.v1",
+            "skill.documents.grounded-artifact.privacy.v1",
+            "skill.documents.grounded-artifact.lifecycle.v1"
           ],
-          "release_gate_id": "skill.standard-internal-reversible.v1",
+          "release_gate_id": "skill.gate-f-offline.v1",
           "qualification_path": "qualification.json"
         },
         "lifecycle": {
-          "rollout_policy_id": "canary.internal-workspaces.v1",
+          "rollout_policy_id": "offline.no-rollout.v1",
           "rollback_to": null,
           "replaces": null,
           "deprecated_after": null
         }
       },
-      "definition_hash": "sha256:1a3189a4cc676cdd35c44954b772ac2a74dc822b4a2b3e73a3270079d5c4935a",
-      "playbook_hash": "sha256:7842a722d6d7b740019e0c06eabea8d759bc9eae80e44ca9d84591743d3d6b36",
+      "definition_hash": "sha256:440a035848b8034fc9c8ca4fc250439b06b26bc799cb9101eb3a7896fbf51c67",
+      "playbook_hash": "sha256:1ddec06317051219f8fafd0a6311b0624c5b99a607e04d3027286374e0d84177",
       "schema_hashes": {
-        "skill.funding.draft.input.v1": "sha256:b0baf23c5915f613d00fb1082c22cec57a67ea8a05c7a57840c4af43744d8db2",
-        "skill.funding.draft.output.v1": "sha256:401a63b190c18f39e41ffbdada713b881e0fb1b0db7a187f2c09dd855504929e"
+        "skill.documents.grounded-artifact.input.v1": "sha256:e16c87497f9d18fed72b47ce7fd0893afcb9f748e506efa4f1012c118e430f61",
+        "skill.documents.grounded-artifact.output.v1": "sha256:0d9c785c4ea0f1a023af682a6b082869af0e836ab56fafb3f32f4f3a9a739877"
       },
       "resource_hashes": {},
       "qualification": {
         "schema_version": "cofounder.skill-qualification.v1",
         "evidence_version": "1.0.0",
         "status": "NOT_RUN",
-        "skill_id": "funding.draft-grounded-section",
+        "skill_id": "documents.produce-grounded-artifact",
         "skill_version": "1.0.0",
-        "model_policy_version": "unqualified",
+        "model_policy_version": "unqualified-no-model-calls-authorized",
         "suite_result_refs": [],
-        "capability_set_hash": "sha256:42915684ee129a38f70a702d0885f461d060e5c2bfd9210a7b16a9e4ba81691e"
+        "capability_set_hash": "sha256:1e69fea1a478b65d08faa3e8ca993bfdd9b7c7ed102153fb4f1208ebf2bbfb52"
       },
-      "qualification_hash": "sha256:61b7403dfc03ebce9e03cb6590e13c358790b3957d60de55be992a2f727ebd71",
-      "package_path": "skills/funding/draft_grounded_section"
+      "qualification_hash": "sha256:fb52ec096163cc1af6647ba1780c0e26bd7345b0f070db6180d325ed78673df9",
+      "package_path": "documents/produce_grounded_artifact"
     }
   ]
 }

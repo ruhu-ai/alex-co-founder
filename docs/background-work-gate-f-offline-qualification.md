@@ -16,6 +16,49 @@ that add an executable path, weaken a zero-violation safety threshold, broaden
 the candidate beyond one selected artifact, or silently treat missing Doc 37
 contracts as resolved.
 
+## Offline S0/S1 completion
+
+The Founder authorized repository integration and the offline Doc 37 S0/S1
+slice. `main` was fast-forwarded to the completed Gate E release at `188fc98`;
+the unrelated dirty worktree remains preserved on
+`codex/pre-spec40-main-dirty-20260828`. Canonical companion docs 36–40 are now
+present and pinned by exact hashes in the machine-readable plan and
+`alex-companion-specs-integration-record.md`.
+
+The repository now contains a closed compiler, atomic static registry,
+Contract Catalog, deterministic capability-intersection policy, allowlist-only
+context builder, content-free shadow trace, readiness packet, and exactly one
+skill package: `documents.produce-grounded-artifact@1.0.0` in `DRAFT`. Its two
+capability descriptors are also `DRAFT`, use `offline-contract:` bindings, and
+are intentionally absent from `services.capability_registry`. The compiled
+catalog is deterministic and contains no second skill.
+
+The frozen corpus contains exactly 40 synthetic cases with the predeclared
+8/8/10/6/8 composition. Structural tests execute schema, citation-lineage,
+untrusted-content containment, tenancy, capability-closure, lifecycle, and
+default-off checks. Runtime-only duplicate, crash/retry, cancel/complete, and
+progress-ordering fixtures remain explicitly `BLOCKED_NOT_RUN`; they are not
+misreported as passing evidence.
+
+## Offline verification record
+
+- compiled catalog hash:
+  `sha256:ac3fd134808f32a617d21f4c176b0e47afed1abbc13f22a2af7eb6ee83cabf90`;
+- skill definition hash:
+  `sha256:440a035848b8034fc9c8ca4fc250439b06b26bc799cb9101eb3a7896fbf51c67`;
+- unexecuted qualification-record hash:
+  `sha256:fb52ec096163cc1af6647ba1780c0e26bd7345b0f070db6180d325ed78673df9`;
+- 40-case fixture file SHA-256:
+  `897f8094f6a196028f33dd94149b5552aa8f0ae6c01d3f33b517ea0ad33eb20e`;
+- focused Gate F structural suite: 72 passed;
+- full repository regression: 1,231 passed, 2 skipped; and
+- compiler `--check`, both JSON parses, Ruff, and diff whitespace checks
+  passed.
+
+The qualification record deliberately remains `NOT_RUN`. These passing checks
+prove packaging and fail-closed structural behavior only; they do not prove
+model quality, runtime recovery, or canary readiness.
+
 ## One proposed candidate
 
 | Field | Frozen value |
@@ -110,33 +153,30 @@ that no external/effect/approval/memory/conversation path exists.
 
 ## Current hard blockers
 
-1. Doc 37 is not present in the clean release tree. The reviewed working copy
-   at `/Users/ijidailassa/projects/all-things-ai/docs/37-production-skills-system.md`
-   hashes to
-   `142a1d21034f019616c048ea2e522ffe1077344ef6f711a7e7309575854703f2`,
-   which differs from the snapshot recorded inside that document. It is not a
-   canonical dependency until deliberately integrated and hash-pinned.
-2. `documents.produce-grounded-artifact@1.0.0`, its manifest compiler/static
-   registry, Contract Catalog entries, authority-impact binding, context
-   builder, citation/completion validators, and qualification evidence bundle
-   do not exist. The current deterministic
-   `background.artifact.inspect@1.0.0` capability exposes a content-free
-   inventory and cannot be relabelled as grounded drafting.
-3. No model/version/data-governance decision is pinned for this candidate, and
-   no 40-case offline evidence bundle has run. A model call remains forbidden.
-4. The checked-out `main` worktree is dirty and overlaps this release. Gate E
-   must first be deliberately integrated without losing unrelated work.
+1. The selected-artifact context reader and private draft persistence service
+   are contracts only. Their offline descriptors are not in the live registry,
+   no live worker can resolve them, and the one-authority/runtime tool-closure
+   proof does not exist.
+2. No model/version/data-governance policy is pinned or authorized. The 40
+   cases are frozen fixtures, not an executed model evidence bundle; task
+   quality, cost, citation performance, and independent review therefore have
+   `NO_DATA` and block qualification.
+3. Duplicate, crash/retry, cancel/complete, progress-coalescing, session-order,
+   privacy lifecycle, retention/deletion, and rollback must be rerun against a
+   later offline harness and then a separately authorized synthetic runtime.
+   Existing Gate E inventory evidence cannot be relabelled as Gate F drafting
+   evidence.
 
 ## Exact next decision after these blockers are cleared
 
-Authorize only an offline Doc 37 Phase S0/S1 implementation for this single
-candidate: canonicalize the companion specs, build the closed compiler and
-static registry with the skill in `DRAFT`, resolve the Contract Catalog and
-one-authority matrix, create the 40 synthetic fixtures, and run the structural
-suites. That authorization must still forbid runtime selection, model calls,
-cloud mutation, live flags, routes, queues, workers, deployment, and canary.
+Obtain independent review of the S0/S1 diff and authorize only offline model
+qualification for the exact compiled definition and 40-case evidence bundle.
+That decision must pin the model and data-governance policy and must still
+forbid runtime selection, durable admission, live flags, routes, queues,
+workers, cloud mutation, deployment, and canary.
 
-Only a later recorded decision may authorize an offline model qualification;
-only a still later decision, after all thresholds pass, may authorize a
-default-off synthetic Gate F canary. Gate G approvals and every external or
-consequential capability remain out of scope.
+Only a later recorded decision, after every frozen threshold passes, may
+authorize implementation of the bounded reader/draft services and synthetic
+runtime proofs. A still later decision would be required for a default-off
+Gate F canary. Gate G approvals and every external or consequential capability
+remain out of scope.

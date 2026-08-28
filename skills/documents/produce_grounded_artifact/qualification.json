@@ -1,0 +1,10 @@
+{
+  "schema_version": "cofounder.skill-qualification.v1",
+  "evidence_version": "1.0.0",
+  "status": "NOT_RUN",
+  "skill_id": "documents.produce-grounded-artifact",
+  "skill_version": "1.0.0",
+  "model_policy_version": "unqualified-no-model-calls-authorized",
+  "suite_result_refs": [],
+  "capability_set_hash": "sha256:1e69fea1a478b65d08faa3e8ca993bfdd9b7c7ed102153fb4f1208ebf2bbfb52"
+}

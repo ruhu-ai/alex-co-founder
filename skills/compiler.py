@@ -22,6 +22,7 @@ from services.capability_registry import (
 )
 from skills.contracts import require_contract
 from skills.models import CompiledCatalog, CompiledSkill, QualificationEvidence, SkillManifest
+from skills.offline_capabilities import OFFLINE_DRAFT_CAPABILITIES
 
 
 class SkillCompileError(ValueError):
@@ -32,6 +33,7 @@ CAPABILITY_CATALOG: Mapping[str, CapabilityDescriptor] = MappingProxyType({
     **STATIC_CAPABILITIES,
     **{item.capability_id: item for item in EXTERNAL_ACTION_CAPABILITIES.values()},
     **{item.capability_id: item for item in CONTROLLED_ACTION_CAPABILITIES.values()},
+    **OFFLINE_DRAFT_CAPABILITIES,
 })
 
 
@@ -104,8 +106,20 @@ def _validate_schema(data: bytes, path: str) -> None:
         raise SkillCompileError(f"invalid JSON schema: {path}") from exc
     if not isinstance(schema, dict) or schema.get("type") != "object":
         raise SkillCompileError(f"schema must describe an object: {path}")
-    if schema.get("additionalProperties") is not False:
-        raise SkillCompileError(f"schema must be closed: {path}")
+
+    def require_closed_objects(node: object) -> None:
+        if isinstance(node, dict):
+            if node.get("type") == "object" and node.get("additionalProperties") is not False:
+                raise SkillCompileError(f"schema contains an open object: {path}")
+            if "$ref" in node and not str(node["$ref"]).startswith("#/"):
+                raise SkillCompileError(f"schema contains an external reference: {path}")
+            for value in node.values():
+                require_closed_objects(value)
+        elif isinstance(node, list):
+            for value in node:
+                require_closed_objects(value)
+
+    require_closed_objects(schema)
 
 
 def _contract_ids(manifest: SkillManifest) -> tuple[str, ...]:
@@ -117,6 +131,24 @@ def _contract_ids(manifest: SkillManifest) -> tuple[str, ...]:
         *manifest.policy.precondition_ids, manifest.execution.retry_policy_id,
         manifest.execution.idempotency_contract_id,
         manifest.evaluation.release_gate_id, manifest.lifecycle.rollout_policy_id,
+    )
+
+
+def _descriptor_contract_ids(descriptor: CapabilityDescriptor) -> tuple[str, ...]:
+    return (
+        descriptor.input_schema_id,
+        descriptor.output_schema_id,
+        descriptor.error_schema_id,
+        descriptor.approval_policy_id,
+        descriptor.idempotency_contract,
+        descriptor.retry_contract,
+        descriptor.timeout_contract,
+        descriptor.reconciliation_contract,
+        descriptor.completion_contract_id,
+        descriptor.budget_contract_id,
+        descriptor.observability_contract_id,
+        descriptor.eval_suite_id,
+        descriptor.provenance_contract_id,
     )
 
 
@@ -136,6 +168,11 @@ def compile_package(
         descriptor = capabilities.get(pin.capability_id)
         if descriptor is None or descriptor.semantic_version != pin.version:
             raise SkillCompileError(f"unresolved capability pin: {pin.capability_id}@{pin.version}")
+        if manifest.status == "DRAFT" and descriptor.lifecycle != "DRAFT":
+            raise SkillCompileError(
+                f"draft skill must pin draft-only capabilities: {pin.capability_id}")
+        for contract_id in _descriptor_contract_ids(descriptor):
+            require_contract(contract_id)
 
     declared = {"skill.yaml"}
     _, playbook = _safe_file(package, manifest.provenance.playbook_path, max_bytes=65_536)
@@ -209,7 +246,12 @@ def compile_catalog(
 ) -> CompiledCatalog:
     root_path = Path(root)
     manifests = sorted(root_path.glob("**/skill.yaml"))
-    compiled = tuple(compile_package(path.parent, capabilities=capabilities) for path in manifests)
+    compiled = tuple(
+        compile_package(path.parent, capabilities=capabilities).model_copy(update={
+            "package_path": path.parent.relative_to(root_path).as_posix(),
+        })
+        for path in manifests
+    )
     identities = [skill.identity for skill in compiled]
     if len(identities) != len(set(identities)):
         raise SkillCompileError("duplicate skill identity")
@@ -227,6 +269,7 @@ class AtomicSkillRegistry:
     def __init__(self) -> None:
         self._lock = threading.Lock()
         self._catalog = CompiledCatalog(catalog_hash=_sha(b"[]"), skills=())
+        self._root = Path(".").resolve()
 
     def snapshot(self) -> CompiledCatalog:
         with self._lock:
@@ -236,6 +279,7 @@ class AtomicSkillRegistry:
         candidate = compile_catalog(root)
         with self._lock:
             self._catalog = candidate
+            self._root = Path(root).resolve()
             return candidate
 
     def metadata_index(self) -> Mapping[str, object]:
@@ -244,23 +288,29 @@ class AtomicSkillRegistry:
                                  for card in catalog.cards()})
 
     def load_playbook(self, identity: str) -> str:
-        skill = self.snapshot().by_identity().get(identity)
+        with self._lock:
+            skill = self._catalog.by_identity().get(identity)
+            root = self._root
         if skill is None:
             raise KeyError(identity)
-        path = Path(skill.package_path) / skill.manifest.provenance.playbook_path
+        path = root / skill.package_path / skill.manifest.provenance.playbook_path
         data = path.read_bytes()
         if _sha(data) != skill.playbook_hash:
             raise SkillCompileError("playbook hash mismatch at read")
         return data.decode("utf-8")
 
     def load_resource(self, identity: str, resource_id: str) -> bytes:
-        skill = self.snapshot().by_identity().get(identity)
+        with self._lock:
+            skill = self._catalog.by_identity().get(identity)
+            root = self._root
         if skill is None:
             raise KeyError(identity)
         decl = next((r for r in skill.manifest.resources if r.resource_id == resource_id), None)
         if decl is None:
             raise KeyError(resource_id)
-        _, data = _safe_file(Path(skill.package_path), decl.path, max_bytes=decl.max_bytes)
+        _, data = _safe_file(
+            root / skill.package_path, decl.path, max_bytes=decl.max_bytes,
+        )
         if _sha(data) != skill.resource_hashes[resource_id]:
             raise SkillCompileError("resource hash mismatch at read")
         return data

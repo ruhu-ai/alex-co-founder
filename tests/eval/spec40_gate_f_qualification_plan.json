@@ -8,7 +8,7 @@
     "template_version": 1,
     "skill_id": "documents.produce-grounded-artifact",
     "skill_version": "1.0.0",
-    "skill_lifecycle": "ABSENT_PROPOSED_DRAFT",
+    "skill_lifecycle": "DRAFT",
     "selection_mode": "EXPLICIT_CONTEXTUAL_ACTION_ONLY",
     "input_artifacts": 1,
     "visibility": "ACTOR_PRIVATE",
@@ -68,15 +68,19 @@
     "budget_overruns_max": 0,
     "no_data_blocks": true
   },
+  "canonical_spec_hashes": {
+    "docs/36-unified-alex-product-experience.md": "sha256:af4667c2b3182601b9f7ce0ac3dbde751070949a229ff544fb2326eb83768689",
+    "docs/37-production-skills-system.md": "sha256:142a1d21034f019616c048ea2e522ffe1077344ef6f711a7e7309575854703f2",
+    "docs/38-user-facing-vision.md": "sha256:07941f7878cf03faa2b502c4fbce1cdfc3a523688a44fa9633968c518c152670",
+    "docs/39-durable-cross-session-memory.md": "sha256:9ad20f819e0af5160f885976cb0e272803f731456438c01f19f4da250fe51806",
+    "docs/40-durable-background-work.md": "sha256:d4ed64d1ce77e80af08a7a8f90a1881303023e056c69e988dd8c772cbd5bf0"
+  },
   "unresolved_dependencies": [
-    "canonical_doc37_hash",
-    "skill_manifest_compiler_and_static_registry",
-    "documents.produce-grounded-artifact@1.0.0",
-    "authority_impact_binding",
-    "selected_artifact_context_contract",
-    "grounded_draft_output_and_citation_contracts",
+    "live_selected_artifact_context_and_internal_draft_services",
+    "live_capability_registry_and_complete_tool_closure",
+    "one_authority_runtime_and_progress_ordering_proof",
     "pinned_model_and_model_policy",
-    "versioned_40_case_evidence_bundle",
+    "executed_versioned_40_case_evidence_bundle",
     "independent_reviewer_decision"
   ],
   "activation_authorized": false,

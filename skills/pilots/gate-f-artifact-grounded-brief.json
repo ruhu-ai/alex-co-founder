@@ -1,0 +1,22 @@
+{
+  "pilot_id": "spec40-gate-f-artifact-grounded-brief",
+  "skill_identity": "documents.produce-grounded-artifact@1.0.0",
+  "journey_ref": "docs/background-work-gate-f-offline-qualification.md#one-proposed-candidate",
+  "live_agent_ref": "ABSENT_OFFLINE_ONLY",
+  "live_tool_capability_map_ref": "skills/offline_capabilities.py",
+  "predicate_enforcement_ref": "skills/policy.py",
+  "sole_authority_ref": "ABSENT_OFFLINE_ONLY",
+  "contract_map_ref": "skills/contracts.py",
+  "context_contract_ref": "skills/context.py",
+  "error_retry_approval_ref": "docs/background-work-gate-f-offline-qualification.md#required-executable-proof-matrix",
+  "proof_suite_ref": "tests/unit/test_spec40_gate_f_offline.py",
+  "rollback_ref": "no-runtime-import-or-activation-exists",
+  "definition_hash": "sha256:440a035848b8034fc9c8ca4fc250439b06b26bc799cb9101eb3a7896fbf51c67",
+  "qualification_hash": "sha256:fb52ec096163cc1af6647ba1780c0e26bd7345b0f070db6180d325ed78673df9",
+  "capability_closure_verified": true,
+  "typed_contracts_verified": true,
+  "one_authority_verified": false,
+  "negative_authority_tests_passed": true,
+  "qualification_passed": false,
+  "live_adoption_requested": false
+}

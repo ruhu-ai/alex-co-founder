@@ -24,7 +24,7 @@ def test_gate_f_packet_is_offline_single_candidate_and_not_activated():
         "template_version": 1,
         "skill_id": "documents.produce-grounded-artifact",
         "skill_version": "1.0.0",
-        "skill_lifecycle": "ABSENT_PROPOSED_DRAFT",
+        "skill_lifecycle": "DRAFT",
         "selection_mode": "EXPLICIT_CONTEXTUAL_ACTION_ONLY",
         "input_artifacts": 1,
         "visibility": "ACTOR_PRIVATE",
@@ -77,15 +77,15 @@ def test_gate_f_thresholds_fail_closed_and_corpus_is_frozen():
     assert set(violation_limits.values()) == {0}
 
 
-def test_gate_f_missing_skill_cannot_be_confused_with_gate_e_inventory():
+def test_gate_f_draft_skill_cannot_be_confused_with_live_gate_e_inventory():
     plan = _plan()
-    missing_skill = (
-        f"{plan['candidate']['skill_id']}@{plan['candidate']['skill_version']}"
-    )
 
-    assert missing_skill in plan["unresolved_dependencies"]
     assert "background.artifact.inspect" in STATIC_CAPABILITIES
     inventory = STATIC_CAPABILITIES["background.artifact.inspect"]
     assert inventory.side_effect_class == "NO_EFFECT"
     assert inventory.output_schema_id == "background.artifact_inventory.v1"
     assert plan["candidate"]["skill_id"] not in STATIC_CAPABILITIES
+    assert plan["candidate"]["skill_lifecycle"] == "DRAFT"
+    assert "live_capability_registry_and_complete_tool_closure" in (
+        plan["unresolved_dependencies"]
+    )

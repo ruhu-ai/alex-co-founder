@@ -62,3 +62,11 @@ offline Gate F packet in `background-work-gate-f-offline-qualification.md`
 defines one candidate and its evidence requirements; it intentionally ships no
 skill runtime, preparation template, model call, provider call, live flag,
 route, queue, worker, deployment, or cloud mutation.
+
+## Integration addendum
+
+After explicit Founder authorization, the dirty checked-out worktree was moved
+unchanged to `codex/pre-spec40-main-dirty-20260828`. This released the `main`
+ref without stashing, overwriting, or committing unrelated files. `main` was
+then fast-forwarded from `602b66d` to the reviewed Gate E release at `188fc98`.
+Offline Gate F work continues only on `codex/spec40-gate-f-offline`.

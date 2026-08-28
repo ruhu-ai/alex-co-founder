@@ -7,3 +7,4 @@ ruff==0.16.3
 # scripts/build_brand.py only — outlines the logotype and rasterises the icons.
 cairosvg==2.7.1
 fonttools==4.60.1
+jsonschema==4.26.0

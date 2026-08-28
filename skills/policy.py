@@ -20,11 +20,12 @@ EFFECT_ORDER = {
     EffectClass.EXTERNAL_CONSEQUENTIAL: 4,
 }
 
-# Doc 37 proposal. This binding is deliberately complete only for Pilot-0.
+# Doc 37 proposal. This binding is deliberately complete only for the offline
+# Gate F candidate. The live capability registry does not contain these IDs.
 # Missing entries fail closed and cannot be inferred from an effect class.
 CAPABILITY_AUTHORITY_IMPACTS: dict[str, frozenset[str]] = {
-    "opportunity.search": frozenset({"ADVISORY"}),
-    "grant.draft": frozenset({"DRAFT_PREPARATION"}),
+    "background.artifact.read_selected_evidence": frozenset({"ADVISORY"}),
+    "documents.persist_internal_draft": frozenset({"DRAFT"}),
 }
 
 
