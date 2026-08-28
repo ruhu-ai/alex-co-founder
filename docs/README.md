@@ -65,6 +65,7 @@ founder's voice and thinking through explicit feedback capture.
 | `32-internal-controlled-demo.md` | Separate, disabled, two-account Ruhu demo lane for real internal Gmail/Calendar receipts; never hiring or H4S | Proposed; separate review required |
 | `33-founder-first-hiring-demo.md` | Founder-first synthetic Ruhu FDE demo: durable command, controlled mailbox event, candidate Evidence Passport, and internal receipt runbook | Implementation/demo runbook; provider proof requires the listed local configuration |
 | `34-platform-architecture-and-convergence.md` | Production platform authority model, generic runtime, state/session/memory boundaries, approval/action protocol, delivery, security, observability, and phased convergence plan | Proposed for architecture review; phases require explicit gates |
+| `35-platform-operations-and-recovery.md` | Phase 7 SLOs, capacity/backpressure, budgets, operator recovery, change rollback, backup/restore, chaos/load, privacy, and governance evidence | Phase 7 binding runbook; production completion requires recorded staging evidence |
 
 ## Design principles (binding on all implementation)
 

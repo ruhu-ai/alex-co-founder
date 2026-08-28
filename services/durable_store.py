@@ -97,6 +97,13 @@ def _collection_ref(name: str):
         "deletion_receipts": client.collection("deletion_receipts"),
         "capability_states": client.collection("capability_states"),
         "operational_snapshots": client.collection("operational_snapshots"),
+        "slo_observations": client.collection("slo_observations"),
+        "workspace_budgets": client.collection("workspace_budgets"),
+        "budget_consumption_receipts": client.collection(
+            "budget_consumption_receipts"),
+        "change_rollouts": client.collection("change_rollouts"),
+        "chaos_drills": client.collection("chaos_drills"),
+        "migration_drills": client.collection("migration_drills"),
         "recovery_drills": client.collection("recovery_drills"),
         "governance_reports": client.collection("governance_reports"),
         "connector_credential_grants": client.collection("connector_credential_grants"),
@@ -281,15 +288,24 @@ class FirestoreDurableStore:
         query = _collection_ref(collection)
         for field_name, value in filters.items():
             query = query.where(field_name, "==", value)
+        document_id_order = order_by == "id"
         if start_after:
             field_name, value = start_after
-            query = query.where(field_name, ">", value)
+            if field_name == "id":
+                from google.cloud.firestore_v1.field_path import FieldPath
+                query = query.where(FieldPath.document_id(), ">", value)
+                document_id_order = True
+            else:
+                query = query.where(field_name, ">", value)
             if not order_by:
                 order_by = field_name
         if order_by:
             from google.cloud.firestore_v1 import Query
+            from google.cloud.firestore_v1.field_path import FieldPath
             direction = Query.DESCENDING if descending else Query.ASCENDING
-            query = query.order_by(order_by, direction=direction)
+            query = query.order_by(
+                FieldPath.document_id() if document_id_order else order_by,
+                direction=direction)
         query = query.limit(max(1, min(limit, 1000)))
         return [{**snap.to_dict(), "id": snap.id} async for snap in query.stream()]
 

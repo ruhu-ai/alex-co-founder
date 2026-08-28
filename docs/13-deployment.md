@@ -202,6 +202,12 @@ redelivery happens; derived idempotency keys are why it is safe.
 
 ## Verification checklist (post-deploy)
 
+Phase 7 recovery configuration and proof are intentionally separate from the
+normal deploy. Run `scripts/configure_phase7_reliability.sh` only after reviewing
+its dry run, audit with `scripts/phase7_cloud_audit.py`, and execute the isolated
+restore/load/chaos process in [35](35-platform-operations-and-recovery.md).
+Enabling backups is not evidence that restore works.
+
 Before the first revision that reads canonical docs/24 data-source rows, run the
 migration without flags and retain its `plan_hash`, target counts, parity field,
 and rollback manifest. Only then run it with `--apply`. The apply path is

@@ -268,3 +268,28 @@ when the PDF link is chosen.
   verification, migration dry-run/apply, backup restore, regional recovery, and measured
   RPO/RTO remain required deployment evidence; local code must not be described
   as proving those production properties.
+
+## Phase 7 operations hardening (2026-08-28)
+
+- Verified checkpoint `46073de` contains the Phase 0–7 convergence baseline.
+- Phase 7 operations no longer stop at 1,000 records: the durable-store query
+  contract supports document-ID pagination and stuck run/wait/action/approval/
+  delivery scans exhaust every page.
+- Added measured, idempotent SLO observations and fail-closed error-budget
+  reports; closed queue depth/age capacity policy; atomic workspace/model/
+  provider cost-budget receipts; durable canary promotion/rollback decisions;
+  strict recovery, migration and chaos evidence schemas; and governance reports
+  that include policy, plan, capability, model, memory, rollout and budget
+  versions.
+- Added content-free operator and cloud-audit CLIs, an explicit dry-run/apply
+  reliability configurator, and the binding Phase 7 runbook in docs/35.
+- `scripts/check_phase7.sh`: **49 passed**. Complete deterministic suite:
+  **1,111 passed, 2 skipped**. Ruff, shell syntax, JSON validation and
+  `git diff --check` passed.
+- The read-only cloud audit was attempted against `co-founder-506001` and
+  failed closed before reading resources because the configured gcloud account
+  and ADC both require interactive reauthentication. No cloud state changed.
+  Firestore/SQL/GCS recovery configuration, monitoring policies, staging load/
+  chaos, migration rollback, cross-region restore and measured RPO/RTO remain
+  external evidence gates; they are not represented as completed by local
+  tests.

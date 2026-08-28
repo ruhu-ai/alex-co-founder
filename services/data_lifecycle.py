@@ -124,6 +124,15 @@ TOP_LEVEL_LIFECYCLE: dict[str, CollectionLifecycle] = {
     "deletion_receipts": CollectionLifecycle("deletion_receipts", _SHARED),
     "capability_states": CollectionLifecycle("capability_states", _SHARED),
     "operational_snapshots": CollectionLifecycle("operational_snapshots", _SHARED),
+    "slo_observations": CollectionLifecycle(
+        "slo_observations", _FIELD, "workspace_id"),
+    "workspace_budgets": CollectionLifecycle(
+        "workspace_budgets", _FIELD, "workspace_id"),
+    "budget_consumption_receipts": CollectionLifecycle(
+        "budget_consumption_receipts", _FIELD, "workspace_id"),
+    "change_rollouts": CollectionLifecycle("change_rollouts", _SHARED),
+    "chaos_drills": CollectionLifecycle("chaos_drills", _SHARED),
+    "migration_drills": CollectionLifecycle("migration_drills", _SHARED),
     "recovery_drills": CollectionLifecycle("recovery_drills", _SHARED),
     "governance_reports": CollectionLifecycle("governance_reports", _SHARED),
     "workflow_plans": CollectionLifecycle("workflow_plans", _FIELD, "workspace_id"),

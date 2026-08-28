@@ -2006,6 +2006,11 @@ preserve its action/wait/event evidence. The grant workflow remains online.
 
 **Goal:** make the accepted architecture operable under real multi-tenant load.
 
+The binding operational procedure and evidence format are in
+[35](35-platform-operations-and-recovery.md). Passing local contract tests is
+implementation readiness, not production completion; the exit gate below
+requires dated staging/cloud evidence at one immutable revision.
+
 Work:
 
 - capacity models, queue/backpressure policy, regional/data-residency strategy,
@@ -2022,6 +2027,8 @@ Work:
 Exit gate:
 
 - recovery-point/recovery-time objectives are demonstrated;
+- every numeric SLO has a non-empty healthy error-budget window, and queue/
+  workspace/model/provider budgets shed new work without dropping durable work;
 - load and chaos tests preserve state/action invariants;
 - migrations can roll forward/back without orphaning waits or actions;
 - operators can reconcile every `PREPARED`/`UNCERTAIN` action and stuck run from
