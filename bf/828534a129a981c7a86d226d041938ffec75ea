@@ -1,0 +1,26 @@
+skills/approvals/spec40-gate-f-technical-gates.json
+  s_16e75b10efee22::t_6bb07156d96fb3 13,23-25
+docs/background-work-gate-f-offline-qualification.md
+  s_16e75b10efee22::t_20798dd806c10a 192
+  s_16e75b10efee22::t_6bb07156d96fb3 193-198
+tests/unit/test_spec40_founder_stage_approval.py
+  s_16e75b10efee22::t_6bb07156d96fb3 26,200-226,231
+skills/approvals/spec40-gate-f-cost-preflight.json
+  s_16e75b10efee22::t_6bb07156d96fb3 1-22
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "bf828534a129a981c7a86d226d041938ffec75ea",
+  "prompts": {},
+  "sessions": {
+    "s_16e75b10efee22": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0484d-a6bd-7182-90ae-527ccfd2a966",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Ijidai Lassa <ijidai@cued.app>"
+    }
+  }
+}
