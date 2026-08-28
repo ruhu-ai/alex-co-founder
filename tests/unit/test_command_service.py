@@ -42,6 +42,27 @@ async def test_accept_is_atomic_and_duplicate_inflight_returns_202():
     assert len(outbox) == 1
 
 
+async def test_replay_point_read_is_non_mutating_and_validates_payload():
+    store = InMemoryDurableStore()
+    service = CommandService(store)
+    assert await service.replay(
+        principal=_principal(), client_request_id="request_replay_1",
+        command_type="background_job.create", request={"input": "a"}) is None
+    accepted = await service.accept(
+        principal=_principal(), client_request_id="request_replay_1",
+        command_type="background_job.create", request={"input": "a"})
+    replay = await service.replay(
+        principal=_principal(), client_request_id="request_replay_1",
+        command_type="background_job.create", request={"input": "a"})
+    conflict = await service.replay(
+        principal=_principal(), client_request_id="request_replay_1",
+        command_type="background_job.create", request={"input": "b"})
+    assert replay and replay["duplicate"] is True
+    assert replay["command_id"] == accepted["command_id"]
+    assert conflict and conflict["error_code"] == "idempotency_conflict"
+    assert len(await store.list("command_receipts", filters={})) == 1
+
+
 async def test_changed_duplicate_conflicts_and_workspace_point_read_is_hidden():
     service = CommandService(InMemoryDurableStore())
     first = await service.accept(

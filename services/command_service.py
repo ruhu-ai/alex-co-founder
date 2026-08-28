@@ -33,6 +33,41 @@ class CommandService:
     def __init__(self, store: DurableStore | None = None):
         self.store = store or production_store()
 
+    async def replay(self, *, principal: ActorPrincipal,
+                     client_request_id: str, command_type: str,
+                     request: dict[str, Any],
+                     visibility_scope: str = "WORKSPACE",
+                     subject_id: str = "") -> dict[str, Any] | None:
+        """Return an existing idempotent receipt without mutating authority.
+
+        ``None`` means the command identity is unused. Callers with admission
+        budgets use this point read before evaluating capacity so a valid
+        replay cannot consume another rate or concurrency reservation.
+        """
+        if (not client_request_id or len(client_request_id) > 160
+                or not command_type or len(command_type) > 120):
+            return _error("command_contract_invalid", "Command identity is invalid.")
+        if (visibility_scope not in {"WORKSPACE", "ACTOR_PRIVATE"}
+                or (visibility_scope == "ACTOR_PRIVATE"
+                    and subject_id != principal.actor_id)
+                or (visibility_scope == "WORKSPACE" and subject_id)):
+            return _error(
+                "command_visibility_invalid",
+                "Command visibility is not authorized for this actor.")
+        request_hash = canonical_hash(
+            request, domain=f"command:{command_type[:80]}")
+        command_id = (stable_id(
+            "command", principal.workspace_id, subject_id, client_request_id)
+            if visibility_scope == "ACTOR_PRIVATE" else stable_id(
+                "command", principal.workspace_id, client_request_id))
+        existing = await self.store.get("command_receipts", command_id)
+        if not existing:
+            return None
+        return self._duplicate(
+            existing, request_hash, visibility_scope=visibility_scope,
+            subject_id=(subject_id if visibility_scope == "ACTOR_PRIVATE"
+                        else principal.workspace_id))
+
     async def accept(self, *, principal: ActorPrincipal,
                      client_request_id: str, command_type: str,
                      request: dict[str, Any], origin_session_id: str = "",
@@ -66,12 +101,12 @@ class CommandService:
             if visibility_scope == "ACTOR_PRIVATE" else stable_id(
                 "command", principal.workspace_id, client_request_id))
         outbox_id = stable_id("cmdoutbox", command_id, "dispatch")
-        existing = await self.store.get("command_receipts", command_id)
-        if existing:
-            return self._duplicate(
-                existing, request_hash, visibility_scope=visibility_scope,
-                subject_id=(subject_id if visibility_scope == "ACTOR_PRIVATE"
-                            else principal.workspace_id))
+        replay = await self.replay(
+            principal=principal, client_request_id=client_request_id,
+            command_type=command_type, request=request,
+            visibility_scope=visibility_scope, subject_id=subject_id)
+        if replay is not None:
+            return replay
         mutations = tuple(authority_mutations)
         def _invalid_authority(item: AtomicMutation) -> bool:
             if item.collection in {"command_receipts", "command_outbox"}:

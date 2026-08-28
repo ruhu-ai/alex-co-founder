@@ -174,6 +174,9 @@ async def test_accept_dispatch_is_one_template_private_bounded_and_idempotent():
     assert first["status"] == "accepted"
     assert first["dispatch_status"] == "DISPATCHED"
     assert duplicate["duplicate"] is True
+    capacity = (await store.list(
+        "background_pilot_capacity", filters={}, limit=2))[0]
+    assert capacity["window_admissions"] == 1
     assert first["job_id"] == first["run_id"]
     assert len(calls) == 1
     assert calls[0]["path"] == "/tasks/background-artifact-pilot"
@@ -528,6 +531,12 @@ async def test_rate_limit_is_durable_across_completed_jobs():
             principal=_principal(), run_id=accepted["run_id"],
             reason="rate test")
         assert cancelled["runtime_status"] == "CANCELLED"
+    replay = await _start(
+        store, calls, pilot=pilot, client="background-rate-0002")
+    assert replay["duplicate"] is True
+    capacity = (await store.list(
+        "background_pilot_capacity", filters={}, limit=2))[0]
+    assert capacity["window_admissions"] == 3
     fourth = await _start(
         store, calls, pilot=pilot, client="background-rate-0004")
     assert fourth["error_code"] == "background_rate_limited"

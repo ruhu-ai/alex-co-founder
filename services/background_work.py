@@ -394,6 +394,36 @@ class BackgroundWorkService:
         }
         profile["background_profile_hash"] = canonical_hash(
             profile, domain="background-run-profile")
+        command_request = {
+            "template_id": template.template_id,
+            "template_version": template.version,
+            "objective_hash": decision["decision_material"]["objective_hash"],
+            "input_manifest_hash": input_manifest["content_hash"],
+            "negative_constraints": list(decision["negative_constraints"]),
+        }
+        commands = CommandService(self.store)
+        replay = await commands.replay(
+            principal=principal,
+            client_request_id=request.client_request_id,
+            command_type="background_job.create", request=command_request,
+            visibility_scope="ACTOR_PRIVATE", subject_id=principal.actor_id)
+        if replay is not None:
+            if replay.get("error"):
+                return replay
+            run = await self.store.get(
+                "workflow_runs", str(replay.get("run_id") or ""))
+            if not run or run.get("job_id") != run.get("run_id"):
+                return _error(
+                    "background_authority_incomplete",
+                    "The accepted command has no matching durable job authority.")
+            return {
+                "status": "accepted", "duplicate": True,
+                "command_id": replay["command_id"],
+                "job_id": run["run_id"], "run_id": run["run_id"],
+                "runtime_status": run["runtime_status"],
+                "visibility_scope": run["visibility_scope"],
+                "eligibility_decision_hash": run["eligibility_decision_hash"],
+            }
         prepared = await WorkflowRuntime(self.store).prepare_run_creation(
             workspace_id=principal.workspace_id,
             journey_id=journey_id,
@@ -448,17 +478,11 @@ class BackgroundWorkService:
             if capacity else AtomicMutation(
                 "background_pilot_capacity", capacity_id, None,
                 record={**capacity_values, "created_at": now}))
-        accepted = await CommandService(self.store).accept(
+        accepted = await commands.accept(
             principal=principal,
             client_request_id=request.client_request_id,
             command_type="background_job.create",
-            request={
-                "template_id": template.template_id,
-                "template_version": template.version,
-                "objective_hash": decision["decision_material"]["objective_hash"],
-                "input_manifest_hash": input_manifest["content_hash"],
-                "negative_constraints": list(decision["negative_constraints"]),
-            },
+            request=command_request,
             origin_session_id=request.origin_session_id,
             run_id=prepared["run_id"],
             dispatch_ref=input_manifest_id,
