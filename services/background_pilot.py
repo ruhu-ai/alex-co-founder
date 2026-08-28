@@ -599,7 +599,8 @@ class BackgroundPilotDispatcher:
             "co-founder-background-pilot")
         if queue_name not in {
                 "co-founder-background-pilot",
-                "co-founder-background-pilot-real"}:
+                "co-founder-background-pilot-real",
+                "co-founder-background-pilot-gate-e"}:
             return _error(
                 "background_dispatch_queue_invalid",
                 "Pilot dispatch queue is not registered.")
