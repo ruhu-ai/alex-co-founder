@@ -98,10 +98,13 @@ def audit(project: str, region: str) -> dict[str, Any]:
         "sql_pitr": bool(_path(
             sql, "settings", "backupConfiguration", "pointInTimeRecoveryEnabled")),
         "sql_delete_protection": bool(_path(sql, "settings", "deletionProtectionEnabled")),
-        "artifact_versioning": bool(_path(bucket, "versioning", "enabled")),
+        "artifact_versioning": bool(
+            _path(bucket, "versioning", "enabled")
+            or _path(bucket, "versioning_enabled")),
         "artifact_soft_delete": bool(_path(
             bucket, "softDeletePolicy", "retentionDurationSeconds")
-            or _path(bucket, "softDeletePolicy", "retentionDuration")),
+            or _path(bucket, "softDeletePolicy", "retentionDuration")
+            or _path(bucket, "soft_delete_policy", "retentionDurationSeconds")),
         "public_service_scaled": (
             _path(app, "metadata", "name") == "co-founder"
             and int(app_max_scale or 0) >= 2),

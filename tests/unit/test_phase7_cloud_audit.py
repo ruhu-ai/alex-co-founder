@@ -49,8 +49,9 @@ def test_cloud_audit_requires_recovery_and_isolation_controls(monkeypatch):
                     "spec": {"template": {"metadata": {"annotations": {
                         "autoscaling.knative.dev/maxScale": "10"}}}}}
         if command.startswith("storage buckets describe"):
-            return {"location": "US", "versioning": {"enabled": True},
-                    "softDeletePolicy": {"retentionDurationSeconds": "604800"}}
+            return {"location": "US", "versioning_enabled": True,
+                    "soft_delete_policy": {
+                        "retentionDurationSeconds": "604800"}}
         if command.startswith("tasks queues describe"):
             queue = args[3]
             expected = {
