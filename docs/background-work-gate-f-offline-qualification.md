@@ -189,9 +189,13 @@ The approval record SHA-256 is
 `f3dc686f6cc3b0a2fa9f1b3e0b6caa6432b69c87e9c36146592839d690e60190`.
 It expires at `2026-09-04T22:51:49Z` and pins the one skill definition, catalog,
 qualification plan, 40-case fixtures, and synthetic-only model policy. Current
-technical state still blocks model calls on four checks:
-`independent_review_complete`, `provider_auth_verified`,
-`model_availability_verified`, and `cost_preflight_passed`.
+technical state still blocks model calls on three checks:
+`independent_review_complete`, `provider_auth_verified`, and
+`model_availability_verified`. Cost preflight passed at a conservative $1.16928
+including 20% contingency against the $5 approval cap, using Google's current
+global Gemini 3.6 Flash pricing. Provider/model preflight remains blocked
+because local ADC has no quota project and the API reported `SERVICE_DISABLED`
+for its current consumer; no auth or cloud configuration was changed.
 
 Only a later recorded decision, after every frozen threshold passes, may
 authorize implementation of the bounded reader/draft services and synthetic

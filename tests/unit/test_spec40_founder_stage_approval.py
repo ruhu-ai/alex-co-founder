@@ -23,6 +23,7 @@ APPROVAL_PATH = (
 )
 TECHNICAL_PATH = REPO / "skills/approvals/spec40-gate-f-technical-gates.json"
 MODEL_POLICY_PATH = REPO / "skills/model_policies/spec40-gate-f-offline-v1.json"
+COST_PREFLIGHT_PATH = REPO / "skills/approvals/spec40-gate-f-cost-preflight.json"
 PLAN_PATH = REPO / "tests/eval/spec40_gate_f_qualification_plan.json"
 FIXTURE_PATH = REPO / "tests/eval/spec40_gate_f_cases.json"
 CATALOG_PATH = REPO / "skills/catalog.v1.json"
@@ -87,7 +88,6 @@ def test_current_approval_preserves_every_unfinished_technical_preflight():
 
     assert not decision.authorized
     assert set(decision.blockers) == {
-        "cost_preflight_passed",
         "independent_review_complete",
         "model_availability_verified",
         "provider_auth_verified",
@@ -99,13 +99,11 @@ def test_same_approval_authorizes_after_all_technical_checks_pass():
     technical = _technical().model_copy(update={
         "provider_auth_verified": True,
         "model_availability_verified": True,
-        "cost_preflight_passed": True,
         "independent_review_complete": True,
         "evidence_refs": {
             **_technical().evidence_refs,
             "provider_auth": "preflight:synthetic-provider-auth-v1",
             "model_availability": "preflight:gemini-3.6-flash-v1",
-            "cost_preflight": "preflight:under-five-usd-v1",
             "independent_review": "review:synthetic-independent-review-v1",
         },
     })
@@ -199,10 +197,38 @@ def test_model_policy_is_synthetic_toolless_bounded_and_content_private():
     assert policy["runtime_activation_authority"] is False
 
 
+def test_cost_preflight_is_worst_case_bounded_and_under_approval_cap():
+    cost = json.loads(COST_PREFLIGHT_PATH.read_text())
+    policy = json.loads(MODEL_POLICY_PATH.read_text())
+
+    input_cost = (
+        cost["max_model_calls"]
+        * cost["max_input_tokens_per_call"]
+        / 1_000_000
+        * cost["input_usd_per_million_tokens"]
+    )
+    output_cost = (
+        cost["max_model_calls"]
+        * cost["max_output_tokens_per_call"]
+        / 1_000_000
+        * cost["output_usd_per_million_tokens"]
+    )
+    assert input_cost == pytest.approx(cost["max_input_cost_usd"])
+    assert output_cost == pytest.approx(cost["max_output_cost_usd"])
+    assert input_cost + output_cost == pytest.approx(cost["max_total_cost_usd"])
+    assert cost["max_total_cost_usd"] * cost["contingency_multiplier"] == (
+        pytest.approx(cost["max_cost_with_contingency_usd"])
+    )
+    assert cost["max_cost_with_contingency_usd"] < policy["max_estimated_cost_usd"]
+    assert cost["approval_cost_cap_usd"] == policy["max_estimated_cost_usd"]
+    assert cost["passed"] is True
+
+
 def test_approved_files_contain_no_recognizable_secret_material():
     paths = (
         APPROVAL_PATH,
         TECHNICAL_PATH,
+        COST_PREFLIGHT_PATH,
         MODEL_POLICY_PATH,
         PLAN_PATH,
         FIXTURE_PATH,
