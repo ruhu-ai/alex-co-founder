@@ -1,0 +1,29 @@
+tests/unit/test_deploy_firestore_indexes.py
+  s_0bfc183a530608::t_545ce4435b351f 111-117
+infra/firestore.indexes.json
+  s_242b3d56a67da0::t_f7871632c743a4 4-22
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "d8f3524928287e280060ca086e705b0cc740e60d",
+  "prompts": {},
+  "sessions": {
+    "s_0bfc183a530608": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a044e4-5750-7651-a442-0b09fff86ca9",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Ijidai Lassa <ijidai@cued.app>"
+    },
+    "s_242b3d56a67da0": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a04614-329d-7fe3-9083-3b3c6b051963",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Ijidai Lassa <ijidai@cued.app>"
+    }
+  }
+}
