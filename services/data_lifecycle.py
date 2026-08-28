@@ -72,6 +72,8 @@ TOP_LEVEL_LIFECYCLE: dict[str, CollectionLifecycle] = {
     "wake_deliveries": CollectionLifecycle("wake_deliveries", _FIELD),
     "conversation_deliveries": CollectionLifecycle(
         "conversation_deliveries", _FIELD, "workspace_id"),
+    "background_pilot_capacity": CollectionLifecycle(
+        "background_pilot_capacity", _FIELD, "workspace_id"),
     "portal_event_receipts": CollectionLifecycle("portal_event_receipts", _FIELD),
     "command_receipts": CollectionLifecycle(
         "command_receipts", _FIELD, "workspace_id"),

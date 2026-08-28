@@ -85,6 +85,11 @@ class WorkflowRuntime:
         budget_limits = {
             "max_steps": 100, "max_model_calls": 30,
             "max_provider_calls": 20, "max_tokens": 1_000_000,
+            "max_active_seconds": 900, "max_wall_seconds": 86_400,
+            "max_artifact_bytes": 100_000_000,
+            "max_artifact_chunks": 10_000,
+            "max_output_bytes": 10_000_000, "max_retries": 10,
+            "max_concurrent": 100,
         }
         for key, value in dict(budgets or {}).items():
             if key not in budget_limits or not isinstance(value, int) or value < 0:
@@ -118,20 +123,20 @@ class WorkflowRuntime:
             }
             required = {
                 "execution_mode": "BACKGROUND",
-                "background_gate_ceiling": "GATE_B_FOUNDATION",
-                "job_template_id": "foundation.detached_prepare",
+                "background_gate_ceiling": "GATE_C_FOUNDER_PILOT",
+                "job_template_id": "pilot.artifact_evidence_inventory",
                 "job_template_version": "1",
                 "eligibility_policy_id": "BackgroundEligibilityPolicy",
                 "eligibility_policy_version":
-                    "background-eligibility-foundation-v1",
+                    "background-artifact-pilot-eligibility-v1",
                 "origin_actor_id": originating_actor_id,
                 "delivery_session_id": origin_session_id,
                 "subject_kind": "ACTOR",
                 "subject_id": originating_actor_id,
                 "visibility_scope": "ACTOR_PRIVATE",
                 "visibility_policy_id": "actor-private-default",
-                "visibility_policy_version": "actor-private-foundation-v1",
-                "completion_contract_id": "background.contract_receipt.v1",
+                "visibility_policy_version": "actor-private-background-pilot-v1",
+                "completion_contract_id": "background.artifact_inventory.v1",
                 "milestone_policy_id": "background.closed_milestones.v1",
                 "skill_bindings": [],
                 "output_manifest_ref": None,
@@ -139,7 +144,7 @@ class WorkflowRuntime:
                 "effect_authority": "NONE",
                 "memory_write_authority": "NONE",
                 "external_read_authority": "NONE",
-                "specialist_execution_enabled": False,
+                "specialist_execution_enabled": True,
             }
             if (not originating_actor_id
                     or set(profile) != profile_fields
@@ -154,7 +159,12 @@ class WorkflowRuntime:
                     <= set(constraints)
                     or budget_limits != {
                         "max_steps": 1, "max_model_calls": 0,
-                        "max_provider_calls": 0, "max_tokens": 0}
+                        "max_provider_calls": 0, "max_tokens": 0,
+                        "max_active_seconds": 30, "max_wall_seconds": 120,
+                        "max_artifact_bytes": 5_242_880,
+                        "max_artifact_chunks": 100,
+                        "max_output_bytes": 65_536, "max_retries": 2,
+                        "max_concurrent": 1}
                     or not str(profile.get("input_manifest_ref") or "").endswith(
                         f"/{domain_ref}")
                     or not str(profile.get("input_manifest_hash") or "").startswith(
@@ -251,7 +261,8 @@ class WorkflowRuntime:
             "capability_registry_version": definition.capability_registry_version,
             "priority": priority, "budgets": budget_limits,
             "budget_usage": {"steps_started": 0, "model_calls": 0,
-                             "provider_calls": 0, "tokens": 0},
+                             "provider_calls": 0, "tokens": 0,
+                             "retries": 0},
             "provenance": provenance,
             "created_at": now, "updated_at": now, "version": 1,
         }
@@ -594,11 +605,22 @@ class WorkflowRuntime:
             usage = dict(run.get("budget_usage") or {})
             limits = dict(run.get("budgets") or {})
             max_steps = int(limits.get("max_steps", 100))
-            if int(usage.get("steps_started") or 0) >= max_steps:
+            max_retries = int(limits.get("max_retries", 10))
+            first_claim = generation == 1
+            if (first_claim and int(usage.get("steps_started") or 0) >= max_steps):
                 return _error("budget_exhausted",
                               "Workflow step budget is exhausted.", 429)
-            next_usage = {**usage, "steps_started": int(
-                usage.get("steps_started") or 0) + 1}
+            if (not first_claim
+                    and int(usage.get("retries") or 0) >= max_retries):
+                return _error("budget_exhausted",
+                              "Workflow retry budget is exhausted.", 429)
+            next_usage = {
+                **usage,
+                "steps_started": int(usage.get("steps_started") or 0)
+                + int(first_claim),
+                "retries": int(usage.get("retries") or 0)
+                + int(not first_claim),
+            }
             lease_expires = (datetime.now(timezone.utc)
                              + timedelta(seconds=lease_seconds)).isoformat()
             attempt_id = stable_id("attempt", step_id, str(generation))
@@ -616,6 +638,7 @@ class WorkflowRuntime:
                 AtomicMutation(
                     "workflow_runs", run["run_id"], int(run["version"]),
                     updates={"budget_usage": next_usage,
+                             "runtime_status": RuntimeStatus.RUNNING.value,
                              "updated_at": utc_now()}),
                 AtomicMutation(
                     "workflow_steps", step_id, int(step["version"]),

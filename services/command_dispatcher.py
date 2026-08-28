@@ -54,6 +54,11 @@ class CommandDispatcher:
             return _error("command_receipt_not_dispatchable",
                           "Command receipt is not dispatchable.")
         command_type = str(outbox.get("command_type") or "")
+        if command_type == "background_job.create":
+            from services.background_pilot import BackgroundPilotDispatcher
+
+            return await BackgroundPilotDispatcher(
+                self.store, enqueue_fn=self.enqueue_fn).dispatch(outbox_id)
         if command_type not in {
                 "investor_outreach.start", "opportunity_discovery.start"}:
             return _error("command_dispatch_unregistered",
@@ -114,7 +119,8 @@ class CommandDispatcher:
         rows = []
         per_type = max(1, min(limit, 100))
         for command_type in (
-                "investor_outreach.start", "opportunity_discovery.start"):
+                "investor_outreach.start", "opportunity_discovery.start",
+                "background_job.create"):
             rows.extend(await self.store.list(
                 "command_outbox", filters={
                     "status": "PENDING", "command_type": command_type},

@@ -73,12 +73,30 @@ class CommandService:
                 subject_id=(subject_id if visibility_scope == "ACTOR_PRIVATE"
                             else principal.workspace_id))
         mutations = tuple(authority_mutations)
+        def _invalid_authority(item: AtomicMutation) -> bool:
+            if item.collection in {"command_receipts", "command_outbox"}:
+                return True
+            if item.collection == "background_pilot_capacity":
+                values = item.record if item.expected_version is None else item.updates
+                return (
+                    command_type != "background_job.create"
+                    or visibility_scope != "ACTOR_PRIVATE"
+                    or item.check_only
+                    or values.get("workspace_id") != principal.workspace_id
+                    or values.get("actor_id") != principal.actor_id
+                    or values.get("active_run_id") != run_id
+                    or values.get("status") != "ACTIVE"
+                    or set(values) - {
+                        "schema_version", "capacity_id", "workspace_id",
+                        "actor_id", "template_id", "status", "active_run_id",
+                        "window_started_at", "window_admissions", "created_at",
+                        "updated_at"})
+            return (
+                item.expected_version is not None
+                or item.check_only
+                or item.record.get("workspace_id") != principal.workspace_id)
         if (len(mutations) > 90
-                or any(item.expected_version is not None or item.check_only
-                       or item.collection in {
-                           "command_receipts", "command_outbox"}
-                       or item.record.get("workspace_id") != principal.workspace_id
-                       for item in mutations)):
+                or any(_invalid_authority(item) for item in mutations)):
             return _error("command_authority_invalid",
                           "Command authority creation is invalid.")
         now = utc_now()

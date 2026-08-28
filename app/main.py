@@ -41,7 +41,12 @@ from agents.co_founder.agent import app as agent_app
 from agents.co_founder.config import PERSONA_NAME
 from agents.co_founder.state_schema import ApplicationStep as Step
 from agents.co_founder.sub_agents import distiller as distiller_subagent
-from app import browser_routes, browser_worker_routes, hiring_routes
+from app import (
+    background_pilot_routes,
+    browser_routes,
+    browser_worker_routes,
+    hiring_routes,
+)
 from app.app_utils.telemetry import setup_telemetry
 from app.resume_handler import SYSTEM_NOTICE_MARKER, ResumeHandler
 from services import (
@@ -2889,6 +2894,11 @@ async def _workspace_session_exists(workspace_id: str, session_id: str) -> bool:
     session = await db_session_service.get_session(
         app_name=agent_app.name, user_id=workspace_id, session_id=session_id)
     return session is not None
+
+
+background_pilot_routes.register(
+    app, principal_resolver=_platform_human,
+    session_resolver=_workspace_session_exists)
 
 
 # Browser panel routes live in an import-light module (docs/07, 18).

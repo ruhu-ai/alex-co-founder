@@ -59,12 +59,14 @@ def test_cloud_audit_requires_recovery_and_isolation_controls(monkeypatch):
                 "co-founder-timers": 8, "co-founder-provider-events": 8,
                 "co-founder-discovery-ingestion": 4,
                 "co-founder-reconciliation": 4, "co-founder-interactive": 4,
+                "co-founder-background-pilot": 1,
             }
             attempts = {
                 "co-founder-events": 5, "co-founder-browser-expiry": 3,
                 "co-founder-timers": 5, "co-founder-provider-events": 5,
                 "co-founder-discovery-ingestion": 3,
                 "co-founder-reconciliation": 3, "co-founder-interactive": 3,
+                "co-founder-background-pilot": 3,
             }
             return {"rateLimits": {"maxConcurrentDispatches": expected[queue]},
                     "retryConfig": {"maxAttempts": attempts[queue]}}

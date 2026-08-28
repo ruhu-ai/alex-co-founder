@@ -144,6 +144,10 @@ STATIC_CAPABILITIES: dict[str, CapabilityDescriptor] = {
         "background.contract.validate", "deterministic_worker", "NO_EFFECT",
         output="background.contract_receipt.v1",
         implementation="service:background_work.foundation_validate"),
+    "background.artifact.inspect": _internal(
+        "background.artifact.inspect", "deterministic_worker", "NO_EFFECT",
+        output="background.artifact_inventory.v1",
+        implementation="service:background_pilot.execute_artifact_inventory"),
     "investor.search": _internal(
         "investor.search", "researcher", "READ_ONLY",
         output="investor.candidate_set.v1",

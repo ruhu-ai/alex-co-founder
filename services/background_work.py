@@ -1,9 +1,8 @@
-"""Dark Gate A/B foundation for actor-private durable background work.
+"""Closed durable background-work contract for the founder artifact pilot.
 
-This module deliberately has no FastAPI or ADK/tool binding.  It can admit only
-an injected, reviewed foundation template whose sole workflow step validates the
-durable contract.  Specialist/model/provider execution, external reads, memory
-writes, approvals, effects, and proactive transcript delivery remain disabled.
+The only live-eligible template inventories one already-authorized, immutable
+artifact. It has no model, provider, connector, browser, approval, effect,
+memory, URL, or model-authored routing surface.
 """
 
 from __future__ import annotations
@@ -11,11 +10,12 @@ from __future__ import annotations
 import os
 import re
 from dataclasses import dataclass, replace
+from datetime import datetime, timedelta, timezone
 from enum import Enum
 from typing import Any, Mapping
 
 from services import capability_registry
-from services.actor_identity import ActorPrincipal
+from services.actor_identity import ActorPrincipal, WorkspaceRole
 from services.canonical import canonical_hash
 from services.command_service import CommandService
 from services.durable_store import AtomicMutation, DurableStore, production_store
@@ -36,8 +36,16 @@ def _error(code: str, message: str, *, retryable: bool = False) -> dict[str, Any
     }
 
 
+def _parse_time(value: Any) -> datetime | None:
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+    except (TypeError, ValueError):
+        return None
+
+
 class BackgroundWorkClass(str, Enum):
-    DETACHED_PREPARE = "DETACHED_PREPARE"
+    DETACHED_READ = "DETACHED_READ"
 
 
 @dataclass(frozen=True)
@@ -82,29 +90,29 @@ class BackgroundTemplate:
     budgets: Mapping[str, int]
 
 
-POLICY_VERSION = "background-eligibility-foundation-v1"
-VISIBILITY_POLICY_VERSION = "actor-private-foundation-v1"
+POLICY_VERSION = "background-artifact-pilot-eligibility-v1"
+VISIBILITY_POLICY_VERSION = "actor-private-background-pilot-v1"
 _REQUEST_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$")
 _OPAQUE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{2,159}$")
 _HASH = re.compile(r"^sha256:[a-f0-9]{64}$")
-_INPUT_KINDS = frozenset({"WORKSPACE_ARTIFACT", "DOMAIN_RECORD"})
+_INPUT_KINDS = frozenset({"WORKSPACE_ARTIFACT"})
 FOUNDER_CONSTRAINT_CODES = frozenset({
     "NO_PERSONAL_DATA", "NO_UNVERIFIED_CLAIMS", "CITATIONS_REQUIRED",
 })
 FOUNDATION_NEGATIVE_CONSTRAINTS = BACKGROUND_FOUNDATION_NEGATIVE_CONSTRAINTS
 
 FOUNDATION_TEMPLATE = BackgroundTemplate(
-    template_id="foundation.detached_prepare",
+    template_id="pilot.artifact_evidence_inventory",
     version="1",
-    status="FOUNDATION_ONLY",
+    status="FOUNDER_PILOT",
     admission_enabled=False,
     workflow_kind="alex_background_job:v1",
-    objective_kind="BOUNDED_PREPARATION",
-    work_class=BackgroundWorkClass.DETACHED_PREPARE,
-    capability_ids=("background.contract.validate",),
+    objective_kind="ARTIFACT_EVIDENCE_INVENTORY",
+    work_class=BackgroundWorkClass.DETACHED_READ,
+    capability_ids=("background.artifact.inspect",),
     allowed_input_kinds=_INPUT_KINDS,
     negative_constraints=FOUNDATION_NEGATIVE_CONSTRAINTS,
-    completion_contract_id="background.contract_receipt.v1",
+    completion_contract_id="background.artifact_inventory.v1",
     milestone_policy_id="background.closed_milestones.v1",
     retryable_error_codes=frozenset({
         "lease_lost", "retryable_dependency", "transient_store_error"}),
@@ -112,6 +120,10 @@ FOUNDATION_TEMPLATE = BackgroundTemplate(
     budgets={
         "max_steps": 1, "max_model_calls": 0,
         "max_provider_calls": 0, "max_tokens": 0,
+        "max_active_seconds": 30, "max_wall_seconds": 120,
+        "max_artifact_bytes": 5_242_880, "max_artifact_chunks": 100,
+        "max_output_bytes": 65_536, "max_retries": 2,
+        "max_concurrent": 1,
     },
 )
 FOUNDATION_TEMPLATES: Mapping[tuple[str, str], BackgroundTemplate] = {
@@ -142,12 +154,13 @@ class BackgroundEligibilityPolicy:
                 "Background job admission is disabled.")
         template = self.templates.get(
             (request.template_id, request.template_version))
-        if (template is None or template.status != "FOUNDATION_ONLY"
+        if (template is None or template.status != "FOUNDER_PILOT"
                 or not template.admission_enabled):
             return _error(
                 "background_template_unavailable",
                 "The background template is not enabled for this gate.")
         if (principal.principal_kind != "INTERACTIVE"
+                or principal.role is not WorkspaceRole.FOUNDER
                 or not principal.actor_id or not principal.workspace_id):
             return _error(
                 "interactive_founder_required",
@@ -164,7 +177,7 @@ class BackgroundEligibilityPolicy:
             return _error(
                 "background_intent_mismatch",
                 "The interpreted objective does not match this template.")
-        if (len(request.input_refs) > 8
+        if (len(request.input_refs) != 1
                 or len({(item.kind, item.ref_id, item.version)
                         for item in request.input_refs}) != len(request.input_refs)):
             return _error(
@@ -372,12 +385,12 @@ class BackgroundWorkService:
             "milestone_policy_id": template.milestone_policy_id,
             "skill_bindings": [],
             "output_manifest_ref": None,
-            "background_gate_ceiling": "GATE_B_FOUNDATION",
+            "background_gate_ceiling": "GATE_C_FOUNDER_PILOT",
             "approval_authority": "NONE",
             "effect_authority": "NONE",
             "memory_write_authority": "NONE",
             "external_read_authority": "NONE",
-            "specialist_execution_enabled": False,
+            "specialist_execution_enabled": True,
         }
         profile["background_profile_hash"] = canonical_hash(
             profile, domain="background-run-profile")
@@ -395,6 +408,46 @@ class BackgroundWorkService:
             background_profile=profile)
         if prepared.get("error"):
             return prepared
+        capacity_id = stable_id(
+            "bgcapacity", principal.workspace_id, principal.actor_id,
+            template.template_id)
+        capacity = await self.store.get(
+            "background_pilot_capacity", capacity_id)
+        now_dt = datetime.now(timezone.utc)
+        window_start = _parse_time((capacity or {}).get("window_started_at"))
+        admissions = int((capacity or {}).get("window_admissions") or 0)
+        if not window_start or window_start <= now_dt - timedelta(hours=1):
+            window_start = now_dt
+            admissions = 0
+        active_run_id = str((capacity or {}).get("active_run_id") or "")
+        if active_run_id and active_run_id != prepared["run_id"]:
+            active_run = await self.store.get("workflow_runs", active_run_id)
+            if active_run and active_run.get("runtime_status") not in {
+                    "SUCCEEDED", "FAILED", "REJECTED", "CANCELLED"}:
+                return _error(
+                    "background_concurrency_exhausted",
+                    "The founder pilot already has one active job.")
+        if admissions >= 3:
+            return _error(
+                "background_rate_limited",
+                "The founder pilot admits at most three jobs per hour.")
+        capacity_values = {
+            "schema_version": 1, "capacity_id": capacity_id,
+            "workspace_id": principal.workspace_id,
+            "actor_id": principal.actor_id,
+            "template_id": template.template_id,
+            "status": "ACTIVE", "active_run_id": prepared["run_id"],
+            "window_started_at": window_start.isoformat(),
+            "window_admissions": admissions + 1,
+            "updated_at": now,
+        }
+        capacity_mutation = (
+            AtomicMutation(
+                "background_pilot_capacity", capacity_id,
+                int(capacity["version"]), updates=capacity_values)
+            if capacity else AtomicMutation(
+                "background_pilot_capacity", capacity_id, None,
+                record={**capacity_values, "created_at": now}))
         accepted = await CommandService(self.store).accept(
             principal=principal,
             client_request_id=request.client_request_id,
@@ -410,10 +463,20 @@ class BackgroundWorkService:
             run_id=prepared["run_id"],
             dispatch_ref=input_manifest_id,
             authority_mutations=(*prepared["mutations"], AtomicMutation(
-                "artifacts", input_manifest_id, None, record=input_manifest)),
+                "artifacts", input_manifest_id, None, record=input_manifest),
+                capacity_mutation),
             visibility_scope="ACTOR_PRIVATE",
             subject_id=principal.actor_id)
         if accepted.get("error"):
+            if accepted.get("error_code") == "concurrency_conflict":
+                latest_capacity = await self.store.get(
+                    "background_pilot_capacity", capacity_id)
+                if (latest_capacity
+                        and latest_capacity.get("active_run_id")
+                        != prepared["run_id"]):
+                    return _error(
+                        "background_concurrency_exhausted",
+                        "The founder pilot already has one active job.")
             return accepted
         run = await self.store.get("workflow_runs", str(prepared["run_id"]))
         if not run or run.get("job_id") != run.get("run_id"):
@@ -462,12 +525,7 @@ class BackgroundWorkService:
 
 
 class BackgroundCommandDispatcher:
-    """Recover accepted jobs into one READY no-effect validation step.
-
-    This is intentionally not wired into the generic dispatcher or Cloud Tasks.
-    It does not claim or execute the step and cannot call ADK, a provider,
-    memory, approval, or the consequence kernel.
-    """
+    """Materialize only the pilot's registered deterministic read step."""
 
     def __init__(self, store: DurableStore | None = None):
         self.store = store or production_store()
@@ -491,8 +549,9 @@ class BackgroundCommandDispatcher:
         if (not receipt or receipt.get("status") != "ACCEPTED"
                 or receipt.get("command_type") != "background_job.create"
                 or not run or run.get("execution_mode") != "BACKGROUND"
-                or run.get("background_gate_ceiling") != "GATE_B_FOUNDATION"
-                or run.get("specialist_execution_enabled") is not False
+                or run.get("background_gate_ceiling") != "GATE_C_FOUNDER_PILOT"
+                or run.get("job_template_id") != FOUNDATION_TEMPLATE.template_id
+                or run.get("specialist_execution_enabled") is not True
                 or run.get("approval_authority") != "NONE"
                 or run.get("effect_authority") != "NONE"
                 or run.get("memory_write_authority") != "NONE"
@@ -502,8 +561,8 @@ class BackgroundCommandDispatcher:
                 "background_dispatch_authority_invalid",
                 "Accepted background authority is incomplete or widened.")
         step = await WorkflowRuntime(self.store).create_step(
-            run["run_id"], step_key="validate_contract",
-            idempotency_key=f"background-contract:{run['run_id']}")
+            run["run_id"], step_key="analyze_artifact",
+            idempotency_key=f"background-artifact:{run['run_id']}")
         if step.get("error"):
             return step
         transitioned = await CommandService(self.store).transition(

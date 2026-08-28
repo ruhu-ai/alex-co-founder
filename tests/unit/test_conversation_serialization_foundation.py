@@ -8,6 +8,7 @@ import pytest
 from services.actor_identity import ActorPrincipal, WorkspaceRole
 from services.background_work import (
     FOUNDATION_TEMPLATE,
+    BackgroundInputRef,
     BackgroundJobRequest,
     BackgroundWorkService,
     enabled_foundation_templates,
@@ -52,7 +53,11 @@ def _request() -> BackgroundJobRequest:
         objective_kind=FOUNDATION_TEMPLATE.objective_kind,
         objective_summary="Prepare a bounded internal outline.",
         origin_message_id="message-origin-001",
-        origin_session_id="session-origin-001")
+        origin_session_id="session-origin-001",
+        input_refs=(BackgroundInputRef(
+            kind="WORKSPACE_ARTIFACT", ref_id="artifact-origin-001",
+            version="generation-001",
+            content_hash="sha256:" + "a" * 64),))
 
 
 async def _job(store: InMemoryDurableStore) -> str:

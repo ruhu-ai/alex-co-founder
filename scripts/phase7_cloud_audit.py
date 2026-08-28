@@ -62,6 +62,7 @@ def audit(project: str, region: str) -> dict[str, Any]:
         "co-founder-events", "co-founder-browser-expiry", "co-founder-timers",
         "co-founder-provider-events", "co-founder-discovery-ingestion",
         "co-founder-reconciliation", "co-founder-interactive",
+        "co-founder-background-pilot",
     )
     queues = {name: _gcloud(
         "tasks", "queues", "describe", name, "--project", project,
@@ -82,12 +83,14 @@ def audit(project: str, region: str) -> dict[str, Any]:
         "co-founder-timers": 8, "co-founder-provider-events": 8,
         "co-founder-discovery-ingestion": 4,
         "co-founder-reconciliation": 4, "co-founder-interactive": 4,
+        "co-founder-background-pilot": 1,
     }
     queue_attempts = {
         "co-founder-events": 5, "co-founder-browser-expiry": 3,
         "co-founder-timers": 5, "co-founder-provider-events": 5,
         "co-founder-discovery-ingestion": 3,
         "co-founder-reconciliation": 3, "co-founder-interactive": 3,
+        "co-founder-background-pilot": 3,
     }
     queues_correct = all(
         not value.get("error")

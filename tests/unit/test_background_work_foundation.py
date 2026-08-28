@@ -102,17 +102,21 @@ async def test_accept_is_atomic_private_bounded_and_idempotent():
     assert run["execution_mode"] == "BACKGROUND"
     assert run["visibility_scope"] == "ACTOR_PRIVATE"
     assert run["subject_id"] == _principal().actor_id
-    assert run["background_gate_ceiling"] == "GATE_B_FOUNDATION"
+    assert run["background_gate_ceiling"] == "GATE_C_FOUNDER_PILOT"
     assert run["approval_authority"] == run["effect_authority"] == "NONE"
     assert run["memory_write_authority"] == "NONE"
     assert run["external_read_authority"] == "NONE"
-    assert run["specialist_execution_enabled"] is False
+    assert run["specialist_execution_enabled"] is True
     assert run["skill_bindings"] == []
     assert set(FOUNDATION_NEGATIVE_CONSTRAINTS) <= set(
         run["negative_constraints"])
     assert run["budgets"] == {
         "max_steps": 1, "max_model_calls": 0,
-        "max_provider_calls": 0, "max_tokens": 0}
+        "max_provider_calls": 0, "max_tokens": 0,
+        "max_active_seconds": 30, "max_wall_seconds": 120,
+        "max_artifact_bytes": 5_242_880, "max_artifact_chunks": 100,
+        "max_output_bytes": 65_536, "max_retries": 2,
+        "max_concurrent": 1}
     assert len(await store.list("workflow_runs", filters={})) == 1
     assert len(await store.list("workflow_plans", filters={})) == 1
     assert len(await store.list("run_events", filters={})) == 1
@@ -182,8 +186,8 @@ async def test_dispatch_materializes_only_no_effect_validation_and_replays():
     assert first["command"]["status"] == "DISPATCHED"
     assert duplicate["duplicate"] is True
     assert len(steps) == 1
-    assert steps[0]["step_key"] == "validate_contract"
-    assert steps[0]["capability_id"] == "background.contract.validate"
+    assert steps[0]["step_key"] == "analyze_artifact"
+    assert steps[0]["capability_id"] == "background.artifact.inspect"
     assert steps[0]["status"] == "READY"
     assert steps[0]["visibility_scope"] == "ACTOR_PRIVATE"
     assert await store.list("approvals", filters={}) == []
@@ -209,10 +213,10 @@ async def test_dispatch_refuses_widened_authority_before_creating_a_step():
 
 async def test_actor_private_reads_cancel_and_stale_worker_are_fenced():
     store = InMemoryDurableStore()
-    owner = _principal()
+    founder = _principal()
     other = _principal(actor="actor_other")
     service = _service(store)
-    accepted = await service.accept(principal=owner, request=_request())
+    accepted = await service.accept(principal=founder, request=_request())
     outbox_id = stable_id("cmdoutbox", accepted["command_id"], "dispatch")
     dispatched = await BackgroundCommandDispatcher(store).dispatch(outbox_id)
     step = dispatched["step"]
@@ -224,7 +228,7 @@ async def test_actor_private_reads_cancel_and_stale_worker_are_fenced():
     forbidden_cancel = await service.cancel(
         principal=other, run_id=accepted["run_id"], reason="stop")
     cancelled = await service.cancel(
-        principal=owner, run_id=accepted["run_id"], reason="Stop this work")
+        principal=founder, run_id=accepted["run_id"], reason="Stop this work")
     stale = await WorkflowRuntime(store).complete_step(
         step["step_id"], lease_owner="foundation-worker",
         generation=claimed["attempt_generation"])

@@ -11,7 +11,7 @@ from services.workflow_contracts import PLAN_TEMPLATES, WORKFLOW_DEFINITIONS
 
 STEP_CAPABILITIES: dict[str, dict[str, str]] = {
     "alex_background_job:v1": {
-        "validate_contract": "background.contract.validate"},
+        "analyze_artifact": "background.artifact.inspect"},
     "opportunity_discovery:v1": {
         "discover": "opportunity.search", "score": "opportunity.score",
         "publish_receipt": "workflow.receipt"},
@@ -109,7 +109,12 @@ def validate_plan(plan: dict[str, Any], *, variant: str = "default",
         return _error("plan_capability_disabled", "Plan capability is disabled.")
     budget = dict(budgets or {})
     limits = {"max_steps": 100, "max_model_calls": 30,
-              "max_provider_calls": 20, "max_tokens": 1_000_000}
+              "max_provider_calls": 20, "max_tokens": 1_000_000,
+              "max_active_seconds": 900, "max_wall_seconds": 86_400,
+              "max_artifact_bytes": 100_000_000,
+              "max_artifact_chunks": 10_000,
+              "max_output_bytes": 10_000_000, "max_retries": 10,
+              "max_concurrent": 100}
     if any(key not in limits or not isinstance(value, int) or value < 0
            or value > limits[key] for key, value in budget.items()):
         return _error("plan_budget_invalid", "Plan exceeds its run budget.")

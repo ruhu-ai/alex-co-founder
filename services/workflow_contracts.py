@@ -49,7 +49,7 @@ BACKGROUND_FOUNDATION_NEGATIVE_CONSTRAINTS: tuple[str, ...] = (
     "NO_EXTERNAL_READS",
     "NO_MEMORY_READ_OR_WRITE",
     "NO_PROVIDER_CALLS",
-    "NO_SPECIALIST_EXECUTION",
+    "NO_MODEL_OR_ADK_SPECIALIST_EXECUTION",
 )
 
 
@@ -104,8 +104,8 @@ class WorkflowDefinition:
 WORKFLOW_DEFINITIONS: dict[str, WorkflowDefinition] = {
     "alex_background_job:v1": WorkflowDefinition(
         "alex_background_job:v1", RunKind.BACKGROUND, "1", frozenset(),
-        policy_version="background-foundation-v1",
-        capability_registry_version="background-foundation-v1",
+        policy_version="background-artifact-pilot-v1",
+        capability_registry_version="background-artifact-pilot-v1",
         domain="platform"),
     "hiring_role:v1": WorkflowDefinition(
         "hiring_role:v1", RunKind.ROLE, "1", frozenset(), domain="hiring"),
@@ -185,10 +185,8 @@ WAIT_CONTRACTS: frozenset[str] = frozenset({
 # Reviewed static templates only. Model-authored/composed plan IR remains
 # disabled; Phase 5 may mature these descriptors after the second vertical.
 PLAN_TEMPLATES: dict[str, tuple[str, ...]] = {
-    # Gate A/B only: this deterministic step validates the durable contract.
-    # No specialist, model, provider, approval, memory, or effect worker is
-    # bound until a later independently approved gate.
-    "alex_background_job:v1": ("validate_contract",),
+    # Exactly one deterministic, read-only founder pilot step.
+    "alex_background_job:v1": ("analyze_artifact",),
     "hiring_role:v1": ("define_role", "publish", "wait_for_applications"),
     "hiring_candidate:v1": ("ingest", "assess", "human_decision"),
     "hiring_onboarding:v1": ("prepare_onboarding", "human_decision"),
