@@ -1,7 +1,7 @@
 # Document 40 — founder artifact-analysis pilot evidence
 
-**Recorded:** 2026-08-28  
-**Scope:** one default-off, founder-only, read-only live pilot  
+**Recorded:** 2026-08-28
+**Scope:** one default-off, founder-only, read-only live pilot
 **Release state:** Gate E Activity soak completed in the existing project;
 normal service deployed with every pilot gate off and kill switch on
 
