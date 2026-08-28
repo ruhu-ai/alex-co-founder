@@ -197,7 +197,7 @@ async def test_accept_dispatch_is_one_template_private_bounded_and_idempotent():
     assert len(await store.list("workflow_steps", filters={})) == 1
 
 
-async def test_dispatch_queue_override_is_closed_to_two_registered_names(
+async def test_dispatch_queue_override_is_closed_to_registered_names(
         monkeypatch):
     store = InMemoryDurableStore()
     await _artifact(store)
@@ -208,6 +208,18 @@ async def test_dispatch_queue_override_is_closed_to_two_registered_names(
     accepted = await _start(store, calls)
     assert accepted["dispatch_status"] == "DISPATCHED"
     assert calls[0]["queue_name"] == "co-founder-background-pilot-real"
+
+    gate_e = InMemoryDurableStore()
+    await _artifact(gate_e)
+    gate_e_calls: list[dict] = []
+    monkeypatch.setenv(
+        "BACKGROUND_ARTIFACT_PILOT_QUEUE",
+        "co-founder-background-pilot-gate-e")
+    gate_e_accepted = await _start(gate_e, gate_e_calls)
+    assert gate_e_accepted["dispatch_status"] == "DISPATCHED"
+    assert gate_e_calls[0]["queue_name"] == (
+        "co-founder-background-pilot-gate-e")
+    assert gate_e_calls[0]["path"] == "/tasks/background-artifact-pilot"
 
     another = InMemoryDurableStore()
     await _artifact(another)

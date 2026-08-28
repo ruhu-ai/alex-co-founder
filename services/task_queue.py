@@ -24,6 +24,7 @@ QUEUE_IDENTITY_ENV = {
     "co-founder-interactive": "TASKS_INTERACTIVE_SA",
     "co-founder-background-pilot": "TASKS_BACKGROUND_PILOT_SA",
     "co-founder-background-pilot-real": "TASKS_BACKGROUND_PILOT_SA",
+    "co-founder-background-pilot-gate-e": "TASKS_BACKGROUND_PILOT_SA",
 }
 LOGGER = logging.getLogger("background_pilot.local_dispatch")
 
