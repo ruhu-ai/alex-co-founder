@@ -1,0 +1,21 @@
+tests/unit/test_phase7_cloud_audit.py
+  s_0bfc183a530608::t_e0d1ae564bee78 52-54
+scripts/phase7_cloud_audit.py
+  s_0bfc183a530608::t_e0d1ae564bee78 101-103,106-107
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "4b758d0189798a1c32c6a5a5cf925950c28b9ec2",
+  "prompts": {},
+  "sessions": {
+    "s_0bfc183a530608": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a044e4-5750-7651-a442-0b09fff86ca9",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": null
+    }
+  }
+}
