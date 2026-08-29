@@ -250,7 +250,8 @@ def test_login_restores_founder_directly_and_shell_redirect_is_single_shot():
     login = open("app/static/login.html", encoding="utf-8").read()
     shell = open("app/static/index.html", encoding="utf-8").read()
     assert 'fetch("/auth/access"' not in login
-    assert 'if (me?.authenticated)' in login
+    assert 'if (me?.authenticated && !freshSignIn)' in login
+    assert 'loginParams.get("fresh") === "1"' in login
     assert "let signInRedirectStarted = false;" in shell
     assert 'location.replace("/login.html")' in shell
     assert 'location.href = "/login.html"' not in shell

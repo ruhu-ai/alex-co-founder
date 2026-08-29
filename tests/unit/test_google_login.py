@@ -105,6 +105,27 @@ def test_start_is_current_tab_redirect_with_signed_short_lived_state(
     assert flow.authorization_params["state"]
 
 
+def test_fresh_start_forces_login_and_seals_exact_return_path(
+        client, monkeypatch):
+    flow = FakeFlow()
+    monkeypatch.setattr(google_login, "_flow", lambda *_args, **_kwargs: flow)
+
+    response = client.get(
+        "/auth/google/start",
+        params={"fresh": "1", "next": "/hiring.html?role=role_a"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    assert flow.authorization_params["prompt"] == "login"
+    assert flow.authorization_params["max_age"] == "0"
+    assert flow.authorization_params["include_granted_scopes"] == "false"
+    pending = google_login._open_state(
+        response.cookies.get(google_login.STATE_COOKIE))
+    assert pending["fresh"] is True
+    assert pending["return_path"] == "/hiring.html?role=role_a"
+
+
 def test_callback_verifies_identity_and_mints_app_session(
         client, monkeypatch):
     flow = FakeFlow()
@@ -217,6 +238,75 @@ def test_callback_uses_fresh_verified_token_issue_time_when_auth_time_is_optiona
     assert response.headers["location"] == "/"
     session = auth.read_session(client.cookies.get(auth.SESSION_COOKIE))
     assert session["auth_time"] == expected_issued_at
+    assert session["auth_time_source"] == "oidc_token_iat"
+
+
+def test_fresh_callback_rejects_stale_idp_auth_and_preserves_step_up_retry(
+        client, monkeypatch):
+    now = 1_700_000_000
+    flow = FakeFlow()
+    monkeypatch.setattr(google_login.time, "time", lambda: now)
+    monkeypatch.setattr(google_login, "_flow", lambda *_args, **_kwargs: flow)
+
+    async def verify(_token, *, nonce):
+        assert nonce
+        return {
+            **_successful_claims(),
+            "auth_time": now
+            - google_login.ID_TOKEN_ISSUED_AT_MAX_AGE_SECONDS - 1,
+            "iat": now,
+        }
+
+    monkeypatch.setattr(google_login, "_verify_id_token", verify)
+    client.get(
+        "/auth/google/start",
+        params={"fresh": "1", "next": "/hiring.html?role=role_a"},
+        follow_redirects=False,
+    )
+    response = client.get(
+        "/auth/google/callback",
+        params={"code": "x", "state": flow.authorization_params["state"]},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    assert response.headers["location"] == (
+        "/login.html?google_error=authentication_time_missing"
+        "&fresh=1&next=%2Fhiring.html%3Frole%3Drole_a"
+    )
+    assert client.get("/auth/me").json()["mode"] == "open"
+
+
+def test_fresh_callback_accepts_recent_iat_when_auth_time_is_absent(
+        client, monkeypatch):
+    now = 1_700_000_000
+    flow = FakeFlow()
+    monkeypatch.setattr(google_login.time, "time", lambda: now)
+    monkeypatch.setattr(google_login, "_flow", lambda *_args, **_kwargs: flow)
+
+    async def verify(_token, *, nonce):
+        assert nonce
+        claims = _successful_claims()
+        claims.pop("auth_time")
+        claims["iat"] = now
+        return claims
+
+    monkeypatch.setattr(google_login, "_verify_id_token", verify)
+    client.get(
+        "/auth/google/start",
+        params={"fresh": "1", "next": "/hiring.html?role=role_a"},
+        follow_redirects=False,
+    )
+    response = client.get(
+        "/auth/google/callback",
+        params={"code": "x", "state": flow.authorization_params["state"]},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/hiring.html?role=role_a"
+    session = auth.read_session(client.cookies.get(auth.SESSION_COOKIE))
+    assert session["auth_time"] == now
     assert session["auth_time_source"] == "oidc_token_iat"
 
 

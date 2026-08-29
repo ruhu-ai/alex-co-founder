@@ -190,9 +190,21 @@ def _cookie_kwargs(*, secure: bool, max_age: int) -> dict:
     }
 
 
-def _error_response(code: str, *, secure: bool) -> RedirectResponse:
+def _error_response(
+    code: str,
+    *,
+    secure: bool,
+    fresh: bool = False,
+    return_path: str = "/",
+) -> RedirectResponse:
+    query = {"google_error": code}
+    if fresh:
+        query.update({
+            "fresh": "1",
+            "next": auth.safe_local_return_path(return_path),
+        })
     response = RedirectResponse(
-        f"/login.html?{urlencode({'google_error': code})}", status_code=303)
+        f"/login.html?{urlencode(query)}", status_code=303)
     response.delete_cookie(STATE_COOKIE, path="/", secure=secure, samesite="lax")
     return response
 
@@ -227,6 +239,7 @@ def register(app) -> None:
     @app.get("/auth/google/start")
     async def google_login_start(request: Request):
         secure = request.url.scheme == "https" or bool(os.environ.get("K_SERVICE"))
+        fresh = request.query_params.get("fresh") == "1"
         if not configured():
             return _error_response("not_configured", secure=secure)
         try:
@@ -235,19 +248,30 @@ def register(app) -> None:
             nonce = secrets.token_urlsafe(32)
             verifier = secrets.token_urlsafe(64)
             flow = _flow(redirect_uri, verifier=verifier)
-            url, _ = flow.authorization_url(
-                state=state,
-                nonce=nonce,
-                access_type="online",
-                include_granted_scopes="false",
-                prompt="select_account",
+            authorization_options = {
+                "state": state,
+                "nonce": nonce,
+                "access_type": "online",
+                "include_granted_scopes": "false",
+                "prompt": "login" if fresh else "select_account",
                 # Google only includes auth_time when it is explicitly
                 # requested. Workspace principals and recent-auth checks use
                 # that verified value; minting a session without it would
                 # authenticate the browser but fail every authority lookup.
-                claims=json.dumps({
+                "claims": json.dumps({
                     "id_token": {"auth_time": {"essential": True}},
                 }, separators=(",", ":")),
+            }
+            if fresh:
+                # A signed-in application session is not recent-auth proof.
+                # Force the identity provider to authenticate again; callback
+                # validation below also rejects a stale returned auth_time.
+                # The OAuth client library drops integer ``0`` as falsey;
+                # use the protocol's string representation so the parameter
+                # is actually present in the authorization request.
+                authorization_options["max_age"] = "0"
+            url, _ = flow.authorization_url(
+                **authorization_options,
             )
             sealed = _seal_state({
                 "iat": int(time.time()),
@@ -255,6 +279,7 @@ def register(app) -> None:
                 "nonce": nonce,
                 "verifier": verifier,
                 "redirect_uri": redirect_uri,
+                "fresh": fresh,
                 # This is validated before it enters the signed state. It is
                 # deliberately a local path so completing sign-in can resume a
                 # connector-consent request without creating an open redirect.
@@ -282,7 +307,12 @@ def register(app) -> None:
                 str(pending.get("state") or ""), state):
             return _error_response("invalid_state", secure=secure)
         if error or not code:
-            return _error_response("cancelled", secure=secure)
+            return _error_response(
+                "cancelled",
+                secure=secure,
+                fresh=pending.get("fresh") is True,
+                return_path=str(pending.get("return_path") or "/"),
+            )
         try:
             flow = _flow(
                 str(pending["redirect_uri"]),
@@ -295,19 +325,49 @@ def register(app) -> None:
             claims = await _verify_id_token(
                 encoded_id_token, nonce=str(pending["nonce"]))
         except Exception:
-            return _error_response("exchange_failed", secure=secure)
+            return _error_response(
+                "exchange_failed",
+                secure=secure,
+                fresh=pending.get("fresh") is True,
+                return_path=str(pending.get("return_path") or "/"),
+            )
 
         email = str(claims.get("email") or "").lower()
         if not email or claims.get("email_verified") is not True:
-            return _error_response("unverified_email", secure=secure)
+            return _error_response(
+                "unverified_email",
+                secure=secure,
+                fresh=pending.get("fresh") is True,
+                return_path=str(pending.get("return_path") or "/"),
+            )
         if not auth.email_may_log_in(email):
-            return _error_response("not_authorized", secure=secure)
+            return _error_response(
+                "not_authorized",
+                secure=secure,
+                fresh=pending.get("fresh") is True,
+                return_path=str(pending.get("return_path") or "/"),
+            )
         session_auth = _session_auth_time(claims)
         if session_auth is None:
             # Do not create a valid-looking session that the server's durable
             # authority resolver must immediately reject.
-            return _error_response("authentication_time_missing", secure=secure)
+            return _error_response(
+                "authentication_time_missing",
+                secure=secure,
+                fresh=pending.get("fresh") is True,
+                return_path=str(pending.get("return_path") or "/"),
+            )
         auth_time, auth_time_source = session_auth
+        if pending.get("fresh") is True:
+            age = int(time.time()) - auth_time
+            if (age < -ID_TOKEN_CLOCK_SKEW_SECONDS
+                    or age > ID_TOKEN_ISSUED_AT_MAX_AGE_SECONDS):
+                return _error_response(
+                    "authentication_time_missing",
+                    secure=secure,
+                    fresh=True,
+                    return_path=str(pending.get("return_path") or "/"),
+                )
 
         response = RedirectResponse(
             auth.safe_local_return_path(str(pending.get("return_path") or "/")),

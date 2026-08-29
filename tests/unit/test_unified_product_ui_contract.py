@@ -384,6 +384,11 @@ def test_founder_hiring_package_is_readable_and_exact_approval_is_primary():
     assert 'class="btn" data-variant="primary" id="approvePolicy"' in HIRING
     assert "Approve exact role package for internal use" in HIRING
     assert "It does not publish, email, source, rank, decide, or contact anyone" in HIRING
+    assert 'e.errorCode === "step_up_required"' in HIRING
+    assert "Sign in again" in HIRING
+    assert "/login.html?fresh=1&next=" in HIRING
+    assert "policyApprovalRequestId(role, policy)" in HIRING
+    assert "sessionStorage.getItem(key)" in HIRING
     assert "actions.append(review, approve)" in HIRING
     assert "decision.append(actions)" in HIRING
     assert "Candidate intake inbox" in HIRING
