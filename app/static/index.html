@@ -4393,6 +4393,9 @@ fetch("/api/config").then(r => r.json()).then(j => {
     PERSONA = j.persona_name || PERSONA;
     WORKFLOW = j.workflow_id || "";
     configureMemorySurface(j.memory_surface_enabled);
+    if (memorySurfaceEnabled && sessionId && $("settings").dataset.open === "true") {
+        loadMemoryPanel();
+    }
 }).catch(() => configureMemorySurface(false));
 
 function agentHead() {
@@ -4734,6 +4737,9 @@ async function newSession(memoryMode = "STANDARD") {
     setReadThroughControls();
     localStorage.setItem(SESSION_KEY, sessionId);
     renderSessionMemoryMode();
+    if (memorySurfaceEnabled && $("settings").dataset.open === "true") {
+        await loadMemoryPanel();
+    }
     chatCount = 0;
     sessionWorkExpanded = false;
     $("sessionWork").hidden = true;
@@ -4759,6 +4765,9 @@ async function restoreSession() {
                         sessionId = saved;
             sessionMemoryMode = h.memory_mode || "STANDARD";
             renderSessionMemoryMode();
+            if (memorySurfaceEnabled && $("settings").dataset.open === "true") {
+                await loadMemoryPanel();
+            }
             chatCount = 0;
             if (!(h.messages || []).length) chatPlaceholder();
             return;

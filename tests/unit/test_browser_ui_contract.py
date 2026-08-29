@@ -93,6 +93,11 @@ def test_alex_drive_is_separate_and_generated_documents_target_it():
     assert "Save to Alex's Drive" in HTML
 
 
+def test_memory_panel_recovers_when_session_and_config_bootstrap_race():
+    assert HTML.count('$("settings").dataset.open === "true"') >= 3
+    assert "await loadMemoryPanel();" in HTML
+
+
 def test_connector_list_is_grouped_by_account_ownership():
     assert 'const CONNECTOR_ACCOUNT_GROUPS = [' in HTML
     founder = HTML.index('{key: "founder", label: "Founder"')
