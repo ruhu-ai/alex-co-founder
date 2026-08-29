@@ -1,0 +1,21 @@
+tests/unit/test_storage.py
+  s_16e75b10efee22::t_6411d8e91f8c0e 1-26
+services/storage.py
+  s_16e75b10efee22::t_6411d8e91f8c0e 28-38
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "786b7599b8150661e1fa99037b0714cd203b659c",
+  "prompts": {},
+  "sessions": {
+    "s_16e75b10efee22": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0484d-a6bd-7182-90ae-527ccfd2a966",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Ijidai Lassa <ijidai@cued.app>"
+    }
+  }
+}
