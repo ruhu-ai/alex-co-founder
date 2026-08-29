@@ -22,7 +22,8 @@ _TTL = int(os.environ.get("APPROVAL_TTL_MINUTES", "30"))
 # send_email: outbound mail from alex@ruhu.ai (adr/001).
 # book_meeting: calendar event + emailed invites (adr/002).
 GATES = {"submit_application", "send_email", "book_meeting",
-         "create_portal_account", "export_drive_file"}
+         "create_portal_account", "export_drive_file",
+         "export_alex_drive_file"}
 
 # Canonical-form version tag. It is mixed into every digest so a future change
 # to the canonical form can never accidentally compare equal to an old one —
@@ -121,7 +122,9 @@ async def request_approval(application_id: str, gate: str = "submit_application"
                            requested_by_actor_id: str = "") -> dict:
     if gate not in GATES:
         return {"status": "error", "error": True, "message": f"unknown gate {gate!r}"}
-    direct_click = gate == "export_drive_file" and bool(requested_by_actor_id)
+    direct_click = gate in {
+        "export_drive_file", "export_alex_drive_file"
+    } and bool(requested_by_actor_id)
     if not founder_id or (not session_id and not direct_click):
         return {"status": "error", "error": True,
                 "message": "approval requests require a founder-bound session"}
@@ -161,6 +164,7 @@ async def request_approval(application_id: str, gate: str = "submit_application"
         "send_email": "alex_mail",
         "book_meeting": "calendar",
         "export_drive_file": "drive",
+        "export_alex_drive_file": "alex_drive",
     }
     action_by_gate = {
         "submit_application": "submit_application",
@@ -168,6 +172,7 @@ async def request_approval(application_id: str, gate: str = "submit_application"
         "send_email": "send_email",
         "book_meeting": "create_calendar_event",
         "export_drive_file": "export_drive_file",
+        "export_alex_drive_file": "export_alex_drive_file",
     }
     connector_id = connector_by_gate[gate]
     action_kind = action_by_gate[gate]

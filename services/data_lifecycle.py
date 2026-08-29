@@ -79,6 +79,10 @@ TOP_LEVEL_LIFECYCLE: dict[str, CollectionLifecycle] = {
         "command_receipts", _FIELD, "workspace_id"),
     "command_outbox": CollectionLifecycle(
         "command_outbox", _FIELD, "workspace_id"),
+    "media_consent_grants": CollectionLifecycle(
+        "media_consent_grants", _FIELD, "workspace_id"),
+    "live_media_shares": CollectionLifecycle(
+        "live_media_shares", _FIELD, "workspace_id"),
     "projection_streams": CollectionLifecycle(
         "projection_streams", _FIELD, "workspace_id"),
     "projection_events": CollectionLifecycle(
@@ -118,6 +122,22 @@ TOP_LEVEL_LIFECYCLE: dict[str, CollectionLifecycle] = {
         "profile_fact_receipts", _FIELD, "workspace_id"),
     "memory_items": CollectionLifecycle(
         "memory_items", _FIELD, "workspace_id"),
+    "memory_source_manifests": CollectionLifecycle(
+        "memory_source_manifests", _FIELD, "workspace_id"),
+    "memory_settings": CollectionLifecycle(
+        "memory_settings", _FIELD, "workspace_id"),
+    "memory_control_receipts": CollectionLifecycle(
+        "memory_control_receipts", _FIELD, "workspace_id"),
+    "memory_deletion_tombstones": CollectionLifecycle(
+        "memory_deletion_tombstones", _FIELD, "workspace_id"),
+    "memory_deletion_jobs": CollectionLifecycle(
+        "memory_deletion_jobs", _FIELD, "workspace_id"),
+    # Independent deny records are intentionally excluded from ordinary
+    # workspace deletion/restore; deleting them could resurrect forgotten data.
+    "memory_deletion_ledger": CollectionLifecycle(
+        "memory_deletion_ledger", _SHARED),
+    "memory_deletion_ledger_heads": CollectionLifecycle(
+        "memory_deletion_ledger_heads", _SHARED),
     "memory_write_receipts": CollectionLifecycle(
         "memory_write_receipts", _FIELD, "workspace_id"),
     "memory_search_receipts": CollectionLifecycle(
@@ -210,6 +230,8 @@ SUBCOLLECTION_LIFECYCLE: dict[str, CollectionLifecycle] = {
         "actions", _DOC, parent_collection="browser_runs"),
     "chunks": CollectionLifecycle(
         "chunks", _DOC, parent_collection="artifacts"),
+    "image_observations": CollectionLifecycle(
+        "image_observations", _DOC, parent_collection="artifacts"),
 }
 
 
@@ -346,14 +368,16 @@ async def delete_founder_data(founder_id: str, *, execute: bool = False,
             from services import storage
 
             row = snapshot.to_dict() or {}
-            name = str(row.get("storage_name") or row.get("artifact_name")
-                       or row.get("artifact") or "")
-            if name:
-                try:
+            names = [str(row.get("storage_name") or row.get("artifact_name")
+                         or row.get("artifact") or "")]
+            if collection == "artifacts":
+                names.append(str(row.get("normalized_storage_name") or ""))
+            try:
+                for name in dict.fromkeys(item for item in names if item):
                     blob_deleted += bool(storage.delete_artifact(name))
-                except Exception:
-                    blob_errors.append(snapshot.reference.path)
-                    continue
+            except Exception:
+                blob_errors.append(snapshot.reference.path)
+                continue
         await snapshot.reference.delete()
         deleted += 1
     return {"status": "error" if blob_errors else "success",

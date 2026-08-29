@@ -52,6 +52,19 @@ BACKGROUND_FOUNDATION_NEGATIVE_CONSTRAINTS: tuple[str, ...] = (
     "NO_MODEL_OR_ADK_SPECIALIST_EXECUTION",
 )
 
+BACKGROUND_SKILL_NEGATIVE_CONSTRAINTS: tuple[str, ...] = (
+    "ACTOR_PRIVATE_ONLY",
+    "CITATIONS_REQUIRED",
+    "NO_ADK_INVOCATION",
+    "NO_APPROVAL_CREATION_OR_RESOLUTION",
+    "NO_BROWSER_OR_CONNECTORS",
+    "NO_EXTERNAL_EFFECTS",
+    "NO_EXTERNAL_READS",
+    "NO_MEMORY_READ_OR_WRITE",
+    "NO_PROACTIVE_CONVERSATION_DELIVERY",
+    "SERVER_RESOLVED_CAPABILITIES_ONLY",
+)
+
 
 LEGACY_RUNTIME_STATUS: dict[str, str] = {
     "ACTIVE": RuntimeStatus.QUEUED.value,
@@ -106,6 +119,11 @@ WORKFLOW_DEFINITIONS: dict[str, WorkflowDefinition] = {
         "alex_background_job:v1", RunKind.BACKGROUND, "1", frozenset(),
         policy_version="background-artifact-pilot-v1",
         capability_registry_version="background-artifact-pilot-v1",
+        domain="platform"),
+    "alex_background_artifact_draft:v1": WorkflowDefinition(
+        "alex_background_artifact_draft:v1", RunKind.BACKGROUND, "1",
+        frozenset(), policy_version="background-skill-gate-f-v1",
+        capability_registry_version="background-skill-gate-f-v1",
         domain="platform"),
     "hiring_role:v1": WorkflowDefinition(
         "hiring_role:v1", RunKind.ROLE, "1", frozenset(), domain="hiring"),
@@ -177,7 +195,7 @@ class DefaultWorkflowPolicy:
         return {"status": "success"}
 
 WAIT_CONTRACTS: frozenset[str] = frozenset({
-    "APPLICATION_EMAIL", "APPLICATION_PUBLIC", "EMAIL_REPLY", "LONG_DELAY", "H4S_TEST_REPLY",
+    "APPLICATION_EMAIL", "EMAIL_REPLY", "LONG_DELAY", "H4S_TEST_REPLY",
     "FOUNDER_APPROVAL", "FOUNDER_FEEDBACK", "PORTAL_CONFIRMATION",
     "PROVIDER_EVENT", "DEADLINE_TICK", "TIMER",
 })
@@ -187,6 +205,8 @@ WAIT_CONTRACTS: frozenset[str] = frozenset({
 PLAN_TEMPLATES: dict[str, tuple[str, ...]] = {
     # Exactly one deterministic, read-only founder pilot step.
     "alex_background_job:v1": ("analyze_artifact",),
+    # Exact Gate F synthetic harness; no route or dispatcher is registered.
+    "alex_background_artifact_draft:v1": ("produce_grounded_artifact",),
     "hiring_role:v1": ("define_role", "publish", "wait_for_applications"),
     "hiring_candidate:v1": ("ingest", "assess", "human_decision"),
     "hiring_onboarding:v1": ("prepare_onboarding", "human_decision"),

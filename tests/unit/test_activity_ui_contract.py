@@ -41,7 +41,7 @@ class TestMotionIsHonest:
 
 class TestClocks:
     def test_no_elapsed_counter_under_the_threshold(self):
-        assert "ACT_ELAPSED_THRESHOLD_MS = 5000" in UI
+        assert re.search(r"ACT_ELAPSED_THRESHOLD_MS\s*=\s*(?:5000|5e3)", UI)
         body = _fn("actRender")
         assert "elapsed >= ACT_ELAPSED_THRESHOLD_MS" in body
 
@@ -79,7 +79,9 @@ class TestDigest:
         assert "api(" not in block and "fetch(" not in block
 
     def test_digest_reads_on_load_focus_and_visibility_but_never_polls(self):
-        assert "restoreSession().then" in UI
+        assert "await restoreSession()" in UI
+        boot = _fn("boot")
+        assert boot.index("await loadIdentity()") < boot.index("await startAuthorizedApp()")
         assert 'window.addEventListener("focus", refreshWaiting)' in UI
         assert "visibilitychange" in UI
         # No timer may drive a network read.

@@ -1,0 +1,79 @@
+schema_version: cofounder.skill.v1
+skill_id: documents.produce-grounded-artifact
+version: 1.0.0
+status: DRAFT
+owner: documents-product
+engineering_owner: platform-runtime
+evaluation_owner: safety-evaluation
+summary: Prepare one private grounded evidence brief from one selected artifact.
+goal_contract:
+  supported_intents: [artifact_grounded_brief]
+  invocation_modes: [WORKFLOW_STEP]
+  non_goals:
+    - external_research
+    - sharing_or_sending
+    - submission_or_prefill
+    - approval_or_effect
+    - memory_access
+    - canonical_domain_mutation
+assignments:
+  agent_roles: [deterministic_worker]
+  workflow_steps: [background.artifact_grounded_brief]
+contracts:
+  input_schema_id: skill.documents.grounded-artifact.input.v1
+  input_schema_path: schemas/input.v1.json
+  output_schema_id: skill.documents.grounded-artifact.output.v1
+  output_schema_path: schemas/output.v1.json
+  error_schema_id: model.error.v1
+  completion_contract_id: documents.grounded-artifact-draft.v1
+  context_contract_id: context.selected-artifact-evidence.v1
+  evidence_contract_id: evidence.artifact-chunk-citation.v1
+  citation_policy_id: citations.all-material-claims-required.v1
+capabilities:
+  allow:
+    - capability_id: background.artifact.read_selected_evidence
+      version: 1.0.0
+    - capability_id: documents.persist_internal_draft
+      version: 1.0.0
+  effect_policy:
+    ceiling: INTERNAL_REVERSIBLE
+    authority_impacts: [ADVISORY, DRAFT]
+  required_permissions: [artifact.read_selected, artifact.write_private_draft]
+policy:
+  precondition_ids:
+    - workspace.active
+    - artifact.selected-ready-current
+    - budget.gate-f.available
+    - gate-f.offline-only
+  approval_policy_id: none.v1
+  accepted_data_classes: [WORKSPACE_INTERNAL]
+  produced_data_classes: [WORKSPACE_INTERNAL]
+  tenant_scope: CURRENT_WORKSPACE
+  required_feature_flags: []
+execution:
+  max_tool_calls: 3
+  max_resource_reads: 0
+  max_resource_bytes: 0
+  timeout_seconds: 120
+  retry_policy_id: retry.gate-f-offline.v1
+  idempotency_contract_id: idempotency.skill-invocation.v1
+  context_token_budget: 12000
+  output_size_bytes: 65536
+provenance:
+  playbook_path: PLAYBOOK.md
+  decision_ref: docs/background-work-gate-f-offline-qualification.md
+resources: []
+evaluation:
+  suite_ids:
+    - skill.documents.grounded-artifact.contract.v1
+    - skill.documents.grounded-artifact.grounding.v1
+    - skill.documents.grounded-artifact.safety.v1
+    - skill.documents.grounded-artifact.privacy.v1
+    - skill.documents.grounded-artifact.lifecycle.v1
+  release_gate_id: skill.gate-f-offline.v1
+  qualification_path: qualification.json
+lifecycle:
+  rollout_policy_id: offline.no-rollout.v1
+  rollback_to: null
+  replaces: null
+  deprecated_after: null

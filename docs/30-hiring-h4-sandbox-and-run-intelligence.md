@@ -107,7 +107,7 @@ separate implementation review, and a new release decision.
 
 ### 2.2 Identities, destinations, and data
 
-Provisioning is operator-only, server-side, and uses distinct team-controlled
+Provisioning is founder-only, server-side, and uses distinct team-controlled
 Google test accounts—not labels in the founder's ordinary mailbox.
 
 | Purpose | Required identity | Direction |

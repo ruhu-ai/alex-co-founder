@@ -62,7 +62,7 @@ def audit(project: str, region: str) -> dict[str, Any]:
         "co-founder-events", "co-founder-browser-expiry", "co-founder-timers",
         "co-founder-provider-events", "co-founder-discovery-ingestion",
         "co-founder-reconciliation", "co-founder-interactive",
-        "co-founder-background-pilot",
+        "co-founder-background-pilot", "co-founder-background-skill-live-v1",
     )
     queues = {name: _gcloud(
         "tasks", "queues", "describe", name, "--project", project,
@@ -84,13 +84,22 @@ def audit(project: str, region: str) -> dict[str, Any]:
         "co-founder-discovery-ingestion": 4,
         "co-founder-reconciliation": 4, "co-founder-interactive": 4,
         "co-founder-background-pilot": 1,
+        "co-founder-background-skill-live-v1": 1,
+    }
+    queue_attempts = {
+        "co-founder-events": 5, "co-founder-browser-expiry": 3,
+        "co-founder-timers": 5, "co-founder-provider-events": 5,
+        "co-founder-discovery-ingestion": 3,
+        "co-founder-reconciliation": 3, "co-founder-interactive": 3,
+        "co-founder-background-pilot": 3,
+        "co-founder-background-skill-live-v1": 3,
     }
     queues_correct = all(
         not value.get("error")
         and int(_path(value, "rateLimits", "maxConcurrentDispatches") or -1)
         == queue_concurrency[name]
         and int(_path(value, "retryConfig", "maxAttempts") or -1)
-        == (3 if name == "co-founder-background-pilot" else 8)
+        == queue_attempts[name]
         for name, value in queues.items())
     checks = {
         "firestore_pitr": _path(

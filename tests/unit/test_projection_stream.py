@@ -3,7 +3,11 @@ from __future__ import annotations
 import pytest
 
 from services.durable_store import InMemoryDurableStore
-from services.projection_stream import ProjectionEventService, sse_event
+from services.projection_stream import (
+    ProjectionEventService,
+    sse_event,
+    workspace_revision,
+)
 
 pytestmark = pytest.mark.asyncio
 
@@ -33,6 +37,7 @@ async def test_projection_sequence_replay_and_cursor_are_workspace_scoped():
         workspace_id="workspace_a", after_sequence=cursor["sequence"])
 
     assert [row["event_id"] for row in replay["events"]] == [second["event_id"]]
+    assert workspace_revision("workspace_a") >= 2
     assert "workspace_b" not in sse_event(replay["events"][0])
     foreign = await service.resolve_cursor(
         workspace_id="workspace_b", event_id=first["event_id"])

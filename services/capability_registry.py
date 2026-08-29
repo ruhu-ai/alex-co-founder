@@ -33,6 +33,62 @@ class CapabilityDescriptor:
     provenance_contract_id: str
 
 
+@dataclass(frozen=True)
+class VisualToolBinding:
+    """Reviewed model-tool policy while Gemini retains visual context."""
+
+    capability_id: str
+    side_effect_class: str
+    visual_policy: str
+
+
+def _vb(capability_id: str, effect: str, policy: str) -> VisualToolBinding:
+    return VisualToolBinding(capability_id, effect, policy)
+
+
+# Exact ADK function names exposed by the current root and five sub-agents. Missing
+# entries fail closed in visual context and the graph-coverage test catches drift.
+MODEL_TOOL_BINDINGS: dict[str, VisualToolBinding] = {
+    **{name: _vb(f"model.{name}", "READ_ONLY", "SCOPE_BOUND_READ") for name in {
+        "get_pipeline", "get_checklist", "search_attachment",
+        "get_upcoming_meetings", "check_availability", "check_alex_inbox",
+        "search_alex_mail", "read_alex_message", "read_page",
+        "get_unscored_opportunities", "get_profile", "propose_profile_updates",
+        "get_section_feedback", "get_form_questions", "get_opportunity",
+        "get_relevant_answers", "get_voice_rules", "inspect_form",
+        "verify_page_state", "get_approved_sections", "capture_screenshot",
+        "dedupe_check", "extract_records", "search_programs", "fetch_source",
+        "ask_portal_agent",
+        "prepare_hiring_role_brief",
+    }},
+    **{name: _vb(f"model.{name}", "INTERNAL_REVERSIBLE",
+                 "DURABLE_TARGET_PREPARATION") for name in {
+        "save_draft_section", "produce_document", "fill_fields",
+        "map_form_requirements", "open_portal",
+    }},
+    **{name: _vb(f"model.{name}", "IRREVERSIBLE_EXTERNAL",
+                 "EXACT_CONFIRMATION_ALWAYS") for name in {
+        "book_meeting", "send_alex_email", "submit_form", "register_account",
+        "sign_in",
+    }},
+    **{name: _vb(f"model.{name}", "NO_EFFECT", "CONTROL_PRESERVE_CONTEXT")
+       for name in {"request_approval", "close_browser", "transfer_to_agent"}},
+    **{name: _vb(f"model.{name}", "INTERNAL_REVERSIBLE",
+                 "EXACT_CONFIRMATION_WHEN_VISUAL") for name in {
+        "choose_opportunity", "record_feedback", "submit_voice_note",
+        "schedule_followup", "record_status", "save_opportunity",
+        "shortlist", "archive_with_reason", "record_answer", "complete_interview",
+        "ingest_document", "auto_apply_profile_updates", "confirm_profile_updates",
+        "complete_drafting", "vision_step",
+        "create_hiring_draft",
+    }},
+    **{name: _vb(f"model.{name}", "READ_ONLY",
+                 "EXPLICIT_SCOPE_WHEN_VISUAL") for name in {
+        "open_page", "browser_action",
+    }},
+}
+
+
 def _effect(action_kind: str, connector_id: str, *, approval: str,
             reconciliation: str) -> CapabilityDescriptor:
     return CapabilityDescriptor(
@@ -83,11 +139,54 @@ def _internal(capability_id: str, role: str, side_effect_class: str,
         provenance_contract_id="run_step_evidence.v1")
 
 
+def _gate_f_internal(
+        capability_id: str, *, side_effect_class: str, output: str,
+        implementation: str, permission: str) -> CapabilityDescriptor:
+    """Closed Gate F service descriptor; registration creates no callable route."""
+
+    return CapabilityDescriptor(
+        capability_id=capability_id, semantic_version="1.0.0",
+        implementation_binding=implementation,
+        input_schema_id=f"{capability_id}.input.v1",
+        output_schema_id=output, error_schema_id="model.error.v1",
+        allowed_agent_roles=frozenset({"deterministic_worker"}),
+        required_permissions=frozenset({permission}),
+        side_effect_class=side_effect_class, approval_policy_id="none.v1",
+        idempotency_contract="idempotency.skill-invocation.v1",
+        retry_contract="retry.gate-f-offline.v1",
+        timeout_contract="bounded_step_timeout.v1",
+        reconciliation_contract="durable_output_receipt.v1",
+        lifecycle="ACTIVE", reviewing_owner="platform-security",
+        decision_reference="docs/background-work-gate-f-offline-qualification.md",
+        evidence_reference="tests/unit/test_spec40_gate_f_runtime.py",
+        completion_contract_id="documents.grounded-artifact-draft.v1",
+        budget_contract_id="budget.gate-f.available",
+        observability_contract_id="offline.content-free-trace.v1",
+        eval_suite_id="skill.gate-f-runtime.v1",
+        provenance_contract_id="evidence.artifact-chunk-citation.v1",
+    )
+
+
 STATIC_CAPABILITIES: dict[str, CapabilityDescriptor] = {
+    "background.contract.validate": _internal(
+        "background.contract.validate", "deterministic_worker", "NO_EFFECT",
+        output="background.contract_receipt.v1",
+        implementation="service:background_work.foundation_validate"),
     "background.artifact.inspect": _internal(
         "background.artifact.inspect", "deterministic_worker", "NO_EFFECT",
         output="background.artifact_inventory.v1",
         implementation="service:background_pilot.execute_artifact_inventory"),
+    "background.artifact.read_selected_evidence": _gate_f_internal(
+        "background.artifact.read_selected_evidence", side_effect_class="READ_ONLY",
+        output="evidence.selected-artifact-context.v1",
+        implementation="service:background_skill_runtime.read_selected_evidence",
+        permission="artifact.read_selected"),
+    "documents.persist_internal_draft": _gate_f_internal(
+        "documents.persist_internal_draft",
+        side_effect_class="INTERNAL_REVERSIBLE",
+        output="skill.documents.grounded-artifact.output.v1",
+        implementation="service:background_skill_runtime.persist_internal_draft",
+        permission="artifact.write_private_draft"),
     "investor.search": _internal(
         "investor.search", "researcher", "READ_ONLY",
         output="investor.candidate_set.v1",
@@ -153,6 +252,10 @@ EXTERNAL_ACTION_CAPABILITIES: dict[str, CapabilityDescriptor] = {
         reconciliation="calendar_event_id.v1"),
     "export_drive_file": _effect(
         "export_drive_file", "drive", approval="signed_in_human_click.v1",
+        reconciliation="drive_source_checksum.v1"),
+    "export_alex_drive_file": _effect(
+        "export_alex_drive_file", "alex_drive",
+        approval="signed_in_human_click.v1",
         reconciliation="drive_source_checksum.v1"),
 }
 

@@ -2,6 +2,25 @@
   "__comment": "docs/23 §5.6 — composite indexes for session-resource search. Deploy: gcloud firestore indexes composite create per entry, or `firebase deploy --only firestore:indexes` with this file (see docs/13). Search scans order on immutable fields (occurred_at / created_at); recency listings order on updated_at and are single-page.",
   "indexes": [
     {
+      "collectionGroup": "live_media_shares",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {"fieldPath": "workspace_id", "order": "ASCENDING"},
+        {"fieldPath": "session_id", "order": "ASCENDING"},
+        {"fieldPath": "status", "order": "ASCENDING"}
+      ]
+    },
+    {
+      "collectionGroup": "media_consent_grants",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {"fieldPath": "workspace_id", "order": "ASCENDING"},
+        {"fieldPath": "session_id", "order": "ASCENDING"},
+        {"fieldPath": "source", "order": "ASCENDING"},
+        {"fieldPath": "status", "order": "ASCENDING"}
+      ]
+    },
+    {
       "collectionGroup": "projection_events",
       "queryScope": "COLLECTION",
       "fields": [
@@ -390,6 +409,55 @@
         {"fieldPath": "status", "order": "ASCENDING"},
         {"fieldPath": "command_type", "order": "ASCENDING"},
         {"fieldPath": "created_at", "order": "ASCENDING"}
+      ]
+    },
+    {
+      "collectionGroup": "memory_items",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {"fieldPath": "workspace_id", "order": "ASCENDING"},
+        {"fieldPath": "lifecycle_status", "order": "ASCENDING"}
+      ]
+    },
+    {
+      "collectionGroup": "memory_items",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {"fieldPath": "workspace_id", "order": "ASCENDING"},
+        {"fieldPath": "updated_at", "order": "DESCENDING"}
+      ]
+    },
+    {
+      "collectionGroup": "memory_items",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {"fieldPath": "workspace_id", "order": "ASCENDING"},
+        {"fieldPath": "source_session_id", "order": "ASCENDING"}
+      ]
+    },
+    {
+      "collectionGroup": "run_events",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {"fieldPath": "workspace_id", "order": "ASCENDING"},
+        {"fieldPath": "occurred_at", "order": "DESCENDING"}
+      ]
+    },
+    {
+      "collectionGroup": "workflow_runs",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {"fieldPath": "workspace_id", "order": "ASCENDING"},
+        {"fieldPath": "updated_at", "order": "DESCENDING"}
+      ]
+    },
+    {
+      "collectionGroup": "waits",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {"fieldPath": "workspace_id", "order": "ASCENDING"},
+        {"fieldPath": "status", "order": "ASCENDING"},
+        {"fieldPath": "created_at", "order": "DESCENDING"}
       ]
     }
   ],

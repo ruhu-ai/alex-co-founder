@@ -15,6 +15,7 @@ from services.canonical import canonical_hash
 from services.durable_store import AtomicMutation, DurableStore, production_store
 from services.workflow_contracts import (
     BACKGROUND_FOUNDATION_NEGATIVE_CONSTRAINTS,
+    BACKGROUND_SKILL_NEGATIVE_CONSTRAINTS,
     PLAN_TEMPLATES,
     WAIT_CONTRACTS,
     DefaultWorkflowPolicy,
@@ -26,6 +27,53 @@ from services.workflow_contracts import (
     stable_id,
     utc_now,
 )
+
+_GATE_F_SKILL_BINDING = [{
+    "skill_identity": "documents.produce-grounded-artifact@1.0.0",
+    "definition_hash": (
+        "sha256:440a035848b8034fc9c8ca4fc250439b06b26bc799cb9101eb3a7896fbf51c67"
+    ),
+    "qualification_hash": (
+        "sha256:bb88c73da2192c6985cae04a5238aea64953e6d751256e17d06a5b46fe6a7cae"
+    ),
+}]
+
+_BACKGROUND_PROFILE_RULES = {
+    "pilot.artifact_evidence_inventory": {
+        "workflow_kind": "alex_background_job:v1",
+        "background_gate_ceiling": "GATE_C_FOUNDER_PILOT",
+        "eligibility_policy_version": "background-artifact-pilot-eligibility-v1",
+        "completion_contract_id": "background.artifact_inventory.v1",
+        "milestone_policy_id": "background.closed_milestones.v1",
+        "skill_bindings": [],
+        "constraints": frozenset(BACKGROUND_FOUNDATION_NEGATIVE_CONSTRAINTS),
+        "budgets": {
+            "max_steps": 1, "max_model_calls": 0,
+            "max_provider_calls": 0, "max_tokens": 0,
+            "max_active_seconds": 30, "max_wall_seconds": 120,
+            "max_artifact_bytes": 5_242_880, "max_artifact_chunks": 100,
+            "max_output_bytes": 65_536, "max_retries": 2,
+            "max_concurrent": 1,
+        },
+    },
+    "pilot.artifact_grounded_brief": {
+        "workflow_kind": "alex_background_artifact_draft:v1",
+        "background_gate_ceiling": "GATE_F_SYNTHETIC_RUNTIME",
+        "eligibility_policy_version": "background-skill-gate-f-v1",
+        "completion_contract_id": "documents.grounded-artifact-draft.v1",
+        "milestone_policy_id": "background.closed-milestones.gate-f.v1",
+        "skill_bindings": _GATE_F_SKILL_BINDING,
+        "constraints": frozenset(BACKGROUND_SKILL_NEGATIVE_CONSTRAINTS),
+        "budgets": {
+            "max_steps": 1, "max_model_calls": 1,
+            "max_provider_calls": 1, "max_tokens": 16_096,
+            "max_active_seconds": 120, "max_wall_seconds": 300,
+            "max_artifact_bytes": 5_242_880, "max_artifact_chunks": 100,
+            "max_output_bytes": 65_536, "max_retries": 2,
+            "max_concurrent": 1,
+        },
+    },
+}
 
 
 def _error(code: str, message: str, http_status: int = 409) -> dict[str, Any]:
@@ -121,14 +169,12 @@ class WorkflowRuntime:
                 "effect_authority", "memory_write_authority",
                 "external_read_authority", "specialist_execution_enabled",
             }
+            rule = _BACKGROUND_PROFILE_RULES.get(
+                str(profile.get("job_template_id") or ""))
             required = {
                 "execution_mode": "BACKGROUND",
-                "background_gate_ceiling": "GATE_C_FOUNDER_PILOT",
-                "job_template_id": "pilot.artifact_evidence_inventory",
                 "job_template_version": "1",
                 "eligibility_policy_id": "BackgroundEligibilityPolicy",
-                "eligibility_policy_version":
-                    "background-artifact-pilot-eligibility-v1",
                 "origin_actor_id": originating_actor_id,
                 "delivery_session_id": origin_session_id,
                 "subject_kind": "ACTOR",
@@ -136,9 +182,6 @@ class WorkflowRuntime:
                 "visibility_scope": "ACTOR_PRIVATE",
                 "visibility_policy_id": "actor-private-default",
                 "visibility_policy_version": "actor-private-background-pilot-v1",
-                "completion_contract_id": "background.artifact_inventory.v1",
-                "milestone_policy_id": "background.closed_milestones.v1",
-                "skill_bindings": [],
                 "output_manifest_ref": None,
                 "approval_authority": "NONE",
                 "effect_authority": "NONE",
@@ -146,7 +189,16 @@ class WorkflowRuntime:
                 "external_read_authority": "NONE",
                 "specialist_execution_enabled": True,
             }
-            if (not originating_actor_id
+            if rule:
+                required.update({
+                    "background_gate_ceiling": rule["background_gate_ceiling"],
+                    "eligibility_policy_version": rule["eligibility_policy_version"],
+                    "completion_contract_id": rule["completion_contract_id"],
+                    "milestone_policy_id": rule["milestone_policy_id"],
+                    "skill_bindings": rule["skill_bindings"],
+                })
+            if (not originating_actor_id or not rule
+                    or definition.workflow_kind != rule["workflow_kind"]
                     or set(profile) != profile_fields
                     or any(profile.get(key) != value
                            for key, value in required.items())
@@ -155,16 +207,8 @@ class WorkflowRuntime:
                     or any(not isinstance(item, str) or not item or len(item) > 80
                            for item in constraints)
                     or len(set(constraints)) != len(constraints)
-                    or not set(BACKGROUND_FOUNDATION_NEGATIVE_CONSTRAINTS)
-                    <= set(constraints)
-                    or budget_limits != {
-                        "max_steps": 1, "max_model_calls": 0,
-                        "max_provider_calls": 0, "max_tokens": 0,
-                        "max_active_seconds": 30, "max_wall_seconds": 120,
-                        "max_artifact_bytes": 5_242_880,
-                        "max_artifact_chunks": 100,
-                        "max_output_bytes": 65_536, "max_retries": 2,
-                        "max_concurrent": 1}
+                    or not rule["constraints"] <= set(constraints)
+                    or budget_limits != rule["budgets"]
                     or not str(profile.get("input_manifest_ref") or "").endswith(
                         f"/{domain_ref}")
                     or not str(profile.get("input_manifest_hash") or "").startswith(

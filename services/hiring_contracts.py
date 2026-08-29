@@ -1,4 +1,4 @@
-"""Closed, versioned contracts for live and optional synthetic hiring flows."""
+"""Closed, versioned contracts for the synthetic-only hiring foundation."""
 
 from __future__ import annotations
 

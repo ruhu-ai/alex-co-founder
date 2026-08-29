@@ -1,6 +1,6 @@
 """Seed Ruhu's durable synthetic Forward Deployment Engineer walkthrough.
 
-This is an operator-run demo seeder, not a production candidate-import path.
+This is a founder-run demo seeder, not a production candidate-import path.
 It requires the deployment-owned synthetic fixture allowlist and reuses the
 same H0-H3 services/records as the founder UI. It never sends email, opens a
 browser, or deletes candidate data.
@@ -30,7 +30,7 @@ from services.workflow_runtime import WorkflowRuntime
 FIXTURE_ID = "fixture_ruhu_fde_walkthrough"
 NAMESPACE = "synthetic_hiring_ruhu_fde"
 WORKSPACE_ID = os.environ.get("HIRING_WORKSPACE_ID", "workspace_founder")
-ACTOR_ID = os.environ.get("HIRING_OWNER_ACTOR_ID", "member_owner")
+ACTOR_ID = os.environ.get("HIRING_FOUNDER_ACTOR_ID", "member_founder")
 
 
 def _guard() -> dict[str, Any]:
@@ -103,13 +103,11 @@ async def _principal(store) -> ActorPrincipal:
         filters={"actor_id": ACTOR_ID, "workspace_id": WORKSPACE_ID}, limit=2)
     member = members[0] if len(members) == 1 else None
     if (not member or member.get("workspace_id") != WORKSPACE_ID
-            or member.get("role") != WorkspaceRole.OWNER.value):
+            or member.get("role") != WorkspaceRole.FOUNDER.value):
         raise SystemExit(
-            "Provision an OWNER membership first with scripts/seed_hiring_membership.py.")
+            "Provision the Founder first with scripts/seed_hiring_founder.py.")
     return ActorPrincipal(
-        actor_id=ACTOR_ID, workspace_id=WORKSPACE_ID, role=WorkspaceRole.OWNER,
-        role_grants=frozenset(), candidate_assignments=frozenset(),
-        interview_assignments=frozenset(), session_auth_time=int(time.time()),
+        actor_id=ACTOR_ID, workspace_id=WORKSPACE_ID, role=WorkspaceRole.FOUNDER, session_auth_time=int(time.time()),
         membership_version=int(member.get("version", 1)))
 
 

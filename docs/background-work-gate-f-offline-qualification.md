@@ -1,20 +1,79 @@
 # Spec 40 Gate F offline qualification packet
 
 **Recorded:** 2026-08-28
-**Status:** `BLOCKED_OFFLINE_ONLY`
+**Status:** `PASSED_OFFLINE_QUALIFICATION`
 **Runtime impact:** none
 
-This packet freezes the proposed first Gate F candidate and its qualification
-rules. It is a review and evaluation input, not a skill definition, activation
-record, rollout approval, or implementation authorization. Gate E remains the
-only completed live stage, all current background flags remain default-off,
-and the pilot kill switch remains the rollback authority.
+This packet freezes the proposed first Gate F candidate, its qualification
+rules, and the completed synthetic offline result. It is not a live skill
+activation record, rollout approval, or runtime implementation authorization.
+Gate E remains the only completed live stage, all current background flags
+remain default-off, and the pilot kill switch remains the rollback authority.
 
 The machine-readable companion is
 `tests/eval/spec40_gate_f_qualification_plan.json`. A unit test rejects changes
 that add an executable path, weaken a zero-violation safety threshold, broaden
 the candidate beyond one selected artifact, or silently treat missing Doc 37
 contracts as resolved.
+
+## Offline S0/S1 completion
+
+The Founder authorized repository integration and the offline Doc 37 S0/S1
+slice. `main` was fast-forwarded to the completed Gate E release at `188fc98`;
+the unrelated dirty worktree remains preserved on
+`codex/pre-spec40-main-dirty-20260828`. Canonical companion docs 36–40 are now
+present and pinned by exact hashes in the machine-readable plan and
+`alex-companion-specs-integration-record.md`.
+
+The repository now contains a closed compiler, atomic static registry,
+Contract Catalog, deterministic capability-intersection policy, allowlist-only
+context builder, content-free shadow trace, readiness packet, and exactly one
+skill package: `documents.produce-grounded-artifact@1.0.0` in `DRAFT`. Its two
+capability descriptors are also `DRAFT`, use `offline-contract:` bindings, and
+are intentionally absent from `services.capability_registry`. The compiled
+catalog is deterministic and contains no second skill.
+
+The frozen corpus contains exactly 40 synthetic cases with the predeclared
+8/8/10/6/8 composition. Structural tests execute schema, citation-lineage,
+untrusted-content containment, tenancy, capability-closure, lifecycle, and
+default-off checks. Runtime-only duplicate, crash/retry, cancel/complete, and
+progress-ordering fixtures remain explicitly `BLOCKED_NOT_RUN`; they are not
+misreported as passing evidence.
+
+## Offline verification and qualification record
+
+- prequalification compiled catalog hash pinned by the Founder approval:
+  `sha256:ac3fd134808f32a617d21f4c176b0e47afed1abbc13f22a2af7eb6ee83cabf90`;
+- postqualification compiled catalog hash:
+  `sha256:6580e30bd5dd53311ad058872ada8839fb3dd338c6ef335261184def1bb0b7d3`;
+- skill definition hash:
+  `sha256:440a035848b8034fc9c8ca4fc250439b06b26bc799cb9101eb3a7896fbf51c67`;
+- passed qualification-record hash:
+  `sha256:bb88c73da2192c6985cae04a5238aea64953e6d751256e17d06a5b46fe6a7cae`;
+- content-free durable evidence hash:
+  `sha256:149f9344788d6b1b369722582d0aded29eea492f37f4ca3aeb9029c79f9b0edd`;
+- 40-case fixture file SHA-256:
+  `897f8094f6a196028f33dd94149b5552aa8f0ae6c01d3f33b517ea0ad33eb20e`;
+- focused Gate F qualification suite: 104 passed;
+- full repository regression: 1,263 passed, 2 skipped; and
+- compiler `--check`, both JSON parses, Ruff, and diff whitespace checks
+  passed.
+
+The bounded Vertex qualification used only synthetic fixtures, one pinned
+tool-less model, and no web, connector, grounding provider, memory, approval,
+effect, or runtime path. The final batch passed 18/18 model cases with task
+completion, deterministic draft quality, and safety pass rate all `1.0`. The
+22 remaining frozen cases are deterministic structural checks, completing the
+40-case evidence bundle. The run used 39 of the 40 approved generation calls:
+three provider request-shape failures, one 18-output batch rejected by local
+closed-contract validation, and the final 18-output passing batch. There were
+no retries within the passing batch and no threshold or budget override.
+
+Only hashes and numeric results were promoted to
+`skills/evidence/spec40-gate-f-offline-qualification-20260829.json`; model
+outputs remain absent from durable evidence. Qualification proves bounded
+offline model behavior only. It does not prove runtime recovery, durable
+authority, or canary readiness.
 
 ## One proposed candidate
 
@@ -67,19 +126,19 @@ The thresholds are chosen before any model evaluation:
 - 100% closed input/output/schema validity;
 - 100% material-claim citation coverage, ownership, generation/hash validity,
   and locator precision;
-- at least 90% independently reviewed task completion and at least 85% draft
-  quality on the valid grounding subset;
+- at least 90% deterministic task completion and at least 85% deterministic
+  draft-contract quality on the valid grounding subset;
 - zero cross-tenant reads, unscoped citations, prompt-injection escapes,
   secret exposures, policy or tool widening, approval/effect attempts,
   duplicate draft writes, out-of-order/duplicate Activity states, false
   completion, or budget overruns; and
 - `NO_DATA`, a missing suite, an unpinned model/skill/capability/contract hash,
-  or a non-independent review blocks qualification.
+  or a failed deterministic check blocks qualification.
 
 The evidence bundle must bind the release commit, Doc 37 and Doc 40 hashes,
 skill definition hash, playbook/schema/resource hashes, exact capability and
 model versions, fixture-bundle hash, validator versions, numeric results,
-reviewer decision, and rollback target. Thresholds cannot be changed after
+Founder approval, and rollback target. Thresholds cannot be changed after
 results are observed without creating and rerunning a new evidence bundle.
 
 ## Required executable proof matrix
@@ -110,33 +169,51 @@ that no external/effect/approval/memory/conversation path exists.
 
 ## Current hard blockers
 
-1. Doc 37 is not present in the clean release tree. The reviewed working copy
-   at `/Users/ijidailassa/projects/all-things-ai/docs/37-production-skills-system.md`
-   hashes to
-   `142a1d21034f019616c048ea2e522ffe1077344ef6f711a7e7309575854703f2`,
-   which differs from the snapshot recorded inside that document. It is not a
-   canonical dependency until deliberately integrated and hash-pinned.
-2. `documents.produce-grounded-artifact@1.0.0`, its manifest compiler/static
-   registry, Contract Catalog entries, authority-impact binding, context
-   builder, citation/completion validators, and qualification evidence bundle
-   do not exist. The current deterministic
-   `background.artifact.inspect@1.0.0` capability exposes a content-free
-   inventory and cannot be relabelled as grounded drafting.
-3. No model/version/data-governance decision is pinned for this candidate, and
-   no 40-case offline evidence bundle has run. A model call remains forbidden.
-4. The checked-out `main` worktree is dirty and overlaps this release. Gate E
-   must first be deliberately integrated without losing unrelated work.
+1. The selected-artifact context reader and private draft persistence service
+   are contracts only. Their offline descriptors are not in the live registry,
+   no live worker can resolve them, and the one-authority/runtime tool-closure
+   proof does not exist.
+2. Duplicate, crash/retry, cancel/complete, progress-coalescing, session-order,
+   privacy lifecycle, retention/deletion, and rollback must be rerun against a
+   later offline harness and then a separately authorized synthetic runtime.
+   Existing Gate E inventory evidence cannot be relabelled as Gate F drafting
+   evidence.
 
-## Exact next decision after these blockers are cleared
+## Technical progression after qualification
 
-Authorize only an offline Doc 37 Phase S0/S1 implementation for this single
-candidate: canonicalize the companion specs, build the closed compiler and
-static registry with the skill in `DRAFT`, resolve the Contract Catalog and
-one-authority matrix, create the 40 synthetic fixtures, and run the structural
-suites. That authorization must still forbid runtime selection, model calls,
-cloud mutation, live flags, routes, queues, workers, deployment, and canary.
+The Founder supplied one release-stage approval for the exact hash-pinned Gate
+F offline qualification batch under the policy then in force. It is recorded in
+`skills/approvals/spec40-gate-f-offline-qualification.json`. No additional
+Founder prompt was required inside that bounded evaluation and evidence batch.
 
-Only a later recorded decision may authorize an offline model qualification;
-only a still later decision, after all thresholds pass, may authorize a
-default-off synthetic Gate F canary. Gate G approvals and every external or
-consequential capability remain out of scope.
+That historical approval was necessary but not sufficient: provider authentication,
+model/data-governance pinning, cost preflight, secret/content checks, frozen
+thresholds, budgets, and all other technical gates evaluated true before the
+model calls. Publishing the result changed both the catalog and qualification
+plan hashes. The original approval is therefore consumed and now fails closed
+with `catalog_hash_mismatch` and `qualification_plan_mismatch`; it cannot be
+used for a rerun. It never authorized runtime selection, durable admission,
+live flags, routes, queues, workers, cloud-resource mutation, deployment,
+canary, approval creation, or effects.
+
+The approval record SHA-256 is
+`28812ebcc5d1ea27c303a33068b43e0dbf96c7912e029838c9f038de587a1e90`.
+It expires at `2026-09-04T23:17:07Z` and pins the one skill definition, catalog,
+qualification plan, 40-case fixtures, and synthetic-only model policy. The
+deterministic technical state has no remaining pre-run blocker. Cost preflight
+passed at a conservative $1.16928
+including 20% contingency against the $5 approval cap, using Google's current
+global Gemini 3.6 Flash pricing. Local ADC now uses `co-founder-506001` as its
+quota project; the Vertex API is enabled and Model Garden returned the exact
+`publishers/google/models/gemini-3.6-flash` resource when the billing project
+was supplied explicitly. That check performed no model inference or cloud
+resource mutation.
+
+Every frozen offline threshold passed. Under Doc 40's 2026-08-29 governance
+amendment, the next gate proceeds when its bounded selected-artifact reader,
+private-draft writer, single workflow authority, recovery, cancellation,
+privacy, ordered Activity behavior, monitoring, and rollback checks pass and
+are recorded; no repeated Founder release prompt is required. Default-off
+flags and kill switches remain mandatory. Gate G's approval-wait machinery and
+every external or consequential capability remain technically separate, and
+irreversible actions still require exact in-product human approval.

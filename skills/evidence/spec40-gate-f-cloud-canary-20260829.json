@@ -1,0 +1,162 @@
+{
+  "schema_version": "cofounder.spec40-gate-f-canary-evidence.v1",
+  "evidence_version": "1.0.0",
+  "status": "PASSED_CONTROLLED_SYNTHETIC_CANARY",
+  "recorded_date": "2026-08-29",
+  "content_free": true,
+  "project": {
+    "project_id": "co-founder-506001",
+    "project_number": "624375313190",
+    "region": "us-central1",
+    "synthetic_only": true
+  },
+  "capability": {
+    "template_id": "pilot.artifact_grounded_brief",
+    "template_version": "1",
+    "skill_identity": "documents.produce-grounded-artifact@1.0.0",
+    "model_resource": "publishers/google/models/gemini-3.6-flash",
+    "model_calls_per_run": 1,
+    "tools_enabled": false,
+    "web_enabled": false,
+    "connectors_enabled": false,
+    "approval_authority": "NONE",
+    "effect_authority": "NONE",
+    "memory_write_authority": "NONE",
+    "conversation_delivery_enabled": false,
+    "visibility_scope": "ACTOR_PRIVATE"
+  },
+  "synthetic_fixture": {
+    "workspace_id": "spec40_canary_workspace_20260828",
+    "actor_id": "spec40_canary_founder_20260828",
+    "role": "FOUNDER",
+    "session_id": "spec40_canary_session_20260828",
+    "artifact_id": "41414141414141414141414141414141",
+    "source_bytes": 165,
+    "source_chunks": 2,
+    "real_user_data_used": false
+  },
+  "live_proofs": {
+    "idempotent_success": {
+      "command_id": "command_88393c393f6cea3a9fe844ed8ebb",
+      "run_id": "run_f61d563613fea32dc7885fc0459a",
+      "duplicate_reused_command_and_run": true,
+      "attempts": 1,
+      "timeline": [
+        "QUEUED:1",
+        "RUNNING:2",
+        "SUCCEEDED:3"
+      ],
+      "output_kind": "BACKGROUND_GROUNDED_EVIDENCE_DRAFT",
+      "output_visibility": "ACTOR_PRIVATE",
+      "output_status": "DRAFT",
+      "citation_count": 2,
+      "output_content_hash": "sha256:447732470d960a7df07dfcf5739ad919f2f8083dbce2512badfc13961c84581c"
+    },
+    "bounded_retry_failure": {
+      "run_id": "run_5850b441e98e83861b13f6782bfc",
+      "attempts": 3,
+      "failed_attempts": 3,
+      "terminal_status": "FAILED",
+      "timeline_sequences": [1, 2, 3, 4, 5, 6, 7],
+      "output_count": 0,
+      "fixture_shape_defect_fixed": true,
+      "window_cleaned_before_next_run": true
+    },
+    "cancellation": {
+      "run_id": "run_71b5030d80119e8a758de76d626c",
+      "timeline": [
+        "QUEUED:1",
+        "RUNNING:2",
+        "CANCELLING:3",
+        "CANCELLED:4"
+      ],
+      "output_created": false,
+      "worker_commit_fenced": true
+    },
+    "kill_switch": {
+      "fresh_admission_http_status": 403,
+      "error_code": "background_skill_killed",
+      "queue_state_before_cleanup": "PAUSED",
+      "health_state": "blocked"
+    },
+    "monitoring": {
+      "notification_channel_name": "projects/co-founder-506001/notificationChannels/11488372512344482253",
+      "notification_channel_display_name": "Spec 40 Canary Failures",
+      "alert_id": "projects/co-founder-506001/alerts/0.obzpb1xl87ea",
+      "alert_policy_display_name": "Spec 40 Gate F canary service 5xx",
+      "alert_opened_at": "2026-08-29T00:24:54Z",
+      "alert_closed_at": "2026-08-29T00:27:18Z",
+      "alert_state": "CLOSED"
+    },
+    "forbidden_collection_counts": {
+      "approvals": 0,
+      "external_actions": 0,
+      "conversation_deliveries": 0,
+      "wake_deliveries": 0,
+      "memory_items": 0,
+      "memory_write_receipts": 0
+    }
+  },
+  "canary_findings": [
+    {
+      "code": "python_310_strenum_compatibility",
+      "disposition": "FIXED_AND_RETESTED"
+    },
+    {
+      "code": "duplicate_dispatch_projection",
+      "disposition": "FIXED_AND_RETESTED"
+    },
+    {
+      "code": "numeric_evidence_locator_required",
+      "disposition": "FIXED_AND_RETESTED"
+    },
+    {
+      "code": "cancellation_requires_second_private_http_slot",
+      "disposition": "FIXED_INFRASTRUCTURE_QUEUE_CONCURRENCY_REMAINS_ONE"
+    }
+  ],
+  "cleanup": {
+    "synthetic_workspace_remaining_records": 0,
+    "canary_service_count": 0,
+    "queue_count": 0,
+    "identity_count": 0,
+    "secret_count": 0,
+    "alert_policy_count": 0,
+    "canary_image_count": 0,
+    "source_archive_count": 0,
+    "temporary_iam_binding_count": 0,
+    "immutable_cloud_build_metadata_retained": true,
+    "preexisting_notification_channel_retained": true
+  },
+  "default_state": {
+    "repository_admission_enabled": false,
+    "repository_execution_enabled": false,
+    "repository_kill_switch_active": true,
+    "workspace_allowlist_empty": true,
+    "normal_service_gate_f_enabled_by_this_canary": false,
+    "generic_background_routes_enabled": false,
+    "generic_runs_or_sse_enabled": false
+  },
+  "pinned_inputs": {
+    "offline_qualification_evidence_sha256": "sha256:149f9344788d6b1b369722582d0aded29eea492f37f4ca3aeb9029c79f9b0edd",
+    "synthetic_runtime_evidence_sha256": "sha256:14bf103358f43d2d2dfcf43abc2e38619a739764b47716f61a82d3e58e502894",
+    "compiled_catalog_file_sha256": "sha256:3668052db34735b909a474b474eee2b681157435ca7934ac5cd3ac9c32b522d9",
+    "background_skill_runtime_sha256": "sha256:6250dc9987638e188d8ab028adf73c44a51df9374f05953ab1077d352d5cfcf2",
+    "background_routes_sha256": "sha256:092c69f0c82dd999c80e1e4573fae8a1daec404a712b2abd4d277e5de09c4dc1",
+    "activity_ui_sha256": "sha256:586b7aa31b04641bd91c0aa5d05453fdbb9710e74b7c407aca0dd5d4d70d0651",
+    "canary_host_sha256": "sha256:653e95685f06801a61a62d425a534e6721bc70b0e4929429310d2a46c87531fc",
+    "task_queue_sha256": "sha256:9d3bfbca48daa1c33f6d658808d6858a9bdd805e95991c8f5aa76995bc8ea710",
+    "workload_identity_sha256": "sha256:0b9d13dda28c6faf0cac227e40c3e309bab49fa2e6b512206afdca10f5504b21",
+    "skill_models_sha256": "sha256:186f2e01c4abce6b54877e71a99e1b457eef54e2e66bcd46043570bbaf5d05f0"
+  },
+  "release_progression": {
+    "mode": "TECHNICAL_GATES_AUTOMATIC",
+    "founder_release_approval_required": false,
+    "technical_gates_passed_for_synthetic_canary": true,
+    "rollback_proved": true,
+    "normal_service_integration_required": true,
+    "concurrent_normal_revision_drift_blocks_overwrite": true,
+    "gate_g_approval_wait_enabled": false,
+    "gate_h_broad_expansion_enabled": false
+  }
+}

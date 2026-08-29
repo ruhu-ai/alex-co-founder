@@ -1,6 +1,8 @@
 """Current-tab Google founder login security and session contracts."""
 
+import json
 import logging
+import time
 from types import SimpleNamespace
 
 import pytest
@@ -61,6 +63,7 @@ def _successful_claims():
         "email_verified": True,
         "name": "Founder",
         "auth_time": 1_700_000_000,
+        "iat": int(time.time()),
     }
 
 
@@ -95,6 +98,9 @@ def test_start_is_current_tab_redirect_with_signed_short_lived_state(
     assert flow.authorization_params["access_type"] == "online"
     assert flow.authorization_params["include_granted_scopes"] == "false"
     assert flow.authorization_params["prompt"] == "select_account"
+    assert json.loads(flow.authorization_params["claims"]) == {
+        "id_token": {"auth_time": {"essential": True}},
+    }
     assert flow.authorization_params["nonce"]
     assert flow.authorization_params["state"]
 
@@ -183,6 +189,64 @@ def test_callback_enforces_verified_email_allowlist(client, monkeypatch):
 
     assert response.status_code == 303
     assert response.headers["location"].endswith("google_error=not_authorized")
+    assert client.get("/auth/me").json()["mode"] == "open"
+
+
+def test_callback_uses_fresh_verified_token_issue_time_when_auth_time_is_optional(
+        client, monkeypatch):
+    flow = FakeFlow()
+    expected_issued_at = int(time.time())
+    monkeypatch.setattr(google_login, "_flow", lambda *_args, **_kwargs: flow)
+
+    async def verify(_token, *, nonce):
+        assert nonce
+        claims = _successful_claims()
+        claims.pop("auth_time")
+        claims["iat"] = expected_issued_at
+        return claims
+
+    monkeypatch.setattr(google_login, "_verify_id_token", verify)
+    client.get("/auth/google/start", follow_redirects=False)
+    response = client.get(
+        "/auth/google/callback",
+        params={"code": "x", "state": flow.authorization_params["state"]},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/"
+    session = auth.read_session(client.cookies.get(auth.SESSION_COOKIE))
+    assert session["auth_time"] == expected_issued_at
+    assert session["auth_time_source"] == "oidc_token_iat"
+
+
+@pytest.mark.parametrize("issued_at", [None, 1, 10**12])
+def test_callback_rejects_missing_or_unfresh_session_timestamp(
+        client, monkeypatch, issued_at):
+    flow = FakeFlow()
+    monkeypatch.setattr(google_login, "_flow", lambda *_args, **_kwargs: flow)
+
+    async def verify(_token, *, nonce):
+        assert nonce
+        claims = _successful_claims()
+        claims.pop("auth_time")
+        if issued_at is None:
+            claims.pop("iat")
+        else:
+            claims["iat"] = issued_at
+        return claims
+
+    monkeypatch.setattr(google_login, "_verify_id_token", verify)
+    client.get("/auth/google/start", follow_redirects=False)
+    response = client.get(
+        "/auth/google/callback",
+        params={"code": "x", "state": flow.authorization_params["state"]},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    assert response.headers["location"].endswith(
+        "google_error=authentication_time_missing")
     assert client.get("/auth/me").json()["mode"] == "open"
 
 

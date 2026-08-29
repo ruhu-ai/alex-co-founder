@@ -90,6 +90,10 @@ class TestAdminMailboxGating:
         assert portal_client.get("/_mailbox/nobody@example.com").status_code == 200
 
     def test_gated_in_production(self, portal, portal_client, monkeypatch):
+        # This unit test exercises the HTTP gate only.  Never let setting the
+        # Cloud Run marker turn the in-memory fixture into a live Firestore
+        # reset against whichever project happens to be configured locally.
+        monkeypatch.setattr(portal, "_db", lambda: None)
         monkeypatch.setenv("K_SERVICE", "mock-portal")
         assert portal_client.get("/admin/reset").status_code == 401
         assert portal_client.get("/_mailbox/nobody@example.com").status_code == 401

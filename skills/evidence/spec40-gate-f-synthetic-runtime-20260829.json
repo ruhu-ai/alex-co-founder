@@ -1,0 +1,73 @@
+{
+  "schema_version": "cofounder.gate-f.synthetic-runtime-evidence.v1",
+  "evidence_id": "spec40-gate-f-synthetic-runtime-20260829",
+  "recorded_at": "2026-08-28T23:47:22Z",
+  "status": "PASSED_SYNTHETIC_RUNTIME",
+  "content_free": true,
+  "synthetic_only": true,
+  "template_id": "pilot.artifact_grounded_brief@1",
+  "skill_identity": "documents.produce-grounded-artifact@1.0.0",
+  "release_progression": {
+    "founder_release_approval_required": false,
+    "technical_gates_mandatory": true,
+    "in_product_effect_approval_unchanged": true
+  },
+  "pinned_inputs": {
+    "offline_qualification_evidence_sha256": "sha256:149f9344788d6b1b369722582d0aded29eea492f37f4ca3aeb9029c79f9b0edd",
+    "compiled_catalog_file_sha256": "sha256:3668052db34735b909a474b474eee2b681157435ca7934ac5cd3ac9c32b522d9",
+    "background_skill_runtime_sha256": "sha256:14ada655d5fd35d27b13fbb90789557ee484adbdbd20f95d39a31bbd6e3155f5",
+    "background_work_sha256": "sha256:2e1571650eb4987e24f443e84838ba08c0e5e6bd4ae1dd899da46de4cd105076",
+    "workflow_runtime_sha256": "sha256:baece9f8c3adae683e1a3083d4b3b2c1d18e7440a56e7603f102f317386fcc46",
+    "workflow_contracts_sha256": "sha256:8e72deac0b140eabcb37a027ecc25492b04f0c38be1faacdf3011b87517c1986",
+    "workflow_plan_validator_sha256": "sha256:e2e69743c13f93829388de4e878422ec439a054f1c312a98209df346f552f812",
+    "capability_registry_sha256": "sha256:e9ecc9361ea5bdfacfc2ffebb43fc28ff57584d41154bcc7df5a4fe4d5a59760",
+    "activity_projection_sha256": "sha256:0cf593e9bce4c12d5d8dd70a9819993b6cee49c463108ab832ac1325f1d3a10e",
+    "activity_ui_sha256": "sha256:b659a747a941a1f82b4995d39863eb6584374e7eee5219ccd23a715e8061748b"
+  },
+  "verification": {
+    "gate_f_and_related_tests_passed": 165,
+    "full_repository_tests_passed": 1275,
+    "full_repository_tests_skipped": 2,
+    "ruff_passed": true,
+    "compiler_check_passed": true,
+    "diff_check_passed": true
+  },
+  "proved": {
+    "single_workflow_authority": true,
+    "exact_capability_closure": true,
+    "founder_only_admission": true,
+    "actor_private_visibility": true,
+    "workspace_and_session_scoping": true,
+    "deterministic_idempotency": true,
+    "one_concurrent_run_per_founder_template": true,
+    "rate_limit_three_per_hour": true,
+    "one_model_and_provider_call_budget": true,
+    "closed_grounded_output_validation": true,
+    "prompt_injection_output_denial": true,
+    "atomic_private_draft_commit": true,
+    "duplicate_delivery_suppression": true,
+    "retry_and_recovery": true,
+    "cancel_fencing": true,
+    "ordered_activity_projection": true,
+    "kill_switch": true,
+    "content_free_audit_and_metrics": true,
+    "no_external_effect_path": true
+  },
+  "default_state": {
+    "route_registered": false,
+    "worker_route_registered": false,
+    "admission_enabled": false,
+    "execution_enabled": false,
+    "kill_switch_active": true,
+    "workspace_allowlist_empty": true,
+    "conversation_delivery_enabled": false,
+    "generic_runs_or_sse_enabled": false
+  },
+  "remaining_rollout_gates": [
+    "exact_authenticated_admission_and_worker_routes",
+    "route_scoped_queue_and_workload_identity",
+    "production_model_adapter_with_identical_toolless_policy",
+    "default_off_canary_configuration_and_rollback_proof",
+    "synthetic_live_canary_with_monitoring_and_cleanup"
+  ]
+}

@@ -35,6 +35,8 @@ def test_connector_registry_is_exact_and_role_scoped():
     assert not dsc.validate_connector_role("founder_gmail", "knowledge")
     assert not dsc.validate_connector_role("github", "event")
     assert not dsc.validate_connector_role("drive", "made_up_role")
+    assert dsc.validate_connector_role("alex_drive", "knowledge")
+    assert dsc.validate_connector_role("alex_drive", "action_destination")
 
 
 def test_deterministic_ids_follow_the_accepted_namespaces_exactly():

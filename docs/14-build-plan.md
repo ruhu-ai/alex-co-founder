@@ -101,6 +101,16 @@ attachments to `/discover` or changing the competition lifecycle.
   for 21. After the competition acceptance criteria are green, execute its
   Phase 0 stabilization gate first; no later runtime, memory, capability, or
   domain-expansion phase is authorized by the document alone.
+- **25 — role-scoped Hiring intake and collaboration**: keep the production
+  mailbox and public form closed until their independent activation gates pass.
+  The safe local slice may exercise synthetic candidate applications, restricted
+  CV/application records, evidence-to-criterion coverage labelled only
+  `PRESENT` / `MISSING` / `UNCLEAR`, a candidate-scoped explanatory Alex
+  conversation, and explicit Founder decisions. Alex never scores, ranks,
+  recommends, advances, or declines a candidate. Production intake additionally
+  requires a verified role alias/label route, KMS-backed identity/artifact
+  encryption, retention/privacy and abuse-control review, positive/negative
+  routing probes, and a separately approved rollout.
 
 ## Final acceptance criteria (mapped to judging)
 

@@ -15,7 +15,7 @@ from .callbacks import (
     track_tool_outcome,
 )
 from .config import PERSONA_NAME, REASONING_MODEL
-from .instructions import ORCHESTRATOR_INSTRUCTION
+from .instructions import LIVE_ATTENTION_INSTRUCTION, ORCHESTRATOR_INSTRUCTION
 from .sub_agents import drafter, form_filler, interviewer, matchmaker, scout
 from .tools import a2a_talk as a2a_talk_tools
 from .tools import alex_mail as alex_mail_tools
@@ -24,6 +24,7 @@ from .tools import browse as browse_tools
 from .tools import calendar as calendar_tools
 from .tools import feedback as feedback_tools
 from .tools import followup as followup_tools
+from .tools import hiring as hiring_tools
 from .tools import pipeline
 from .workflow import get_workflow
 
@@ -48,14 +49,15 @@ def _build_sub_agents(live: bool) -> list[Agent]:
             form_filler.build_agent(),
         ]
     from google.adk.models import Gemini
-    from google.genai import types
+
+    from services.retry_policy import gemini_retry_options
 
     from .config import LIVE_MODEL_ID
 
     def _live_model() -> Gemini:
         # Fresh instance per sub-agent (each Agent owns its model wiring).
         return Gemini(model=LIVE_MODEL_ID,
-                      retry_options=types.HttpRetryOptions(attempts=3))
+                      retry_options=gemini_retry_options())
 
     return [
         scout.build_agent(_live_model()),
@@ -75,13 +77,16 @@ def build_root_agent(model, live: bool = False) -> Agent:
     return Agent(
         name="co_founder",
         model=model,
-        instruction=ORCHESTRATOR_INSTRUCTION.replace(
+        instruction=(ORCHESTRATOR_INSTRUCTION.replace(
             "__WORKFLOW_DISPLAY_NAME__", _workflow.display_name
-        ).replace("__PERSONA_NAME__", PERSONA_NAME),
+        ).replace("__PERSONA_NAME__", PERSONA_NAME)
+                     + (LIVE_ATTENTION_INSTRUCTION if live else "")),
         tools=[
             pipeline.get_pipeline,
             pipeline.choose_opportunity,
             pipeline.get_checklist,
+            hiring_tools.prepare_hiring_role_brief,
+            hiring_tools.create_hiring_draft,
             attachment_tools.search_attachment,
             feedback_tools.record_feedback,
             # SUBMITTED → FOLLOW_UP → CLOSED (orchestrator instruction step 7):

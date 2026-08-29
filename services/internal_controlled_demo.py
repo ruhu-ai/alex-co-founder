@@ -15,7 +15,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
-from services.actor_identity import ActorPrincipal, WorkspaceRole, authorize
+from services.actor_identity import ActorPrincipal, authorize
 from services.durable_store import DurableStore, production_store
 from services.hiring_contracts import canonical_hash, stable_id, utc_now
 
@@ -151,14 +151,12 @@ class InternalControlledDemoService:
         self.store = store or production_store()
 
     @staticmethod
-    def _owner(principal: ActorPrincipal, *, fresh: bool = False) -> dict[str, Any]:
-        if principal.role is not WorkspaceRole.OWNER:
-            return _error("operation_forbidden", "Only the workspace owner may run the internal demo.", 403)
+    def _founder(principal: ActorPrincipal, *, fresh: bool = False) -> dict[str, Any]:
         return authorize(principal, "resolve_approval", require_fresh=fresh)
 
     async def create_run(self, *, principal: ActorPrincipal, client_request_id: str,
                          role_id: str, ttl_minutes: int = 120) -> dict[str, Any]:
-        gate = self._owner(principal, fresh=True)
+        gate = self._founder(principal, fresh=True)
         if gate.get("error"):
             return gate
         enabled = require_enabled()
@@ -172,7 +170,7 @@ class InternalControlledDemoService:
                 or role.get("role_state") != "PUBLISHED"):
             return _error("internal_demo_role_not_ready",
                           "Use a published synthetic Ruhu FDE role for the internal demo.", 404)
-        role_gate = authorize(principal, "read_role", role_id=role_id)
+        role_gate = authorize(principal, "read_role")
         if role_gate.get("error"):
             return role_gate
         if not 5 <= ttl_minutes <= 240:
@@ -203,7 +201,7 @@ class InternalControlledDemoService:
 
     async def request_approval(self, *, principal: ActorPrincipal, demo_run_id: str,
                                action_kind: str, client_request_id: str) -> dict[str, Any]:
-        gate = self._owner(principal, fresh=True)
+        gate = self._founder(principal, fresh=True)
         if gate.get("error"):
             return gate
         run = await self._active_run(principal, demo_run_id)
@@ -265,7 +263,7 @@ class InternalControlledDemoService:
 
     async def resolve_approval(self, *, principal: ActorPrincipal, approval_id: str,
                                decision: str) -> dict[str, Any]:
-        gate = self._owner(principal, fresh=True)
+        gate = self._founder(principal, fresh=True)
         if gate.get("error"):
             return gate
         approval = await self.store.get("approvals", approval_id)
@@ -308,7 +306,7 @@ class InternalControlledDemoService:
 
     async def reset(self, *, principal: ActorPrincipal, demo_run_id: str) -> dict[str, Any]:
         """Revoke a demo run without deleting provider mail or unrelated data."""
-        gate = self._owner(principal, fresh=True)
+        gate = self._founder(principal, fresh=True)
         if gate.get("error"):
             return gate
         run = await self.store.get("internal_demo_runs", demo_run_id)

@@ -53,7 +53,7 @@ def test_approval_ui_uses_workspace_scoped_receipted_v1_api():
 
 def test_investor_outreach_ui_exposes_drafts_uncertainty_and_exact_send():
     assert 'id="investorRuns"' in HTML
-    assert "/api/v1/investor-outreach?session_id=" in HTML
+    assert 'api("/api/v1/investor-outreach")' in HTML
     assert "/api/v1/outreach-drafts/${encodeURIComponent(draftId)}:request-approval" in HTML
     assert "/api/v1/outreach-drafts/${encodeURIComponent(draftId)}:send" in HTML
     assert "Send exact approved email" in HTML
@@ -84,6 +84,25 @@ def test_connector_mutations_use_workspace_scoped_receipted_v1_apis():
     assert "client_request_id" in HTML
 
 
+def test_alex_drive_is_separate_and_generated_documents_target_it():
+    assert 'id="connAlexDrive"' in HTML
+    assert 'alex_drive: "connAlexDrive"' in HTML
+    assert 'api("/api/v1/integrations/alex-drive/files?limit=25")' in HTML
+    assert ':sync-alex-drive`' in HTML
+    assert "Save to Alex's Drive" in HTML
+
+
+def test_connector_list_is_grouped_by_account_ownership():
+    assert 'const CONNECTOR_ACCOUNT_GROUPS = [' in HTML
+    founder = HTML.index('{key: "founder", label: "Founder"')
+    alex = HTML.index('{key: "alex", label: "Alex"')
+    builtin = HTML.index('{key: "builtin", label: "Built-in tools"')
+    assert founder < alex < builtin
+    assert 'connector.account_group || LEGACY_CONNECTOR_ACCOUNT_GROUP' in HTML
+    assert 'aria-label="${esc(group.label)} connectors"' in HTML
+    assert 'group.key === "builtin"' in HTML
+
+
 def test_chat_ui_uses_workspace_scoped_receipted_v1_messages():
     assert 'api("/api/v1/messages"' in HTML
     assert 'api("/wake"' not in HTML
@@ -97,8 +116,11 @@ def test_browser_ui_uses_workspace_scoped_receipted_v1_apis():
 
 
 def test_session_ui_uses_workspace_scoped_v1_resources():
-    for path in ("/api/v1/sessions", "/api/v1/waits", "/api/v1/search"):
+    for path in ("/api/v1/sessions", "/api/v1/workspace-brief", "/api/v1/search"):
         assert path in HTML
+    # The released M1 brief is the only waiting-area read. The legacy waits
+    # projection can include pending signals and must not be a UI fallback.
+    assert "/api/v1/waits" not in HTML
     assert "/api/v1/sessions/${encodeURIComponent(context)}/resources" in HTML
     assert "session_delete_" in HTML
 

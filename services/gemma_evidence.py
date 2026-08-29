@@ -491,10 +491,14 @@ class VertexEvidenceBackend:
         from google import genai
         from google.genai import types
 
+        from services.retry_policy import gemini_retry_options
+
         client = genai.Client(
             vertexai=True,
             project=os.environ.get("GOOGLE_CLOUD_PROJECT", ""),
             location=os.environ.get("GOOGLE_CLOUD_LOCATION", "global"),
+            http_options=types.HttpOptions(
+                retry_options=gemini_retry_options()),
         )
         try:
             response = await client.aio.models.generate_content(

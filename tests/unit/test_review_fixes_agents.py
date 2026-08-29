@@ -301,6 +301,16 @@ async def test_transfer_to_interviewer_requires_committed_state():
     assert result["error_code"] == "invalid_agent_handoff"
 
 
+async def test_saved_advisory_context_cannot_influence_any_tool_call():
+    ctx = _context({
+        ss.K_CURRENT_STEP: ApplicationStep.IDLE,
+        ss.K_ADVISORY_MEMORY: "<<<UNTRUSTED SAVED CONTEXT>>>",
+    })
+    result = await enforce_workflow_tool_contract(
+        _tool("search_attachment"), {"query": "anything"}, ctx)
+    assert result["error_code"] == "memory_context_not_allowed_for_tool"
+
+
 async def test_failed_effect_replaces_polished_success_prose():
     ctx = _context({ss.K_CURRENT_STEP: ApplicationStep.IDLE})
     track_tool_outcome(
@@ -339,6 +349,31 @@ async def test_pipeline_count_claim_must_equal_tool_snapshot():
         role="model", parts=[types.Part.from_text(text="We have 8 shortlisted programs.")]))
     guarded = enforce_effect_claims(ctx, response)
     assert guarded.content.parts[0].text.startswith("The current board has 11 shortlisted")
+
+
+async def test_pipeline_claim_requires_same_turn_authoritative_snapshot():
+    ctx = _context({})
+    response = LlmResponse(content=types.Content(
+        role="model", parts=[types.Part.from_text(
+            text="Three programs shortlisted; the top fit closes soon.")]))
+    guarded = enforce_effect_claims(ctx, response)
+    assert guarded is not None
+    assert "don't have a verified current pipeline snapshot" in (
+        guarded.content.parts[0].text)
+
+
+async def test_spelled_pipeline_count_must_equal_snapshot():
+    ctx = _context({})
+    track_tool_outcome(_tool("get_pipeline"), {}, ctx, {
+        "status": "success",
+        "opportunities": {"SHORTLISTED": [], "DISCOVERED": [], "ARCHIVED": []},
+        "applications": [],
+    })
+    response = LlmResponse(content=types.Content(
+        role="model", parts=[types.Part.from_text(
+            text="Three programs shortlisted; the top fit closes in nine days.")]))
+    guarded = enforce_effect_claims(ctx, response)
+    assert guarded.content.parts[0].text.startswith("The current board has 0 shortlisted")
 
 
 async def test_record_answer_requires_verbatim_founder_turn_and_active_interview(fake_store):

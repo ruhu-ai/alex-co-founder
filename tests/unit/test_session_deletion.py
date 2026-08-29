@@ -10,8 +10,9 @@ from services import session_deletion as deletion
 
 
 class _SessionService:
-    def __init__(self, exists: bool = True):
-        self.session = object() if exists else None
+    def __init__(self, exists: bool = True, *, state=None):
+        self.session = type("Session", (), {"state": state or {}})() \
+            if exists else None
         self.deleted: list[tuple[str, str, str]] = []
 
     async def get_session(self, *, app_name, user_id, session_id):
@@ -23,7 +24,7 @@ class _SessionService:
 
 
 def _base_wiring(monkeypatch, *, links, catalog=None):
-    writes = {"catalog": [], "audit": [], "stopped": []}
+    writes = {"catalog": [], "audit": [], "stopped": [], "live_media": []}
 
     async def _catalog(_sid):
         return catalog or {"founder_id": "founder", "status": "active"}
@@ -41,6 +42,10 @@ def _base_wiring(monkeypatch, *, links, catalog=None):
     async def _tombstone(_founder, _session):
         return len(links)
 
+    async def _delete_live_media(founder, session):
+        writes["live_media"].append((founder, session))
+        return 0
+
     async def _audit(*args, **kwargs):
         writes["audit"].append((args, kwargs))
         return "audit-1"
@@ -49,6 +54,9 @@ def _base_wiring(monkeypatch, *, links, catalog=None):
     monkeypatch.setattr(deletion.firestore, "list_session_links", _links)
     monkeypatch.setattr(deletion.firestore, "upsert_session_catalog", _upsert)
     monkeypatch.setattr(deletion.firestore, "tombstone_session_links", _tombstone)
+    monkeypatch.setattr(
+        deletion.firestore, "delete_session_live_media_metadata",
+        _delete_live_media)
     monkeypatch.setattr(deletion.firestore, "audit", _audit)
     monkeypatch.setattr(deletion.firestore, "now_iso", lambda: "2026-08-26T00:00:00+00:00")
     monkeypatch.setattr(deletion.browser_service, "stop_browser", _stop)
@@ -211,6 +219,23 @@ async def test_deleted_session_is_idempotent_but_unknown_is_not_found(monkeypatc
         founder_id="founder", session_id="unknown", app_name="co_founder",
         session_service=_SessionService(exists=False))
     assert result == {"status": "error", "error": True, "message": "not found"}
+
+
+@pytest.mark.asyncio
+async def test_private_session_deletion_performs_zero_optional_memory_io(monkeypatch):
+    _base_wiring(monkeypatch, links=[])
+
+    def memory_service_must_not_load():
+        raise AssertionError("private session touched optional memory")
+
+    monkeypatch.setattr(
+        "services.durable_memory.configured_service", memory_service_must_not_load)
+    result = await deletion.delete_session(
+        founder_id="founder", session_id="s-private", app_name="co_founder",
+        session_service=_SessionService(
+            state={"platform:memory_mode": "PRIVATE"}),
+        memory_principal=object(), client_request_id="delete-private")
+    assert result["status"] == "success"
 
 
 def test_delete_route_requires_confirmation_and_is_registered():

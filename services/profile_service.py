@@ -337,8 +337,11 @@ async def extract_profile_proposals(founder_id: str, artifact_id: str,
         else:
             raw = await asyncio.to_thread(_extract_fn, artifact_name, founder_id)
     except Exception as exc:
+        from services.retry_policy import is_transient_exception
+
         return {"status": "error", "error": True,
                 "error_code": "proposal_extraction_failed",
+                "retryable": is_transient_exception(exc),
                 "message": f"profile proposal extraction failed: {exc}"[:240]}
     if not isinstance(raw, list):
         return {"status": "error", "error": True,

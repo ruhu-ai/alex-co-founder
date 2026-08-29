@@ -2,11 +2,9 @@
 
 from __future__ import annotations
 
-import asyncio
 from typing import Any
 
-from services import storage
-from services.actor_identity import ActorPrincipal, WorkspaceRole, authorize
+from services.actor_identity import ActorPrincipal, authorize
 from services.durable_store import DurableStore, production_store
 from services.hiring_contracts import canonical_hash, stable_id, utc_now
 from services.hiring_identity_vault import CandidateIdentityVault
@@ -64,7 +62,7 @@ class HiringDataRightsService:
             "generated_at": utc_now(),
             "audit_id": audit_id,
             "provider_limitations": [
-                "Source data held by an external provider is not changed by this export.",
+                "The original provider email is not deleted by an H0-H3 export.",
                 "A founder-published job-board post is outside this candidate record.",
                 "Append-only security audit records are exported separately under retention policy.",
             ],
@@ -90,7 +88,7 @@ class HiringDataRightsService:
                 "inventory_hash": plan_hash, "delete_count": len(paths),
                 "paths": paths,
                 "provider_limitations": [
-                    "Source data held by an external provider is not changed by this deletion.",
+                    "H0-H3 does not delete the original Gmail message from Google.",
                     "Manual job-board publications are not candidate records and remain external.",
                     "Append-only security audit records retain opaque ids/hashes under audit retention.",
                 ]}
@@ -99,10 +97,7 @@ class HiringDataRightsService:
                              application_id: str, active: bool,
                              reason_code: str, expected_identity_version: int,
                              client_request_id: str) -> dict[str, Any]:
-        """Apply/release a synthetic legal hold with fresh owner authority."""
-        if principal.role is not WorkspaceRole.OWNER:
-            return _error("operation_forbidden",
-                          "Only the workspace owner may change a legal hold.", 403)
+        """Apply or release a synthetic legal hold with founder authority."""
         if reason_code not in {"LITIGATION", "REGULATORY", "QUALIFIED_REVIEW"}:
             return _error("invalid_contract", "Unknown legal-hold reason.", 400)
         application = await self.store.get("candidate_applications", application_id)
@@ -199,11 +194,6 @@ class HiringDataRightsService:
         try:
             for path in paths[deleted:]:
                 collection, document_id = path.split("/", 1)
-                if collection == "hiring_candidate_artifacts":
-                    artifact = await self.store.get(collection, document_id)
-                    storage_name = str((artifact or {}).get("storage_name") or "")
-                    if storage_name:
-                        await asyncio.to_thread(storage.delete_artifact, storage_name)
                 await self.store.delete(collection, document_id)
                 deleted += 1
                 current = await self.store.get(
@@ -244,15 +234,11 @@ class HiringDataRightsService:
                          application: dict[str, Any] | None) -> dict[str, Any]:
         if not application or application.get("workspace_id") != principal.workspace_id:
             return _error("application_not_found", "Application does not exist.", 404)
-        gate = authorize(principal, "read_candidate", role_id=application["role_id"],
-                         candidate_application_id=application["candidate_application_id"],
+        gate = authorize(principal, "read_candidate",
                          require_fresh=True)
         if gate.get("error"):
             return _error("step_up_required",
                           "Recent authorized sign-in is required.", 401)
-        if principal.role not in {WorkspaceRole.OWNER, WorkspaceRole.HIRING_MANAGER}:
-            return _error("operation_forbidden",
-                          "Only the hiring owner or manager may perform data-rights work.", 403)
         return {"status": "success"}
 
     async def _inventory(self, application: dict[str, Any]) -> list[tuple[str, str]]:

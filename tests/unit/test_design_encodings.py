@@ -298,13 +298,12 @@ def test_the_lift_is_actually_needed_by_something():
 
 
 # --------------------------------------------------------------------------
-# review panel structure (docs/16 §7.10)
+# contextual workspace structure (docs/36 §9)
 # --------------------------------------------------------------------------
 #
-# The panel splits by consequence: anything the founder ACTS on is pinned, only
-# reference material is tabbed. The load-bearing property is that the approval
-# gate — the one irreversible decision in the product — can never end up behind
-# a tab, where it would be invisible unless you happened to be on that tab.
+# The reviewed workspace has exactly Work, Evidence, Decisions, and Activity.
+# The load-bearing property retained from the prior surface is that an exact
+# approval remains visible when it is focused and cannot be mistaken for prose.
 
 
 def _ref_tab_ids() -> list[str]:
@@ -319,19 +318,20 @@ def test_approval_gate_is_never_inside_a_tabpanel():
     fully tabbed — pin it, or the safety story is decoration."""
     src = INDEX.read_text(encoding="utf-8")
     gate = src.index('id="approvalSlot"')
-    zone = src.index('<div class="refzone">')
+    zone = src.index('class="refzone workspace-scroll"')
     assert gate < zone, (
         "#approvalSlot moved into or below the tabbed reference zone — the "
         "approval gate must stay pinned above it (docs/16 §7.10)."
     )
 
 
-def test_draft_sections_and_stepper_are_pinned_too():
-    """They are what the founder acts on; they belong with the gate."""
+def test_draft_sections_and_stepper_live_in_polymorphic_work():
+    """Draft and form work belong to Work, not a permanent Form tab."""
     src = INDEX.read_text(encoding="utf-8")
-    zone = src.index('<div class="refzone">')
+    start = src.index('id="pane-work"')
+    end = src.index('id="pane-evidence"')
     for anchor in ('id="stepperSlot"', 'id="sections"'):
-        assert src.index(anchor) < zone, f"{anchor} must stay pinned above the tabs"
+        assert start < src.index(anchor) < end, f"{anchor} must stay inside Work"
 
 
 @pytest.mark.parametrize("tab_id", _ref_tab_ids())
@@ -365,6 +365,6 @@ def test_activity_pane_scrolls_itself():
     """The log was 1590px of the panel's 2190px. It must scroll inside its own
     pane, or tabbing the panel achieves nothing."""
     css = INDEX.read_text(encoding="utf-8")
-    rule = re.search(r"#pane-audit\s*\{([^}]*)\}", css)
+    rule = re.search(r"#pane-activity\s*\{([^}]*)\}", css)
     assert rule and "overflow-y: auto" in rule.group(1), \
-        "#pane-audit no longer scrolls internally"
+        "#pane-activity no longer scrolls internally"

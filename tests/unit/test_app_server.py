@@ -8,7 +8,6 @@ the module-level side effects tolerated the same way the smoke scripts do.
 import asyncio
 import importlib
 import os
-import time
 import uuid
 
 import pytest
@@ -104,12 +103,11 @@ class TestInvestorOutreachApi:
         store = InMemoryDurableStore()
         membership = asyncio.run(create_membership(
             actor_id="actor-owner", workspace_id="workspace-a",
-            auth_subject="subject-owner", role=WorkspaceRole.OWNER,
+            auth_subject="subject-owner", role=WorkspaceRole.FOUNDER,
             created_by="test", store=store))
         principal = ActorPrincipal(
             actor_id="actor-owner", workspace_id="workspace-a",
-            role=WorkspaceRole.OWNER, role_grants=frozenset(),
-            candidate_assignments=frozenset(), interview_assignments=frozenset(),
+            role=WorkspaceRole.FOUNDER,
             session_auth_time=int(time.time()),
             membership_version=membership["version"],
             membership_id=membership["membership_id"])
@@ -148,6 +146,77 @@ class TestInvestorOutreachApi:
         foreign = client.get(
             "/api/v1/investor-outreach?session_id=session-foreign")
         assert foreign.status_code == 404
+
+
+class TestGlobalRunsApi:
+    def test_global_projection_keeps_domain_permissions_separate(
+            self, client, appmod, monkeypatch):
+        import time
+
+        from services.actor_identity import ActorPrincipal, WorkspaceRole
+        from services.durable_store import InMemoryDurableStore
+
+        store = InMemoryDurableStore()
+        principal = ActorPrincipal(
+            actor_id="actor-founder", workspace_id="workspace-a",
+            role=WorkspaceRole.FOUNDER,
+            session_auth_time=int(time.time()), membership_version=1,
+            membership_id="membership-founder")
+
+        async def platform_human(_request):
+            return principal
+
+        base = {
+            "workspace_id": "workspace-a", "runtime_status": "QUEUED",
+            "visibility_scope": "WORKSPACE", "version": 1,
+            "created_at": "2026-08-29T10:00:00+00:00",
+            "updated_at": "2026-08-29T10:00:00+00:00",
+        }
+        rows = {
+            "run-role": {**base, "run_id": "run-role", "run_kind": "ROLE",
+                         "domain_ref": "role-safe"},
+            "run-candidate": {
+                **base, "run_id": "run-candidate", "run_kind": "CANDIDATE",
+                "domain_ref": "candidate-secret"},
+            "run-skill": {
+                **base, "run_id": "run-skill", "run_kind": "BACKGROUND",
+                "domain_ref": "artifact-private",
+                "visibility_scope": "ACTOR_PRIVATE", "subject_kind": "ACTOR",
+                "subject_id": "actor-founder", "objective_summary": "Review evidence",
+                "skill_bindings": [{"skill_identity": "documents.example@1"}]},
+            "run-other-actor": {
+                **base, "run_id": "run-other-actor", "run_kind": "BACKGROUND",
+                "visibility_scope": "ACTOR_PRIVATE", "subject_kind": "ACTOR",
+                "subject_id": "actor-other", "domain_ref": "other-private"},
+            "run-other-workspace": {
+                **base, "workspace_id": "workspace-b", "run_id": "run-foreign",
+                "run_kind": "GRANT_APPLICATION", "domain_ref": "foreign"},
+        }
+        for run_id, row in rows.items():
+            asyncio.run(store.create("workflow_runs", run_id, row))
+        asyncio.run(store.create("hiring_roles", "role-safe", {
+            "workspace_id": "workspace-a", "role_title": "Product designer"}))
+        monkeypatch.setattr(appmod, "production_store", lambda: store)
+        monkeypatch.setattr(appmod, "_platform_human", platform_human)
+
+        response = client.get("/api/v1/runs")
+        assert response.status_code == 200
+        body = response.json()
+        assert [row["run_id"] for row in body["runs"]] == [
+            "run-role", "run-skill"]
+        role, skill = body["runs"]
+        assert role["title"] == "Product designer"
+        assert role["operation_key"] == "hiring"
+        assert skill["operation_key"] == "skills"
+        assert skill["skill_count"] == 1
+        assert body["operation_counts"] == {
+            "funding": 0, "hiring": 1, "skills": 1}
+        assert body["restricted_domains"] == [
+            "hiring_candidate", "hiring_onboarding"]
+        for row in body["runs"]:
+            assert "domain_ref" not in row
+            assert "subject_id" not in row
+            assert "candidate" not in str(row).lower()
 
 class TestConnectionProjection:
     def test_panel_uses_durable_rows_without_provider_calls(
@@ -235,13 +304,135 @@ class TestDriveExportReceipts:
         first = client.post(f"/api/documents/{artifact}/sync_drive")
         second = client.post(f"/api/documents/{artifact}/sync_drive")
 
-        assert first.status_code == 200 and second.status_code == 200
+        assert first.status_code == 200, first.text
+        assert second.status_code == 200, second.text
         assert second.json()["duplicate"] is True
         assert second.json()["file_id"] == "drive-file-1"
         assert len(calls) == 1
         receipt = fake_store.external_actions[first.json()["action_id"]]
         assert receipt["status"] == "SUCCEEDED"
         assert receipt["provider_effect_id"] == "drive-file-1"
+
+    def test_alex_drive_lists_with_role_credential_and_exports_exactly_once(
+            self, client, appmod, fake_store, tmp_path, monkeypatch):
+        import time
+
+        from services import (
+            approval_service,
+            drive_adapter,
+            external_action_service,
+            firestore,
+            google_oauth,
+            storage,
+        )
+        from services.actor_identity import ActorPrincipal, WorkspaceRole
+        from services.durable_store import InMemoryDurableStore
+
+        principal = ActorPrincipal(
+            actor_id="actor-founder", workspace_id=appmod.FOUNDER_ID,
+            role=WorkspaceRole.FOUNDER, session_auth_time=int(time.time()),
+            membership_version=1, membership_id="membership-founder")
+
+        async def _principal(*_args, **_kwargs):
+            return principal
+
+        monkeypatch.setattr(appmod, "_platform_human", _principal)
+        monkeypatch.setattr(appmod, "_route_principal", _principal)
+        command_store = InMemoryDurableStore()
+        monkeypatch.setattr(appmod, "production_store", lambda: command_store)
+
+        connection = asyncio.run(firestore.upsert_data_connection(
+            appmod.FOUNDER_ID, "alex_drive", account_ref="alex-role-mailbox",
+            auth_kind="google_oauth",
+            granted_scopes=google_oauth.SCOPE_MAP["alex_drive"],
+            status="CONNECTED"))
+        listed = []
+
+        def _list(folder_id, limit, workspace_id, *, account):
+            listed.append((folder_id, limit, workspace_id, account))
+            return {"status": "success", "files": [{
+                "id": "alex-file-1", "name": "Working brief.docx",
+                "mime": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                "modified_at": "2026-08-29T00:00:00Z", "size": 128,
+                "url": "https://drive.google.com/file/d/alex-file-1",
+                "parents": [],
+            }]}
+
+        monkeypatch.setattr(drive_adapter, "list_files", _list)
+        files = client.get("/api/v1/integrations/alex-drive/files")
+        assert files.status_code == 200
+        assert files.json()["files"][0]["id"] == "alex-file-1"
+        assert listed == [("", 25, appmod.FOUNDER_ID, "alex")]
+
+        monkeypatch.setattr(storage, "_root", lambda: str(tmp_path))
+        artifact = "docx_general_role_brief_v1.docx"
+        storage.save_bytes(artifact, b"produced document bytes")
+        document_id = asyncio.run(firestore.create_document_record(
+            appmod.FOUNDER_ID, artifact, "docx", "Role brief", "s1", "",
+            "", "sha256:spec", 1, "general:role-brief"))
+        uploads = []
+
+        def _upload(name, path, mime, *, source_artifact_id, checksum,
+                    workspace_id="", account="founder"):
+            uploads.append((name, source_artifact_id, workspace_id, account))
+            return {"status": "success", "file_id": "alex-drive-copy-1",
+                    "url": "https://drive.google.com/file/d/alex-drive-copy-1"}
+
+        monkeypatch.setattr(drive_adapter, "upload_file", _upload)
+        approvals = []
+        actions = {}
+
+        async def _request_approval(target, *, gate, details, **_kwargs):
+            approvals.append((target, gate, details))
+            return {"status": "success", "approval_id": "approval-alex-drive"}
+
+        async def _resolve_approval(**_kwargs):
+            return {"status": "success"}
+
+        async def _prepare(_workspace_id, connector_id, action_kind,
+                           idempotency_key, _request_metadata, **_kwargs):
+            prior = actions.get(idempotency_key)
+            if prior:
+                return {**prior, "duplicate": True}
+            row = {
+                "status": "success", "claimed": True, "duplicate": False,
+                "action_id": "action-alex-drive", "lease_owner": "lease-1",
+                "action_kind": action_kind, "connector_id": connector_id,
+            }
+            actions[idempotency_key] = row
+            return row
+
+        async def _finish(_workspace_id, action_id, _lease_owner, status,
+                          **kwargs):
+            actions[next(iter(actions))].update({
+                "action_id": action_id, "status": status,
+                "provider_effect_id": kwargs.get("provider_effect_id"),
+                "result_ref": kwargs.get("result_ref") or {},
+            })
+            return actions[next(iter(actions))]
+
+        monkeypatch.setattr(approval_service, "request_approval", _request_approval)
+        monkeypatch.setattr(
+            approval_service, "resolve_for_principal", _resolve_approval)
+        monkeypatch.setattr(external_action_service, "prepare", _prepare)
+        monkeypatch.setattr(external_action_service, "finish", _finish)
+        first = client.post(
+            f"/api/v1/documents/{artifact}:sync-alex-drive",
+            json={"client_request_id": "alex_drive_export_0001"})
+        second = client.post(
+            f"/api/v1/documents/{artifact}:sync-alex-drive",
+            json={"client_request_id": "alex_drive_export_0002"})
+
+        assert first.status_code == 200, first.text
+        assert second.status_code == 200, second.text
+        assert len(uploads) == 1
+        assert uploads[0] == (
+            artifact, document_id, appmod.FOUNDER_ID, "alex")
+        assert approvals[0][1] == "export_alex_drive_file"
+        assert approvals[0][2]["connector_id"] == "alex_drive"
+        receipt = next(iter(actions.values()))
+        assert receipt["connector_id"] == connection["connector_id"]
+        assert receipt["status"] == "SUCCEEDED"
 
     def test_ingestion_and_recon_prefixes_are_never_exportable(
             self, client, tmp_path, monkeypatch):
@@ -579,20 +770,17 @@ class TestFounderInboxApi:
 
         assert client.get("/favicon.ico/private").status_code == 401
 
-    def test_candidate_role_notice_and_narrow_public_api_bypass_founder_auth(
-            self, appmod, client, monkeypatch):
-        from services.durable_store import InMemoryDurableStore
-
+    def test_brand_assets_are_public_and_gate_still_holds(self, client, monkeypatch):
+        """Browser chrome and link unfurlers fetch these with no session."""
         monkeypatch.setenv("APP_AUTH_TOKEN", "t0ken")
-        monkeypatch.setattr(
-            appmod.hiring_routes, "production_store", InMemoryDurableStore)
-        slug = "0" * 32
-        assert client.get(f"/jobs/{slug}").status_code == 200
-        assert client.get("/hiring-notice.html").status_code == 200
-        # No role is seeded, but reaching the handler proves this narrow path
-        # is public; it must not be mistaken for a founder-auth 401.
-        assert client.get(f"/api/public/hiring/roles/{slug}").status_code == 404
-        assert client.get("/api/public/hiring/private").status_code == 401
+        for path in ("/apple-touch-icon.png", "/icon-192.png", "/icon-512.png",
+                     "/icon-maskable-512.png", "/og-image.png",
+                     "/site.webmanifest", "/brand/mark.svg", "/brand/lockup.svg"):
+            assert client.get(path).status_code == 200, path
+
+        # The exemption is exact: a neighbouring static path stays gated.
+        assert client.get("/brand/").status_code == 401
+        assert client.get("/og-image.png/private").status_code == 401
 
     def test_prod_without_token_fails_closed(self, client, monkeypatch):
         monkeypatch.setenv("K_SERVICE", "co-founder")
@@ -750,76 +938,66 @@ class TestFounderInboxApi:
 
 
 class TestDiscoverCommandAdapter:
-    def test_hiring_launcher_compiles_description_instead_of_loading_fixture(
+    @pytest.mark.asyncio
+    async def test_hiring_command_accepts_scoped_founder_without_admin_authority(
             self, appmod, monkeypatch):
-        from services import hiring_policy_service, hiring_role_intake
         from services.actor_identity import ActorPrincipal, WorkspaceRole
-        from services.durable_store import InMemoryDurableStore
-        from services.hiring_identity_vault import (
-            CandidateIdentityVault,
-            fixture_key_wrapper,
-        )
-        from services.hiring_service import HiringService
-        from services.hiring_workflow_adapter import HiringWorkflowAdapter
-        from services.workflow_runtime import WorkflowRuntime
-        from tests.unit.test_hiring_live_flow import _contract
 
-        store = InMemoryDurableStore()
-        key = bytes(range(32))
-        wrap, unwrap = fixture_key_wrapper(key)
-        hiring = HiringService(
-            store=store,
-            identity_vault=CandidateIdentityVault(
-                wrap_key=wrap, unwrap_key=unwrap, dedup_key=key,
-                store=store, allow_live=True),
-            runtime=WorkflowRuntime(store, domain_adapter=HiringWorkflowAdapter()))
-        description = (
-            "Acme needs a Senior Product Designer, remote in Europe, to lead "
-            "the mobile customer experience.")
-        monkeypatch.setenv("HIRING_ENABLE_ROLE_INTAKE", "1")
-        monkeypatch.setattr(
-            hiring_role_intake, "_generator",
-            lambda supplied, _context: _contract(
-                title="Senior Product Designer").model_dump(mode="json")
-            if supplied == description else {})
-        monkeypatch.setattr(appmod.hiring_routes, "_services", lambda: (hiring, None))
-        original_propose = hiring_policy_service.propose_policy
+        founder = ActorPrincipal(
+            actor_id="member_founder", workspace_id="workspace_test",
+            role=WorkspaceRole.FOUNDER, session_auth_time=2_000_000_000,
+            membership_version=1)
+        seen = {}
+
+        class Hiring:
+            async def create_founder_draft_role(self, **kwargs):
+                seen.update(kwargs)
+                return {"status": "success", "role": {
+                    "role_id": "role_founder", "role_state": "DRAFT",
+                    "role_title": "Forward Deployment Engineer",
+                    "company_name": "Ruhu", "current_policy_version_id": None,
+                }}
+
+        monkeypatch.setattr(appmod.hiring_routes, "_services",
+                            lambda: (Hiring(), object()))
 
         async def _propose(**kwargs):
-            return await original_propose(**kwargs, store=store)
+            assert kwargs["principal"] is founder
+            return {"status": "success", "policy_status": "PROPOSED"}
 
-        monkeypatch.setattr(appmod.hiring_policy_service, "propose_policy", _propose)
-        principal = ActorPrincipal(
-            actor_id="member_owner", workspace_id="workspace_live_command",
-            role=WorkspaceRole.OWNER, role_grants=frozenset(),
-            candidate_assignments=frozenset(), interview_assignments=frozenset(),
-            session_auth_time=int(time.time()), membership_version=1)
-        result = asyncio.run(appmod._launch_hiring_command(
-            principal=principal, context=description,
-            request_id="request_live_hiring_1"))
+        monkeypatch.setattr(
+            appmod.hiring_policy_service, "propose_policy", _propose)
 
-        assert result["role"]["role_title"] == "Senior Product Designer"
-        assert result["role"]["synthetic"] is False
-        assert result["role"]["source_description_hash"].startswith("sha256:")
+        result = await appmod._launch_hiring_command(
+            principal=founder,
+            context=("Forward Deployment Engineer for Ruhu, Inc. Full-time "
+                     "employee, based in Nigeria and working remotely."),
+            request_id="hiring_founder_owner_1")
 
-    def test_hiring_command_accepts_a_real_founder_role_description(
+        assert result["status"] == "success"
+        assert result["role"]["role_state"] == "DRAFT"
+        assert result["policy"]["policy_status"] == "PROPOSED"
+        assert result["role"]["current_policy_version_id"] is None
+        assert seen["principal"] is founder
+        assert seen["role_description"]["employment_type"] == "Full-time employee"
+
+    def test_hiring_command_is_normal_founder_product_path(
             self, appmod, client, monkeypatch):
-        """The production /hiring command is not tied to the demo fixture."""
-        monkeypatch.setenv("HIRING_ENABLE_ROLE_INTAKE", "1")
+        """The internal draft command must not depend on demo/discovery flags."""
+        monkeypatch.delenv("HIRING_ENABLE_SYNTHETIC_DEMO", raising=False)
+        monkeypatch.delenv("HIRING_SYNTHETIC_FIXTURE_IDS", raising=False)
         launches = []
 
         async def _launch(**kwargs):
             launches.append(kwargs)
             return {"status": "success", "role": {
-                "role_id": "role_hiring_command", "role_title": "Senior Product Designer",
-                "company_name": "Acme", "role_code": "DESIGN01",
-                "synthetic": False,
+                "role_id": "role_hiring_command", "role_title": "Forward Deployment Engineer",
+                "company_name": "Ruhu", "role_code": "FDEDEMO",
             }}
 
         monkeypatch.setattr(appmod, "_launch_hiring_command", _launch)
         response = client.post("/wake", json={
-            "message": "/hiring Senior Product Designer for Acme, remote in Europe, "
-                       "to lead the mobile customer experience",
+            "message": "/hiring Forward Deployment Engineer for Ruhu in Nigeria, remote",
             "session_id": f"s-hiring-{uuid.uuid4().hex}",
             "client_request_id": "req_hiringcommand",
         })
@@ -827,9 +1005,7 @@ class TestDiscoverCommandAdapter:
         assert response.status_code == 200
         assert response.json()["launched"] is True
         assert response.json()["role_id"] == "role_hiring_command"
-        assert launches[0]["context"] == (
-            "Senior Product Designer for Acme, remote in Europe, to lead the mobile "
-            "customer experience")
+        assert launches[0]["context"] == "Forward Deployment Engineer for Ruhu in Nigeria, remote"
 
     def test_exact_command_launches_without_invoking_chat_runner(
             self, appmod, client, monkeypatch):

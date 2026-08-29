@@ -59,6 +59,12 @@ K_USER_PROFILE_ID = "user:profile_id"
 # identity for audit/binding only; authorization still re-reads the durable
 # workspace membership at the consequence boundary.
 K_ACTOR_ID = "platform:actor_id"
+# Document 39 M2 projections. ``memory_mode`` is server-authored at session
+# creation. ``advisory_memory`` is rewritten on every text turn and is never
+# an authorization input; private sessions keep it at ``none``.
+K_MEMORY_MODE = "platform:memory_mode"
+K_PRIVATE_ORIGIN = "platform:private_origin"
+K_ADVISORY_MEMORY = "temp:advisory_memory"
 K_USER_PREFS = "user:prefs"
 K_APP_WORKFLOW_ID = "app:workflow_id"
 K_TODAY = "today"  # refreshed every turn by the callback — the agent's clock
@@ -66,6 +72,12 @@ K_TODAY = "today"  # refreshed every turn by the callback — the agent's clock
 # session key on purpose: a `temp:` key is dropped by ADK at event append, so
 # it never survives the cross-turn fill→approve→submit flow.
 K_PORTAL_SIGNATURE = "portal_signature"
+# Exact Hiring package shown in this conversation before safe DRAFT creation.
+# It is a binding projection only; membership and domain services re-authorize.
+K_HIRING_ROLE_PROPOSAL = "platform:hiring_role_proposal"
+# Server-validated, role-level discussion projection. It deliberately excludes
+# candidate identities/evidence and cannot authorize a role or external effect.
+K_HIRING_ROLE_CONTEXT = "platform:hiring_role_context"
 
 
 # Legal application-step transitions (docs/03 §transition table).

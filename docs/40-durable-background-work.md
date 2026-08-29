@@ -1,9 +1,33 @@
 # 40 — Durable background work behind one Alex
 
-**Status:** Review-complete production specification, ready for recorded staged
-implementation approval under §15. Documentation only; this document does not
-itself authorize implementation, deployment, a live effect, or a migration.
-Each rollout gate in §15 requires its own recorded approval.
+**Status:** Review-complete production specification under technical-gate
+controlled rollout. Documentation alone authorizes nothing; code-owned checks,
+versioned evidence, default-off flags, and proven rollback govern each stage.
+
+**Release-governance amendment (2026-08-29):** repeated Founder release-stage
+approvals are no longer required after a gate's predeclared technical checks
+pass. Exact hashes, security/privacy/quality/citation/cost thresholds, lifecycle
+closure, monitoring, and rollback proof remain mandatory and fail closed.
+`NO_DATA`, hash drift, or one failed applicable check blocks progression. This
+amendment does not weaken authentication, tenant/actor scoping, capability
+authority, or the separate exact in-product human approval required before any
+irreversible external action. The historical Gate F offline approval remains
+audit evidence for the already completed batch but grants no current authority.
+
+**Gate F implementation checkpoint (2026-08-29):** the one closed
+`pilot.artifact_grounded_brief@1` template has passed offline qualification,
+synthetic runtime tests, and a controlled synthetic cloud canary. The canary
+proved exact duplicate handling, bounded retry/failure, in-flight cancellation,
+ordered actor-private Activity visibility, one tool-less model call, citation
+validation, the kill switch, alert delivery, and complete synthetic/resource
+cleanup. Evidence is frozen in
+`background-work-gate-f-cloud-canary-evidence.md` and its machine-readable
+packet. Repository defaults remain off. Normal-service integration is a
+separate technical gate: an active revision changed concurrently during the
+canary, so release automation must reconcile the main-equivalent source and
+rerun these checks rather than overwrite that revision. Gate G approval waits,
+Gate H expansion, generic routes, effects, external retrieval, memory, and
+proactive conversation delivery remain disabled.
 
 **External review disposition (2026-08-28):** findings-first gate review
 SHA-256 `6d353a60c2e16201d9e53f78001537368bde282d5bf3ff026ef4ed78fe2a0dd6`
@@ -909,7 +933,9 @@ Dependency, Runner-mode, plugin, persistence, or session-service changes rerun
 Gate B as a CI/release invariant; mismatch fails the release or forces that
 capability off before traffic.
 
-Roll out in this order:
+Roll out in this order. Passing and recording every technical exit check moves
+work to the next stage without a separate Founder release prompt; failing any
+check activates the documented rollback or keeps the next stage disabled:
 
 1. **Gate A — inventory and contracts.** Classify every current specialist path
    and capability; no undeclared or effectful path is eligible. Freeze golden

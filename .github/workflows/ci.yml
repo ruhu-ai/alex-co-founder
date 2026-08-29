@@ -1,6 +1,20 @@
 name: CI
 
-on: [push, pull_request]
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      run_model_evals:
+        description: Run the credit-consuming ADK golden evaluations
+        type: boolean
+        default: false
+
+# A newer push supersedes work on the same ref. In particular, an explicitly
+# requested model-eval run cannot continue spending credits after replacement.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   test:
@@ -44,6 +58,7 @@ jobs:
       - name: Python static checks
         run: .venv/bin/ruff check .
       - name: ADK golden evals (needs GCP creds)
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_model_evals }}
         env:
           GCP_CREDENTIALS: ${{ secrets.GCP_CREDENTIALS }}
         run: |
@@ -79,7 +94,7 @@ jobs:
             .venv/bin/python scripts/check_adk_eval_result.py "$result" || exit 1
           done
       - name: Preserve ADK evaluation evidence
-        if: always()
+        if: ${{ always() && github.event_name == 'workflow_dispatch' && inputs.run_model_evals }}
         uses: actions/upload-artifact@v4
         with:
           name: adk-eval-history

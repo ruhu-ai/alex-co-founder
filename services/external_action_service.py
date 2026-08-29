@@ -178,6 +178,9 @@ def duplicate_result(receipt: dict[str, Any]) -> dict[str, Any]:
                                       "were sent twice."),
             "export_drive_file": ("This document was already copied to Drive; no "
                                   "duplicate file was created."),
+            "export_alex_drive_file": (
+                "This document was already copied to Alex's Drive; no "
+                "duplicate file was created."),
         }.get(kind, "This external action already completed successfully.")
         return {"status": "success", "duplicate": True,
                 "action_id": receipt.get("action_id"),

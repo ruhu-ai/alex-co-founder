@@ -1,0 +1,22 @@
+{
+  "schema_version": "cofounder.gate-f-cost-preflight.v1",
+  "recorded_at": "2026-08-28T23:05:00Z",
+  "model_id": "gemini-3.6-flash",
+  "location": "global",
+  "pricing_currency": "USD",
+  "pricing_effective_through": "2026-12-31",
+  "input_usd_per_million_tokens": 0.75,
+  "output_usd_per_million_tokens": 3.75,
+  "max_model_calls": 40,
+  "max_input_tokens_per_call": 12000,
+  "max_output_tokens_per_call": 4096,
+  "max_input_cost_usd": 0.36,
+  "max_output_cost_usd": 0.6144,
+  "max_total_cost_usd": 0.9744,
+  "contingency_multiplier": 1.2,
+  "max_cost_with_contingency_usd": 1.16928,
+  "approval_cost_cap_usd": 5.0,
+  "passed": true,
+  "pricing_source": "https://cloud.google.com/gemini-enterprise-agent-platform/generative-ai/pricing",
+  "vertex_sku_source": "https://cloud.google.com/skus/sku-groups/agent-factory-google-foundation-models"
+}

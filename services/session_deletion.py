@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
+from agents.co_founder import state_schema as ss
 from services import browser_gateway as browser_service
 from services import firestore, session_resources, storage
 
@@ -73,8 +74,9 @@ async def _delete_exclusive_file(
         ):
             return False, "profile_or_foreign"
         storage_name = str(artifact.get("storage_name") or artifact.get("artifact") or "")
-        if storage_name:
-            await asyncio.to_thread(storage.delete_artifact, storage_name)
+        normalized_name = str(artifact.get("normalized_storage_name") or "")
+        for name in dict.fromkeys(item for item in (storage_name, normalized_name) if item):
+            await asyncio.to_thread(storage.delete_artifact, name)
         removed = await firestore.delete_session_artifact_records(
             founder_id, session_id, canonical_id
         )
@@ -108,6 +110,8 @@ async def delete_session(
     session_id: str,
     app_name: str,
     session_service: Any,
+    memory_principal: Any | None = None,
+    client_request_id: str = "",
 ) -> dict[str, Any]:
     """Delete one owned session and safely clean up its exclusive files.
 
@@ -133,6 +137,25 @@ async def delete_session(
                 "cleanup_errors": [],
             }
         return {"status": "error", "error": True, "message": "not found"}
+
+    # Document 39: source-session deletion is deny-first for related optional
+    # memory. If the independent deny ledger cannot accept the barrier, stop
+    # before deleting the source session; a retry remains safe and no memory is
+    # left recallable without its governed source.
+    session_state = getattr(session, "state", None) or {}
+    memory_mode = str(
+        session_state.get(ss.K_MEMORY_MODE)
+        or (catalog or {}).get("memory_mode")
+        or "STANDARD")
+    if memory_principal is not None and memory_mode != "PRIVATE":
+        from services.durable_memory import configured_service
+
+        cascaded = await configured_service().delete_by_source_session(
+            principal=memory_principal, source_session_id=session_id,
+            client_request_id=(client_request_id
+                               or f"session-delete:{session_id}"))
+        if cascaded.get("error"):
+            return cascaded
 
     try:
         links = await _all_live_links(founder_id, session_id)
@@ -184,6 +207,10 @@ async def delete_session(
     await session_service.delete_session(
         app_name=app_name, user_id=founder_id, session_id=session_id
     )
+    try:
+        await firestore.delete_session_live_media_metadata(founder_id, session_id)
+    except Exception:  # noqa: BLE001 - report partial privacy cleanup truthfully
+        cleanup_errors.append("live sharing metadata cleanup failed")
     tombstoned = await firestore.tombstone_session_links(founder_id, session_id)
     await firestore.upsert_session_catalog(
         session_id,

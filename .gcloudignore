@@ -6,6 +6,7 @@
 # Development-only material is not part of the Cloud Run runtime image.
 .claude/
 .github/
+google-examples/
 docs/
 tests/
 infra/

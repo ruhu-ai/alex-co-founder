@@ -1,0 +1,19 @@
+{
+  "schema_version": "cofounder.gate-f-provider-preflight.v1",
+  "recorded_at": "2026-08-28T23:07:54Z",
+  "project_id": "co-founder-506001",
+  "project_number": "624375313190",
+  "project_lifecycle": "ACTIVE",
+  "credential_type": "APPLICATION_DEFAULT_CREDENTIALS",
+  "quota_project_id": "co-founder-506001",
+  "vertex_api": "aiplatform.googleapis.com",
+  "vertex_api_enabled": true,
+  "model_resource": "publishers/google/models/gemini-3.6-flash",
+  "model_available": true,
+  "verification_method": "MODEL_GARDEN_LIST_WITH_EXPLICIT_BILLING_PROJECT",
+  "billing_project_explicit": true,
+  "model_inference_performed": false,
+  "cloud_resource_mutation_performed": false,
+  "secrets_recorded": false,
+  "passed": true
+}

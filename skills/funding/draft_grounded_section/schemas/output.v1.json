@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "skill.funding.draft.output.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["draft", "citations", "unknowns"],
+  "properties": {
+    "draft": {"type": "string", "maxLength": 20000},
+    "citations": {"type": "array", "items": {"type": "string"}},
+    "unknowns": {"type": "array", "items": {"type": "string"}}
+  }
+}

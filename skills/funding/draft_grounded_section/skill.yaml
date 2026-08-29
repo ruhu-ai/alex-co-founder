@@ -1,0 +1,62 @@
+schema_version: cofounder.skill.v1
+skill_id: funding.draft-grounded-section
+version: 1.0.0
+status: DRAFT
+owner: funding-product
+engineering_owner: platform-runtime
+evaluation_owner: safety-evaluation
+summary: Draft one funding-application section from supplied, cited founder evidence.
+goal_contract:
+  supported_intents: [funding_grounded_draft]
+  invocation_modes: [CONVERSATION, WORKFLOW_STEP]
+  non_goals: [application_submission, fact_invention, approval_resolution]
+assignments:
+  agent_roles: [writer]
+  workflow_steps: [funding.drafting]
+contracts:
+  input_schema_id: skill.funding.draft.input.v1
+  input_schema_path: schemas/input.v1.json
+  output_schema_id: skill.funding.draft.output.v1
+  output_schema_path: schemas/output.v1.json
+  error_schema_id: model.error.v1
+  completion_contract_id: funding.grounded-draft.v1
+  context_contract_id: context.grounded-drafting.v1
+  evidence_contract_id: evidence.run-citation.v1
+  citation_policy_id: citations.material-claims-required.v1
+capabilities:
+  allow:
+    - capability_id: grant.draft
+      version: 1.0.0
+  effect_policy:
+    ceiling: INTERNAL_REVERSIBLE
+    authority_impacts: [DRAFT_PREPARATION]
+  required_permissions: []
+policy:
+  precondition_ids: [workspace.active, budget.funding.available, source.scope.current-workspace]
+  approval_policy_id: none.v1
+  accepted_data_classes: [WORKSPACE_INTERNAL]
+  produced_data_classes: [WORKSPACE_INTERNAL]
+  tenant_scope: CURRENT_WORKSPACE
+  required_feature_flags: []
+execution:
+  max_tool_calls: 2
+  max_resource_reads: 0
+  max_resource_bytes: 0
+  timeout_seconds: 90
+  retry_policy_id: retry.internal-reversible.v1
+  idempotency_contract_id: idempotency.skill-invocation.v1
+  context_token_budget: 12000
+  output_size_bytes: 32768
+provenance:
+  playbook_path: PLAYBOOK.md
+  decision_ref: docs/37-production-skills-system.md#18
+resources: []
+evaluation:
+  suite_ids: [skill.funding.draft.contract.v1, skill.funding.draft.safety.v1]
+  release_gate_id: skill.standard-internal-reversible.v1
+  qualification_path: qualification.json
+lifecycle:
+  rollout_policy_id: canary.internal-workspaces.v1
+  rollback_to: null
+  replaces: null
+  deprecated_after: null

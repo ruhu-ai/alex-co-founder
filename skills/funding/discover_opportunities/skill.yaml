@@ -1,0 +1,62 @@
+schema_version: cofounder.skill.v1
+skill_id: funding.discover-opportunities
+version: 1.0.0
+status: DRAFT
+owner: funding-product
+engineering_owner: platform-runtime
+evaluation_owner: safety-evaluation
+summary: Discover evidence-backed funding opportunities for one bounded founder request.
+goal_contract:
+  supported_intents: [funding_discovery]
+  invocation_modes: [CONVERSATION, WORKFLOW_STEP]
+  non_goals: [application_submission, authenticated_browsing, outreach]
+assignments:
+  agent_roles: [researcher]
+  workflow_steps: [funding.discovery]
+contracts:
+  input_schema_id: skill.funding.discover.input.v1
+  input_schema_path: schemas/input.v1.json
+  output_schema_id: skill.funding.discover.output.v1
+  output_schema_path: schemas/output.v1.json
+  error_schema_id: model.error.v1
+  completion_contract_id: funding.candidate-set.v1
+  context_contract_id: context.funding-discovery.v1
+  evidence_contract_id: evidence.source-citation.v1
+  citation_policy_id: citations.material-claims-required.v1
+capabilities:
+  allow:
+    - capability_id: opportunity.search
+      version: 1.0.0
+  effect_policy:
+    ceiling: READ_ONLY
+    authority_impacts: [ADVISORY]
+  required_permissions: []
+policy:
+  precondition_ids: [workspace.active, budget.funding.available]
+  approval_policy_id: none.v1
+  accepted_data_classes: [PUBLIC, WORKSPACE_INTERNAL]
+  produced_data_classes: [WORKSPACE_INTERNAL]
+  tenant_scope: CURRENT_WORKSPACE
+  required_feature_flags: []
+execution:
+  max_tool_calls: 4
+  max_resource_reads: 0
+  max_resource_bytes: 0
+  timeout_seconds: 90
+  retry_policy_id: retry.read-transient.v1
+  idempotency_contract_id: idempotency.skill-invocation.v1
+  context_token_budget: 8000
+  output_size_bytes: 32768
+provenance:
+  playbook_path: PLAYBOOK.md
+  decision_ref: docs/37-production-skills-system.md#18
+resources: []
+evaluation:
+  suite_ids: [skill.funding.discover.contract.v1, skill.funding.discover.safety.v1]
+  release_gate_id: skill.standard-read-only.v1
+  qualification_path: qualification.json
+lifecycle:
+  rollout_policy_id: canary.internal-workspaces.v1
+  rollback_to: null
+  replaces: null
+  deprecated_after: null

@@ -30,8 +30,6 @@ def _principal(actor: str = "actor_alex", workspace: str = "workspace_alpha"
                ) -> ActorPrincipal:
     return ActorPrincipal(
         actor_id=actor, workspace_id=workspace, role=WorkspaceRole.FOUNDER,
-        role_grants=frozenset(), candidate_assignments=frozenset(),
-        interview_assignments=frozenset(),
         session_auth_time=1, membership_version=1)
 
 

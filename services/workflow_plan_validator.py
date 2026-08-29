@@ -12,6 +12,8 @@ from services.workflow_contracts import PLAN_TEMPLATES, WORKFLOW_DEFINITIONS
 STEP_CAPABILITIES: dict[str, dict[str, str]] = {
     "alex_background_job:v1": {
         "analyze_artifact": "background.artifact.inspect"},
+    "alex_background_artifact_draft:v1": {
+        "produce_grounded_artifact": "documents.persist_internal_draft"},
     "opportunity_discovery:v1": {
         "discover": "opportunity.search", "score": "opportunity.score",
         "publish_receipt": "workflow.receipt"},

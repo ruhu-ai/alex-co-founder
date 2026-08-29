@@ -40,17 +40,30 @@ SESSION_COOKIE = "app_session"
 QUERY_PARAM = "key"
 SESSION_TTL_SECONDS = 60 * 60 * 24 * 14  # matches the token cookie
 
-# Browser chrome and candidate-facing hiring notices are intentionally public.
-# Dynamic public prefixes are narrow and their route handlers expose only the
-# published contract plus a role-bound application token.
-PUBLIC_PATHS = frozenset({"/favicon.ico", "/favicon.svg", "/hiring-notice.html"})
-PUBLIC_PREFIXES = ("/jobs/", "/api/public/hiring/roles/")
+# Browser chrome requests these before a person can authenticate, and link
+# unfurlers fetch the preview card with no session at all. Keep the exemption
+# exact so a similarly prefixed application route is still gated. Every entry
+# is generated brand artwork (scripts/build_brand.py) and carries no founder
+# data — adding anything else here needs the same to be true.
+PUBLIC_PATHS = frozenset({
+    "/favicon.ico",
+    "/favicon.svg",
+    "/apple-touch-icon.png",
+    "/icon-192.png",
+    "/icon-512.png",
+    "/icon-maskable-512.png",
+    "/site.webmanifest",
+    "/og-image.png",
+    "/brand/mark.svg",
+    "/brand/lockup.svg",
+})
 
 # Routes that verify their own callers (portal token, OIDC) or must stay
 # reachable for probes and for signing in. Everything else requires a
 # founder credential.
 EXEMPT_PREFIXES = ("/health", "/webhooks/", "/tasks/",  # "/health" covers /healthz
-                   "/auth/", "/login.html")
+                   "/auth/", "/login.html", "/hiring-notice.html",
+                   "/api/public/hiring/roles/")
 
 
 def configured_token() -> str:
@@ -122,7 +135,8 @@ def _sign(payload: str, secret: str) -> str:
 
 
 def mint_session(email: str, name: str = "", *, subject: str = "",
-                 auth_time: int | None = None) -> str:
+                 auth_time: int | None = None,
+                 auth_time_source: str = "") -> str:
     """Signed, self-contained session value: base64url(claims).hmac."""
     secret = _session_secret()
     if not secret:
@@ -138,6 +152,8 @@ def mint_session(email: str, name: str = "", *, subject: str = "",
         claims["sub"] = subject
     if isinstance(auth_time, int):
         claims["auth_time"] = auth_time
+        if auth_time_source:
+            claims["auth_time_source"] = auth_time_source
     payload = _b64url(json.dumps(claims, separators=(",", ":")).encode())
     return f"{payload}.{_sign(payload, secret)}"
 
@@ -211,8 +227,11 @@ def _token_ok(presented: str) -> bool:
 
 
 def request_is_founder(request) -> bool:
-    """True when the HTTP request carries the founder token, a valid login
-    session, or dev-open applies."""
+    """True for the founder token, a valid login session, or dev-open.
+
+    This legacy name is an authentication predicate only. Workspace role and
+    authority are always resolved separately from durable membership.
+    """
     if _session_claims(request.cookies):
         return True
     return _token_ok(_presented_token(
@@ -356,7 +375,8 @@ def install(app) -> None:
                                      subject=str(claims.get("sub") or ""),
                                      auth_time=(int(claims["auth_time"])
                                                 if isinstance(claims.get("auth_time"),
-                                                              (int, float)) else None)),
+                                                              (int, float)) else None),
+                                     auth_time_source="idp_auth_time"),
                         **_cookie_kwargs())
         return resp
 
@@ -399,9 +419,7 @@ def install(app) -> None:
     @app.middleware("http")
     async def _founder_gate(request: Request, call_next):
         path = request.url.path
-        if (path in PUBLIC_PATHS
-                or any(path.startswith(p) for p in PUBLIC_PREFIXES)
-                or any(path.startswith(p) for p in EXEMPT_PREFIXES)):
+        if path in PUBLIC_PATHS or any(path.startswith(p) for p in EXEMPT_PREFIXES):
             return await call_next(request)
         if (not configured_token() and not firebase_config()["enabled"]
                 and _in_cloud_run()):
@@ -458,9 +476,15 @@ def install(app) -> None:
         if is_bootstrap and _wants_html(request):
             resp = RedirectResponse(_strip_key_query(request.url), status_code=303)
             _set_bootstrap_cookie(resp)
+            resp.headers.setdefault(
+                "Permissions-Policy", "on-device-speech-recognition=(self)")
             return resp
 
         response = await call_next(request)
+        # Conversational Hold may install/use only the browser's on-device
+        # recognition pack. The UI never falls back to remote Web Speech.
+        response.headers.setdefault(
+            "Permissions-Policy", "on-device-speech-recognition=(self)")
         if is_bootstrap:
             _set_bootstrap_cookie(response)
         return response

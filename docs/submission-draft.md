@@ -1,84 +1,203 @@
-# Devpost submission draft (edit before posting — Day 13)
+## Inspiration
 
-## Tagline
+Every founder — solo or part of a founding team — knows the operational grind.
+Nowhere is that grind more consequential than hiring. “We need to hire” quickly
+becomes a role definition, job description, application channel, evidence
+review, interview plan, references, offer, onboarding, and a trail of decisions
+that must remain human.
 
-Co-Founder: the AI co-founder that does the work — finding programs, drafting
-applications in your voice, pre-filling real forms — and never spends your
-reputation without asking.
+Funding has the same failure mode. Opportunities are scattered across websites
+and PDFs, every application asks familiar questions in a new form, and by the
+fifteenth tailored version of “describe your traction,” the application often
+quietly dies.
 
-## The problem
+We did not want to build another chatbot that gives founders more advice. We
+wanted a persistent co-founder that **carries the operational load**, leads the
+workflow, and learns how the founders think while doing the work.
 
-Every grant, accelerator, and incubator application re-asks the same thirty
-questions in slightly different words. Solo founders lose weeks to repetitive
-re-entry, miss deadlines buried in PDFs, and watch good programs close
-unanswered. General-purpose agents can fill a form once — but they don't know
-your company, don't learn how you write, and can't be trusted with an
-irreversible submission.
+Funding was the first operation we built. Hiring is the second and our primary
+demo because it proves the same foundation can support a more sensitive,
+human-decision-led journey. They are the first two operations, not the limits of
+Co-Founder: future workflows can reuse the same research, guidance, drafting,
+action, approval, and follow-up foundation.
+
+**Co-Founder does the work; the founder keeps the judgment.**
 
 ## What it does
 
-Co-Founder runs the whole application pipeline as a long-running, durable
-workflow:
+Co-Founder is a conversation-first workspace built around two substantial
+founder workflows: **Hiring Operations** and **Funding Operations**. Both share
+the same Alex conversation, live voice, documents, contextual workspace,
+decision controls, and activity receipts, while keeping their evidence and
+authority boundaries separate.
 
-- **Discovers** programs autonomously — Google Search grounding, program
-  listing pages, guidelines PDFs — parsed into structured records with
-  citations, on a daily schedule.
-- **Matches** each program against a persistent Founder Profile (stage, sector,
-  geography, funding preferences), archiving poor fits with specific reasons
-  and flagging urgency ("closes in 9 days, needs 2 essays — start now").
-- **Learns the company from its own documents**: upload a deck or business plan
-  and it proposes profile facts for your confirmation — 4 interview questions
-  instead of 30.
-- **Interviews and guides** step-by-step, asking one clarifying question at a
-  time and saying why.
-- **Drafts in your voice** — and adapts visibly: reject a word once, and every
-  later draft avoids it *and cites your feedback* ("avoided 'revolutionary' —
-  your feedback of Aug 20").
-- **Acts**: navigates real application portals with a browser — DOM-first with
-  vision reconnaissance for portals it has never seen — pre-fills from approved
-  answers, reports partial fills honestly, and submits only behind a
-  founder-granted, single-use approval that the model never sees.
+### Hiring Operations — our primary demo
 
-## How it's built (technologies)
+Hiring Operations carries a role from definition and approval through
+publication, candidate intake, evidence review, founder-led interviews and
+decisions, references, offers, and onboarding—with explicit approval before
+every consequential action.
 
-Gemini 3.5 (Vertex AI) · Google ADK (multi-agent orchestration, durable
-sessions, eval framework) · Cloud Run · Firestore · Cloud SQL · Pub/Sub ·
-Cloud Scheduler · Secret Manager · Cloud Storage · Playwright.
+A Founder can ask Alex by text or live voice to start hiring. Alex clarifies the
+need and prepares a complete role contract: purpose, outcomes, responsibilities,
+qualifications, working model, compensation where supplied, candidate-facing
+job description, scorecard, interview plan, and publication package. The
+Founder reviews and approves the exact package before distribution.
 
-Architecture highlights: an explicit state machine grounds every agent
-(`current_step` injected, never chat replay); three Runner surfaces share one
-session store and resume parked workflows via `state_delta`; the feedback
-distiller runs isolated (`include_contents="none"`) and synchronously, so
-adaptation is provable on camera; every external action is idempotent
-(derived keys) and audited (append-only trail); safety gates — no drafting
-before the interview, no submission without approval — are enforced in code
-and covered by golden eval sets in CI.
+Role-scoped intake receives applications and CVs, validates notice and consent,
+deduplicates candidates, and quarantines unsafe content. Alex maps cited
+candidate evidence to approved criteria as **present**, **missing**, or
+**unclear**. It can prepare interview questions, correspondence, schedules,
+reference summaries, offer documents, and onboarding plans.
 
-## Data sources
+Alex never scores, ranks, recommends, advances, rejects, or hires a candidate.
+Only the Founder records shortlist, interview, final, and offer decisions.
+Publication, candidate or reference contact, calendar invitations, offers, and
+access requests each retain their exact approval and receipt boundaries.
 
-Public program pages and guideline PDFs (fetched live, snapshot-cited), Google
-Search grounding, a self-hosted mock application portal for the demo, and the
-founder's own uploaded documents.
+A role- or candidate-aware **Discuss with Alex** action opens the main
+conversation with the selected context visibly identified. Restricted evidence
+never leaks into general conversation or Funding Operations.
 
-## Findings & learnings
+### Funding Operations
 
-- Prompts can't wake themselves: autonomy needs external triggers (Scheduler →
-  Pub/Sub → `state_delta` resume), not instructions.
-- Guards belong in code: a `before_tool_callback` staleness fence complies
-  every time; an instruction complies most of the time.
-- The model must never see the approval token — it resolves server-side, so
-  there's nothing to leak or fabricate.
-- "Store the sentence, not the schema": verbatim founder reasons beat invented
-  fields every time.
-- Multi-day agents are tested by seeding state, not by waiting.
+Funding Operations carries a founder-selected opportunity from guided
+interviews and grounded drafting through review, guarded form filling, exact
+submission approval, and follow-up.
 
-## Differentiation
+Alex can interpret sourced program requirements, lead a gap-filling interview,
+draft responses from verified company facts, capture section-level feedback,
+and prepare application artifacts. Its built-in Browser can inspect and
+pre-fill supported portals, report partial success honestly, and stop when a
+page no longer matches the version it inspected.
 
-General agents can fill a form once. Co-Founder learns how you write across
-every application, discovers what each portal demands on its own, and never
-spends your reputation without a signed gate.
+Filling and submission are separate. Alex cannot submit an application, send
+email, book a meeting, or export externally without an exact, current,
+single-use approval resolved by the server.
 
-## Links
+### One shared Alex experience
 
-- Repo: (public URL) · Hosted demo: (.run.app URL) · Video: (YouTube URL)
-- Built for the All Things Agentic Hackathon (Collaborative Partner).
+The interface keeps conversation central and places durable work in a
+contextual workspace with **Work, Evidence, Decisions, and Activity**. Generated
+documents remain canonical in Work and can be linked compactly from the exact
+assistant turn that created them.
+
+Alex works from its own email, calendar, and Drive, while using
+founder-connected sources only with permission.
+
+Real-time voice uses the same tools and safeguards as text. The live surface
+includes captions, interruption handling, **Pause Alex** to stop microphone
+capture, and a separate Hold state that keeps the call connected while
+suppressing normal responses. An explicit local camera-sharing pilot is
+available without ambient capture or frame persistence; screen sharing remains
+disabled pending a separate rollout.
+
+## How we built it
+
+Co-Founder uses **Google ADK**, Vertex AI, FastAPI, Playwright, and Google Cloud.
+A root Orchestrator coordinates eight bounded specialists across the shared
+product and its operation packs:
+
+- **Scout** for sourced discovery and extraction;
+- **Matchmaker** for fit and deadline analysis;
+- **Interviewer** for clarification and guided progress;
+- **Drafter** for grounded writing;
+- **Form Filler** for inspected browser preparation;
+- **Hiring Operator** for role, publication, interview, offer, and onboarding
+  preparation without decision authority;
+- **Hiring Evidence Analyst** for identity-isolated, criterion-bound evidence
+  mapping without scores or recommendations; and
+- **Distiller** for turning bounded Founder feedback into reusable profile rules
+  without receiving the full conversation.
+
+We use a five-model stack, selecting each model for a specific workload:
+
+- **Gemini 3.6 Flash** for orchestration, final drafting, dialogue, grounded
+  discovery, matching, multimodal document understanding, browser reasoning,
+  and tool-driven workflows;
+- **Gemini 3.5 Flash-Lite** for high-volume extraction and classification;
+- **Gemini Live 2.5 Flash** for real-time voice interaction;
+- **gemini-embedding-001** for retrieving relevant canonical answers; and
+- **Gemma 4 26B A4B IT** on Vertex MaaS for isolated second-pass evidence
+  checking before Founder review.
+
+We also use **Cloud Text-to-Speech with Chirp 3 HD** for explicit read-aloud
+responses.
+
+Durable records—not chat history—authorize progress. ADK sessions preserve the
+conversation; Firestore holds workflow truth and exact approvals. Every
+external action is server-authorized, idempotent, and audited.
+
+Co-Founder runs on Google Cloud using Cloud Run, Cloud SQL, Firestore, Cloud
+Storage, Secret Manager, and event-driven services. More than 600 deterministic
+tests and gated ADK evaluations cover workflow, security, and UI behavior.
+
+## Challenges we ran into
+
+**One product, separate truths.** Hiring and Funding share Alex, documents,
+decisions, and activity, but not indiscriminate access. Candidate evidence stays
+inside Hiring; application and portal state stays inside Funding.
+
+**Assistance without stolen judgment.** Alex can organize candidate evidence,
+but a summary can easily drift into a recommendation. We enforced the boundary
+structurally: only the Founder can advance, reject, or hire.
+
+**Reliable action beyond prompts.** Portals change, approvals become stale, and
+live audio races with sockets and transcripts. We added page fingerprints,
+server-bound approvals, idempotent actions, cancellation-safe media, and
+exactly-once transcript reconciliation instead of asking the model to be
+careful.
+
+## Accomplishments that we're proud of
+
+- Built two end-to-end operations rather than a conversational mockup.
+- Took Hiring from role definition through intake, interviews, references,
+  offers, and onboarding while preserving Founder-only decisions.
+- Took Funding from guided preparation through guarded browser work, submission,
+  and follow-up.
+- Unified both in one conversation-first, live-voice product without crossing
+  their evidence boundaries.
+- Enforced consequential actions in code and backed the system with durable
+  records, extensive tests, and gated evaluations.
+
+## What we learned
+
+**State and guards beat conversation.** A transcript explains what was said; it
+cannot prove what was approved or completed. Consequential actions need durable
+state and code-owned gates.
+
+**Evidence is not judgment.** Alex can organize what is present, missing, or
+unclear. Ranking candidates or making decisions belongs to the Founder.
+
+**One experience can preserve separate boundaries.** Hiring and Funding can
+share Alex without sharing every record, permission, or source.
+
+**Failures should be visible state.** Structured errors and explicit voice
+lifecycles let Alex report partial progress without inventing success.
+
+## What's next for Co-Founder
+
+Hiring and Funding are only the first two Co-Founder operations.
+
+The same **Scout → Matchmaker → Guide → Drafter → Action → Approval →
+Follow-up** foundation can support:
+
+1. **Investor outreach operations** — finding relevant investors, preparing
+   personalized outreach, tracking replies, and producing meeting briefs.
+2. **Customer discovery** — sourcing interview participants, managing outreach,
+   and synthesizing what customers actually said.
+3. **Compliance and deadline monitoring** — tracking registrations, renewals,
+   filings, and evidence of completion.
+4. **Bookkeeping reconciliation** — matching receipts and invoices to
+   transactions and preparing accountant-ready summaries.
+5. **Vendor and partnership follow-through** — managing documents, approvals,
+   signatures, deliveries, and long-running obligations.
+
+Each new operation will reuse the common Alex experience and durable runtime,
+but will receive its own evidence, policy, tool, and approval boundaries. A new
+operation must never gain authority merely because another operation has it.
+
+The boundary remains deliberate: strategy, pricing, hiring decisions, and
+pivots belong to the human.
+
+**Co-Founder does the work; the founder keeps the judgment.**

@@ -16,9 +16,7 @@ pytestmark = pytest.mark.asyncio
 
 def _principal(workspace: str = "workspace_a") -> ActorPrincipal:
     return ActorPrincipal(
-        actor_id="actor_a", workspace_id=workspace, role=WorkspaceRole.OWNER,
-        role_grants=frozenset(), candidate_assignments=frozenset(),
-        interview_assignments=frozenset(), session_auth_time=1,
+        actor_id="actor_a", workspace_id=workspace, role=WorkspaceRole.FOUNDER, session_auth_time=1,
         membership_version=1)
 
 

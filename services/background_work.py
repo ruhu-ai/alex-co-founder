@@ -21,6 +21,7 @@ from services.command_service import CommandService
 from services.durable_store import AtomicMutation, DurableStore, production_store
 from services.workflow_contracts import (
     BACKGROUND_FOUNDATION_NEGATIVE_CONSTRAINTS,
+    BACKGROUND_SKILL_NEGATIVE_CONSTRAINTS,
     RunKind,
     run_visible_to_actor,
     stable_id,
@@ -46,6 +47,7 @@ def _parse_time(value: Any) -> datetime | None:
 
 class BackgroundWorkClass(str, Enum):
     DETACHED_READ = "DETACHED_READ"
+    DETACHED_PREPARATION = "DETACHED_PREPARATION"
 
 
 @dataclass(frozen=True)
@@ -88,6 +90,9 @@ class BackgroundTemplate:
     retryable_error_codes: frozenset[str]
     max_attempts: int
     budgets: Mapping[str, int]
+    eligibility_policy_version: str
+    background_gate_ceiling: str
+    skill_bindings: tuple[Mapping[str, str], ...]
 
 
 POLICY_VERSION = "background-artifact-pilot-eligibility-v1"
@@ -125,6 +130,49 @@ FOUNDATION_TEMPLATE = BackgroundTemplate(
         "max_output_bytes": 65_536, "max_retries": 2,
         "max_concurrent": 1,
     },
+    eligibility_policy_version=POLICY_VERSION,
+    background_gate_ceiling="GATE_C_FOUNDER_PILOT",
+    skill_bindings=(),
+)
+
+GATE_F_TEMPLATE = BackgroundTemplate(
+    template_id="pilot.artifact_grounded_brief",
+    version="1",
+    status="FOUNDER_PILOT",
+    admission_enabled=False,
+    workflow_kind="alex_background_artifact_draft:v1",
+    objective_kind="GROUNDED_EVIDENCE_BRIEF",
+    work_class=BackgroundWorkClass.DETACHED_PREPARATION,
+    capability_ids=(
+        "background.artifact.read_selected_evidence",
+        "documents.persist_internal_draft",
+    ),
+    allowed_input_kinds=_INPUT_KINDS,
+    negative_constraints=BACKGROUND_SKILL_NEGATIVE_CONSTRAINTS,
+    completion_contract_id="documents.grounded-artifact-draft.v1",
+    milestone_policy_id="background.closed-milestones.gate-f.v1",
+    retryable_error_codes=frozenset({
+        "lease_lost", "retryable_dependency", "transient_store_error"}),
+    max_attempts=3,
+    budgets={
+        "max_steps": 1, "max_model_calls": 1,
+        "max_provider_calls": 1, "max_tokens": 16_096,
+        "max_active_seconds": 120, "max_wall_seconds": 300,
+        "max_artifact_bytes": 5_242_880, "max_artifact_chunks": 100,
+        "max_output_bytes": 65_536, "max_retries": 2,
+        "max_concurrent": 1,
+    },
+    eligibility_policy_version="background-skill-gate-f-v1",
+    background_gate_ceiling="GATE_F_SYNTHETIC_RUNTIME",
+    skill_bindings=({
+        "skill_identity": "documents.produce-grounded-artifact@1.0.0",
+        "definition_hash": (
+            "sha256:440a035848b8034fc9c8ca4fc250439b06b26bc799cb9101eb3a7896fbf51c67"
+        ),
+        "qualification_hash": (
+            "sha256:bb88c73da2192c6985cae04a5238aea64953e6d751256e17d06a5b46fe6a7cae"
+        ),
+    },),
 )
 FOUNDATION_TEMPLATES: Mapping[tuple[str, str], BackgroundTemplate] = {
     (FOUNDATION_TEMPLATE.template_id, FOUNDATION_TEMPLATE.version):
@@ -135,6 +183,13 @@ FOUNDATION_TEMPLATES: Mapping[tuple[str, str], BackgroundTemplate] = {
 def enabled_foundation_templates() -> Mapping[tuple[str, str], BackgroundTemplate]:
     """Explicit test/evaluation registry; production defaults remain disabled."""
     enabled = replace(FOUNDATION_TEMPLATE, admission_enabled=True)
+    return {(enabled.template_id, enabled.version): enabled}
+
+
+def enabled_gate_f_templates() -> Mapping[tuple[str, str], BackgroundTemplate]:
+    """Exact synthetic runtime registry; no application route imports it."""
+
+    enabled = replace(GATE_F_TEMPLATE, admission_enabled=True)
     return {(enabled.template_id, enabled.version): enabled}
 
 
@@ -197,6 +252,7 @@ class BackgroundEligibilityPolicy:
             return _error(
                 "negative_constraint_invalid",
                 "A negative constraint is not registered.")
+        descriptors = []
         for capability_id in template.capability_ids:
             try:
                 descriptor = capability_registry.require_capability(capability_id)
@@ -204,16 +260,36 @@ class BackgroundEligibilityPolicy:
                 return _error(
                     "background_capability_unavailable",
                     "A required foundation capability is unavailable.")
-            if (descriptor.side_effect_class != "NO_EFFECT"
+            descriptors.append(descriptor)
+            allowed_effects = (
+                {"NO_EFFECT"}
+                if template.work_class is BackgroundWorkClass.DETACHED_READ
+                else {"READ_ONLY", "INTERNAL_REVERSIBLE"}
+            )
+            allowed_permissions = (
+                frozenset()
+                if template.work_class is BackgroundWorkClass.DETACHED_READ
+                else frozenset({
+                    "artifact.read_selected", "artifact.write_private_draft"})
+            )
+            if (descriptor.side_effect_class not in allowed_effects
                     or descriptor.approval_policy_id != "none.v1"
-                    or descriptor.required_permissions):
+                    or not descriptor.required_permissions <= allowed_permissions):
                 return _error(
                     "background_authority_forbidden",
-                    "Gate A/B background work cannot carry effect authority.")
+                    "Background work carries authority outside its closed template.")
+        if (template.work_class is BackgroundWorkClass.DETACHED_PREPARATION
+                and ({item.capability_id for item in descriptors}
+                     != set(GATE_F_TEMPLATE.capability_ids)
+                     or set().union(*(item.required_permissions for item in descriptors))
+                     != {"artifact.read_selected", "artifact.write_private_draft"})):
+            return _error(
+                "background_authority_forbidden",
+                "The Gate F capability closure is incomplete or widened.")
         negative_constraints = sorted(
             set(template.negative_constraints) | confirmed)
         decision_material = {
-            "policy_version": POLICY_VERSION,
+            "policy_version": template.eligibility_policy_version,
             "workspace_id": principal.workspace_id,
             "actor_id": principal.actor_id,
             "template_id": template.template_id,
@@ -367,7 +443,7 @@ class BackgroundWorkService:
             "job_template_id": template.template_id,
             "job_template_version": template.version,
             "eligibility_policy_id": "BackgroundEligibilityPolicy",
-            "eligibility_policy_version": POLICY_VERSION,
+            "eligibility_policy_version": template.eligibility_policy_version,
             "eligibility_decision_hash": decision["eligibility_decision_hash"],
             "origin_actor_id": principal.actor_id,
             "origin_message_id": request.origin_message_id,
@@ -383,9 +459,9 @@ class BackgroundWorkService:
             "input_manifest_hash": input_manifest["content_hash"],
             "completion_contract_id": template.completion_contract_id,
             "milestone_policy_id": template.milestone_policy_id,
-            "skill_bindings": [],
+            "skill_bindings": [dict(item) for item in template.skill_bindings],
             "output_manifest_ref": None,
-            "background_gate_ceiling": "GATE_C_FOUNDER_PILOT",
+            "background_gate_ceiling": template.background_gate_ceiling,
             "approval_authority": "NONE",
             "effect_authority": "NONE",
             "memory_write_authority": "NONE",

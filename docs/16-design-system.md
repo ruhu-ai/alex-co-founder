@@ -1,10 +1,14 @@
 # 16 — Design System ("Workbench")
 
-The visual and interaction system for the founder-facing surface
-(`app/static/index.html`). One page, no framework, no build step — so the system
-is enforced by **CSS custom properties plus a small set of component classes**,
-not by a component library. Every rule here is implemented in the `<style>`
-block of that file; this doc is the contract, that file is the runtime.
+The visual and interaction system for every founder-facing product surface,
+including `app/static/index.html` and `app/static/hiring.html`. The original
+runtime was one no-framework page whose `<style>` block owned these rules;
+Hiring later added page-local approximations. That duplication is not the target
+contract. All product routes must consume one shared/generated semantic-token
+and component source (CSS custom properties plus the small component grammar),
+with docs 36's shared rail/header/contextual-workspace composition. Similarly
+named local variables, a second font stack, or copied navigation markup do not
+constitute design-system reuse.
 
 `adk web` is the dev inspection surface and is deliberately excluded — it is
 never deployed and never styled.
@@ -300,14 +304,44 @@ picks, in colours the theme cannot control, at sizes the scale does not know
 about — and the recording machine may not match the dev machine. `⌘` sat on the
 Connections button as decoration, falsely implying a keyboard shortcut.
 
-### 5.4 Inventory (46)
+### 5.4 Inventory (51)
 
-`send · mic · waveform · paperclip · chat · plug · refresh · sun · moon · plus ·
+`send · mic · waveform · paperclip · chat · camera · screen-share · plug ·
+refresh · sun · moon · plus ·
 minus · close · search · chev-left · chev-right · board · clipboard · check ·
 alert · flag · star · sparkle · clock · pause · shield · compass · target ·
 pencil · trash · download · eye · file-doc · file-sheet · file-slides ·
 file-pdf · cloud-up · inbox · at · calendar · globe · git-branch · hash ·
-paper-plane · code · link · external`
+paper-plane · code · link · external · gear · sign-out · hiring`
+
+### 5.4.1 Founder navigation and composer mapping
+
+These mappings are binding for the shared Alex shell. They use conventional
+Phosphor Regular shapes, one 20 px optical box in the rail and one 18 px optical
+box in the composer; visible labels or accessible names/tooltips carry the full
+meaning. Color never carries the action by itself.
+
+| Surface action | Semantic sprite | Phosphor Regular source |
+|---|---|---|
+| New | `plus` | `plus` |
+| Alex | `chat` | `chat-circle` |
+| Search | `search` | `magnifying-glass` |
+| Runs | `board` | `kanban` |
+| Hiring | `hiring` | `users-three` |
+| Decisions | `shield` | `shield-check` |
+| Activity | `clock` | `clock` |
+| Settings | `gear` | `gear` |
+| Attach | `paperclip` | `paperclip` |
+| Voice note | `mic` | `microphone` |
+| Start/end live voice | `waveform` | `waveform` |
+| Share camera | `camera` | `camera` |
+| Share screen | `screen-share` | `monitor-arrow-up` |
+| Send | `send` | `arrow-up` |
+
+The globe remains Browser-only. A target is not a camera or a Hiring mark.
+New alone is the filled blue/white rail CTA; the other rail and composer glyphs
+inherit semantic foreground tokens. Disabled media controls retain their exact
+accessible name and explain the unavailable state in their tooltip.
 
 ### 5.5 Connector marks
 
@@ -358,6 +392,71 @@ file, and the hackathon requires disclosing any incorporated pre-existing code;
 and where a logo came from does not change the submission rule. Mining the
 *grammar* — grouped inset rows, the brand-tinted tile, the dark-mark lift in
 §2.5 — is exactly what that repo is there for.
+
+### 5.6 The brand mark is not an icon
+
+Until this section existed, `favicon.svg` carried Phosphor's `sparkle` — the
+same path data `build_icons.py` compiles into the sprite as `#i-sparkle`. The
+product's own mark and one of its toolbar buttons were the same glyph, and the
+glyph was the four-point AI sparkle, on a product whose README opens by saying
+it is not another chatbot. Everything below exists so that cannot recur.
+
+**The mark ("Counterpart").** Two identical brackets on a 100-unit grid, drawn
+14 units wide with round joins:
+
+```
+M20 80L20 20L64 20     the agent's half
+M80 20L80 80L36 80     the founder's half
+```
+
+Rotating the pair 180° about (50, 50) maps each path onto the other: two parts,
+neither subordinate, holding two sides of a frame that neither closes alone.
+The artwork occupies 13…87 in both axes, so the drawn box is a square with
+13 units of clear space already inside the viewBox.
+
+**Amber means a decision is waiting — here too.** The halves are separate
+strokes, so the founder's half can take `--attn` when something needs judgment,
+turning the tab icon into the notification. That is the *only* sanctioned use
+of a second colour in the mark; a decorative amber half would break §2.1.
+
+**Generated, never hand-edited.** `scripts/build_brand.py` owns the geometry and
+emits every asset from it — `brand/mark.svg`, `brand/lockup.svg`, `favicon.svg`,
+the PNG icon set, `og-image.png`, `site.webmanifest`, and the `@brand:begin` /
+`@brand:end` block in the three product pages. Same contract as
+`build_icons.py`: change a constant, re-run, commit the output.
+
+**It stays out of `ICONS`.** The mark must never be added to the sprite map in
+`build_icons.py` — that is precisely how the sparkle ended up serving both
+roles, and the next sprite rebuild would overwrite it.
+
+**Clear space and minimum size.** Clear space is the 13-unit inset the viewBox
+already carries; nothing else sits inside it. Minimum drawn size is 14 px — at
+16 px in a favicon tile the interlock is still legible, below that it silts up.
+
+**Layout is CSS, derived from the same constants.** The generated block ships
+one rule set; a page sets `--brand-size` (the *drawn* mark height) and colour,
+and the mark size, gap, and logotype height follow. An in-app lockup therefore
+cannot drift from `brand/lockup.svg`.
+
+| | |
+|---|---|
+| mark colour | `--accent` |
+| logotype colour | `--ink-1` — single colour. The old `Co-<span>Founder</span>` split existed only because there was no mark to carry the accent |
+| cap height ÷ drawn mark | 0.76 |
+| gap ÷ drawn mark | 0.32 |
+
+**The logotype ships as outlines.** It is set in IBM Plex Sans SemiBold
+(SIL OFL 1.1) and converted to SVG paths at build time. No font file ships and
+no webfont is linked — §3.1 forbids that — and outlining is also what fixes the
+older bug: the wordmark used to be a `--font-display` CSS rule, so the brand's
+letterforms were SF Pro, Segoe UI Variable, or Roboto depending on the visitor.
+
+**The icon program.** `favicon.svg` (per-theme, rounded tile), a 180 px
+`apple-touch-icon.png` (opaque and full-bleed; iOS applies its own radius),
+192/512 PNGs for `site.webmanifest`, a maskable 512 whose mark is held to 52%
+so it survives Android's circular crop at 80%, and a 1200×630 `og-image.png`.
+All of them are listed in `PUBLIC_PATHS` in `app/auth.py`, because browser
+chrome and link unfurlers fetch them with no session at all.
 
 ## 6. Motion
 
@@ -653,7 +752,7 @@ Verified in-browser:
 - [x] No focus ring is clipped by an `overflow: hidden` ancestor.
 - [x] Tab order reaches the approval dialog's buttons and returns on close;
       Escape closes the topmost dialog.
-- [x] No emoji or Unicode symbol used as an icon; 42 sprite symbols, 0
+- [x] No emoji or Unicode symbol used as an icon; 51 sprite symbols, 0
       non-sprite SVGs.
 - [x] Both themes render in all three selection states (bare `:root`, OS
       preference, explicit toggle).
@@ -667,6 +766,13 @@ Verified in-browser:
 - [x] Every live-updating number uses tabular numerals.
 
 Also guarded:
+
+- [ ] `index.html`, `hiring.html`, and every future founder-facing route consume
+      the same shared/generated semantic token, typography, icon, focus,
+      rail/header, card/tab/table/sheet, and responsive primitives. Tests fail
+      on a page-local token/theme/font/navigation fork.
+- [ ] Hiring's role/candidate renderers satisfy docs 36's shared shell and docs
+      25's restricted domain contract without adding a separate visual product.
 
 - [x] Encoding thresholds are pinned by `tests/unit/test_design_encodings.py`,
       which lifts `fitMeter` and `deadlineChip` out of the shipped page and runs

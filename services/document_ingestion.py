@@ -518,14 +518,39 @@ async def search_attachments(*, founder_id: str, session_id: str,
         except Exception:
             query_vector = []
     query_terms = _tokens(query)
+    generic_image_query = bool(query_terms) and query_terms.issubset({
+        "image", "picture", "photo", "shown", "show", "see", "visible",
+        "look", "inspect", "describe", "what", "there", "here", "this",
+        "in", "is", "on",
+    })
     ranked: list[tuple[float, dict[str, Any], dict[str, Any]]] = []
+    image_ranked: list[tuple[float, dict[str, Any], dict[str, Any], str]] = []
     for ref in refs:
         artifact = await firestore.get_artifact(ref)
         if (not artifact or artifact.get("founder_id") != founder_id
                 or artifact.get("session_id") != session_id):
             return _error("attachment_not_found", "Attachment was not found")
+        kind = str(artifact.get("kind") or "document")
         if artifact.get("status") not in {"READY", "NEEDS_FOUNDER", "CONFIRMED"}:
             return _error("attachment_not_ready", f"Attachment {ref} is not ready for search")
+        if kind == "image":
+            if (artifact.get("scope") != "reference_only"
+                    or artifact.get("authority") != "reference_only"):
+                return _error("attachment_not_found", "Attachment was not found")
+            observations = await firestore.list_image_observations(ref, limit=64)
+            for observation in observations:
+                evidence = "\n".join(item for item in (
+                    str(observation.get("description") or "").strip(),
+                    str(observation.get("ocr_text") or "").strip(),
+                ) if item)[:4000]
+                terms = _tokens(evidence)
+                lexical = len(query_terms & terms) / max(len(query_terms), 1)
+                if lexical > 0 or generic_image_query:
+                    image_ranked.append((max(lexical, 0.01), artifact,
+                                         observation, evidence))
+            continue
+        if kind != "document":
+            return _error("attachment_not_found", "Attachment was not found")
         chunks = await firestore.list_artifact_chunks(ref, limit=MAX_CHUNKS)
         for chunk in chunks:
             terms = _tokens(chunk.get("content", ""))
@@ -563,6 +588,7 @@ async def search_attachments(*, founder_id: str, session_id: str,
             f"/api/ingest/{artifact['id']}/source?session_id={session_id}"
             f"#{location_key}={locator[location_key]}")
         results.append({
+            "artifact_kind": "document",
             "source_type": artifact.get("source_type") or "upload",
             "source_id": artifact["id"],
             "source_title": artifact.get("source_ref", "document"),
@@ -572,6 +598,56 @@ async def search_attachments(*, founder_id: str, session_id: str,
             "authority": "unconfirmed_evidence",
             "source_available": source_available,
         })
+    image_ranked.sort(key=lambda item: (-item[0], int(item[2].get("ordinal") or 0)))
+    for score, artifact, observation, evidence in image_ranked:
+        if len(results) >= max(1, min(top_k, 8)):
+            break
+        region = observation.get("region")
+        if (not isinstance(region, dict) or region.get("unit") != "normalized"
+                or observation.get("source_sha256") != artifact.get("sha256")
+                or observation.get("evidence_sha256") != hashlib.sha256(
+                    evidence.encode("utf-8")).hexdigest()):
+            return _error(
+                "incomplete_evidence_citation",
+                "Image evidence is missing an exact source region; no result was returned.")
+        try:
+            values = [round(float(region[key]), 4)
+                      for key in ("x", "y", "width", "height")]
+        except (KeyError, TypeError, ValueError):
+            return _error(
+                "incomplete_evidence_citation",
+                "Image evidence is missing an exact source region; no result was returned.")
+        x, y, width, height = values
+        if (not all(math.isfinite(value) for value in values)
+                or x < 0 or y < 0 or width <= 0 or height <= 0
+                or x + width > 1.0001 or y + height > 1.0001):
+            return _error(
+                "incomplete_evidence_citation",
+                "Image evidence is missing an exact source region; no result was returned.")
+        anchor = ",".join(f"{value:.4f}" for value in values)
+        results.append({
+            "artifact_kind": "image",
+            "source_type": artifact.get("source_type") or "upload",
+            "source_id": artifact["id"],
+            "source_title": artifact.get("source_ref", "image"),
+            "score": round(score, 4), "excerpt": evidence,
+            "citation": {
+                "artifact_id": artifact["id"],
+                "observation_id": observation.get("id", ""),
+                "region": {"x": x, "y": y, "width": width,
+                           "height": height, "unit": "normalized"},
+                "evidence_text": evidence,
+                "evidence_sha256": observation["evidence_sha256"],
+                "source_sha256": artifact["sha256"],
+                "source_url": (
+                    f"/api/v1/ingestions/{artifact['id']}/source?session_id={session_id}"
+                    f"#region={anchor}"),
+            },
+            "authority": "unconfirmed_evidence", "source_available": True,
+        })
+    results.sort(key=lambda item: (-float(item.get("score") or 0),
+                                   str(item.get("source_id") or "")))
+    results = results[:max(1, min(top_k, 8))]
     return {"status": "success", "query": query, "results": results}
 
 
@@ -594,6 +670,12 @@ async def _transient_failure(ingestion_id: str, owner: str, code: str,
 async def process_ingestion(ingestion_id: str, *, lease_owner: str = "",
                             retry_transient: bool = False) -> dict[str, Any]:
     """Run one idempotent ingestion attempt from persisted artifact state."""
+    artifact_kind = await firestore.get_artifact(ingestion_id)
+    if artifact_kind and artifact_kind.get("kind") == "image":
+        from services import image_ingestion
+        return await image_ingestion.process_ingestion(
+            ingestion_id, lease_owner=lease_owner,
+            retry_transient=retry_transient)
     from services import profile_service
 
     claim = await firestore.claim_ingestion(ingestion_id, lease_owner=lease_owner)
@@ -656,7 +738,7 @@ async def process_ingestion(ingestion_id: str, *, lease_owner: str = "",
             if proposed.get("status") != "success":
                 code = proposed.get("error_code", "proposal_extraction_failed")
                 message = proposed.get("message", "Profile extraction failed")
-                if code == "proposal_extraction_failed":
+                if code == "proposal_extraction_failed" and proposed.get("retryable"):
                     return await _transient_failure(
                         ingestion_id, owner, code, message, retry_transient)
                 await firestore.finish_ingestion(
@@ -699,6 +781,13 @@ async def process_ingestion(ingestion_id: str, *, lease_owner: str = "",
             "needs_founder": needs_founder,
         }
     except Exception as exc:
-        return await _transient_failure(
-            ingestion_id, owner, "worker_failure",
-            f"Document processing failed: {exc}"[:240], retry_transient)
+        from services.retry_policy import is_transient_exception
+
+        message = f"Document processing failed: {exc}"[:240]
+        if is_transient_exception(exc):
+            return await _transient_failure(
+                ingestion_id, owner, "worker_failure", message, retry_transient)
+        await firestore.finish_ingestion(
+            ingestion_id, owner, "FAILED", error_code="worker_failure",
+            message=message)
+        return _error("worker_failure", message)

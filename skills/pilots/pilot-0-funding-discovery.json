@@ -1,0 +1,22 @@
+{
+  "pilot_id": "pilot-0-funding-discovery",
+  "skill_identity": "funding.discover-opportunities@1.0.0",
+  "journey_ref": "docs/37-production-skills-system.md#18",
+  "live_agent_ref": "agents/co_founder/sub_agents/scout.py",
+  "live_tool_capability_map_ref": "services/capability_registry.py:opportunity.search",
+  "predicate_enforcement_ref": "skills/policy.py",
+  "sole_authority_ref": "services/discovery_service.py",
+  "contract_map_ref": "skills/contracts.py",
+  "context_contract_ref": "skills/context.py",
+  "error_retry_approval_ref": "docs/37-production-skills-system.md#12",
+  "proof_suite_ref": "tests/unit/test_skill_foundation.py",
+  "rollback_ref": "remove shadow catalog consumer; live graph has no skills import",
+  "definition_hash": "sha256:317fb293a7d25c73e5b50b78c4db21c02499510e907319d59fbecefbb6820b69",
+  "qualification_hash": "sha256:acb1b83624b5b73e66fdfafba9704b6b98a0ec090e0aa5e8c6b77d23171e594b",
+  "capability_closure_verified": false,
+  "typed_contracts_verified": true,
+  "one_authority_verified": false,
+  "negative_authority_tests_passed": true,
+  "qualification_passed": false,
+  "live_adoption_requested": false
+}

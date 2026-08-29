@@ -34,6 +34,10 @@ _DEFAULTS = {
         "goal": None, "last_action": None,
     },
     ss.K_USER_PREFS: {},
+    ss.K_MEMORY_MODE: "STANDARD",
+    ss.K_PRIVATE_ORIGIN: False,
+    ss.K_ADVISORY_MEMORY: "none",
+    ss.K_HIRING_ROLE_CONTEXT: "none",
 }
 
 _SPECIALIST_STEPS = {
@@ -59,6 +63,7 @@ _EFFECTFUL_TOOLS = frozenset({
     "complete_interview", "save_draft_section", "complete_drafting",
     "record_feedback", "produce_document", "fill_fields", "submit_form",
     "transfer_to_agent",
+    "create_hiring_draft",
 })
 _FAILURES_KEY = "temp:effect_failures"
 _RECEIPTS_KEY = "temp:completion_receipts"
@@ -90,7 +95,60 @@ async def guard_specialist_entry(callback_context: CallbackContext):
 async def enforce_workflow_tool_contract(
     tool: BaseTool, args: dict[str, Any], tool_context: ToolContext
 ) -> Optional[dict[str, Any]]:
-    """Block invalid specialist handoffs before ADK changes agent ownership."""
+    """Enforce visual provenance and invalid specialist handoffs in code."""
+    from services import capability_registry, live_visual_context
+
+    # M2 memory is conversational advisory context only. Even if a model tries
+    # to turn a remembered preference into a workflow mutation, specialist
+    # handoff, document, connector call, or external effect, the code fence
+    # refuses before the tool executes. Current durable records remain the only
+    # authority and review/approval artifacts receive no optional memory.
+    advisory = str(tool_context.state.get(ss.K_ADVISORY_MEMORY) or "none")
+    if advisory != "none":
+        return {
+            "status": "error", "error": True,
+            "error_code": "memory_context_not_allowed_for_tool",
+            "message": (
+                "Saved context is advisory and cannot influence a tool, source "
+                "query, workflow, or review artifact. Continue without optional "
+                "memory."),
+        }
+
+    session = getattr(tool_context, "session", None)
+    session_id = str(getattr(session, "id", "") or
+                     getattr(tool_context, "session_id", "") or "")
+    workspace_id = str(getattr(session, "user_id", "") or
+                       getattr(tool_context, "user_id", "") or "")
+    epoch = live_visual_context.get(workspace_id, session_id) \
+        if workspace_id and session_id else None
+    if epoch is not None:
+        binding = capability_registry.MODEL_TOOL_BINDINGS.get(tool.name)
+        if binding is None:
+            return {
+                "status": "error", "error": True,
+                "error_code": "visual_tool_binding_missing",
+                "message": "That tool is not reviewed for visual context. No action was taken.",
+            }
+        if binding.visual_policy == "EXACT_CONFIRMATION_WHEN_VISUAL":
+            return {
+                "status": "error", "error": True,
+                "error_code": "needs_exact_review",
+                "message": (
+                    "This durable choice may be influenced by visual input. Prepare or "
+                    "explain it, then use the server-rendered review control; spoken or "
+                    "visible approval cannot authorize it."),
+                "visual_epoch_id": epoch.epoch_id,
+            }
+        if binding.visual_policy == "EXPLICIT_SCOPE_WHEN_VISUAL":
+            return {
+                "status": "error", "error": True,
+                "error_code": "visual_scope_not_authority",
+                "message": (
+                    "Pixels cannot choose a new browser target or navigation scope. "
+                    "Use an already-authorized durable target, or continue in a fresh "
+                    "nonvisual context and provide the target explicitly. No action was taken."),
+                "visual_epoch_id": epoch.epoch_id,
+            }
     if tool.name != "transfer_to_agent":
         return None
     target = str(args.get("agent_name") or "")
@@ -157,7 +215,24 @@ _DRAFT_OUTPUT = re.compile(
     r"(?:^|\n)\s*(?:revised\s+)?(?:section\s+\d+\s+)?draft\s*:", re.I)
 _LOCKED_SECTION = re.compile(
     r"\bsection\s+(?:\d+|[a-z][\w-]*)\s+(?:is\s+)?(?:locked|approved)\b", re.I)
-_SHORTLIST_COUNT = re.compile(r"\b(\d+)\s+shortlisted\b", re.I)
+_COUNT_WORDS = {
+    "no": 0, "zero": 0, "one": 1, "two": 2, "three": 3, "four": 4,
+    "five": 5, "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10,
+}
+_COUNT_TOKEN = r"(?:\d+|no|zero|one|two|three|four|five|six|seven|eight|nine|ten)"
+_SHORTLIST_COUNT = re.compile(
+    rf"\b({_COUNT_TOKEN})\s+(?:programs?\s+|opportunities?\s+)?shortlisted\b", re.I)
+_APPLICATION_COUNT = re.compile(
+    rf"\b({_COUNT_TOKEN})\s+(?:active\s+)?applications?\b", re.I)
+_UNGROUNDED_PIPELINE_CLAIM = re.compile(
+    rf"(?:\b{_COUNT_TOKEN}\s+(?:programs?\s+|opportunities?\s+)?shortlisted\b|"
+    rf"\b{_COUNT_TOKEN}\s+(?:active\s+)?applications?\b|"
+    r"\btop\s+fit\s+closes\b|\bopportunities?\s+(?:shortlisted|discovered)\b)", re.I)
+
+
+def _count_value(value: str) -> int:
+    token = value.casefold()
+    return int(token) if token.isdigit() else _COUNT_WORDS[token]
 
 
 def enforce_effect_claims(
@@ -200,8 +275,24 @@ def enforce_effect_claims(
         )
     else:
         summary = callback_context.state.get(_PIPELINE_SUMMARY_KEY) or {}
-        match = _SHORTLIST_COUNT.search(text)
-        if match and summary and int(match.group(1)) != int(summary.get("shortlisted", -1)):
+        shortlist_match = _SHORTLIST_COUNT.search(text)
+        application_match = _APPLICATION_COUNT.search(text)
+        if _UNGROUNDED_PIPELINE_CLAIM.search(text) and not summary:
+            replacement = (
+                "I don't have a verified current pipeline snapshot in this turn, "
+                "so I won't make a funding-status claim. I can check the board now."
+            )
+        elif (shortlist_match and summary
+              and _count_value(shortlist_match.group(1))
+              != int(summary.get("shortlisted", -1))):
+            replacement = (
+                f"The current board has {summary['shortlisted']} shortlisted, "
+                f"{summary['discovered']} newly discovered, and "
+                f"{summary['applications']} active applications."
+            )
+        elif (application_match and summary
+              and _count_value(application_match.group(1))
+              != int(summary.get("applications", -1))):
             replacement = (
                 f"The current board has {summary['shortlisted']} shortlisted, "
                 f"{summary['discovered']} newly discovered, and "

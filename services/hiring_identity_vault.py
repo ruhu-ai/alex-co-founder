@@ -12,7 +12,7 @@ from typing import Any, Awaitable, Callable
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 from services import hiring_activation
-from services.actor_identity import ActorPrincipal, WorkspaceRole, authorize
+from services.actor_identity import ActorPrincipal, authorize
 from services.durable_store import DurableStore, production_store
 from services.hiring_contracts import canonical_hash, stable_id, utc_now
 
@@ -23,46 +23,32 @@ KeyUnwrapper = Callable[[bytes, str], Awaitable[bytes]]
 class CandidateIdentityVault:
     """Envelope-encrypt identity with one random DEK per application.
 
-    Production candidate intake requires Cloud KMS wrappers and an explicit
-    live-data mode. A local fixture wrapper can process live data only in a
-    non-Cloud-Run development process; deployed services fail closed without
-    the configured KMS key and deduplication secret.
+    H0-H3 calls are synthetic-only. Production activation must provide Cloud
+    KMS wrappers and complete qualified review; a local fixture wrapper is
+    accepted only when the persisted synthetic guard passes.
     """
 
     def __init__(self, *, wrap_key: KeyWrapper, unwrap_key: KeyUnwrapper,
                  dedup_key: bytes,
-                 store: DurableStore | None = None,
-                 allow_live: bool = False):
+                 store: DurableStore | None = None):
         if len(dedup_key) < 32:
             raise ValueError("identity dedup key must be at least 256 bits")
         self._wrap = wrap_key
         self._unwrap = unwrap_key
         self._dedup_key = bytes(dedup_key)
         self.store = store or production_store()
-        self._allow_live = bool(allow_live)
 
     async def store_identity(self, *, workspace_id: str, role_id: str,
                              candidate_application_id: str,
                              identity_fields: dict[str, str],
-                             synthetic_guard: dict[str, Any] | None = None,
-                             provenance: dict[str, Any] | None = None) -> dict[str, Any]:
-        mode = dict(provenance or synthetic_guard or {})
-        gate = hiring_activation.require_application_mode(mode)
+                             synthetic_guard: dict[str, Any]) -> dict[str, Any]:
+        gate = hiring_activation.require_synthetic(synthetic_guard)
         if gate.get("error"):
             return gate
-        if mode.get("synthetic") is not True and not self._allow_live:
-            return _error("production_keying_required")
         allowed = {"name", "email", "phone", "provider_candidate_id"}
         if not identity_fields or set(identity_fields) - allowed:
             return _error("invalid_identity_contract")
         identity_id = stable_id("identity", workspace_id, candidate_application_id)
-        identity_payload_hash = canonical_hash({
-            "workspace_id": workspace_id, "role_id": role_id,
-            "candidate_application_id": candidate_application_id,
-            "identity_fields": identity_fields,
-            "data_mode": ("SYNTHETIC" if mode.get("synthetic") is True
-                          else "LIVE_INTERNAL"),
-        })
         aad = f"v1\x1f{workspace_id}\x1f{role_id}\x1f{candidate_application_id}".encode()
         dek = AESGCM.generate_key(bit_length=256)
         nonce = os.urandom(12)
@@ -85,22 +71,17 @@ class CandidateIdentityVault:
                 self._dedup_key,
                 (workspace_id + "\x1f" + str(identity_fields.get("email", ""))
                  .strip().lower()).encode(), hashlib.sha256).hexdigest(),
-            "identity_payload_hash": identity_payload_hash,
             "notice_receipts": [], "consent_receipts": [],
             "retention_status": "ACTIVE", "legal_hold": False,
-            "synthetic": mode.get("synthetic") is True,
-            "synthetic_namespace": mode.get("synthetic_namespace"),
-            "fixture_id": mode.get("fixture_id"),
-            "data_mode": ("SYNTHETIC" if mode.get("synthetic") is True
-                          else "LIVE_INTERNAL"),
+            "synthetic": True,
+            "synthetic_namespace": synthetic_guard["synthetic_namespace"],
+            "fixture_id": synthetic_guard["fixture_id"],
             "created_at": utc_now(), "updated_at": utc_now(), "version": 1,
         }
         created = await self.store.create("candidate_identities", identity_id, row)
         if not created:
             existing = await self.store.get("candidate_identities", identity_id)
-            if (not existing
-                    or existing.get("candidate_application_id") != candidate_application_id
-                    or existing.get("identity_payload_hash") != identity_payload_hash):
+            if not existing or existing.get("candidate_application_id") != candidate_application_id:
                 return _error("idempotency_conflict")
             return {"status": "success", "duplicate": True,
                     "candidate_id": identity_id}
@@ -110,12 +91,9 @@ class CandidateIdentityVault:
     async def reveal_identity(self, *, identity_id: str, workspace_id: str,
                               role_id: str, candidate_application_id: str,
                               principal: ActorPrincipal) -> dict[str, Any]:
-        gate = authorize(principal, "read_candidate", role_id=role_id,
-                         candidate_application_id=candidate_application_id,
+        gate = authorize(principal, "read_candidate",
                          require_fresh=True)
-        if (gate.get("error") or principal.workspace_id != workspace_id
-                or principal.role not in {WorkspaceRole.OWNER,
-                                          WorkspaceRole.HIRING_MANAGER}):
+        if gate.get("error") or principal.workspace_id != workspace_id:
             return _error("identity_access_forbidden")
         row = await self.store.get("candidate_identities", identity_id)
         if (not row or row.get("workspace_id") != workspace_id

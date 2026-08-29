@@ -3,7 +3,7 @@ service-layer tests run without credentials or an emulator."""
 
 import hashlib
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
@@ -507,6 +507,9 @@ def fake_store(monkeypatch):
                 raise ValueError("ingestion occurrence conflicts with existing receipt")
             return iid
         now = store._now()
+        retention_expires_at = (
+            (datetime.now(timezone.utc) + timedelta(hours=24)).isoformat()
+            if fields.get("scope") == "reference_only" else None)
         store.artifacts[iid] = {
             "id": iid, "founder_id": fields["founder_id"],
             "session_id": fields["session_id"], "scope": fields["scope"],
@@ -527,6 +530,9 @@ def fake_store(monkeypatch):
             "occurrence_key": fields.get("occurrence_key"),
             "provenance_status": "PENDING",
             "status": "QUEUED", "index_generation": "",
+            "retention_policy": ("profile" if fields.get("scope") == "profile"
+                                 else "session"),
+            "retention_expires_at": retention_expires_at,
             "created_at": now, "updated_at": now,
         }
         store.ingestions[iid] = {
@@ -545,6 +551,9 @@ def fake_store(monkeypatch):
             "provenance_status": "PENDING",
             "status": "QUEUED", "proposed_updates": [], "auto_applied": 0,
             "needs_founder_count": 0, "chunk_count": 0, "created_at": now,
+            "retention_policy": ("profile" if fields.get("scope") == "profile"
+                                 else "session"),
+            "retention_expires_at": retention_expires_at,
         }
         store.audit.append({
             "id": uuid.uuid4().hex, "actor": f"founder:{fields['founder_id']}",

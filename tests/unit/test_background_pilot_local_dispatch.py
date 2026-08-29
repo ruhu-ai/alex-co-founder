@@ -65,6 +65,37 @@ def test_local_dispatch_is_loopback_route_scoped_and_signed(monkeypatch):
     assert claims["service_account"] == "local-background-pilot-worker"
 
 
+def test_local_gate_f_dispatch_is_exactly_scoped_and_signed(monkeypatch):
+    monkeypatch.delenv("K_SERVICE", raising=False)
+    monkeypatch.setenv("BACKGROUND_PILOT_ALLOW_TEST_DISPATCH", "1")
+    monkeypatch.setenv("BACKGROUND_PILOT_TEST_DISPATCH_SECRET", "s" * 32)
+    monkeypatch.setenv("AGENT_BASE_URL", "http://127.0.0.1:8092")
+    monkeypatch.setattr(task_queue.threading, "Thread", _Thread)
+    requests = []
+
+    def open_request(request, timeout):
+        requests.append((request, timeout))
+        return _Response()
+
+    monkeypatch.setattr(task_queue.urllib.request, "urlopen", open_request)
+    path = "/tasks/background-artifact-grounded-brief"
+    result = task_queue.enqueue(
+        path, {"workspace_id": "workspace-pilot", "run_id": "run-001",
+               "step_id": "step-001"}, "delivery-gate-f-001",
+        queue_name="co-founder-background-skill-gate-f",
+        audience=f"http://127.0.0.1:8092{path}")
+
+    assert result == {"status": "success", "local_test_delivery": True}
+    request, timeout = requests[0]
+    assert timeout == 30
+    assert request.full_url == f"http://127.0.0.1:8092{path}"
+    encoded = request.headers["X-background-pilot-test-principal"]
+    claims = json.loads(base64.urlsafe_b64decode(
+        encoded + "=" * (-len(encoded) % 4)))
+    assert claims["service_account"] == "local-background-skill-worker"
+    assert claims["audience"] == request.full_url
+
+
 def test_local_dispatch_refuses_non_loopback_and_other_routes(monkeypatch):
     monkeypatch.delenv("K_SERVICE", raising=False)
     monkeypatch.setenv("BACKGROUND_PILOT_ALLOW_TEST_DISPATCH", "1")

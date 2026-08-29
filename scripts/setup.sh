@@ -49,7 +49,7 @@ else
 fi
 
 echo "==> [5/7] Enable APIs (skips already-enabled)"
-APIS="run firestore sqladmin pubsub cloudscheduler cloudtasks secretmanager cloudkms storage cloudbuild aiplatform cloudtrace logging"
+APIS="run firestore sqladmin pubsub cloudscheduler cloudtasks secretmanager storage cloudbuild aiplatform cloudtrace logging"
 for API in $APIS; do
   if gcloud services list --enabled --filter="name:${API}.googleapis.com" --format="value(name)" 2>/dev/null | grep -q .; then
     echo "    $API already enabled"

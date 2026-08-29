@@ -94,6 +94,7 @@ artifact service; Firestore holds metadata and bounded extracted chunks only.
 
 | Artifact field | Type | Notes |
 |---|---|---|
+| `kind` | str | `document` (compatibility default) or `image`; image is always `reference_only` and originating-session scoped (35) |
 | `founder_id`, `session_id` | str | owner and originating session; checked again on every retrieval |
 | `scope` | str | implemented: `profile` or `reference_only`; future run/journey/entity scopes remain disabled until their authority records exist |
 | `source_type`, `connection_id`, `source_grant_id` | str\|null | durable source lineage; provider ids never authorize a read by themselves |
@@ -111,6 +112,31 @@ closed `locator` map containing only format-appropriate values (`page`, `slide`,
 `paragraph`, `section`, `sheet`, or `cell_range`). Derived profile proposals cite
 `{artifact_id, chunk_id, locator, quote, quote_sha256}`. Search results return the
 same citation shape; a quote without an artifact and locator is not a citation.
+
+Explicit still images add `width`, `height`, `pixel_count`, `source_sha256`,
+`normalized_storage_name`, `normalized_content_type`, `normalized_sha256`,
+`normalized_width`, `normalized_height`, `orientation_applied`, and
+`metadata_policy=STRIPPED`. The original exists only because the founder selected Add
+image or confirmed Capture still; live camera/display frames never create artifacts.
+Original and normalized bytes share the source artifact's export, deletion, TTL, and
+orphan-cleanup lifecycle.
+
+`artifacts/{artifact_id}/image_observations/{observation_id}` stores at most 64
+published, schema-validated observations: ordinal, neutral description, bounded OCR,
+normalized region, confidence band, safety flags, source/evidence hashes, extractor
+version, generation, and status. It contains no action or approval fields. Search
+re-resolves owner/session/READY/reference-only/source hash and returns at most eight
+canonical image-region citations.
+
+### `media_consent_grants/{grant_id}` and `live_media_shares/{share_id}`
+
+These docs/35 rows contain lifecycle metadata only—never pixels, thumbnails, OCR,
+captions, prompts, device labels, or provider responses. Consent grants bind workspace,
+actor, session, source class, server disclosure version/hash, challenge, status, and
+expiry (no later than 24 hours/session end). Share rows bind one single-use start to a
+source/share/generation and store effective limits, start/end reason, aggregate frame/
+byte/drop counters, and a maximum 30-day operations expiry. Neither collection is
+workflow/action authority. Both participate in founder export/deletion and TTL policy.
 
 ### `feedback/{feedback_id}`
 
@@ -238,6 +264,7 @@ Written via `tool_context.state`. Injected into instructions by name (see 04).
 | `pending_signals` | list | events the agent is dormant waiting on, e.g. `["founder_reply", "portal_confirmation"]` |
 | `current_section` | session | section key being drafted/reviewed |
 | `browser_status` | session | advisory projection of the foreground browser run (18/22): `{active: bool, kind: "browse"\|"fill"\|null, run_id, version, frame_seq, status, phase, url, goal, last_action: {seq, kind, target, at}\|null}` — self-heals from Firestore `browser_runs`; phase makes credentialed fill work visible without exposing secrets |
+| `platform:hiring_role_proposal` | session | Exact bounded role package shown in this conversation before internal DRAFT creation; never approval, publication, candidate, or provider authority |
 | `today` | session | today's date (ISO), refreshed every turn by the callback — the agent's clock |
 | `user:profile_id` | user-scoped | founder profile doc id (survives across sessions) |
 | `user:prefs` | user-scoped | small map of founder interaction prefs |

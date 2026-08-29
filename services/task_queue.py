@@ -25,6 +25,8 @@ QUEUE_IDENTITY_ENV = {
     "co-founder-background-pilot": "TASKS_BACKGROUND_PILOT_SA",
     "co-founder-background-pilot-real": "TASKS_BACKGROUND_PILOT_SA",
     "co-founder-background-pilot-gate-e": "TASKS_BACKGROUND_PILOT_SA",
+    "co-founder-background-skill-gate-f": "TASKS_BACKGROUND_SKILL_SA",
+    "co-founder-background-skill-live-v1": "TASKS_BACKGROUND_SKILL_SA",
 }
 LOGGER = logging.getLogger("background_pilot.local_dispatch")
 
@@ -42,8 +44,14 @@ def _enqueue_local_background_pilot(
     if (os.environ.get("K_SERVICE")
             or os.environ.get("BACKGROUND_PILOT_ALLOW_TEST_DISPATCH") != "1"):
         return None
-    if (queue_name != "co-founder-background-pilot"
-            or path != "/tasks/background-artifact-pilot" or schedule_at):
+    route_pairs = {
+        ("co-founder-background-pilot", "/tasks/background-artifact-pilot"),
+        ("co-founder-background-skill-gate-f",
+         "/tasks/background-artifact-grounded-brief"),
+        ("co-founder-background-skill-live-v1",
+         "/tasks/background-artifact-grounded-brief"),
+    }
+    if (queue_name, path) not in route_pairs or schedule_at:
         return None
     base_url = os.environ.get("AGENT_BASE_URL", "").rstrip("/")
     parsed = urllib.parse.urlparse(base_url)
@@ -66,7 +74,10 @@ def _enqueue_local_background_pilot(
     delivery_id = hashlib.sha256(dedupe_key.encode()).hexdigest()[:32]
     claims = {
         "principal_kind": "CLOUD_TASKS",
-        "service_account": "local-background-pilot-worker",
+        "service_account": (
+            "local-background-skill-worker"
+            if path == "/tasks/background-artifact-grounded-brief"
+            else "local-background-pilot-worker"),
         "issuer": "local-test-dispatcher", "audience": expected_audience,
         "delivery_id": delivery_id, "exp": int(time.time()) + 120,
     }
@@ -156,6 +167,11 @@ def enqueue(
                               "audience": audience or base_url},
             },
         }
+        # The model-backed discovery/ingestion lease is 900 seconds. Finish or
+        # cancel the delivery before that lease can be reclaimed, preventing a
+        # second worker from replaying the same expensive operation.
+        task["dispatchDeadline"] = (
+            "840s" if queue_name == "co-founder-discovery-ingestion" else "300s")
         if schedule_at:
             scheduled = datetime.fromisoformat(schedule_at.replace("Z", "+00:00"))
             if scheduled.tzinfo is None:

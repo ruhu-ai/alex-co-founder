@@ -8,7 +8,6 @@ google-genai==2.18.1
 google-cloud-aiplatform[agent-engines,evaluation]==1.164.0
 google-cloud-firestore==2.28.1
 google-cloud-logging==3.16.2
-google-cloud-kms==3.16.0
 google-cloud-secret-manager==2.30.0
 google-cloud-storage==3.13.1
 google-cloud-texttospeech==2.37.0
@@ -36,6 +35,9 @@ python-pptx==1.0.2
 # PDF detection. Kept separate from LibreOffice, which is a visual-conversion
 # fallback rather than the retrieval index.
 pypdf==6.1.1
+# Explicit still-image validation/normalization (docs/35). Pillow's decoded
+# pixel guards and EXIF transpose are part of the security boundary.
+Pillow==12.3.0
 # Form/File routes (app/main.py, mock_portal) — depend on it explicitly rather
 # than through transitive luck
 python-multipart==0.0.32

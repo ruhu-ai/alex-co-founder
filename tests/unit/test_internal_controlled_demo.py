@@ -18,12 +18,10 @@ from services.internal_controlled_demo_intake import InternalDemoInboxImportServ
 
 
 @pytest.fixture
-def owner() -> ActorPrincipal:
+def operator() -> ActorPrincipal:
     return ActorPrincipal(
-        actor_id="owner", workspace_id="workspace_demo", role=WorkspaceRole.OWNER,
-        role_grants=frozenset(), candidate_assignments=frozenset(),
-        interview_assignments=frozenset(), session_auth_time=int(time.time()),
-        membership_version=1)
+        actor_id="operator", workspace_id="workspace_demo", role=WorkspaceRole.FOUNDER,
+        session_auth_time=int(time.time()), membership_version=1)
 
 
 def _enable(monkeypatch) -> None:
@@ -32,10 +30,10 @@ def _enable(monkeypatch) -> None:
     monkeypatch.setenv("HIRING_INTERNAL_DEMO_FOUNDER_SUBJECT_SHA256", "sha256:" + "b" * 64)
 
 
-async def _ready_role(store, owner) -> str:
+async def _ready_role(store, operator) -> str:
     role_id = "role_internal_demo"
     await store.create("hiring_roles", role_id, {
-        "role_id": role_id, "workspace_id": owner.workspace_id,
+        "role_id": role_id, "workspace_id": operator.workspace_id,
         "synthetic": True, "fixture_id": "fixture_ruhu_fde_walkthrough",
         "current_policy_version_id": "policy_internal_demo", "role_state": "PUBLISHED", "version": 1,
     })
@@ -59,36 +57,36 @@ def test_internal_demo_has_no_custom_recipient_or_text_surface(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_internal_demo_approval_is_run_bound_exact_and_single_resolution(monkeypatch, owner):
+async def test_internal_demo_approval_is_run_bound_exact_and_single_resolution(monkeypatch, operator):
     _enable(monkeypatch)
     store = InMemoryDurableStore()
     service = InternalControlledDemoService(store)
     created = await service.create_run(
-        principal=owner, client_request_id="create-1", role_id=await _ready_role(store, owner))
+        principal=operator, client_request_id="create-1", role_id=await _ready_role(store, operator))
     assert created["status"] == "success"
     approval = await service.request_approval(
-        principal=owner, demo_run_id=created["demo_run_id"],
+        principal=operator, demo_run_id=created["demo_run_id"],
         action_kind="INTERNAL_DEMO_SEND_RECAP", client_request_id="approve-1")
     assert approval["approval_status"] == "PENDING"
     assert approval["exact_action"]["founder_address"] == "ijidai@ruhu.ai"
     granted = await service.resolve_approval(
-        principal=owner, approval_id=approval["approval_id"], decision="GRANT")
+        principal=operator, approval_id=approval["approval_id"], decision="GRANT")
     assert granted["approval_status"] == "GRANTED"
     assert (await service.resolve_approval(
-        principal=owner, approval_id=approval["approval_id"], decision="GRANT"))["error_code"] == "approval_terminal"
+        principal=operator, approval_id=approval["approval_id"], decision="GRANT"))["error_code"] == "approval_terminal"
 
 
 @pytest.mark.asyncio
-async def test_internal_demo_effect_consumes_only_the_exact_granted_approval(monkeypatch, owner):
+async def test_internal_demo_effect_consumes_only_the_exact_granted_approval(monkeypatch, operator):
     _enable(monkeypatch)
     store = InMemoryDurableStore()
     runs = InternalControlledDemoService(store)
     created = await runs.create_run(
-        principal=owner, client_request_id="create-2", role_id=await _ready_role(store, owner))
+        principal=operator, client_request_id="create-2", role_id=await _ready_role(store, operator))
     approval = await runs.request_approval(
-        principal=owner, demo_run_id=created["demo_run_id"],
+        principal=operator, demo_run_id=created["demo_run_id"],
         action_kind="INTERNAL_DEMO_SEND_RECAP", client_request_id="approve-2")
-    await runs.resolve_approval(principal=owner, approval_id=approval["approval_id"], decision="GRANT")
+    await runs.resolve_approval(principal=operator, approval_id=approval["approval_id"], decision="GRANT")
 
     class FakeAdapter:
         async def execute(self, *, exact_action, action_id):
@@ -96,10 +94,10 @@ async def test_internal_demo_effect_consumes_only_the_exact_granted_approval(mon
             return {"status": "success", "provider_effect_id": "message-1", "result_ref": {"id": "message-1"}}
 
     effect = InternalDemoEffectService(store=store, adapter=FakeAdapter())
-    first = await effect.execute(principal=owner, demo_run_id=created["demo_run_id"],
+    first = await effect.execute(principal=operator, demo_run_id=created["demo_run_id"],
                                  approval_id=approval["approval_id"], action_kind="INTERNAL_DEMO_SEND_RECAP")
     assert first["receipt_status"] == "SUCCEEDED"
-    again = await effect.execute(principal=owner, demo_run_id=created["demo_run_id"],
+    again = await effect.execute(principal=operator, demo_run_id=created["demo_run_id"],
                                  approval_id=approval["approval_id"], action_kind="INTERNAL_DEMO_SEND_RECAP")
     assert again["duplicate"] is True
 
@@ -123,19 +121,19 @@ async def test_atomic_store_batch_rolls_back_every_write_on_one_stale_fence():
 
 @pytest.mark.asyncio
 async def test_internal_demo_provider_crash_becomes_reconcilable(
-        monkeypatch, owner):
+        monkeypatch, operator):
     _enable(monkeypatch)
     store = InMemoryDurableStore()
     runs = InternalControlledDemoService(store)
     created = await runs.create_run(
-        principal=owner, client_request_id="create-crash",
-        role_id=await _ready_role(store, owner))
+        principal=operator, client_request_id="create-crash",
+        role_id=await _ready_role(store, operator))
     approval = await runs.request_approval(
-        principal=owner, demo_run_id=created["demo_run_id"],
+        principal=operator, demo_run_id=created["demo_run_id"],
         action_kind="INTERNAL_DEMO_SEND_RECAP",
         client_request_id="approve-crash")
     await runs.resolve_approval(
-        principal=owner, approval_id=approval["approval_id"], decision="GRANT")
+        principal=operator, approval_id=approval["approval_id"], decision="GRANT")
 
     class CrashThenReconcile:
         async def execute(self, **_kwargs):
@@ -147,7 +145,7 @@ async def test_internal_demo_provider_crash_becomes_reconcilable(
 
     effects = InternalDemoEffectService(store=store, adapter=CrashThenReconcile())
     uncertain = await effects.execute(
-        principal=owner, demo_run_id=created["demo_run_id"],
+        principal=operator, demo_run_id=created["demo_run_id"],
         approval_id=approval["approval_id"],
         action_kind="INTERNAL_DEMO_SEND_RECAP")
     assert uncertain["error_code"] == "reconciliation_required"
@@ -155,27 +153,27 @@ async def test_internal_demo_provider_crash_becomes_reconcilable(
         "external_actions", filters={"demo_run_id": created["demo_run_id"]})
     assert actions[0]["status"] == "UNCERTAIN"
     resolved = await effects.reconcile(
-        principal=owner, demo_run_id=created["demo_run_id"],
+        principal=operator, demo_run_id=created["demo_run_id"],
         action_id=actions[0]["action_id"])
     assert resolved["receipt_status"] == "SUCCEEDED"
 
 
 @pytest.mark.asyncio
-async def test_calendar_invite_is_server_scheduled_and_reset_requires_its_cancellation(monkeypatch, owner):
+async def test_calendar_invite_is_server_scheduled_and_reset_requires_its_cancellation(monkeypatch, operator):
     _enable(monkeypatch)
     store = InMemoryDurableStore()
     runs = InternalControlledDemoService(store)
     created = await runs.create_run(
-        principal=owner, client_request_id="create-calendar", role_id=await _ready_role(store, owner))
+        principal=operator, client_request_id="create-calendar", role_id=await _ready_role(store, operator))
     invitation = await runs.request_approval(
-        principal=owner, demo_run_id=created["demo_run_id"],
+        principal=operator, demo_run_id=created["demo_run_id"],
         action_kind="INTERNAL_DEMO_CREATE_CALENDAR_EVENT", client_request_id="approve-calendar")
     exact = invitation["exact_action"]
     assert exact["calendar_event_id"].startswith("idemo")
     assert exact["calendar"]["timezone"] == "Africa/Lagos"
     assert exact["founder_address"] == "ijidai@ruhu.ai"
     assert "rendered_payload" not in exact
-    await runs.resolve_approval(principal=owner, approval_id=invitation["approval_id"], decision="GRANT")
+    await runs.resolve_approval(principal=operator, approval_id=invitation["approval_id"], decision="GRANT")
 
     class FakeCalendarAdapter:
         async def execute(self, *, exact_action, action_id):
@@ -184,33 +182,33 @@ async def test_calendar_invite_is_server_scheduled_and_reset_requires_its_cancel
 
     effects = InternalDemoEffectService(store=store, adapter=FakeCalendarAdapter())
     created_event = await effects.execute(
-        principal=owner, demo_run_id=created["demo_run_id"], approval_id=invitation["approval_id"],
+        principal=operator, demo_run_id=created["demo_run_id"], approval_id=invitation["approval_id"],
         action_kind="INTERNAL_DEMO_CREATE_CALENDAR_EVENT")
     assert created_event["receipt_status"] == "SUCCEEDED"
-    assert (await runs.reset(principal=owner, demo_run_id=created["demo_run_id"])
+    assert (await runs.reset(principal=operator, demo_run_id=created["demo_run_id"])
             )["error_code"] == "calendar_cancellation_required"
 
     cancellation = await runs.request_approval(
-        principal=owner, demo_run_id=created["demo_run_id"],
+        principal=operator, demo_run_id=created["demo_run_id"],
         action_kind="INTERNAL_DEMO_CANCEL_CALENDAR_EVENT", client_request_id="approve-cancel")
-    await runs.resolve_approval(principal=owner, approval_id=cancellation["approval_id"], decision="GRANT")
+    await runs.resolve_approval(principal=operator, approval_id=cancellation["approval_id"], decision="GRANT")
     cancelled = await effects.execute(
-        principal=owner, demo_run_id=created["demo_run_id"], approval_id=cancellation["approval_id"],
+        principal=operator, demo_run_id=created["demo_run_id"], approval_id=cancellation["approval_id"],
         action_kind="INTERNAL_DEMO_CANCEL_CALENDAR_EVENT")
     assert cancelled["receipt_status"] == "SUCCEEDED"
-    assert (await runs.reset(principal=owner, demo_run_id=created["demo_run_id"])
+    assert (await runs.reset(principal=operator, demo_run_id=created["demo_run_id"])
             )["status"] == "success"
 
 
 @pytest.mark.asyncio
-async def test_marked_inbox_import_creates_a_candidate_case_and_evidence_passport(monkeypatch, owner):
+async def test_marked_inbox_import_creates_a_candidate_case_and_evidence_passport(monkeypatch, operator):
     _enable(monkeypatch)
     monkeypatch.setenv("HIRING_INTERNAL_DEMO_APPLICATION_PDF_SHA256", "sha256:" + "c" * 64)
     store = InMemoryDurableStore()
-    role_id = await _ready_role(store, owner)
+    role_id = await _ready_role(store, operator)
     runs = InternalControlledDemoService(store)
     created = await runs.create_run(
-        principal=owner, client_request_id="create-import", role_id=role_id)
+        principal=operator, client_request_id="create-import", role_id=role_id)
 
     class _Execute:
         def __init__(self, value): self.value = value
@@ -233,7 +231,7 @@ async def test_marked_inbox_import_creates_a_candidate_case_and_evidence_passpor
     importer = InternalDemoInboxImportService(
         store, gmail_factory=FakeGmail, hiring=FakeHiring())
     monkeypatch.setattr(importer, "_validate_message", lambda *_: {"status": "success", "pages": 2})
-    result = await importer.import_fixture(principal=owner, demo_run_id=created["demo_run_id"])
+    result = await importer.import_fixture(principal=operator, demo_run_id=created["demo_run_id"])
     assert result["candidate_application_id"] == "candidate-case-1"
     assert result["assessment_id"] == "passport-1"
     events = await store.list("external_events", filters={"role_id": role_id})

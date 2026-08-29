@@ -41,9 +41,7 @@ class ManualClock:
 def _principal(actor: str = "actor_alex") -> ActorPrincipal:
     return ActorPrincipal(
         actor_id=actor, workspace_id="workspace_alpha",
-        role=WorkspaceRole.FOUNDER, role_grants=frozenset(),
-        candidate_assignments=frozenset(),
-        interview_assignments=frozenset(), session_auth_time=1,
+        role=WorkspaceRole.FOUNDER, session_auth_time=1,
         membership_version=1)
 
 

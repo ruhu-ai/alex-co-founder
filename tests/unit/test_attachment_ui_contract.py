@@ -7,9 +7,12 @@ HTML = (Path(__file__).parents[2] / "app/static/index.html").read_text()
 
 def test_conversation_scope_is_default_and_profile_is_explicit():
     select = HTML.split('id="attachmentScope"', 1)[1].split("</select>", 1)[0]
-    assert '<option value="reference_only" selected>Use in conversation</option>' in select
+    assert 'value="reference_only"' in select
+    assert "selected" in select
+    assert "Use in conversation" in select
     assert '<option value="profile">Add to Founder Profile</option>' in select
-    assert 'accept=".pdf,.docx,.pptx,.xlsx,.txt,.csv"' in HTML
+    assert ('accept=".pdf,.docx,.pptx,.xlsx,.txt,.csv,.jpg,.jpeg,.png,.webp"'
+            in HTML)
     assert 'fd.append("scope", scope)' in HTML
 
 

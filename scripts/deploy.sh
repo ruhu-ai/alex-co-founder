@@ -17,15 +17,6 @@ grep -q "^BROWSE_OPEN_WEB=false" .env.prod \
   || { echo ".env.prod must set BROWSE_OPEN_WEB=false (production browsing is fail-closed, docs/18)"; exit 1; }
 set -a; source .env.prod; set +a
 : "${DB_PASSWORD:?set DB_PASSWORD in .env.prod}"
-if [[ "${HIRING_ENABLE_PUBLIC_APPLICATIONS:-0}" == "1" ]]; then
-  : "${HIRING_IDENTITY_KMS_KEY_NAME:?public hiring requires a fully-qualified Cloud KMS key name}"
-  : "${HIRING_IDENTITY_DEDUP_KEY:?public hiring requires a secret identity deduplication key}"
-  : "${HIRING_PRIVACY_CONTACT:?public hiring requires a candidate privacy contact email}"
-  [[ ${#HIRING_IDENTITY_DEDUP_KEY} -ge 32 ]] \
-    || { echo "HIRING_IDENTITY_DEDUP_KEY must contain at least 32 characters"; exit 1; }
-  [[ "$HIRING_PRIVACY_CONTACT" =~ ^[^[:space:]@]+@[^[:space:]@]+\.[^[:space:]@]+$ ]] \
-    || { echo "HIRING_PRIVACY_CONTACT must be an email address"; exit 1; }
-fi
 
 "$PYTHON" scripts/check_browser_invariants.py
 
@@ -34,6 +25,7 @@ echo "==> Firestore (native mode, idempotent)"
 gcloud firestore databases describe --database="(default)" >/dev/null 2>&1 \
   || gcloud firestore databases create --location="$REGION"
 "$PYTHON" scripts/deploy_firestore_indexes.py --project "$GOOGLE_CLOUD_PROJECT"
+"$PYTHON" scripts/deploy_firestore_ttl.py --project "$GOOGLE_CLOUD_PROJECT"
 "$PYTHON" scripts/migrate_browser_runs.py
 
 echo "==> Secrets (idempotent)"
@@ -52,7 +44,7 @@ echo "==> Sensitive env → Secret Manager (never plaintext env vars, docs/12)"
 # These keys are stripped from the env-vars file below and bound with
 # --set-secrets instead. SESSION_SERVICE_URI carries the DB password inside
 # the URL, so it is secret-managed too.
-SECRET_ENV_KEYS=(DB_PASSWORD SESSION_SERVICE_URI GOOGLE_OAUTH_CLIENT_SECRET ALEX_MAIL_WEBHOOK_TOKEN APP_SESSION_SECRET HIRING_IDENTITY_DEDUP_KEY HIRING_SYNTHETIC_ENCRYPTION_KEY HIRING_TEST_DISPATCH_SECRET)
+SECRET_ENV_KEYS=(DB_PASSWORD SESSION_SERVICE_URI GOOGLE_OAUTH_CLIENT_SECRET ALEX_MAIL_WEBHOOK_TOKEN APP_SESSION_SECRET HIRING_SYNTHETIC_ENCRYPTION_KEY HIRING_TEST_DISPATCH_SECRET)
 RUNTIME_SECRET_KEYS=(GOOGLE_OAUTH_REFRESH_TOKEN ALEX_OAUTH_REFRESH_TOKEN)
 # These names are bound to existing, canonical Secret Manager secrets below.
 # They must never also appear in the generated plain env-vars file: Cloud Run
@@ -93,65 +85,64 @@ if gcloud projects get-iam-policy "$GOOGLE_CLOUD_PROJECT" \
     --role='roles/secretmanager.admin' \
     --all --quiet --format='none' >/dev/null
 fi
-if [[ -n "${HIRING_IDENTITY_KMS_KEY_NAME:-}" ]]; then
-  if [[ "$HIRING_IDENTITY_KMS_KEY_NAME" =~ ^projects/([^/]+)/locations/([^/]+)/keyRings/([^/]+)/cryptoKeys/([^/]+)$ ]]; then
-    KMS_PROJECT="${BASH_REMATCH[1]}"
-    KMS_LOCATION="${BASH_REMATCH[2]}"
-    KMS_RING="${BASH_REMATCH[3]}"
-    KMS_KEY="${BASH_REMATCH[4]}"
-    gcloud kms keys add-iam-policy-binding "$KMS_KEY" \
-      --project="$KMS_PROJECT" --location="$KMS_LOCATION" --keyring="$KMS_RING" \
-      --member="serviceAccount:$COMPUTE_SA" \
-      --role="roles/cloudkms.cryptoKeyEncrypterDecrypter" >/dev/null
-  else
-    echo "HIRING_IDENTITY_KMS_KEY_NAME must be a fully-qualified crypto key name"
-    exit 1
-  fi
-fi
 
 echo "==> Cloud Tasks queue"
 gcloud tasks queues describe co-founder-events --location="$REGION" >/dev/null 2>&1 \
   || gcloud tasks queues create co-founder-events --location="$REGION" \
-       --max-concurrent-dispatches=1 --max-attempts=8
+       --max-concurrent-dispatches=1 --max-attempts=5
 gcloud tasks queues describe co-founder-browser-expiry --location="$REGION" >/dev/null 2>&1 \
   || gcloud tasks queues create co-founder-browser-expiry --location="$REGION" \
-       --max-concurrent-dispatches=4 --max-attempts=8
+       --max-concurrent-dispatches=4 --max-attempts=3
 gcloud tasks queues describe co-founder-timers --location="$REGION" >/dev/null 2>&1 \
   || gcloud tasks queues create co-founder-timers --location="$REGION" \
-       --max-concurrent-dispatches=8 --max-attempts=8
+       --max-concurrent-dispatches=8 --max-attempts=5
 gcloud tasks queues describe co-founder-provider-events --location="$REGION" >/dev/null 2>&1 \
   || gcloud tasks queues create co-founder-provider-events --location="$REGION" \
-       --max-concurrent-dispatches=8 --max-attempts=8
+       --max-concurrent-dispatches=8 --max-attempts=5
 gcloud tasks queues describe co-founder-discovery-ingestion --location="$REGION" >/dev/null 2>&1 \
   || gcloud tasks queues create co-founder-discovery-ingestion --location="$REGION" \
-       --max-concurrent-dispatches=4 --max-attempts=8
+       --max-concurrent-dispatches=4 --max-attempts=3
 gcloud tasks queues describe co-founder-reconciliation --location="$REGION" >/dev/null 2>&1 \
   || gcloud tasks queues create co-founder-reconciliation --location="$REGION" \
-       --max-concurrent-dispatches=4 --max-attempts=8
+       --max-concurrent-dispatches=4 --max-attempts=3
 gcloud tasks queues describe co-founder-interactive --location="$REGION" >/dev/null 2>&1 \
   || gcloud tasks queues create co-founder-interactive --location="$REGION" \
-       --max-concurrent-dispatches=4 --max-attempts=8
+       --max-concurrent-dispatches=4 --max-attempts=3
 gcloud tasks queues describe co-founder-background-pilot --location="$REGION" >/dev/null 2>&1 \
   || gcloud tasks queues create co-founder-background-pilot --location="$REGION" \
+       --max-concurrent-dispatches=1 --max-attempts=3
+gcloud tasks queues describe co-founder-background-skill-live-v1 --location="$REGION" >/dev/null 2>&1 \
+  || gcloud tasks queues create co-founder-background-skill-live-v1 --location="$REGION" \
        --max-concurrent-dispatches=1 --max-attempts=3
 # `describe || create` cannot correct drift on an existing queue, so pin the
 # reviewed limits on every deploy (idempotent, and cheap).
 gcloud tasks queues update co-founder-events --location="$REGION" \
-  --max-concurrent-dispatches=1 --max-attempts=8 >/dev/null
+  --max-concurrent-dispatches=1 --max-attempts=5 \
+  --min-backoff=5s --max-backoff=60s --max-doublings=4 --max-retry-duration=1800s >/dev/null
 gcloud tasks queues update co-founder-browser-expiry --location="$REGION" \
-  --max-concurrent-dispatches=4 --max-attempts=8 >/dev/null
+  --max-concurrent-dispatches=4 --max-attempts=3 \
+  --min-backoff=5s --max-backoff=60s --max-doublings=4 --max-retry-duration=1800s >/dev/null
 gcloud tasks queues update co-founder-timers --location="$REGION" \
-  --max-concurrent-dispatches=8 --max-attempts=8 >/dev/null
+  --max-concurrent-dispatches=8 --max-attempts=5 \
+  --min-backoff=5s --max-backoff=60s --max-doublings=4 --max-retry-duration=1800s >/dev/null
 gcloud tasks queues update co-founder-provider-events --location="$REGION" \
-  --max-concurrent-dispatches=8 --max-attempts=8 >/dev/null
+  --max-concurrent-dispatches=8 --max-attempts=5 \
+  --min-backoff=5s --max-backoff=60s --max-doublings=4 --max-retry-duration=1800s >/dev/null
 gcloud tasks queues update co-founder-discovery-ingestion --location="$REGION" \
-  --max-concurrent-dispatches=4 --max-attempts=8 >/dev/null
+  --max-concurrent-dispatches=4 --max-attempts=3 \
+  --min-backoff=90s --max-backoff=300s --max-doublings=2 --max-retry-duration=1800s >/dev/null
 gcloud tasks queues update co-founder-reconciliation --location="$REGION" \
-  --max-concurrent-dispatches=4 --max-attempts=8 >/dev/null
+  --max-concurrent-dispatches=4 --max-attempts=3 \
+  --min-backoff=5s --max-backoff=60s --max-doublings=4 --max-retry-duration=1800s >/dev/null
 gcloud tasks queues update co-founder-interactive --location="$REGION" \
-  --max-concurrent-dispatches=4 --max-attempts=8 >/dev/null
+  --max-concurrent-dispatches=4 --max-attempts=3 \
+  --min-backoff=5s --max-backoff=60s --max-doublings=4 --max-retry-duration=1800s >/dev/null
 gcloud tasks queues update co-founder-background-pilot --location="$REGION" \
-  --max-concurrent-dispatches=1 --max-attempts=3 >/dev/null
+  --max-concurrent-dispatches=1 --max-attempts=3 \
+  --min-backoff=5s --max-backoff=60s --max-doublings=2 --max-retry-duration=600s >/dev/null
+gcloud tasks queues update co-founder-background-skill-live-v1 --location="$REGION" \
+  --max-concurrent-dispatches=1 --max-attempts=3 \
+  --min-backoff=5s --max-backoff=60s --max-doublings=2 --max-retry-duration=600s >/dev/null
 
 echo "==> Cloud SQL (sessions) — create is slow; runs once"
 gcloud sql instances describe co-founder-sessions >/dev/null 2>&1 \
@@ -210,7 +201,8 @@ BROWSER_SA="browser-worker@${GOOGLE_CLOUD_PROJECT}.iam.gserviceaccount.com"
 RECONCILIATION_SA="reconciliation-worker@${GOOGLE_CLOUD_PROJECT}.iam.gserviceaccount.com"
 INTERACTIVE_SA="interactive-worker@${GOOGLE_CLOUD_PROJECT}.iam.gserviceaccount.com"
 BACKGROUND_PILOT_SA="background-pilot-worker@${GOOGLE_CLOUD_PROJECT}.iam.gserviceaccount.com"
-for worker_name in provider-events-worker discovery-ingestion-worker timers-worker browser-worker reconciliation-worker interactive-worker background-pilot-worker; do
+BACKGROUND_SKILL_SA="background-skill-worker@${GOOGLE_CLOUD_PROJECT}.iam.gserviceaccount.com"
+for worker_name in provider-events-worker discovery-ingestion-worker timers-worker browser-worker reconciliation-worker interactive-worker background-pilot-worker background-skill-worker; do
   worker_sa="${worker_name}@${GOOGLE_CLOUD_PROJECT}.iam.gserviceaccount.com"
   gcloud iam service-accounts describe "$worker_sa" >/dev/null 2>&1 \
     || gcloud iam service-accounts create "$worker_name" --display-name="Co-Founder ${worker_name}"
@@ -230,6 +222,7 @@ EXCLUDE_KEYS="${SECRET_ENV_KEYS[*]} ${RUNTIME_SECRET_KEYS[*]} ${FIXED_SECRET_BIN
   TASKS_TIMERS_SA="$TIMERS_SA" TASKS_BROWSER_SA="$BROWSER_SA" \
   TASKS_RECONCILIATION_SA="$RECONCILIATION_SA" TASKS_INTERACTIVE_SA="$INTERACTIVE_SA" \
   TASKS_BACKGROUND_PILOT_SA="$BACKGROUND_PILOT_SA" \
+  TASKS_BACKGROUND_SKILL_SA="$BACKGROUND_SKILL_SA" \
   MOCK_PORTAL_URL="$MOCK_URL" GOOGLE_CLOUD_REGION="$REGION" \
   "$PYTHON" - <<'PY' > /tmp/co_founder_env.yaml
 import json, os, re
@@ -243,7 +236,7 @@ vals["TASKS_INVOKER_SA"] = os.environ["TASKS_INVOKER_SA"]
 for key in ("TASKS_PROVIDER_EVENTS_SA", "TASKS_DISCOVERY_INGESTION_SA",
             "TASKS_TIMERS_SA", "TASKS_BROWSER_SA",
             "TASKS_RECONCILIATION_SA", "TASKS_INTERACTIVE_SA",
-            "TASKS_BACKGROUND_PILOT_SA"):
+            "TASKS_BACKGROUND_PILOT_SA", "TASKS_BACKGROUND_SKILL_SA"):
     vals[key] = os.environ[key]
 vals["MOCK_PORTAL_URL"] = os.environ["MOCK_PORTAL_URL"]  # override with live URL
 vals["GOOGLE_CLOUD_REGION"] = os.environ["GOOGLE_CLOUD_REGION"]
@@ -253,6 +246,10 @@ vals["HIRING_WORKLOAD_ALLOWLIST_JSON"] = json.dumps({
 vals["BACKGROUND_PILOT_WORKLOAD_ALLOWLIST_JSON"] = json.dumps({
     "/tasks/background-artifact-pilot": [
         os.environ["TASKS_BACKGROUND_PILOT_SA"]],
+}, separators=(",", ":"))
+vals["BACKGROUND_SKILL_WORKLOAD_ALLOWLIST_JSON"] = json.dumps({
+    "/tasks/background-artifact-grounded-brief": [
+        os.environ["TASKS_BACKGROUND_SKILL_SA"]],
 }, separators=(",", ":"))
 for key, val in vals.items():
     print(f"{key}: {json.dumps(val)}")
@@ -315,7 +312,7 @@ gcloud scheduler jobs describe deadline-scan-6h --location="$REGION" >/dev/null 
 echo "==> Pub/Sub push subscriptions → app (OIDC, idempotent)"
 gcloud iam service-accounts describe "$SA" >/dev/null 2>&1 \
   || gcloud iam service-accounts create scheduler-invoker --display-name="Scheduler → Cloud Run invoker"
-for worker_name in provider-events-worker discovery-ingestion-worker timers-worker browser-worker reconciliation-worker interactive-worker background-pilot-worker; do
+for worker_name in provider-events-worker discovery-ingestion-worker timers-worker browser-worker reconciliation-worker interactive-worker background-pilot-worker background-skill-worker; do
   worker_sa="${worker_name}@${GOOGLE_CLOUD_PROJECT}.iam.gserviceaccount.com"
   gcloud iam service-accounts add-iam-policy-binding "$worker_sa" \
     --member="serviceAccount:$COMPUTE_SA" --role="roles/iam.serviceAccountUser" \
@@ -339,16 +336,16 @@ gcloud iam service-accounts add-iam-policy-binding "$SA" \
 gcloud iam service-accounts add-iam-policy-binding "$TIMERS_SA" \
   --member="serviceAccount:service-${PROJECT_NUMBER}@gcp-sa-cloudscheduler.iam.gserviceaccount.com" \
   --role=roles/iam.serviceAccountTokenCreator --format=none >/dev/null
-echo "==> Command outbox recovery scheduler (idempotent)"
+echo "==> Command outbox recovery scheduler (idempotent, low-frequency safety net)"
 if gcloud scheduler jobs describe command-outbox-recovery-1m --location="$REGION" >/dev/null 2>&1; then
   gcloud scheduler jobs update http command-outbox-recovery-1m --location="$REGION" \
-    --schedule="* * * * *" --uri="$APP_URL/tasks/dispatch_command_outbox" \
+    --schedule="*/15 * * * *" --uri="$APP_URL/tasks/dispatch_command_outbox" \
     --http-method=POST --oidc-service-account-email="$TIMERS_SA" \
     --oidc-token-audience="$APP_URL" --headers="Content-Type=application/json" \
     --message-body='{}'
 else
   gcloud scheduler jobs create http command-outbox-recovery-1m --location="$REGION" \
-    --schedule="* * * * *" --uri="$APP_URL/tasks/dispatch_command_outbox" \
+    --schedule="*/15 * * * *" --uri="$APP_URL/tasks/dispatch_command_outbox" \
     --http-method=POST --oidc-service-account-email="$TIMERS_SA" \
     --oidc-token-audience="$APP_URL" --headers="Content-Type=application/json" \
     --message-body='{}'

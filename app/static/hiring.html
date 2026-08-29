@@ -1,57 +1,2860 @@
 <!doctype html>
-<html lang="en" data-theme="dark">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Hiring · Co-Founder</title>
-<link rel="icon" href="/favicon.svg" type="image/svg+xml">
-<style>
-:root{color-scheme:dark;--surface-0:#090b10;--surface-1:#12151d;--surface-2:#191d27;--border:#353a4a;--divider:#262b38;--ink-1:#e9ecf4;--ink-2:#a6aec2;--ink-3:#7c8599;--accent:#6e9bff;--accent-on:#0a1020;--attn:#f0b341;--ok:#43d07c;--danger:#ff6b61;--r-1:4px;--r-2:6px;--r-3:10px;--sp-1:4px;--sp-2:8px;--sp-3:12px;--sp-4:16px;--sp-5:20px;--sp-6:24px;--fs-1:11px;--fs-2:12px;--fs-3:13px;--fs-4:14px;--fs-6:18px;--fs-7:22px;--font-ui:ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
-*{box-sizing:border-box}body{margin:0;background:var(--surface-0);color:var(--ink-1);font:var(--fs-4)/1.55 var(--font-ui)}button,a{font:inherit}.top{height:56px;display:flex;align-items:center;gap:var(--sp-4);padding:0 var(--sp-5);border-bottom:1px solid var(--divider);background:var(--surface-1)}.top a{color:var(--ink-2);text-decoration:none}.top h1{font-size:var(--fs-6);margin:0}.pill{font-size:var(--fs-1);letter-spacing:.06em;text-transform:uppercase;border:1px solid var(--attn);color:var(--attn);padding:2px 8px;border-radius:99px}.layout{display:grid;grid-template-columns:minmax(240px,320px) minmax(0,1fr);min-height:calc(100vh - 56px)}.roles{border-right:1px solid var(--divider);padding:var(--sp-4)}.main{padding:var(--sp-6);max-width:1180px;width:100%}.card{background:var(--surface-1);border:1px solid var(--border);border-radius:var(--r-3);padding:var(--sp-4);margin-bottom:var(--sp-4)}.muted{color:var(--ink-2)}.micro{font-size:var(--fs-2);color:var(--ink-3)}button{border:1px solid var(--border);background:var(--surface-2);color:var(--ink-1);border-radius:var(--r-2);padding:8px 12px;cursor:pointer}button:hover,button:focus-visible{border-color:var(--accent)}.role{display:block;width:100%;text-align:left;margin-bottom:var(--sp-2)}.role[aria-current=true]{border-color:var(--accent)}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:var(--sp-3)}.stat strong{display:block;font-size:var(--fs-7)}table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:10px;border-bottom:1px solid var(--divider);vertical-align:top}th{font-size:var(--fs-2);color:var(--ink-2)}.state{font-size:var(--fs-1);letter-spacing:.04em}.unknown{color:var(--attn)}.supported{color:var(--ok)}.error{color:var(--danger)}dialog{background:var(--surface-1);color:var(--ink-1);border:1px solid var(--border);border-radius:var(--r-3);max-width:760px;width:calc(100% - 32px)}dialog::backdrop{background:rgb(0 0 0/.7)}input,select,textarea{width:100%;background:var(--surface-2);color:var(--ink-1);border:1px solid var(--border);border-radius:var(--r-2);padding:9px;margin:4px 0 12px}.passport{display:grid;gap:var(--sp-3)}.criterion{border-left:3px solid var(--border);padding-left:var(--sp-3)}@media(max-width:760px){.layout{grid-template-columns:1fr}.roles{border-right:0;border-bottom:1px solid var(--divider)}}
-</style>
-</head>
-<body>
-<header class="top"><a href="/">← Co-Founder</a><h1>Hiring operations</h1><span class="pill">Human decisions · role-scoped evidence</span></header>
-<div class="layout">
-  <aside class="roles" aria-label="Hiring roles"><section class="card"><h2>Start a hiring run</h2><p class="micro">Describe the real role in your own words. Alex drafts the job description, evidence criteria, and interview plan for your approval.</p><label>Founder role description<textarea id="hiringCommand" maxlength="4000" placeholder="We need a senior product designer at Acme to lead our mobile experience. Remote in Europe, €90–110k, aiming to hire by November…"></textarea></label><button id="startHiring" onclick="startHiringRun()">Draft role</button> <button onclick="startHiringDemo()">Load optional demo fixture</button><p class="micro" id="startHiringStatus" aria-live="polite"></p></section><section class="card"><h2>Controlled provider demo</h2><p class="micro">Optional test-account lane for rehearsing mail and calendar receipts. It never applies to real roles unless separately configured.</p><button id="beginInternalDemo" onclick="beginInternalDemo()">Begin controlled demo</button><div id="internalDemoStatus" class="micro" aria-live="polite"></div><div id="internalDemoControls" hidden><button onclick="importDemoApplication()">Import marked CV email</button> <button onclick="requestDemoAction('INTERNAL_DEMO_SEND_RECAP')">Review recap email</button> <button onclick="requestDemoAction('INTERNAL_DEMO_CREATE_CALENDAR_EVENT')">Review calendar invite</button> <button onclick="requestDemoAction('INTERNAL_DEMO_CANCEL_CALENDAR_EVENT')">Review calendar cancellation</button> <button onclick="resetInternalDemo()">Reset demo</button><div id="internalDemoExact" class="micro"></div><div id="internalDemoReceipts" class="micro"></div></div></section><p class="micro">Roles are durable operations. Candidate cards are grouped by human-controlled state and never ranked.</p><div id="roles"><p class="muted">Loading…</p></div></aside>
-  <main class="main" id="main"><div class="card"><h2>Hiring cockpit</h2><p class="muted">Choose a role. This surface renders committed backend receipts only; it does not advance workflow state optimistically.</p></div></main>
-</div>
-<section class="card" style="margin:0 24px 24px"><h2>Optional external listing receipt</h2><p class="micro">The approved role already has a Co-Founder application page. If you also post it manually elsewhere, record that public HTTPS URL for provenance.</p><label>Public HTTPS URL<input id="publicationUrl" type="url" placeholder="https://www.linkedin.com/jobs/view/…"></label><button onclick="recordManualPublication()">Record external receipt</button><p id="publicationStatus" class="micro" aria-live="polite"></p></section>
-<dialog id="candidate"><form method="dialog"><button style="float:right" aria-label="Close">Close</button></form><div id="candidateBody"></div></dialog>
-<script>
-const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
-const nativeJsonStringify=JSON.stringify.bind(JSON);JSON.stringify=(value,...rest)=>{const rendered=nativeJsonStringify(value,...rest);return typeof rendered==='string'?rendered.replaceAll('<','\\u003c').replaceAll('>','\\u003e').replaceAll('&','\\u0026').replaceAll("'",'\\u0027'):rendered};
-let roles=[],selected=null,h4sConversationToken='',h4sSandboxId='';
-async function api(path,options={}){const r=await fetch(path,{credentials:"same-origin",...options});const j=await r.json().catch(()=>({error:"Invalid response"}));if(!r.ok)throw new Error(j.message||j.error||"Request failed");return j}
-async function load(){try{roles=(await api('/api/hiring/roles')).roles||[];renderRoles();if(roles[0])openRole(roles[0].role_id)}catch(e){document.querySelector('#roles').innerHTML=`<p class="error">${esc(e.message)}</p>`}}
-function renderRoles(){document.querySelector('#roles').innerHTML=roles.length?roles.map(r=>`<button class="role" aria-current="${r.role_id===selected}" onclick="openRole('${esc(r.role_id)}')"><strong>${esc(r.role_title)}</strong><br><span class="micro">${esc(r.role_state)} · ${r.synthetic?'demo fixture':'live role'} · policy ${esc(r.current_policy_version_id||'not approved')}</span></button>`).join(''):'<p class="muted">No roles yet.</p>'}
-async function startHiringRun(){const button=document.querySelector('#startHiring'),out=document.querySelector('#startHiringStatus'),context=document.querySelector('#hiringCommand').value.trim();button.disabled=true;out.textContent='Creating the durable draft and proposed role brief…';try{const requestId=`hiring_${crypto.randomUUID().replaceAll('-','_')}`,sessionId=`hiring_ui_${crypto.randomUUID().replaceAll('-','_')}`,j=await api('/api/v1/messages',{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':await csrf()},body:JSON.stringify({message:`/hiring ${context}`,session_id:sessionId,client_request_id:requestId})});out.textContent=(j.replies||[]).join(' ');await load();if(j.role_id)openRole(j.role_id)}catch(e){out.textContent=e.message}finally{button.disabled=false}}
-async function startHiringDemo(){const out=document.querySelector('#startHiringStatus');out.textContent='Loading the optional synthetic Ruhu FDE fixture…';try{const requestId=`hiring_demo_${crypto.randomUUID().replaceAll('-','_')}`,sessionId=`hiring_demo_ui_${crypto.randomUUID().replaceAll('-','_')}`,j=await api('/api/v1/messages',{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':await csrf()},body:JSON.stringify({message:'/hiring-demo Ruhu Forward Deployment Engineer fixture',session_id:sessionId,client_request_id:requestId})});out.textContent=(j.replies||[]).join(' ');await load();if(j.role_id)openRole(j.role_id)}catch(e){out.textContent=e.message}}
-async function recordManualPublication(){const out=document.querySelector('#publicationStatus'),url=document.querySelector('#publicationUrl').value.trim();if(!selected){out.textContent='Select an approved role first.';return}try{const projection=await api(`/api/hiring/roles/${encodeURIComponent(selected)}`),role=projection.role,j=await api(`/api/hiring/roles/${encodeURIComponent(selected)}/publication-receipts`,{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':await csrf()},body:JSON.stringify({destination:'MANUAL_BROWSER',public_url:url,attestation:'Founder manually published this exact approved role on an external site.',expected_role_version:role.version,client_request_id:`publication_${crypto.randomUUID().replaceAll('-','_')}`})});out.textContent=`External publication receipt ${j.receipt_id} committed.`;await load();await openRole(selected)}catch(e){out.textContent=e.message}}
-let internalDemoRunId='',pendingInternalAction=null;
-async function csrf(){return (await api('/api/hiring/csrf')).csrf_token}
-async function beginInternalDemo(){const out=document.querySelector('#internalDemoStatus');if(!selected){out.textContent='Create and approve the Ruhu FDE role first.';return}try{const j=await api('/api/hiring/internal-demo/runs',{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':await csrf()},body:JSON.stringify({client_request_id:`internal_demo_${crypto.randomUUID().replaceAll('-','_')}`,role_id:selected,ttl_minutes:120})});internalDemoRunId=j.demo_run_id;out.textContent='Controlled demo active. No inbox read or provider action has happened.';document.querySelector('#internalDemoControls').hidden=false;await loadInternalProjection()}catch(e){out.textContent=e.message}}
-async function loadInternalProjection(){if(!internalDemoRunId)return;const out=document.querySelector('#internalDemoReceipts');try{const p=await api(`/api/hiring/internal-demo/runs/${encodeURIComponent(internalDemoRunId)}/projection`),actions=p.actions||[],apps=p.applications||[];out.innerHTML=`<h3>Committed proof</h3><p>Run: ${esc(p.demo_run.state)} · CV imports: ${apps.length}</p>${apps.map(a=>`<p>Imported ${esc(a.evidence?.candidate_name)} · ${esc(a.evidence?.document_pages)} PDF pages · source verified ${esc(a.evidence?.source_verified)}</p>`).join('')}${actions.length?`<ol>${actions.map(a=>`<li>${esc(a.action_kind)} · <strong>${esc(a.status)}</strong> · receipt ${esc(a.provider_effect_id||a.error_code||'pending')}${a.status==='UNCERTAIN'?` <button data-action-id="${esc(a.action_id)}" onclick="reconcileDemoAction(this.dataset.actionId)">Reconcile</button>`:''}</li>`).join('')}</ol>`:'<p>No mail or calendar effect has run.</p>'}`;}catch(e){out.textContent=e.message}}
-async function importDemoApplication(){const out=document.querySelector('#internalDemoStatus');try{const j=await api(`/api/hiring/internal-demo/runs/${encodeURIComponent(internalDemoRunId)}/fixture-import`,{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':await csrf()},body:JSON.stringify({acknowledge_fixture_only:true})});out.textContent=`Imported the exact marked email as ${j.application_id}; no general inbox search occurred.`;await loadInternalProjection();await load();if(selected)await openRole(selected)}catch(e){out.textContent=e.message}}
-async function requestDemoAction(kind){const out=document.querySelector('#internalDemoExact');try{const j=await api(`/api/hiring/internal-demo/runs/${encodeURIComponent(internalDemoRunId)}/approvals`,{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':await csrf()},body:JSON.stringify({action_kind:kind,client_request_id:`internal_approval_${crypto.randomUUID().replaceAll('-','_')}`})});pendingInternalAction={approvalId:j.approval_id,kind};out.innerHTML=`<h3>Exact action for approval</h3><pre>${esc(JSON.stringify(j.exact_action,null,2))}</pre><button onclick="approveDemoAction()">Approve and execute this exact action</button>`}catch(e){out.textContent=e.message}}
-async function approveDemoAction(){const out=document.querySelector('#internalDemoExact'),pending=pendingInternalAction;if(!pending)return;try{await api(`/api/hiring/internal-demo/approvals/${encodeURIComponent(pending.approvalId)}/resolve`,{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':await csrf()},body:JSON.stringify({decision:'GRANT'})});const j=await api(`/api/hiring/internal-demo/runs/${encodeURIComponent(internalDemoRunId)}/effect-executions`,{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':await csrf()},body:JSON.stringify({approval_id:pending.approvalId,action_kind:pending.kind})});out.textContent=`Committed provider receipt: ${j.provider_effect_id||j.action_id}.`;pendingInternalAction=null;await loadInternalProjection()}catch(e){out.textContent=e.message}}
-async function reconcileDemoAction(actionId){const out=document.querySelector('#internalDemoStatus');try{const j=await api(`/api/hiring/internal-demo/runs/${encodeURIComponent(internalDemoRunId)}/effect-reconciliations`,{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':await csrf()},body:JSON.stringify({action_id:actionId})});out.textContent=`Reconciliation committed: ${j.receipt_status}.`;await loadInternalProjection()}catch(e){out.textContent=e.message}}
-async function resetInternalDemo(){const out=document.querySelector('#internalDemoStatus');try{const j=await api(`/api/hiring/internal-demo/runs/${encodeURIComponent(internalDemoRunId)}/reset`,{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':await csrf()},body:JSON.stringify({acknowledge_provider_mail_retained:true})});out.textContent=j.reset_note;document.querySelector('#internalDemoControls').hidden=true}catch(e){out.textContent=e.message}}
-async function activateProposedPolicy(role,policy){const root=document.querySelector('#main');const status=document.querySelector('#policyActionStatus');root.querySelector('#approvePolicy')?.setAttribute('disabled','');try{const csrf=(await api('/api/hiring/csrf')).csrf_token,approval=await api(`/api/hiring/roles/${encodeURIComponent(role.role_id)}/approvals`,{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':csrf},body:JSON.stringify({run_id:role.run_id,policy_version_id:policy.policy_version_id,action_kind:'ACTIVATE_ROLE_POLICY',exact_action:{policy_version_id:policy.policy_version_id,policy_hash:policy.canonical_hash},client_request_id:`policy_approval_${crypto.randomUUID().replaceAll('-','_')}`})});status.textContent='Binding your approval to this exact role and job description…';await api(`/api/hiring/approvals/${encodeURIComponent(approval.approval_id)}/resolve`,{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':csrf},body:JSON.stringify({decision:'GRANT',require_fresh:true})});const activated=await api(`/api/hiring/roles/${encodeURIComponent(role.role_id)}/policy-versions/${encodeURIComponent(policy.policy_version_id)}/approve`,{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':csrf},body:JSON.stringify({approval_id:approval.approval_id,expected_role_version:role.version})});status.textContent='Approved. Publishing the role-scoped application page…';const published=await api(`/api/hiring/roles/${encodeURIComponent(role.role_id)}/publish`,{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':csrf},body:JSON.stringify({expected_role_version:activated.role_version,client_request_id:`role_publish_${crypto.randomUUID().replaceAll('-','_')}`})});status.textContent=`Published at ${published.public_path}`;await load();await openRole(role.role_id)}catch(e){status.textContent=e.message;root.querySelector('#approvePolicy')?.removeAttribute('disabled')}}
-async function publishApprovedRole(role){const out=document.querySelector('#publicationRetryStatus');try{out.textContent='Publishing the approved role…';const j=await api(`/api/hiring/roles/${encodeURIComponent(role.role_id)}/publish`,{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':await csrf()},body:JSON.stringify({expected_role_version:role.version,client_request_id:`role_publish_${crypto.randomUUID().replaceAll('-','_')}`})});out.textContent=`Published at ${j.public_path}`;await load();await openRole(role.role_id)}catch(e){out.textContent=e.message}}
-async function openRole(id){selected=id;h4sConversationToken='';renderRoles();const root=document.querySelector('#main');root.innerHTML='<div class="card"><p class="muted">Loading committed role projection…</p></div>';try{const {role,candidates,policy_versions,policy_impacts}=await api(`/api/hiring/roles/${encodeURIComponent(id)}`),approvedPolicy=(policy_versions||[]).find(p=>p.policy_version_id===role.current_policy_version_id),proposedPolicy=[...(policy_versions||[])].reverse().find(p=>p.status==='PROPOSED'),displayPolicy=approvedPolicy||proposedPolicy,contract=displayPolicy?.contract,currentImpact=(policy_impacts||[]).find(i=>i.policy_version_id===displayPolicy?.policy_version_id),needsApproval=displayPolicy?.status==='PROPOSED';const groups={};for(const c of candidates)(groups[c.candidate_state]??=[]).push(c);root.innerHTML=`<section class="card"><p class="micro">${esc(role.company_name||contract?.company_name||'Company')} · ${esc(role.role_code)} · ${esc(role.runtime_projection?.status||'DRAFT')}</p><h2>${esc(role.role_title)}</h2><div class="grid"><div class="stat"><span class="muted">Role state</span><strong>${esc(role.role_state)}</strong></div><div class="stat"><span class="muted">Candidates</span><strong>${candidates.length}</strong></div><div class="stat"><span class="muted">Mailbox</span><strong>${esc(role.mailbox_binding?.status||'not configured')}</strong></div></div><p class="micro">Next wake: ${esc(role.role_state==='PUBLISHED'?'trusted application email':'founder approval')}</p></section><section class="card"><h3>${needsApproval?'Proposed':'Approved'} role brief and scorecard</h3>${contract?`<p>${esc(contract.role_summary)}</p><p class="micro">${esc(contract.company_name)} · Target ${esc(contract.target_date)} · ${esc((contract.location_envelope||[]).join(', '))} · ${esc(contract.compensation_envelope)}</p><h4>Evidence criteria</h4><ol>${(contract.criteria||[]).map(c=>`<li><strong>${esc(c.label)}</strong> — ${esc(c.description)}</li>`).join('')}</ol><h4>Interview plan</h4><ol>${(contract.interview_plan||[]).map(q=>`<li><strong>${esc(q.criterion_id)}</strong> — ${esc(q.text)}<br><span class="micro">Rubric: ${(q.rubric||[]).map(esc).join('; ')}</span></li>`).join('')}</ol><h4>Exact job-post draft</h4><p>${esc(contract.public_job_description)}</p><p class="micro">Policy ${esc(displayPolicy.policy_version_id)} · ${esc(displayPolicy.materiality)} · impact ${esc(currentImpact?.enumeration_status||'unavailable')} · ${esc((currentImpact?.active_candidate_ids||[]).length)} active candidates</p>${needsApproval?`<button id="approvePolicy" onclick='activateProposedPolicy(${JSON.stringify(role)},${JSON.stringify(displayPolicy)})'>Approve role brief and job-post draft</button><p id="policyActionStatus" class="micro">Approval binds this exact policy hash. It does not publish the post.</p>`:''}`:'<p class="muted">No role contract is available yet.</p>'}</section><section class="card"><h3>Publication receipt</h3>${(role.publication_receipts||[]).map(x=>`<p><button data-public-url="${esc(encodeURIComponent(x.public_url))}" onclick="openInAppBrowser(decodeURIComponent(this.dataset.publicUrl))">Open ${esc(x.destination)} receipt in Browser panel</button> · ${esc(x.verification_status)}<br><span class="micro">Recorded by ${esc(x.actor_id)} at ${esc(x.recorded_at)}</span></p>`).join('')||'<p class="muted">No manual publication receipt. Publication stays a separate founder action in the contained Browser panel.</p>'}</section><section class="card"><h3>Candidate board</h3>${Object.entries(groups).map(([state,items])=>`<h4>${esc(state)} <span class="micro">${items.length}</span></h4><table><thead><tr><th>Candidate</th><th>Policy</th><th>Committed state</th><th></th></tr></thead><tbody>${items.map(c=>`<tr><td>${esc(c.candidate_code)}</td><td>${esc(c.current_policy_version_id)}</td><td class="state">${esc(c.candidate_state)}</td><td><button onclick="openCandidate('${esc(c.candidate_application_id)}')">Review evidence</button></td></tr>`).join('')}</tbody></table>`).join('')||'<p class="muted">Dormant: waiting for a trusted role-address application.</p>'}</section><section class="card"><h3>Alex · synthetic Hiring Run</h3><p class="micro">Run-scoped conversation only. Alex cannot send mail, book meetings, choose a candidate, or use your ordinary connectors here.</p><p id="h4sStatus" class="micro">Loading sandbox authority…</p><div id="h4sPanel" hidden><label>Ask Alex about this role<textarea id="h4sQuestion" maxlength="2000" placeholder="Where are we with this hire?"></textarea></label><button onclick="askH4S()">Ask Alex</button> <button id="h4sTalk" type="button" onclick="talkH4S()">Talk to Alex</button><div id="h4sAnswer" class="micro" aria-live="polite"></div></div></section><section class="card"><h3>Candidate interaction boundary</h3><p class="muted">Candidates use email and a named human contact. The public notice is read-only and exposes no internal assessment or controls.</p><a href="/hiring-notice.html">View public hiring notice</a></section>`;loadH4S(id)}catch(e){root.innerHTML=`<div class="card"><p class="error">${esc(e.message)}</p></div>`}}
-const renderCommittedRole=openRole;
-openRole=async function(id){await renderCommittedRole(id);const role=roles.find(item=>item.role_id===id);const approve=document.querySelector('#approvePolicy'),policyStatus=document.querySelector('#policyActionStatus');if(approve){approve.textContent='Approve and publish role';if(policyStatus)policyStatus.textContent='Approval binds this exact role contract and publishes its Co-Founder application page. No third-party outreach occurs.'}const headings=[...document.querySelectorAll('#main h3')];const runHeading=headings.find(node=>node.textContent.includes('synthetic Hiring Run'));if(runHeading)runHeading.textContent=role?.synthetic?'Alex · synthetic Hiring Run':'Alex · Hiring Run';const receiptButtons=[...document.querySelectorAll('#main [data-public-url]')];for(const button of receiptButtons){const url=decodeURIComponent(button.dataset.publicUrl||'');if(url.startsWith('/jobs/')){button.textContent='Open public application page';button.onclick=()=>location.assign(url)}}const publication=headings.find(node=>node.textContent==='Publication receipt')?.parentElement;if(publication&&!role?.publication_receipts?.length){const message=publication.querySelector('.muted');if(role?.current_policy_version_id){message.innerHTML='<button id="publishApprovedRole">Publish approved role</button> <span id="publicationRetryStatus" class="micro">No public page receipt yet.</span>';message.querySelector('button').onclick=()=>publishApprovedRole(role)}else message.textContent='Approve this draft to publish its role-scoped Co-Founder application page.'}};
-async function loadH4S(roleId){const status=document.querySelector('#h4sStatus');try{const j=await api(`/api/hiring/h4s/roles/${encodeURIComponent(roleId)}`);if(!j.sandbox){status.textContent='No optional provider sandbox is provisioned for this role.';return}h4sSandboxId=j.sandbox.sandbox_run_id;const csrf=(await api('/api/hiring/csrf')).csrf_token;const c=await api('/api/hiring/h4s/conversations',{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':csrf},body:JSON.stringify({sandbox_run_id:h4sSandboxId,candidate_application_id:''})});h4sConversationToken=c.conversation_token;const p=await api(`/api/hiring/h4s/sandboxes/${encodeURIComponent(h4sSandboxId)}/projection`);status.textContent='Optional provider sandbox active · conversation expires in 10 minutes.';document.querySelector('#h4sPanel').hidden=false;renderH4SProjection(p)}catch(e){status.textContent=e.message}}
-function renderH4SProjection(p){let host=document.querySelector('#h4sTimeline');if(!host){host=document.createElement('div');host.id='h4sTimeline';host.className='micro';document.querySelector('#h4sPanel').parentElement.append(host)}const actions=p.actions||[],replies=p.reply_correlations||[];host.innerHTML=`<h4>Sandbox receipts</h4>${actions.length?`<ol>${actions.map(a=>`<li><strong>${esc(a.action_kind)}</strong> · ${esc(a.status)}<br><span class="micro">approval ${esc(a.approval_id||'none')} · receipt ${esc(a.provider_effect_id||a.uncertainty_reason||a.error_code||'pending')}</span></li>`).join('')}</ol>`:'<p class="micro">No test-account effects have been approved.</p>'}<h4>Verified replies</h4>${replies.length?`<ol>${replies.map(r=>`<li><strong>${esc(r.status)}</strong> · ${esc(r.safe_reason||'causally correlated')}<br><span class="micro">${esc(r.resolved_at||r.created_at||'')}</span></li>`).join('')}</ol>`:'<p class="micro">No provider reply receipt yet.</p>'}`}
-async function askH4S(){const out=document.querySelector('#h4sAnswer'),question=document.querySelector('#h4sQuestion').value;try{const csrf=(await api('/api/hiring/csrf')).csrf_token,j=await api('/api/hiring/h4s/conversations/answer',{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':csrf},body:JSON.stringify({conversation_token:h4sConversationToken,question,client_turn_id:`turn_${crypto.randomUUID().replaceAll('-','_')}`})});out.innerHTML=`<p>${esc(j.answer)}</p><p>Sources: ${(j.record_refs||[]).map(esc).join(', ')||'none'}</p>`}catch(e){out.textContent=e.message}}
-async function openCandidate(id){const d=document.querySelector('#candidate'),body=document.querySelector('#candidateBody');body.innerHTML='<p>Loading committed evidence…</p>';d.showModal();try{const j=await api(`/api/hiring/applications/${encodeURIComponent(id)}`),a=j.application,p=j.assessment,cited=[...new Set((p?.criteria||[]).flatMap(c=>(c.citations||[]).map(x=>x.evidence_id)))];body.innerHTML=`<p class="micro">${esc(a.candidate_code)} · identity hidden by default</p><button onclick='revealIdentity(${JSON.stringify(id)})'>Reveal identity with recent sign-in</button><p id="revealedIdentity" class="micro"></p><h2>Evidence Passport</h2><p class="micro">Policy ${esc(p?.policy_version_id)} · ${esc(p?.staleness)}</p><div class="passport">${(p?.criteria||[]).map(c=>`<section class="criterion"><strong>${esc(c.criterion_id)}</strong> <span class="${c.status==='UNKNOWN'?'unknown':'supported'}">${esc(c.status)}</span><p>${esc(c.summary)}</p><p class="micro">Citations: ${(c.citations||[]).map(x=>esc(x.evidence_id)).join(', ')||'none'}<br>Unknowns: ${(c.unknowns||[]).map(esc).join('; ')||'none'}<br>Contradictions: ${(c.contradictions||[]).map(esc).join('; ')||'none'}</p></section>`).join('')}</div><h3>Causal timeline</h3><ol>${(j.timeline||[]).map(e=>`<li><strong>${esc(e.event_kind)}</strong> <span class="micro">sequence ${esc(e.sequence)} · ${esc(e.occurred_at)}</span></li>`).join('')}</ol><section class="card"><h3>Record a human decision</h3><label>Decision<select id="decisionKind"><option>HOLD</option><option>REQUEST_EVIDENCE</option><option>ADVANCE</option><option>DECLINE</option></select></label><label>Job-related reason<select id="decisionReason">${(j.approved_reason_codes||[]).map(x=>`<option value="${esc(x)}">${esc(x)}</option>`).join('')}</select></label><label>Optional note<textarea id="decisionNote" maxlength="1000"></textarea></label><button id="decisionSubmit" onclick='submitDecision(${JSON.stringify(id)},${JSON.stringify(p?.assessment_id)},${a.version},${JSON.stringify(cited)})'>Commit decision</button><p class="micro">This writes an append-only attributed decision. Decline communication remains a separate approval obligation.</p></section><section class="card"><h3>Candidate data rights</h3><button onclick='exportCandidate(${JSON.stringify(id)})'>Export candidate data</button> <button onclick='deleteCandidate(${JSON.stringify(id)})'>Review deletion plan</button><p id="dataRightsStatus" class="micro">Recent sign-in is required. Provider email remains subject to the stated provider limitations.</p></section><p class="micro">Silence, confidence and elapsed time never create a decision.</p>`}catch(e){body.innerHTML=`<p class="error">${esc(e.message)}</p>`}}
-async function revealIdentity(id){const out=document.querySelector('#revealedIdentity');try{const csrf=(await api('/api/hiring/csrf')).csrf_token,j=await api(`/api/hiring/applications/${encodeURIComponent(id)}/identity-reveal`,{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':csrf},body:JSON.stringify({client_request_id:`reveal_${crypto.randomUUID().replaceAll('-','_')}`})});out.textContent=[j.identity.name,j.identity.email,j.identity.phone].filter(Boolean).join(' · ');setTimeout(()=>{out.textContent='Identity hidden again.'},30000)}catch(e){out.textContent=e.message}}
-async function submitDecision(id,assessmentId,version,evidenceIds){const b=document.querySelector('#decisionSubmit');b.disabled=true;try{const csrf=(await api('/api/hiring/csrf')).csrf_token;const payload={schema_version:1,decision:document.querySelector('#decisionKind').value,reason_codes:[document.querySelector('#decisionReason').value],evidence_ids_reviewed:evidenceIds,assessment_id:assessmentId,expected_application_version:version,client_request_id:`decision_${crypto.randomUUID().replaceAll('-','_')}`,note:document.querySelector('#decisionNote').value,supersedes_decision_id:null};await api(`/api/hiring/applications/${encodeURIComponent(id)}/decisions`,{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':csrf},body:JSON.stringify(payload)});await openRole(selected);await openCandidate(id)}catch(e){alert(e.message)}finally{b.disabled=false}}
-function openInAppBrowser(url){location.assign(`/?browser_url=${encodeURIComponent(url)}`)}
-async function exportCandidate(id){const out=document.querySelector('#dataRightsStatus');try{const csrf=(await api('/api/hiring/csrf')).csrf_token,j=await api(`/api/hiring/applications/${encodeURIComponent(id)}/data-export`,{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':csrf},body:JSON.stringify({client_request_id:`export_${crypto.randomUUID().replaceAll('-','_')}`})});const blob=new Blob([JSON.stringify(j,null,2)],{type:'application/json'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=`candidate-${id}-export.json`;a.click();URL.revokeObjectURL(url);out.textContent=`Exported ${j.record_count} records. Audit ${j.audit_id}.`;}catch(e){out.textContent=e.message}}
-async function deleteCandidate(id){const out=document.querySelector('#dataRightsStatus');try{const csrf=(await api('/api/hiring/csrf')).csrf_token,plan=await api(`/api/hiring/applications/${encodeURIComponent(id)}/data-deletion`,{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':csrf},body:JSON.stringify({execute:false,expected_inventory_hash:'',client_request_id:`plan_${crypto.randomUUID().replaceAll('-','_')}`})});if(!confirm(`Delete ${plan.delete_count} candidate records? The original provider email is not deleted.`)){out.textContent='Deletion cancelled after dry-run.';return}const j=await api(`/api/hiring/applications/${encodeURIComponent(id)}/data-deletion`,{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':csrf},body:JSON.stringify({execute:true,expected_inventory_hash:plan.inventory_hash,client_request_id:`delete_${crypto.randomUUID().replaceAll('-','_')}`})});out.textContent=`Deleted ${j.deleted} records. Receipt ${j.deletion_receipt_id}.`;setTimeout(()=>{document.querySelector('#candidate').close();openRole(selected)},1000)}catch(e){out.textContent=e.message}}
-function talkH4S(){const out=document.querySelector('#h4sAnswer'),Recognition=window.SpeechRecognition||window.webkitSpeechRecognition;if(!Recognition||!h4sConversationToken){out.textContent='Voice requires browser speech recognition and an active scoped sandbox.';return}const proto=location.protocol==='https:'?'wss':'ws',ws=new WebSocket(proto+'://'+location.host+'/live/hiring'),rec=new Recognition();rec.lang='en-US';rec.interimResults=false;ws.onopen=()=>{ws.send(JSON.stringify({conversation_token:h4sConversationToken}));rec.start()};rec.onresult=e=>ws.send(JSON.stringify({text:e.results[0][0].transcript,client_turn_id:`turn_${crypto.randomUUID().replaceAll('-','_')}`}));ws.onmessage=e=>{const frame=JSON.parse(e.data);if(frame.error){out.textContent=frame.error;return}const text=(frame.transcript||{}).text||'';out.innerHTML='<p>'+esc(text)+'</p><p>Sources: '+(frame.record_refs||[]).map(esc).join(', ')+'</p>';if(text&&window.speechSynthesis){speechSynthesis.cancel();speechSynthesis.speak(new SpeechSynthesisUtterance(text))}if(frame.turn_complete)ws.close()};rec.onerror=()=>{out.textContent='Voice recognition ended without a question.';ws.close()}}
-load();
-</script>
-</body></html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Hiring · Co-Founder</title>
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png"/><link rel="manifest" href="/site.webmanifest"/><meta name="theme-color" media="(prefers-color-scheme: dark)" content="#090B10"/><meta name="theme-color" media="(prefers-color-scheme: light)" content="#EFF2F7"/><meta property="og:title" content="Co-Founder"/><meta property="og:description" content="The agent does the work; founders keep the judgment."/><meta property="og:image" content="/og-image.png"/>
+    <style>
+      :root {
+        color-scheme: dark;
+        --surface-0: #090b10;
+        --surface-1: #12151d;
+        --surface-2: #191d27;
+        --border: #353a4a;
+        --divider: #262b38;
+        --ink-1: #e9ecf4;
+        --ink-2: #a6aec2;
+        --ink-3: #7c8599;
+        --accent: #6e9bff;
+        --accent-on: #0a1020;
+        --attn: #f0b341;
+        --ok: #43d07c;
+        --danger: #ff6b61;
+        --r-1: 4px;
+        --r-2: 6px;
+        --r-3: 10px;
+        --sp-1: 4px;
+        --sp-2: 8px;
+        --sp-3: 12px;
+        --sp-4: 16px;
+        --sp-5: 20px;
+        --sp-6: 24px;
+        --fs-1: 11px;
+        --fs-2: 12px;
+        --fs-3: 13px;
+        --fs-4: 14px;
+        --fs-6: 18px;
+        --fs-7: 22px;
+        --font-ui:
+          ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI",
+          sans-serif;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: var(--surface-0);
+        color: var(--ink-1);
+        font: var(--fs-4) / 1.55 var(--font-ui);
+      }
+      button,
+      a {
+        font: inherit;
+      }
+      .top {
+        height: 56px;
+        display: flex;
+        align-items: center;
+        gap: var(--sp-4);
+        padding: 0 var(--sp-5);
+        border-bottom: 1px solid var(--divider);
+        background: var(--surface-1);
+      }
+      .top a {
+        color: var(--ink-2);
+        text-decoration: none;
+      }
+      .top h1 {
+        font-size: var(--fs-6);
+        margin: 0;
+      }
+      .pill {
+        font-size: var(--fs-1);
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        border: 1px solid var(--attn);
+        color: var(--attn);
+        padding: 2px 8px;
+        border-radius: 99px;
+      }
+      .layout {
+        display: grid;
+        grid-template-columns: minmax(240px, 320px) minmax(0, 1fr);
+        min-height: calc(100vh - 56px);
+      }
+      .roles {
+        border-right: 1px solid var(--divider);
+        padding: var(--sp-4);
+      }
+      .main {
+        padding: var(--sp-6);
+        max-width: 1180px;
+        width: 100%;
+      }
+      .card {
+        background: var(--surface-1);
+        border: 1px solid var(--border);
+        border-radius: var(--r-3);
+        padding: var(--sp-4);
+        margin-bottom: var(--sp-4);
+      }
+      .muted {
+        color: var(--ink-2);
+      }
+      .micro {
+        font-size: var(--fs-2);
+        color: var(--ink-3);
+      }
+      button {
+        border: 1px solid var(--border);
+        background: var(--surface-2);
+        color: var(--ink-1);
+        border-radius: var(--r-2);
+        padding: 8px 12px;
+        cursor: pointer;
+      }
+      button:hover,
+      button:focus-visible {
+        border-color: var(--accent);
+      }
+      .btn[data-variant="primary"],
+      button[data-variant="primary"] {
+        border-color: var(--accent);
+        background: var(--accent);
+        color: var(--accent-on);
+        font-weight: 700;
+        box-shadow: 0 1px 2px rgb(0 0 0/0.22);
+      }
+      .btn[data-variant="primary"]:hover,
+      .btn[data-variant="primary"]:focus-visible,
+      button[data-variant="primary"]:hover,
+      button[data-variant="primary"]:focus-visible {
+        filter: brightness(1.08);
+        box-shadow: 0 0 0 3px var(--accent-bg);
+      }
+      button:disabled,
+      .btn:disabled {
+        cursor: not-allowed;
+        opacity: 0.48;
+        box-shadow: none;
+        filter: none;
+      }
+      .role {
+        display: block;
+        width: 100%;
+        text-align: left;
+        margin-bottom: var(--sp-2);
+      }
+      .role[aria-current="true"] {
+        border-color: var(--accent);
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+        gap: var(--sp-3);
+      }
+      .stat strong {
+        display: block;
+        font-size: var(--fs-7);
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+      }
+      th,
+      td {
+        text-align: left;
+        padding: 10px;
+        border-bottom: 1px solid var(--divider);
+        vertical-align: top;
+      }
+      th {
+        font-size: var(--fs-2);
+        color: var(--ink-2);
+      }
+      .state {
+        font-size: var(--fs-1);
+        letter-spacing: 0.04em;
+      }
+      .unknown {
+        color: var(--attn);
+      }
+      .supported {
+        color: var(--ok);
+      }
+      .error {
+        color: var(--danger);
+      }
+      dialog {
+        background: var(--surface-1);
+        color: var(--ink-1);
+        border: 1px solid var(--border);
+        border-radius: var(--r-3);
+        max-width: 760px;
+        width: calc(100% - 32px);
+      }
+      dialog::backdrop {
+        background: rgb(0 0 0/0.7);
+      }
+      input,
+      select,
+      textarea {
+        width: 100%;
+        background: var(--surface-2);
+        color: var(--ink-1);
+        border: 1px solid var(--border);
+        border-radius: var(--r-2);
+        padding: 9px;
+        margin: 4px 0 12px;
+      }
+      .passport {
+        display: grid;
+        gap: var(--sp-3);
+      }
+      .criterion {
+        border-left: 3px solid var(--border);
+        padding-left: var(--sp-3);
+      }
+      .role-materials {
+        display: grid;
+        gap: var(--sp-5);
+      }
+      .role-materials > section {
+        border-top: 1px solid var(--divider);
+        padding-top: var(--sp-4);
+      }
+      .role-materials > section:first-child {
+        border-top: 0;
+        padding-top: 0;
+      }
+      .job-description-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: var(--sp-3);
+      }
+      .job-description-field {
+        min-width: 0;
+        padding: var(--sp-3);
+        border: 1px solid var(--divider);
+        border-radius: var(--r-2);
+        background: var(--surface-2);
+      }
+      .job-description-field h5 {
+        margin: 0 0 var(--sp-1);
+        font-size: var(--fs-2);
+        color: var(--ink-2);
+      }
+      .job-description-field p,
+      .job-description-field ul {
+        margin: 0;
+      }
+      .job-description-editor {
+        display: grid;
+        gap: var(--sp-4);
+      }
+      .job-description-editor .editor-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: var(--sp-4);
+      }
+      .job-description-editor label {
+        display: grid;
+        gap: var(--sp-2);
+        font-weight: 650;
+      }
+      .job-description-editor label[data-wide="true"] {
+        grid-column: 1 / -1;
+      }
+      .job-description-editor textarea { min-height: 7.5rem; }
+      .job-description-editor input,
+      .job-description-editor textarea {
+        width: 100%;
+      }
+      .job-description-actions {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: var(--sp-3);
+      }
+      @media (max-width: 760px) {
+        .job-description-editor .editor-grid { grid-template-columns: 1fr; }
+        .role-summary-head { align-items: stretch; flex-direction: column; }
+      }
+      .job-post-copy {
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+        max-height: none;
+        padding: var(--sp-4);
+        border: 1px solid var(--border);
+        border-radius: var(--r-3);
+        background: var(--surface-2);
+        color: var(--ink-1);
+        line-height: 1.65;
+      }
+      .decision-approval {
+        border-color: var(--accent);
+        box-shadow: inset 3px 0 0 var(--accent);
+      }
+      .decision-actions {
+        display: grid;
+        gap: var(--sp-2);
+      }
+      .decision-actions .btn {
+        width: 100%;
+        min-height: 42px;
+        padding-block: 9px;
+      }
+      .decision-actions .btn[data-variant="primary"]:disabled {
+        opacity: 0.52;
+        cursor: not-allowed;
+      }
+      @media (max-width: 760px) {
+        .layout {
+          grid-template-columns: 1fr;
+        }
+        .roles {
+          border-right: 0;
+          border-bottom: 1px solid var(--divider);
+        }
+        .job-description-grid {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+    <style>
+      /* Unified Hiring workspace — shared product language from docs/36. Existing
+   API calls remain unchanged and test/live gates remain server-owned. */
+      :root {
+        --surface-3: #222735;
+        --field: #5d6475;
+        --ink-4: #646d80;
+        --accent-ink: #6e9bff;
+        --attn-ink: #f3c36b;
+        --ok-ink: #5fdc93;
+        --danger-ink: #ff8f87;
+        --accent-bg: color-mix(in srgb, var(--accent) 14%, transparent);
+        --attn-bg: color-mix(in srgb, var(--attn) 16%, transparent);
+        --danger-bg: color-mix(in srgb, var(--danger) 15%, transparent);
+        --r-4: 14px;
+        --r-full: 999px;
+        --sp-7: 32px;
+        --header-h: 56px;
+      }
+      @media (prefers-color-scheme: light) {
+        :root:not([data-theme="dark"]) {
+          color-scheme: light;
+          --surface-0: #eff2f7;
+          --surface-1: #fff;
+          --surface-2: #f5f7fc;
+          --surface-3: #e7ecf6;
+          --border: #c9d0de;
+          --divider: #e4e8f1;
+          --field: #8d94a3;
+          --ink-1: #161b26;
+          --ink-2: #4e5769;
+          --ink-3: #646d80;
+          --accent: #2f5bd0;
+          --accent-ink: #2f5bd0;
+          --accent-on: #fff;
+          --attn: #b8830f;
+          --attn-ink: #8a5a06;
+          --ok: #12924e;
+          --ok-ink: #0b7a41;
+          --danger: #ce4136;
+          --danger-ink: #b8271c;
+        }
+      }
+      *:focus-visible {
+        outline: 2px solid var(--accent);
+        outline-offset: 2px;
+      }
+      body {
+        overflow-x: hidden;
+        min-height: 100dvh;
+      }
+      .product-rail {
+        position: fixed;
+        inset: 0 auto 0 0;
+        width: 64px;
+        z-index: 20;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 4px;
+        padding: calc(var(--header-h) + var(--sp-3)) 6px var(--sp-2);
+        background: var(--surface-1);
+        border-right: 1px solid var(--divider);
+      }
+      .rail-brand {
+        position: fixed;
+        inset: 0 auto auto 0;
+        z-index: 33;
+        width: 64px;
+        height: var(--header-h);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-right: 1px solid var(--divider);
+        border-bottom: 1px solid var(--border);
+        border-radius: 0;
+        background: var(--surface-1);
+        color: var(--accent);
+        --brand-size: 18px;
+      }
+      .rail-link {
+        width: 48px;
+        min-height: 46px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 1px;
+        padding: 3px 2px;
+        border: 0;
+        background: transparent;
+        color: var(--ink-3);
+        text-decoration: none;
+        border-radius: var(--r-3);
+        font-size: var(--fs-1);
+      }
+      .rail-link .mark {
+        width: 18px;
+        height: 18px;
+        background: currentColor;
+        font-size: 0;
+        -webkit-mask: var(--rail-icon) center/contain no-repeat;
+        mask: var(--rail-icon) center/contain no-repeat;
+      }
+      .rail-link:hover,
+      .rail-link[aria-current="page"] {
+        background: var(--accent-bg);
+        color: var(--accent-ink);
+      }
+      .rail-spacer {
+        flex: 1;
+      }
+      .top {
+        position: sticky;
+        top: 0;
+        z-index: 12;
+        margin-left: 64px;
+        height: var(--header-h);
+        padding: 0 var(--sp-4);
+        box-shadow: 0 4px 14px rgb(0 0 0/0.2);
+      }
+      .roles-toggle {
+        display: none;
+      }
+      .top .crumb {
+        min-width: 0;
+      }
+      .top h1 {
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .top .spacer {
+        flex: 1;
+      }
+      .top a.back {
+        display: none;
+      }
+      .brand-home {
+        display: inline-flex;
+        align-items: center;
+        color: var(--accent);
+        border-radius: 6px;
+        flex: none;
+      }
+      .brand-home:focus-visible {
+        outline: 2px solid var(--focus);
+        outline-offset: 2px;
+      }
+      .brand-home {
+        --brand-size: 18px;
+      }
+      .pill {
+        white-space: nowrap;
+        background: var(--attn-bg);
+        color: var(--attn-ink);
+      }
+      .hiring-shell {
+        margin-left: 64px;
+        display: grid;
+        grid-template-columns: minmax(250px, 300px) minmax(480px, 1fr) min(
+            420px,
+            min(36vw, calc(100vw - 844px))
+          );
+        height: calc(100dvh - var(--header-h));
+        min-height: 0;
+      }
+      .roles {
+        overflow-y: auto;
+        border-right: 1px solid var(--divider);
+        padding: var(--sp-3);
+        background: var(--surface-1);
+      }
+      .role {
+        min-height: 58px;
+        border-color: transparent;
+        background: transparent;
+        border-radius: var(--r-3);
+      }
+      .role:hover {
+        background: var(--surface-2);
+      }
+      .role[aria-current="true"] {
+        background: var(--accent-bg);
+        color: var(--accent-ink);
+      }
+      .cockpit {
+        min-width: 0;
+        overflow-y: auto;
+        padding: var(--sp-6);
+        background: var(--surface-0);
+      }
+      .cockpit > .card:first-child {
+        background: transparent;
+        border: 0;
+        padding: 0;
+      }
+      .cockpit .grid {
+        grid-template-columns: repeat(3, minmax(120px, 1fr));
+      }
+      .cockpit table {
+        background: var(--surface-1);
+        border: 1px solid var(--border);
+        border-radius: var(--r-3);
+        overflow: hidden;
+      }
+      .context-workspace {
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        border-left: 1px solid var(--border);
+        background: var(--surface-1);
+      }
+      .workspace-head {
+        min-height: 48px;
+        display: flex;
+        align-items: center;
+        gap: var(--sp-2);
+        padding: var(--sp-2) var(--sp-3);
+        border-bottom: 1px solid var(--divider);
+      }
+      .workspace-head h2 {
+        font-size: var(--fs-3);
+        margin: 0;
+        flex: 1;
+      }
+      .workspace-tabs {
+        display: flex;
+        gap: 2px;
+        margin: var(--sp-2);
+        padding: 2px;
+        border: 1px solid var(--border);
+        border-radius: var(--r-3);
+        background: var(--surface-2);
+      }
+      .workspace-tabs button {
+        flex: 1;
+        min-width: 0;
+        padding: 8px 4px;
+        border: 0;
+        background: transparent;
+        color: var(--ink-2);
+      }
+      .workspace-tabs button[aria-selected="true"] {
+        background: var(--accent);
+        color: var(--accent-on);
+      }
+      .workspace-body {
+        min-height: 0;
+        overflow-y: auto;
+        padding: var(--sp-3);
+      }
+      .hiring-pane[hidden] {
+        display: none;
+      }
+      .hiring-pane .card {
+        margin-bottom: var(--sp-3);
+      }
+      .workspace-empty {
+        text-align: center;
+        padding: var(--sp-7) var(--sp-3);
+        color: var(--ink-3);
+      }
+      .alex-dock {
+        margin-top: var(--sp-3);
+        border: 1px solid var(--divider);
+        border-radius: var(--r-4);
+        padding: var(--sp-3);
+        background: var(--surface-2);
+      }
+      .alex-presence {
+        display: flex;
+        align-items: center;
+        gap: var(--sp-3);
+        margin-bottom: var(--sp-3);
+      }
+      .alex-orb {
+        width: 52px;
+        height: 52px;
+        border-radius: 50%;
+        display: grid;
+        place-items: center;
+        border: 2px solid var(--accent);
+        background: radial-gradient(
+          circle at 35% 30%,
+          var(--accent),
+          var(--accent-bg) 45%,
+          var(--surface-2) 75%
+        );
+        box-shadow: 0 0 0 6px var(--accent-bg);
+      }
+      .scope-pill {
+        display: inline-flex;
+        border: 1px solid var(--border);
+        border-radius: var(--r-full);
+        padding: 2px 8px;
+        color: var(--ink-2);
+        font-size: var(--fs-1);
+      }
+      .manual-publication {
+        margin: 0;
+      }
+      .application-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: var(--sp-2);
+        margin-top: var(--sp-3);
+      }
+      .application-actions .btn {
+        min-height: 36px;
+      }
+      .application-link-status {
+        display: block;
+        min-height: var(--lh-2);
+        margin-top: var(--sp-2);
+      }
+      .candidate-tabs {
+        position: sticky;
+        top: 0;
+        z-index: 2;
+        display: flex;
+        gap: 4px;
+        padding: var(--sp-2) 0;
+        background: var(--surface-1);
+      }
+      dialog#candidate {
+        max-width: none;
+        width: calc(100vw - 96px);
+        height: calc(100dvh - 48px);
+        padding: var(--sp-5);
+        overflow-y: auto;
+        border-radius: var(--r-4);
+      }
+      dialog#candidate > form {
+        position: sticky;
+        top: 0;
+        z-index: 3;
+      }
+      .candidate-record {
+        max-width: 1060px;
+        margin: 0 auto;
+      }
+      .candidate-record .passport {
+        grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      }
+      .candidate-record .criterion {
+        background: var(--surface-2);
+        border: 1px solid var(--border);
+        border-left: 3px solid var(--border);
+        border-radius: 0 var(--r-3) var(--r-3) 0;
+        padding: var(--sp-3);
+      }
+      .candidate-record .record-grid {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(280px, 360px);
+        gap: var(--sp-4);
+      }
+      .loading-state,
+      .error-state {
+        padding: var(--sp-7);
+        text-align: center;
+        color: var(--ink-2);
+      }
+      @media (max-width: 1279px) {
+        .hiring-shell {
+          grid-template-columns: minmax(240px, 290px) minmax(0, 1fr);
+        }
+        .context-workspace {
+          position: fixed;
+          top: var(--header-h);
+          right: 0;
+          bottom: 0;
+          width: min(440px, 94vw);
+          z-index: 15;
+          box-shadow: 0 24px 60px rgb(0 0 0/0.5);
+          transform: translateX(100%);
+          transition: transform 0.18s ease;
+        }
+        .context-workspace[data-open="true"] {
+          transform: none;
+        }
+        .workspace-toggle {
+          display: inline-block !important;
+        }
+      }
+      @media (max-width: 899px) {
+        .product-rail,
+        .rail-brand {
+          width: 56px;
+        }
+        .top,
+        .hiring-shell {
+          margin-left: 56px;
+        }
+        .hiring-shell {
+          grid-template-columns: 1fr;
+        }
+        .roles {
+          display: none;
+        }
+        .hiring-shell[data-view="roles"] .roles {
+          display: block;
+        }
+        .hiring-shell[data-view="roles"] .cockpit {
+          display: none;
+        }
+        .roles-toggle {
+          display: inline-block;
+        }
+        .cockpit {
+          padding: var(--sp-4);
+        }
+        dialog#candidate {
+          width: 100vw;
+          height: 100dvh;
+          margin: 0;
+          border: 0;
+          border-radius: 0;
+        }
+        .candidate-record .record-grid {
+          grid-template-columns: 1fr;
+        }
+      }
+      @media (max-width: 599px) {
+        .product-rail {
+          inset: auto 0 0 0;
+          width: auto;
+          height: 60px;
+          flex-direction: row;
+          justify-content: space-around;
+          padding: 4px;
+          border-right: 0;
+          border-top: 1px solid var(--divider);
+        }
+        .rail-spacer,
+        .rail-desktop {
+          display: none;
+        }
+        .rail-brand {
+          width: 56px;
+        }
+        .rail-link {
+          width: 20%;
+          min-height: 50px;
+        }
+        .top {
+          margin-left: 0;
+          padding-left: calc(56px + var(--sp-2));
+        }
+        .top .pill {
+          max-width: 42vw;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+        .hiring-shell {
+          margin-left: 0;
+          height: calc(100dvh - var(--header-h) - 60px);
+        }
+        .context-workspace {
+          bottom: 60px;
+          width: 100vw;
+        }
+        .cockpit {
+          padding: var(--sp-3);
+        }
+        .cockpit .grid {
+          grid-template-columns: 1fr 1fr;
+        }
+        table {
+          display: block;
+          overflow-x: auto;
+        }
+        .candidate-board table,
+        .candidate-board tbody,
+        .candidate-board tr,
+        .candidate-board td {
+          display: block;
+          width: 100%;
+        }
+        .candidate-board table { overflow: visible; border: 0; }
+        .candidate-board thead {
+          position: absolute;
+          width: 1px;
+          height: 1px;
+          overflow: hidden;
+          clip: rect(0 0 0 0);
+        }
+        .candidate-board tr {
+          margin-top: var(--sp-3);
+          padding: var(--sp-2) var(--sp-3);
+          border: 1px solid var(--divider);
+          border-radius: var(--r-3);
+          background: var(--surface-2);
+        }
+        .candidate-board td {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: var(--sp-3);
+          padding: var(--sp-2) 0;
+          border: 0;
+          overflow-wrap: anywhere;
+        }
+        .candidate-board td::before {
+          content: attr(data-label);
+          color: var(--ink-3);
+          font: 600 var(--fs-2) / var(--lh-2) var(--font-ui);
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        *,
+        *::before,
+        *::after {
+          animation: none !important;
+          transition: none !important;
+          scroll-behavior: auto !important;
+        }
+      }
+    </style>
+    <link rel="stylesheet" href="/product-shell.css?v=20260829-header-left" />
+    <style>
+      /* Hiring-specific composition. The palette, typography, controls, icons and
+   product rail come from product-shell.css; this file owns domain layout only. */
+      body {
+        min-height: 100dvh;
+      }
+      button {
+        padding: 0;
+      }
+      h1,
+      h2,
+      h3,
+      h4,
+      p {
+        margin-top: 0;
+      }
+      h1 {
+        font: 600 var(--fs-6) / var(--lh-6) var(--font-display);
+        letter-spacing: var(--tr-tight);
+      }
+      h2 {
+        font: 600 var(--fs-7) / var(--lh-7) var(--font-display);
+        letter-spacing: var(--tr-tight);
+      }
+      h3 {
+        font: 600 var(--fs-5) / var(--lh-5) var(--font-display);
+        letter-spacing: var(--tr-tight);
+      }
+      h4 {
+        font: 600 var(--fs-3) / var(--lh-3) var(--font-ui);
+      }
+      .muted {
+        color: var(--ink-2);
+      }
+      .micro {
+        color: var(--ink-3);
+        font: 400 var(--fs-2) / var(--lh-2) var(--font-ui);
+      }
+      .error {
+        color: var(--danger-ink);
+      }
+      .top {
+        position: sticky;
+        top: 0;
+        z-index: 24;
+        height: var(--header-h);
+        margin-left: 64px;
+        padding: 0 var(--sp-4);
+        gap: var(--sp-3);
+        background: var(--surface-1);
+        border-bottom: 1px solid var(--border);
+        box-shadow: var(--e-2);
+      }
+      .top .crumb {
+        min-width: 0;
+      }
+      .top h1 {
+        margin: 0;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .top .spacer {
+        flex: 1;
+      }
+      .top .back {
+        display: none;
+      }
+      .roles-toggle[hidden],
+      .workspace-toggle[hidden] {
+        display: none !important;
+      }
+      .pill {
+        border: 0;
+        background: var(--attn-bg);
+        color: var(--attn-ink);
+      }
+      .product-rail .rail-link {
+        font: 500 var(--fs-1) / var(--lh-1) var(--font-ui);
+      }
+      .hiring-shell {
+        margin-left: 64px;
+        height: calc(100dvh - var(--header-h));
+        min-height: 0;
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 46px;
+        transition: grid-template-columns var(--dur-2) var(--ease-out);
+      }
+      .hiring-shell[data-view="roles"] {
+        grid-template-columns: minmax(0, 1fr);
+      }
+      .hiring-shell[data-view="roles"] .cockpit,
+      .hiring-shell[data-view="cockpit"] .roles {
+        display: none;
+      }
+      .hiring-shell[data-view="cockpit"][data-workspace="open"] {
+        grid-template-columns: minmax(560px, 1fr) clamp(420px, 38vw, 600px);
+      }
+      .roles {
+        display: block;
+        overflow-y: auto;
+        border: 0;
+        padding: var(--sp-7) clamp(var(--sp-4), 4vw, var(--sp-9));
+        background: var(--surface-0);
+        min-width: 0;
+      }
+      .roles-inner {
+        width: min(1120px, 100%);
+        margin-inline: auto;
+      }
+      .roles-intro {
+        display: flex;
+        align-items: end;
+        justify-content: space-between;
+        gap: var(--sp-5);
+        margin-bottom: var(--sp-6);
+      }
+      .roles-intro h2 {
+        margin-bottom: var(--sp-1);
+      }
+      .role-index {
+        width: 100%;
+        min-width: 0;
+      }
+      .role-index-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: var(--sp-3);
+        margin-bottom: var(--sp-3);
+      }
+      .role-index-head h3 {
+        margin: 0;
+      }
+      #roles {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+        gap: var(--sp-3);
+      }
+      .role-index-empty {
+        grid-column: 1 / -1;
+        min-height: 320px;
+        display: grid;
+        place-items: center;
+        padding: var(--sp-7) var(--sp-4);
+        text-align: center;
+        border: 1px dashed var(--border);
+        border-radius: var(--r-4);
+        background: var(--surface-1);
+      }
+      .role-index-empty > div {
+        width: min(460px, 100%);
+      }
+      .role-index-empty .ico {
+        margin-bottom: var(--sp-3);
+        color: var(--accent);
+      }
+      .role-index-empty h3 {
+        margin-bottom: var(--sp-2);
+      }
+      .role-index-empty p {
+        margin-bottom: var(--sp-4);
+        color: var(--ink-2);
+      }
+      .list-footer {
+        grid-column: 1 / -1;
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: space-between;
+        gap: var(--sp-2);
+        min-height: 36px;
+        margin-top: var(--sp-2);
+      }
+      .list-footer .btn {
+        margin-inline-start: auto;
+      }
+      .inline-load-state {
+        display: flex;
+        align-items: center;
+        gap: var(--sp-2);
+        min-height: 32px;
+        color: var(--ink-3);
+        font: 500 var(--fs-2) / var(--lh-2) var(--font-ui);
+      }
+      .inline-load-state[data-tone="danger"] {
+        color: var(--danger);
+      }
+      [data-refreshing="true"] {
+        opacity: .82;
+      }
+      .role-card {
+        min-height: 154px;
+        padding: var(--sp-4);
+        text-align: left;
+        align-items: stretch;
+        background: var(--surface-1);
+        border: 1px solid var(--border);
+        border-radius: var(--r-4);
+        color: var(--ink-1);
+      }
+      .role-card:hover {
+        background: var(--surface-2);
+        border-color: var(--field);
+      }
+      .role-card[aria-current="true"] {
+        border-color: var(--accent);
+        background: var(--accent-bg);
+      }
+      .role-card-head {
+        display: flex;
+        align-items: start;
+        justify-content: space-between;
+        gap: var(--sp-3);
+      }
+      .role-card-title {
+        display: block;
+        font: 600 var(--fs-5) / var(--lh-5) var(--font-display);
+      }
+      .role-card-meta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: var(--sp-2);
+        margin-top: auto;
+        color: var(--ink-3);
+        font-size: var(--fs-2);
+      }
+      .cockpit {
+        min-width: 0;
+        overflow-y: auto;
+        padding: var(--sp-7) clamp(var(--sp-4), 3vw, var(--sp-8));
+        background: var(--surface-0);
+      }
+      .cockpit-inner,
+      .cockpit > section {
+        width: min(920px, 100%);
+        margin-inline: auto;
+      }
+      .cockpit > .card:first-child {
+        background: transparent;
+        border: 0;
+        padding: 0;
+      }
+      .role-summary {
+        padding-bottom: var(--sp-5);
+        border-bottom: 1px solid var(--divider);
+      }
+      .role-summary-head {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: var(--sp-4);
+      }
+      .role-summary-head .btn { flex: 0 0 auto; }
+      .role-summary .grid {
+        grid-template-columns: repeat(3, minmax(120px, 1fr));
+        margin-top: var(--sp-5);
+      }
+      .stat {
+        padding: var(--sp-3);
+        border: 1px solid var(--divider);
+        border-radius: var(--r-3);
+        background: var(--surface-1);
+      }
+      .stat strong {
+        font: 600 var(--fs-6) / var(--lh-6) var(--font-display);
+      }
+      .next-wake {
+        display: inline-flex;
+        align-items: center;
+        align-self: flex-start;
+        margin: var(--sp-3) 0 0;
+        padding: var(--sp-2) var(--sp-3);
+        border-radius: var(--r-full);
+        background: var(--info-bg);
+        color: var(--info-ink);
+        font: 500 var(--fs-2) / var(--lh-2) var(--font-ui);
+      }
+      .candidate-board {
+        background: var(--surface-1);
+      }
+      table {
+        border-collapse: separate;
+        border-spacing: 0;
+      }
+      th {
+        color: var(--ink-3);
+        font: 600 var(--fs-2) / var(--lh-2) var(--font-ui);
+      }
+      th,
+      td {
+        padding: var(--sp-3);
+        border-bottom: 1px solid var(--divider);
+      }
+      tr:last-child td {
+        border-bottom: 0;
+      }
+      .context-workspace {
+        position: relative;
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+        border-left: 1px solid var(--divider);
+        background: var(--surface-1);
+      }
+      .hiring-shell[data-view="roles"] .context-workspace {
+        display: none;
+      }
+      .workspace-quiet {
+        width: 46px;
+        height: 100%;
+        border: 0;
+        border-radius: 0;
+        background: var(--surface-1);
+        color: var(--ink-2);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: var(--sp-2);
+        padding-top: var(--sp-4);
+        cursor: pointer;
+      }
+      .workspace-quiet span {
+        writing-mode: vertical-rl;
+        font: 600 var(--fs-1) / var(--lh-1) var(--font-ui);
+        letter-spacing: var(--tr-label);
+        text-transform: uppercase;
+      }
+      .context-workspace[data-open="true"] .workspace-quiet {
+        display: none;
+      }
+      .context-workspace[data-open="false"] .workspace-panel {
+        display: none;
+      }
+      .workspace-panel {
+        display: flex;
+        flex-direction: column;
+        min-height: 0;
+        height: 100%;
+      }
+      .workspace-head {
+        min-height: 52px;
+      }
+      .workspace-head h2 {
+        font: 600 var(--fs-4) / var(--lh-4) var(--font-ui);
+      }
+      .workspace-close {
+        flex: none;
+      }
+      .workspace-tabs {
+        margin: var(--sp-2) var(--sp-3);
+      }
+      .workspace-tabs button {
+        height: 32px;
+        border-radius: var(--r-2);
+        font: 500 var(--fs-2) / 1 var(--font-ui);
+      }
+      .workspace-tabs button[aria-selected="true"] {
+        background: var(--surface-1);
+        color: var(--ink-1);
+        box-shadow: var(--e-1);
+      }
+      .workspace-body {
+        padding: var(--sp-4);
+      }
+      .workspace-empty {
+        display: grid;
+        place-items: center;
+        min-height: 160px;
+        padding: var(--sp-6);
+        text-align: center;
+        color: var(--ink-3);
+      }
+      .alex-dock:empty,
+      .alex-dock[hidden] {
+        display: none;
+      }
+      .alex-dock {
+        margin-top: var(--sp-4);
+        background: var(--surface-1);
+      }
+      .scoped-alex-head {
+        display: flex;
+        align-items: center;
+        gap: var(--sp-2);
+        margin-bottom: var(--sp-3);
+      }
+      .scoped-alex-head .scope-pill {
+        margin-left: auto;
+      }
+      .scope-pill {
+        font: 500 var(--fs-1) / var(--lh-1) var(--font-ui);
+      }
+      .candidate-route {
+        position: fixed;
+        inset: var(--header-h) 0 0 64px;
+        z-index: 22;
+        overflow-y: auto;
+        background: var(--surface-0);
+        color: var(--ink-1);
+        padding: 0 clamp(var(--sp-4), 4vw, var(--sp-8)) var(--sp-8);
+      }
+      .candidate-route[hidden] {
+        display: none;
+      }
+      .candidate-route-head {
+        position: sticky;
+        top: 0;
+        z-index: 5;
+        display: flex;
+        align-items: center;
+        gap: var(--sp-3);
+        min-height: 56px;
+        padding: var(--sp-2) 0;
+        background: var(--surface-0);
+        border-bottom: 1px solid var(--divider);
+      }
+      .candidate-route-head h2 {
+        margin: 0;
+        flex: 1;
+        font-size: var(--fs-6);
+      }
+      .candidate-record {
+        width: min(1120px, 100%);
+        margin: var(--sp-6) auto 0;
+      }
+      .candidate-record .passport {
+        grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      }
+      .candidate-record .criterion {
+        background: var(--surface-1);
+      }
+      .candidate-section-nav {
+        position: sticky;
+        top: 56px;
+        z-index: 4;
+        background: var(--surface-0);
+        padding: var(--sp-2) 0;
+        display: flex;
+        gap: var(--sp-2);
+        overflow-x: auto;
+      }
+      .candidate-section-nav .btn {
+        flex: none;
+      }
+      .loading-state,
+      .error-state {
+        display: grid;
+        place-items: center;
+        min-height: 280px;
+        text-align: center;
+      }
+      .mobile-more-menu {
+        left: 68px;
+      }
+      @media (max-width: 1279px) {
+        .hiring-shell,
+        .hiring-shell[data-view="cockpit"][data-workspace="open"] {
+          grid-template-columns: minmax(0, 1fr);
+        }
+        .context-workspace {
+          position: fixed;
+          top: var(--header-h);
+          right: 0;
+          bottom: 0;
+          width: min(460px, 94vw);
+          z-index: 28;
+          box-shadow: var(--e-3);
+          transform: translateX(100%);
+          transition: transform var(--dur-2) var(--ease-out);
+        }
+        .context-workspace[data-open="true"] {
+          transform: none;
+        }
+        .context-workspace[data-open="false"] {
+          display: none;
+        }
+        .workspace-quiet {
+          display: none;
+        }
+      }
+      @media (max-width: 899px) {
+        .roles-intro {
+          align-items: start;
+          flex-direction: column;
+        }
+        .cockpit {
+          padding: var(--sp-5) var(--sp-4);
+        }
+        .candidate-record .record-grid {
+          grid-template-columns: 1fr;
+        }
+      }
+      @media (max-width: 599px) {
+        .product-rail {
+          inset: auto 0 0 0;
+          width: auto;
+          height: 60px;
+          flex-direction: row;
+          padding: 4px;
+          border: 0;
+          border-top: 1px solid var(--divider);
+        }
+        .product-rail > .rail-desktop,
+        .product-rail > .rail-spacer {
+          display: none;
+        }
+        .product-rail > .rail-link,
+        .product-rail > .rail-more {
+          flex: 1 1 0;
+          min-width: 0;
+        }
+        .rail-link {
+          width: 100%;
+          min-height: 50px;
+        }
+        .rail-more {
+          display: block;
+        }
+        .mobile-more-menu {
+          left: auto;
+          right: var(--sp-2);
+          bottom: 64px;
+        }
+        .top {
+          margin-left: 0;
+          padding-inline: var(--sp-2);
+          padding-left: calc(56px + var(--sp-2));
+        }
+        .top .pill {
+          max-width: 38vw;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+        .hiring-shell {
+          margin-left: 0;
+          height: calc(100dvh - var(--header-h) - 60px);
+        }
+        .roles {
+          padding: var(--sp-5) var(--sp-3);
+        }
+        #roles {
+          grid-template-columns: 1fr;
+        }
+        .role-summary .grid {
+          grid-template-columns: 1fr 1fr;
+        }
+        .context-workspace {
+          bottom: 60px;
+          width: 100vw;
+        }
+        .candidate-route {
+          inset: var(--header-h) 0 60px 0;
+          padding-inline: var(--sp-3);
+        }
+        table {
+          display: block;
+          overflow-x: auto;
+        }
+      }
+    </style>
+    <script>
+      try {
+        const savedHiringTheme = localStorage.getItem("cofounder-theme");
+        if (savedHiringTheme)
+          document.documentElement.dataset.theme = savedHiringTheme;
+      } catch (_) {}
+    </script>
+  </head>
+  <body>
+    <!-- @sprite:begin -->
+<!-- Generated by scripts/build_icons.py from the vendored Phosphor subset
+     (MIT, app/static/vendor/icons/phosphor/LICENSE). Do not hand-edit:
+     add a row to ICONS in that script and re-run. Spec: docs/16 §5. -->
+<svg id="sprite" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false">
+  <symbol id="i-send" viewBox="0 0 256 256"><path d="M205.66,117.66a8,8,0,0,1-11.32,0L136,59.31V216a8,8,0,0,1-16,0V59.31L61.66,117.66a8,8,0,0,1-11.32-11.32l72-72a8,8,0,0,1,11.32,0l72,72A8,8,0,0,1,205.66,117.66Z"/></symbol>
+  <symbol id="i-mic" viewBox="0 0 256 256"><path d="M128,176a48.05,48.05,0,0,0,48-48V64a48,48,0,0,0-96,0v64A48.05,48.05,0,0,0,128,176ZM96,64a32,32,0,0,1,64,0v64a32,32,0,0,1-64,0Zm40,143.6V240a8,8,0,0,1-16,0V207.6A80.11,80.11,0,0,1,48,128a8,8,0,0,1,16,0,64,64,0,0,0,128,0,8,8,0,0,1,16,0A80.11,80.11,0,0,1,136,207.6Z"/></symbol>
+  <symbol id="i-waveform" viewBox="0 0 256 256"><path d="M56,96v64a8,8,0,0,1-16,0V96a8,8,0,0,1,16,0ZM88,24a8,8,0,0,0-8,8V224a8,8,0,0,0,16,0V32A8,8,0,0,0,88,24Zm40,32a8,8,0,0,0-8,8V192a8,8,0,0,0,16,0V64A8,8,0,0,0,128,56Zm40,32a8,8,0,0,0-8,8v64a8,8,0,0,0,16,0V96A8,8,0,0,0,168,88Zm40-16a8,8,0,0,0-8,8v96a8,8,0,0,0,16,0V80A8,8,0,0,0,208,72Z"/></symbol>
+  <symbol id="i-paperclip" viewBox="0 0 256 256"><path d="M209.66,122.34a8,8,0,0,1,0,11.32l-82.05,82a56,56,0,0,1-79.2-79.21L147.67,35.73a40,40,0,1,1,56.61,56.55L105,193A24,24,0,1,1,71,159L154.3,74.38A8,8,0,1,1,165.7,85.6L82.39,170.31a8,8,0,1,0,11.27,11.36L192.93,81A24,24,0,1,0,159,47L59.76,147.68a40,40,0,1,0,56.53,56.62l82.06-82A8,8,0,0,1,209.66,122.34Z"/></symbol>
+  <symbol id="i-chat" viewBox="0 0 256 256"><path d="M128,24A104,104,0,0,0,36.18,176.88L24.83,210.93a16,16,0,0,0,20.24,20.24l34.05-11.35A104,104,0,1,0,128,24Zm0,192a87.87,87.87,0,0,1-44.06-11.81,8,8,0,0,0-6.54-.67L40,216,52.47,178.6a8,8,0,0,0-.66-6.54A88,88,0,1,1,128,216Z"/></symbol>
+  <symbol id="i-camera" viewBox="0 0 256 256"><path d="M208,56H180.28L166.65,35.56A8,8,0,0,0,160,32H96a8,8,0,0,0-6.65,3.56L75.71,56H48A24,24,0,0,0,24,80V192a24,24,0,0,0,24,24H208a24,24,0,0,0,24-24V80A24,24,0,0,0,208,56Zm8,136a8,8,0,0,1-8,8H48a8,8,0,0,1-8-8V80a8,8,0,0,1,8-8H80a8,8,0,0,0,6.66-3.56L100.28,48h55.43l13.63,20.44A8,8,0,0,0,176,72h32a8,8,0,0,1,8,8ZM128,88a44,44,0,1,0,44,44A44.05,44.05,0,0,0,128,88Zm0,72a28,28,0,1,1,28-28A28,28,0,0,1,128,160Z"/></symbol>
+  <symbol id="i-screen-share" viewBox="0 0 256 256"><path d="M208,40H48A24,24,0,0,0,24,64V176a24,24,0,0,0,24,24H208a24,24,0,0,0,24-24V64A24,24,0,0,0,208,40Zm8,136a8,8,0,0,1-8,8H48a8,8,0,0,1-8-8V64a8,8,0,0,1,8-8H208a8,8,0,0,1,8,8Zm-48,48a8,8,0,0,1-8,8H96a8,8,0,0,1,0-16h64A8,8,0,0,1,168,224ZM157.66,106.34a8,8,0,0,1-11.32,11.32L136,107.31V152a8,8,0,0,1-16,0V107.31l-10.34,10.35a8,8,0,0,1-11.32-11.32l24-24a8,8,0,0,1,11.32,0Z"/></symbol>
+  <symbol id="i-plug" viewBox="0 0 256 256"><path d="M149.66,138.34a8,8,0,0,0-11.32,0L120,156.69,99.31,136l18.35-18.34a8,8,0,0,0-11.32-11.32L88,124.69,69.66,106.34a8,8,0,0,0-11.32,11.32L64.69,124,41.37,147.31a32,32,0,0,0,0,45.26l5.38,5.37-28.41,28.4a8,8,0,0,0,11.32,11.32l28.4-28.41,5.37,5.38a32,32,0,0,0,45.26,0L132,191.31l6.34,6.35a8,8,0,0,0,11.32-11.32L131.31,168l18.35-18.34A8,8,0,0,0,149.66,138.34Zm-52.29,65a16,16,0,0,1-22.62,0L52.69,181.25a16,16,0,0,1,0-22.62L76,135.31,120.69,180Zm140.29-185a8,8,0,0,0-11.32,0l-28.4,28.41-5.37-5.38a32.05,32.05,0,0,0-45.26,0L124,64.69l-6.34-6.35a8,8,0,0,0-11.32,11.32l80,80a8,8,0,0,0,11.32-11.32L191.31,132l23.32-23.31a32,32,0,0,0,0-45.26l-5.38-5.37,28.41-28.4A8,8,0,0,0,237.66,18.34Zm-34.35,79L180,120.69,135.31,76l23.32-23.31a16,16,0,0,1,22.62,0l22.06,22A16,16,0,0,1,203.31,97.37Z"/></symbol>
+  <symbol id="i-refresh" viewBox="0 0 256 256"><path d="M224,48V96a8,8,0,0,1-8,8H168a8,8,0,0,1,0-16h28.69L182.06,73.37a79.56,79.56,0,0,0-56.13-23.43h-.45A79.52,79.52,0,0,0,69.59,72.71,8,8,0,0,1,58.41,61.27a96,96,0,0,1,135,.79L208,76.69V48a8,8,0,0,1,16,0ZM186.41,183.29a80,80,0,0,1-112.47-.66L59.31,168H88a8,8,0,0,0,0-16H40a8,8,0,0,0-8,8v48a8,8,0,0,0,16,0V179.31l14.63,14.63A95.43,95.43,0,0,0,130,222.06h.53a95.36,95.36,0,0,0,67.07-27.33,8,8,0,0,0-11.18-11.44Z"/></symbol>
+  <symbol id="i-sun" viewBox="0 0 256 256"><path d="M120,40V16a8,8,0,0,1,16,0V40a8,8,0,0,1-16,0Zm72,88a64,64,0,1,1-64-64A64.07,64.07,0,0,1,192,128Zm-16,0a48,48,0,1,0-48,48A48.05,48.05,0,0,0,176,128ZM58.34,69.66A8,8,0,0,0,69.66,58.34l-16-16A8,8,0,0,0,42.34,53.66Zm0,116.68-16,16a8,8,0,0,0,11.32,11.32l16-16a8,8,0,0,0-11.32-11.32ZM192,72a8,8,0,0,0,5.66-2.34l16-16a8,8,0,0,0-11.32-11.32l-16,16A8,8,0,0,0,192,72Zm5.66,114.34a8,8,0,0,0-11.32,11.32l16,16a8,8,0,0,0,11.32-11.32ZM48,128a8,8,0,0,0-8-8H16a8,8,0,0,0,0,16H40A8,8,0,0,0,48,128Zm80,80a8,8,0,0,0-8,8v24a8,8,0,0,0,16,0V216A8,8,0,0,0,128,208Zm112-88H216a8,8,0,0,0,0,16h24a8,8,0,0,0,0-16Z"/></symbol>
+  <symbol id="i-moon" viewBox="0 0 256 256"><path d="M233.54,142.23a8,8,0,0,0-8-2,88.08,88.08,0,0,1-109.8-109.8,8,8,0,0,0-10-10,104.84,104.84,0,0,0-52.91,37A104,104,0,0,0,136,224a103.09,103.09,0,0,0,62.52-20.88,104.84,104.84,0,0,0,37-52.91A8,8,0,0,0,233.54,142.23ZM188.9,190.34A88,88,0,0,1,65.66,67.11a89,89,0,0,1,31.4-26A106,106,0,0,0,96,56,104.11,104.11,0,0,0,200,160a106,106,0,0,0,14.92-1.06A89,89,0,0,1,188.9,190.34Z"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 256 256"><path d="M224,128a8,8,0,0,1-8,8H136v80a8,8,0,0,1-16,0V136H40a8,8,0,0,1,0-16h80V40a8,8,0,0,1,16,0v80h80A8,8,0,0,1,224,128Z"/></symbol>
+  <symbol id="i-minus" viewBox="0 0 256 256"><path d="M224,128a8,8,0,0,1-8,8H40a8,8,0,0,1,0-16H216A8,8,0,0,1,224,128Z"/></symbol>
+  <symbol id="i-close" viewBox="0 0 256 256"><path d="M205.66,194.34a8,8,0,0,1-11.32,11.32L128,139.31,61.66,205.66a8,8,0,0,1-11.32-11.32L116.69,128,50.34,61.66A8,8,0,0,1,61.66,50.34L128,116.69l66.34-66.35a8,8,0,0,1,11.32,11.32L139.31,128Z"/></symbol>
+  <symbol id="i-search" viewBox="0 0 256 256"><path d="M229.66,218.34l-50.07-50.06a88.11,88.11,0,1,0-11.31,11.31l50.06,50.07a8,8,0,0,0,11.32-11.32ZM40,112a72,72,0,1,1,72,72A72.08,72.08,0,0,1,40,112Z"/></symbol>
+  <symbol id="i-chev-left" viewBox="0 0 256 256"><path d="M165.66,202.34a8,8,0,0,1-11.32,11.32l-80-80a8,8,0,0,1,0-11.32l80-80a8,8,0,0,1,11.32,11.32L91.31,128Z"/></symbol>
+  <symbol id="i-chev-right" viewBox="0 0 256 256"><path d="M181.66,133.66l-80,80a8,8,0,0,1-11.32-11.32L164.69,128,90.34,53.66a8,8,0,0,1,11.32-11.32l80,80A8,8,0,0,1,181.66,133.66Z"/></symbol>
+  <symbol id="i-board" viewBox="0 0 256 256"><path d="M216,48H40a8,8,0,0,0-8,8V208a16,16,0,0,0,16,16H88a16,16,0,0,0,16-16V160h48v16a16,16,0,0,0,16,16h40a16,16,0,0,0,16-16V56A8,8,0,0,0,216,48ZM88,208H48V128H88Zm0-96H48V64H88Zm64,32H104V64h48Zm56,32H168V128h40Zm0-64H168V64h40Z"/></symbol>
+  <symbol id="i-hiring" viewBox="0 0 256 256"><path d="M244.8,150.4a8,8,0,0,1-11.2-1.6A51.6,51.6,0,0,0,192,128a8,8,0,0,1-7.37-4.89,8,8,0,0,1,0-6.22A8,8,0,0,1,192,112a24,24,0,1,0-23.24-30,8,8,0,1,1-15.5-4A40,40,0,1,1,219,117.51a67.94,67.94,0,0,1,27.43,21.68A8,8,0,0,1,244.8,150.4ZM190.92,212a8,8,0,1,1-13.84,8,57,57,0,0,0-98.16,0,8,8,0,1,1-13.84-8,72.06,72.06,0,0,1,33.74-29.92,48,48,0,1,1,58.36,0A72.06,72.06,0,0,1,190.92,212ZM128,176a32,32,0,1,0-32-32A32,32,0,0,0,128,176ZM72,120a8,8,0,0,0-8-8A24,24,0,1,1,87.24,82a8,8,0,1,0,15.5-4A40,40,0,1,0,37,117.51,67.94,67.94,0,0,0,9.6,139.19a8,8,0,1,0,12.8,9.61A51.6,51.6,0,0,1,64,128,8,8,0,0,0,72,120Z"/></symbol>
+  <symbol id="i-clipboard" viewBox="0 0 256 256"><path d="M168,152a8,8,0,0,1-8,8H96a8,8,0,0,1,0-16h64A8,8,0,0,1,168,152Zm-8-40H96a8,8,0,0,0,0,16h64a8,8,0,0,0,0-16Zm56-64V216a16,16,0,0,1-16,16H56a16,16,0,0,1-16-16V48A16,16,0,0,1,56,32H92.26a47.92,47.92,0,0,1,71.48,0H200A16,16,0,0,1,216,48ZM96,64h64a32,32,0,0,0-64,0ZM200,48H173.25A47.93,47.93,0,0,1,176,64v8a8,8,0,0,1-8,8H88a8,8,0,0,1-8-8V64a47.93,47.93,0,0,1,2.75-16H56V216H200Z"/></symbol>
+  <symbol id="i-check" viewBox="0 0 256 256"><path d="M229.66,77.66l-128,128a8,8,0,0,1-11.32,0l-56-56a8,8,0,0,1,11.32-11.32L96,188.69,218.34,66.34a8,8,0,0,1,11.32,11.32Z"/></symbol>
+  <symbol id="i-alert" viewBox="0 0 256 256"><path d="M236.8,188.09,149.35,36.22h0a24.76,24.76,0,0,0-42.7,0L19.2,188.09a23.51,23.51,0,0,0,0,23.72A24.35,24.35,0,0,0,40.55,224h174.9a24.35,24.35,0,0,0,21.33-12.19A23.51,23.51,0,0,0,236.8,188.09ZM222.93,203.8a8.5,8.5,0,0,1-7.48,4.2H40.55a8.5,8.5,0,0,1-7.48-4.2,7.59,7.59,0,0,1,0-7.72L120.52,44.21a8.75,8.75,0,0,1,15,0l87.45,151.87A7.59,7.59,0,0,1,222.93,203.8ZM120,144V104a8,8,0,0,1,16,0v40a8,8,0,0,1-16,0Zm20,36a12,12,0,1,1-12-12A12,12,0,0,1,140,180Z"/></symbol>
+  <symbol id="i-flag" viewBox="0 0 256 256"><path d="M42.76,50A8,8,0,0,0,40,56V224a8,8,0,0,0,16,0V179.77c26.79-21.16,49.87-9.75,76.45,3.41,16.4,8.11,34.06,16.85,53,16.85,13.93,0,28.54-4.75,43.82-18a8,8,0,0,0,2.76-6V56A8,8,0,0,0,218.76,50c-28,24.23-51.72,12.49-79.21-1.12C111.07,34.76,78.78,18.79,42.76,50ZM216,172.25c-26.79,21.16-49.87,9.74-76.45-3.41-25-12.35-52.81-26.13-83.55-8.4V59.79c26.79-21.16,49.87-9.75,76.45,3.4,25,12.35,52.82,26.13,83.55,8.4Z"/></symbol>
+  <symbol id="i-star" viewBox="0 0 256 256"><path d="M239.18,97.26A16.38,16.38,0,0,0,224.92,86l-59-4.76L143.14,26.15a16.36,16.36,0,0,0-30.27,0L90.11,81.23,31.08,86a16.46,16.46,0,0,0-9.37,28.86l45,38.83L53,211.75a16.38,16.38,0,0,0,24.5,17.82L128,198.49l50.53,31.08A16.4,16.4,0,0,0,203,211.75l-13.76-58.07,45-38.83A16.43,16.43,0,0,0,239.18,97.26Zm-15.34,5.47-48.7,42a8,8,0,0,0-2.56,7.91l14.88,62.8a.37.37,0,0,1-.17.48c-.18.14-.23.11-.38,0l-54.72-33.65a8,8,0,0,0-8.38,0L69.09,215.94c-.15.09-.19.12-.38,0a.37.37,0,0,1-.17-.48l14.88-62.8a8,8,0,0,0-2.56-7.91l-48.7-42c-.12-.1-.23-.19-.13-.5s.18-.27.33-.29l63.92-5.16A8,8,0,0,0,103,91.86l24.62-59.61c.08-.17.11-.25.35-.25s.27.08.35.25L153,91.86a8,8,0,0,0,6.75,4.92l63.92,5.16c.15,0,.24,0,.33.29S224,102.63,223.84,102.73Z"/></symbol>
+  <symbol id="i-sparkle" viewBox="0 0 256 256"><path d="M197.58,129.06,146,110l-19-51.62a15.92,15.92,0,0,0-29.88,0L78,110l-51.62,19a15.92,15.92,0,0,0,0,29.88L78,178l19,51.62a15.92,15.92,0,0,0,29.88,0L146,178l51.62-19a15.92,15.92,0,0,0,0-29.88ZM137,164.22a8,8,0,0,0-4.74,4.74L112,223.85,91.78,169A8,8,0,0,0,87,164.22L32.15,144,87,123.78A8,8,0,0,0,91.78,119L112,64.15,132.22,119a8,8,0,0,0,4.74,4.74L191.85,144ZM144,40a8,8,0,0,1,8-8h16V16a8,8,0,0,1,16,0V32h16a8,8,0,0,1,0,16H184V64a8,8,0,0,1-16,0V48H152A8,8,0,0,1,144,40ZM248,88a8,8,0,0,1-8,8h-8v8a8,8,0,0,1-16,0V96h-8a8,8,0,0,1,0-16h8V72a8,8,0,0,1,16,0v8h8A8,8,0,0,1,248,88Z"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 256 256"><path d="M128,24A104,104,0,1,0,232,128,104.11,104.11,0,0,0,128,24Zm0,192a88,88,0,1,1,88-88A88.1,88.1,0,0,1,128,216Zm64-88a8,8,0,0,1-8,8H128a8,8,0,0,1-8-8V72a8,8,0,0,1,16,0v48h48A8,8,0,0,1,192,128Z"/></symbol>
+  <symbol id="i-pause" viewBox="0 0 256 256"><path d="M200,32H160a16,16,0,0,0-16,16V208a16,16,0,0,0,16,16h40a16,16,0,0,0,16-16V48A16,16,0,0,0,200,32Zm0,176H160V48h40ZM96,32H56A16,16,0,0,0,40,48V208a16,16,0,0,0,16,16H96a16,16,0,0,0,16-16V48A16,16,0,0,0,96,32Zm0,176H56V48H96Z"/></symbol>
+  <symbol id="i-shield" viewBox="0 0 256 256"><path d="M208,40H48A16,16,0,0,0,32,56v56c0,52.72,25.52,84.67,46.93,102.19,23.06,18.86,46,25.26,47,25.53a8,8,0,0,0,4.2,0c1-.27,23.91-6.67,47-25.53C198.48,196.67,224,164.72,224,112V56A16,16,0,0,0,208,40Zm0,72c0,37.07-13.66,67.16-40.6,89.42A129.3,129.3,0,0,1,128,223.62a128.25,128.25,0,0,1-38.92-21.81C61.82,179.51,48,149.3,48,112l0-56,160,0ZM82.34,141.66a8,8,0,0,1,11.32-11.32L112,148.69l50.34-50.35a8,8,0,0,1,11.32,11.32l-56,56a8,8,0,0,1-11.32,0Z"/></symbol>
+  <symbol id="i-compass" viewBox="0 0 256 256"><path d="M128,24A104,104,0,1,0,232,128,104.11,104.11,0,0,0,128,24Zm0,192a88,88,0,1,1,88-88A88.1,88.1,0,0,1,128,216ZM172.42,72.84l-64,32a8.05,8.05,0,0,0-3.58,3.58l-32,64A8,8,0,0,0,80,184a8.1,8.1,0,0,0,3.58-.84l64-32a8.05,8.05,0,0,0,3.58-3.58l32-64a8,8,0,0,0-10.74-10.74ZM138,138,97.89,158.11,118,118l40.15-20.07Z"/></symbol>
+  <symbol id="i-target" viewBox="0 0 256 256"><path d="M221.87,83.16A104.1,104.1,0,1,1,195.67,49l22.67-22.68a8,8,0,0,1,11.32,11.32l-96,96a8,8,0,0,1-11.32-11.32l27.72-27.72a40,40,0,1,0,17.87,31.09,8,8,0,1,1,16-.9,56,56,0,1,1-22.38-41.65L184.3,60.39a87.88,87.88,0,1,0,23.13,29.67,8,8,0,0,1,14.44-6.9Z"/></symbol>
+  <symbol id="i-pencil" viewBox="0 0 256 256"><path d="M229.66,58.34l-32-32a8,8,0,0,0-11.32,0l-96,96A8,8,0,0,0,88,128v32a8,8,0,0,0,8,8h32a8,8,0,0,0,5.66-2.34l96-96A8,8,0,0,0,229.66,58.34ZM124.69,152H104V131.31l64-64L188.69,88ZM200,76.69,179.31,56,192,43.31,212.69,64ZM224,128v80a16,16,0,0,1-16,16H48a16,16,0,0,1-16-16V48A16,16,0,0,1,48,32h80a8,8,0,0,1,0,16H48V208H208V128a8,8,0,0,1,16,0Z"/></symbol>
+  <symbol id="i-trash" viewBox="0 0 256 256"><path d="M216,48H176V40a24,24,0,0,0-24-24H104A24,24,0,0,0,80,40v8H40a8,8,0,0,0,0,16h8V208a16,16,0,0,0,16,16H192a16,16,0,0,0,16-16V64h8a8,8,0,0,0,0-16ZM96,40a8,8,0,0,1,8-8h48a8,8,0,0,1,8,8v8H96Zm96,168H64V64H192ZM112,104v64a8,8,0,0,1-16,0V104a8,8,0,0,1,16,0Zm48,0v64a8,8,0,0,1-16,0V104a8,8,0,0,1,16,0Z"/></symbol>
+  <symbol id="i-download" viewBox="0 0 256 256"><path d="M224,144v64a8,8,0,0,1-8,8H40a8,8,0,0,1-8-8V144a8,8,0,0,1,16,0v56H208V144a8,8,0,0,1,16,0Zm-101.66,5.66a8,8,0,0,0,11.32,0l40-40a8,8,0,0,0-11.32-11.32L136,124.69V32a8,8,0,0,0-16,0v92.69L93.66,98.34a8,8,0,0,0-11.32,11.32Z"/></symbol>
+  <symbol id="i-eye" viewBox="0 0 256 256"><path d="M247.31,124.76c-.35-.79-8.82-19.58-27.65-38.41C194.57,61.26,162.88,48,128,48S61.43,61.26,36.34,86.35C17.51,105.18,9,124,8.69,124.76a8,8,0,0,0,0,6.5c.35.79,8.82,19.57,27.65,38.4C61.43,194.74,93.12,208,128,208s66.57-13.26,91.66-38.34c18.83-18.83,27.3-37.61,27.65-38.4A8,8,0,0,0,247.31,124.76ZM128,192c-30.78,0-57.67-11.19-79.93-33.25A133.47,133.47,0,0,1,25,128,133.33,133.33,0,0,1,48.07,97.25C70.33,75.19,97.22,64,128,64s57.67,11.19,79.93,33.25A133.46,133.46,0,0,1,231.05,128C223.84,141.46,192.43,192,128,192Zm0-112a48,48,0,1,0,48,48A48.05,48.05,0,0,0,128,80Zm0,80a32,32,0,1,1,32-32A32,32,0,0,1,128,160Z"/></symbol>
+  <symbol id="i-file-doc" viewBox="0 0 256 256"><path d="M52,144H36a8,8,0,0,0-8,8v56a8,8,0,0,0,8,8H52a36,36,0,0,0,0-72Zm0,56H44V160h8a20,20,0,0,1,0,40Zm169.53-4.91a8,8,0,0,1,.25,11.31A30.06,30.06,0,0,1,200,216c-17.65,0-32-16.15-32-36s14.35-36,32-36a30.06,30.06,0,0,1,21.78,9.6,8,8,0,0,1-11.56,11.06A14.24,14.24,0,0,0,200,160c-8.82,0-16,9-16,20s7.18,20,16,20a14.24,14.24,0,0,0,10.22-4.66A8,8,0,0,1,221.53,195.09ZM128,144c-17.65,0-32,16.15-32,36s14.35,36,32,36,32-16.15,32-36S145.65,144,128,144Zm0,56c-8.82,0-16-9-16-20s7.18-20,16-20,16,9,16,20S136.82,200,128,200ZM48,120a8,8,0,0,0,8-8V40h88V88a8,8,0,0,0,8,8h48v16a8,8,0,0,0,16,0V88a8,8,0,0,0-2.34-5.66l-56-56A8,8,0,0,0,152,24H56A16,16,0,0,0,40,40v72A8,8,0,0,0,48,120ZM160,51.31,188.69,80H160Z"/></symbol>
+  <symbol id="i-file-sheet" viewBox="0 0 256 256"><path d="M156,208a8,8,0,0,1-8,8H120a8,8,0,0,1-8-8V152a8,8,0,0,1,16,0v48h20A8,8,0,0,1,156,208ZM92.65,145.49a8,8,0,0,0-11.16,1.86L68,166.24,54.51,147.35a8,8,0,1,0-13,9.3L58.17,180,41.49,203.35a8,8,0,0,0,13,9.3L68,193.76l13.49,18.89a8,8,0,0,0,13-9.3L77.83,180l16.68-23.35A8,8,0,0,0,92.65,145.49Zm98.94,25.82c-4-1.16-8.14-2.35-10.45-3.84-1.25-.82-1.23-1-1.12-1.9a4.54,4.54,0,0,1,2-3.67c4.6-3.12,15.34-1.72,19.82-.56a8,8,0,0,0,4.07-15.48c-2.11-.55-21-5.22-32.83,2.76a20.58,20.58,0,0,0-8.95,14.95c-2,15.88,13.65,20.41,23,23.11,12.06,3.49,13.12,4.92,12.78,7.59-.31,2.41-1.26,3.33-2.15,3.93-4.6,3.06-15.16,1.55-19.54.35A8,8,0,0,0,173.93,214a60.63,60.63,0,0,0,15.19,2c5.82,0,12.3-1,17.49-4.46a20.81,20.81,0,0,0,9.18-15.23C218,179,201.48,174.17,191.59,171.31ZM40,112V40A16,16,0,0,1,56,24h96a8,8,0,0,1,5.66,2.34l56,56A8,8,0,0,1,216,88v24a8,8,0,1,1-16,0V96H152a8,8,0,0,1-8-8V40H56v72a8,8,0,0,1-16,0ZM160,80h28.68L160,51.31Z"/></symbol>
+  <symbol id="i-file-slides" viewBox="0 0 256 256"><path d="M224,152a8,8,0,0,1-8,8H204v48a8,8,0,0,1-16,0V160H176a8,8,0,0,1,0-16h40A8,8,0,0,1,224,152ZM92,172a28,28,0,0,1-28,28H56v8a8,8,0,0,1-16,0V152a8,8,0,0,1,8-8H64A28,28,0,0,1,92,172Zm-16,0a12,12,0,0,0-12-12H56v24h8A12,12,0,0,0,76,172Zm84,0a28,28,0,0,1-28,28h-8v8a8,8,0,0,1-16,0V152a8,8,0,0,1,8-8h16A28,28,0,0,1,160,172Zm-16,0a12,12,0,0,0-12-12h-8v24h8A12,12,0,0,0,144,172ZM40,112V40A16,16,0,0,1,56,24h96a8,8,0,0,1,5.66,2.34l56,56A8,8,0,0,1,216,88v24a8,8,0,0,1-16,0V96H152a8,8,0,0,1-8-8V40H56v72a8,8,0,0,1-16,0ZM160,80h28.69L160,51.31Z"/></symbol>
+  <symbol id="i-file-pdf" viewBox="0 0 256 256"><path d="M224,152a8,8,0,0,1-8,8H192v16h16a8,8,0,0,1,0,16H192v16a8,8,0,0,1-16,0V152a8,8,0,0,1,8-8h32A8,8,0,0,1,224,152ZM92,172a28,28,0,0,1-28,28H56v8a8,8,0,0,1-16,0V152a8,8,0,0,1,8-8H64A28,28,0,0,1,92,172Zm-16,0a12,12,0,0,0-12-12H56v24h8A12,12,0,0,0,76,172Zm88,8a36,36,0,0,1-36,36H112a8,8,0,0,1-8-8V152a8,8,0,0,1,8-8h16A36,36,0,0,1,164,180Zm-16,0a20,20,0,0,0-20-20h-8v40h8A20,20,0,0,0,148,180ZM40,112V40A16,16,0,0,1,56,24h96a8,8,0,0,1,5.66,2.34l56,56A8,8,0,0,1,216,88v24a8,8,0,0,1-16,0V96H152a8,8,0,0,1-8-8V40H56v72a8,8,0,0,1-16,0ZM160,80h28.69L160,51.31Z"/></symbol>
+  <symbol id="i-cloud-up" viewBox="0 0 256 256"><path d="M178.34,165.66,160,147.31V208a8,8,0,0,1-16,0V147.31l-18.34,18.35a8,8,0,0,1-11.32-11.32l32-32a8,8,0,0,1,11.32,0l32,32a8,8,0,0,1-11.32,11.32ZM160,40A88.08,88.08,0,0,0,81.29,88.68,64,64,0,1,0,72,216h40a8,8,0,0,0,0-16H72a48,48,0,0,1,0-96c1.1,0,2.2,0,3.29.12A88,88,0,0,0,72,128a8,8,0,0,0,16,0,72,72,0,1,1,100.8,66,8,8,0,0,0,3.2,15.34,7.9,7.9,0,0,0,3.2-.68A88,88,0,0,0,160,40Z"/></symbol>
+  <symbol id="i-inbox" viewBox="0 0 256 256"><path d="M224,48H32a8,8,0,0,0-8,8V192a16,16,0,0,0,16,16H216a16,16,0,0,0,16-16V56A8,8,0,0,0,224,48ZM203.43,64,128,133.15,52.57,64ZM216,192H40V74.19l82.59,75.71a8,8,0,0,0,10.82,0L216,74.19V192Z"/></symbol>
+  <symbol id="i-at" viewBox="0 0 256 256"><path d="M128,24a104,104,0,0,0,0,208c21.51,0,44.1-6.48,60.43-17.33a8,8,0,0,0-8.86-13.33C166,210.38,146.21,216,128,216a88,88,0,1,1,88-88c0,26.45-10.88,32-20,32s-20-5.55-20-32V88a8,8,0,0,0-16,0v4.26a48,48,0,1,0,5.93,65.1c6,12,16.35,18.64,30.07,18.64,22.54,0,36-17.94,36-48A104.11,104.11,0,0,0,128,24Zm0,136a32,32,0,1,1,32-32A32,32,0,0,1,128,160Z"/></symbol>
+  <symbol id="i-calendar" viewBox="0 0 256 256"><path d="M208,32H184V24a8,8,0,0,0-16,0v8H88V24a8,8,0,0,0-16,0v8H48A16,16,0,0,0,32,48V208a16,16,0,0,0,16,16H208a16,16,0,0,0,16-16V48A16,16,0,0,0,208,32ZM72,48v8a8,8,0,0,0,16,0V48h80v8a8,8,0,0,0,16,0V48h24V80H48V48ZM208,208H48V96H208V208Z"/></symbol>
+  <symbol id="i-globe" viewBox="0 0 256 256"><path d="M128,24h0A104,104,0,1,0,232,128,104.12,104.12,0,0,0,128,24Zm87.62,96H175.79C174,83.49,159.94,57.67,148.41,42.4A88.19,88.19,0,0,1,215.63,120ZM96.23,136h63.54c-2.31,41.61-22.23,67.11-31.77,77C118.45,203.1,98.54,177.6,96.23,136Zm0-16C98.54,78.39,118.46,52.89,128,43c9.55,9.93,29.46,35.43,31.77,77Zm11.36-77.6C96.06,57.67,82,83.49,80.21,120H40.37A88.19,88.19,0,0,1,107.59,42.4ZM40.37,136H80.21c1.82,36.51,15.85,62.33,27.38,77.6A88.19,88.19,0,0,1,40.37,136Zm108,77.6c11.53-15.27,25.56-41.09,27.38-77.6h39.84A88.19,88.19,0,0,1,148.41,213.6Z"/></symbol>
+  <symbol id="i-git-branch" viewBox="0 0 256 256"><path d="M232,64a32,32,0,1,0-40,31v17a8,8,0,0,1-8,8H96a23.84,23.84,0,0,0-8,1.38V95a32,32,0,1,0-16,0v66a32,32,0,1,0,16,0V144a8,8,0,0,1,8-8h88a24,24,0,0,0,24-24V95A32.06,32.06,0,0,0,232,64ZM64,64A16,16,0,1,1,80,80,16,16,0,0,1,64,64ZM96,192a16,16,0,1,1-16-16A16,16,0,0,1,96,192ZM200,80a16,16,0,1,1,16-16A16,16,0,0,1,200,80Z"/></symbol>
+  <symbol id="i-hash" viewBox="0 0 256 256"><path d="M224,88H175.4l8.47-46.57a8,8,0,0,0-15.74-2.86l-9,49.43H111.4l8.47-46.57a8,8,0,0,0-15.74-2.86L95.14,88H48a8,8,0,0,0,0,16H92.23L83.5,152H32a8,8,0,0,0,0,16H80.6l-8.47,46.57a8,8,0,0,0,6.44,9.3A7.79,7.79,0,0,0,80,224a8,8,0,0,0,7.86-6.57l9-49.43H144.6l-8.47,46.57a8,8,0,0,0,6.44,9.3A7.79,7.79,0,0,0,144,224a8,8,0,0,0,7.86-6.57l9-49.43H208a8,8,0,0,0,0-16H163.77l8.73-48H224a8,8,0,0,0,0-16Zm-76.5,64H99.77l8.73-48h47.73Z"/></symbol>
+  <symbol id="i-paper-plane" viewBox="0 0 256 256"><path d="M227.32,28.68a16,16,0,0,0-15.66-4.08l-.15,0L19.57,82.84a16,16,0,0,0-2.49,29.8L102,154l41.3,84.87A15.86,15.86,0,0,0,157.74,248q.69,0,1.38-.06a15.88,15.88,0,0,0,14-11.51l58.2-191.94c0-.05,0-.1,0-.15A16,16,0,0,0,227.32,28.68ZM157.83,231.85l-.05.14,0-.07-40.06-82.3,48-48a8,8,0,0,0-11.31-11.31l-48,48L24.08,98.25l-.07,0,.14,0L216,40Z"/></symbol>
+  <symbol id="i-link" viewBox="0 0 256 256"><path d="M165.66,90.34a8,8,0,0,1,0,11.32l-64,64a8,8,0,0,1-11.32-11.32l64-64A8,8,0,0,1,165.66,90.34ZM215.6,40.4a56,56,0,0,0-79.2,0L106.34,70.45a8,8,0,0,0,11.32,11.32l30.06-30a40,40,0,0,1,56.57,56.56l-30.07,30.06a8,8,0,0,0,11.31,11.32L215.6,119.6a56,56,0,0,0,0-79.2ZM138.34,174.22l-30.06,30.06a40,40,0,1,1-56.56-56.57l30.05-30.05a8,8,0,0,0-11.32-11.32L40.4,136.4a56,56,0,0,0,79.2,79.2l30.06-30.07a8,8,0,0,0-11.32-11.31Z"/></symbol>
+  <symbol id="i-external" viewBox="0 0 256 256"><path d="M224,104a8,8,0,0,1-16,0V59.32l-66.33,66.34a8,8,0,0,1-11.32-11.32L196.68,48H152a8,8,0,0,1,0-16h64a8,8,0,0,1,8,8Zm-40,24a8,8,0,0,0-8,8v72H48V80h72a8,8,0,0,0,0-16H48A16,16,0,0,0,32,80V208a16,16,0,0,0,16,16H176a16,16,0,0,0,16-16V136A8,8,0,0,0,184,128Z"/></symbol>
+  <symbol id="i-code" viewBox="0 0 256 256"><path d="M69.12,94.15,28.5,128l40.62,33.85a8,8,0,1,1-10.24,12.29l-48-40a8,8,0,0,1,0-12.29l48-40a8,8,0,0,1,10.24,12.3Zm176,27.7-48-40a8,8,0,1,0-10.24,12.3L227.5,128l-40.62,33.85a8,8,0,1,0,10.24,12.29l48-40a8,8,0,0,0,0-12.29ZM162.73,32.48a8,8,0,0,0-10.25,4.79l-64,176a8,8,0,0,0,4.79,10.26A8.14,8.14,0,0,0,96,224a8,8,0,0,0,7.52-5.27l64-176A8,8,0,0,0,162.73,32.48Z"/></symbol>
+  <symbol id="i-gear" viewBox="0 0 256 256"><path d="M128,80a48,48,0,1,0,48,48A48.05,48.05,0,0,0,128,80Zm0,80a32,32,0,1,1,32-32A32,32,0,0,1,128,160Zm88-29.84q.06-2.16,0-4.32l14.92-18.64a8,8,0,0,0,1.48-7.06,107.21,107.21,0,0,0-10.88-26.25,8,8,0,0,0-6-3.93l-23.72-2.64q-1.48-1.56-3-3L186,40.54a8,8,0,0,0-3.94-6,107.71,107.71,0,0,0-26.25-10.87,8,8,0,0,0-7.06,1.49L130.16,40Q128,40,125.84,40L107.2,25.11a8,8,0,0,0-7.06-1.48A107.6,107.6,0,0,0,73.89,34.51a8,8,0,0,0-3.93,6L67.32,64.27q-1.56,1.49-3,3L40.54,70a8,8,0,0,0-6,3.94,107.71,107.71,0,0,0-10.87,26.25,8,8,0,0,0,1.49,7.06L40,125.84Q40,128,40,130.16L25.11,148.8a8,8,0,0,0-1.48,7.06,107.21,107.21,0,0,0,10.88,26.25,8,8,0,0,0,6,3.93l23.72,2.64q1.49,1.56,3,3L70,215.46a8,8,0,0,0,3.94,6,107.71,107.71,0,0,0,26.25,10.87,8,8,0,0,0,7.06-1.49L125.84,216q2.16.06,4.32,0l18.64,14.92a8,8,0,0,0,7.06,1.48,107.21,107.21,0,0,0,26.25-10.88,8,8,0,0,0,3.93-6l2.64-23.72q1.56-1.48,3-3L215.46,186a8,8,0,0,0,6-3.94,107.71,107.71,0,0,0,10.87-26.25,8,8,0,0,0-1.49-7.06Zm-16.1-6.5a73.93,73.93,0,0,1,0,8.68,8,8,0,0,0,1.74,5.48l14.19,17.73a91.57,91.57,0,0,1-6.23,15L187,173.11a8,8,0,0,0-5.1,2.64,74.11,74.11,0,0,1-6.14,6.14,8,8,0,0,0-2.64,5.1l-2.51,22.58a91.32,91.32,0,0,1-15,6.23l-17.74-14.19a8,8,0,0,0-5-1.75h-.48a73.93,73.93,0,0,1-8.68,0,8,8,0,0,0-5.48,1.74L100.45,215.8a91.57,91.57,0,0,1-15-6.23L82.89,187a8,8,0,0,0-2.64-5.1,74.11,74.11,0,0,1-6.14-6.14,8,8,0,0,0-5.1-2.64L46.43,170.6a91.32,91.32,0,0,1-6.23-15l14.19-17.74a8,8,0,0,0,1.74-5.48,73.93,73.93,0,0,1,0-8.68,8,8,0,0,0-1.74-5.48L40.2,100.45a91.57,91.57,0,0,1,6.23-15L69,82.89a8,8,0,0,0,5.1-2.64,74.11,74.11,0,0,1,6.14-6.14A8,8,0,0,0,82.89,69L85.4,46.43a91.32,91.32,0,0,1,15-6.23l17.74,14.19a8,8,0,0,0,5.48,1.74,73.93,73.93,0,0,1,8.68,0,8,8,0,0,0,5.48-1.74L155.55,40.2a91.57,91.57,0,0,1,15,6.23L173.11,69a8,8,0,0,0,2.64,5.1,74.11,74.11,0,0,1,6.14,6.14,8,8,0,0,0,5.1,2.64l22.58,2.51a91.32,91.32,0,0,1,6.23,15l-14.19,17.74A8,8,0,0,0,199.87,123.66Z"/></symbol>
+  <symbol id="i-sign-out" viewBox="0 0 256 256"><path d="M120,216a8,8,0,0,1-8,8H48a8,8,0,0,1-8-8V40a8,8,0,0,1,8-8h64a8,8,0,0,1,0,16H56V208h56A8,8,0,0,1,120,216Zm109.66-93.66-40-40a8,8,0,0,0-11.32,11.32L204.69,120H112a8,8,0,0,0,0,16h92.69l-26.35,26.34a8,8,0,0,0,11.32,11.32l40-40A8,8,0,0,0,229.66,122.34Z"/></symbol>
+</svg>
+<!-- @sprite:end -->
+<!-- @brand:begin -->
+<!-- Generated by scripts/build_brand.py — do not hand-edit. Regenerate with `python scripts/build_brand.py`.
+     Colour comes from the use site: .brand-mark takes --accent,
+     .brand-word takes --ink-1. Spec: docs/16 §5.6. -->
+<style>.brand-lockup{display:inline-flex;align-items:center;gap:calc(var(--brand-size, 20px) * 0.32)}.brand-mark{width:calc(var(--brand-size, 20px) / 0.74);aspect-ratio:1;flex:none}.brand-lockup>.brand-mark{margin-right:calc(var(--brand-size, 20px) * -0.17568)}.brand-word{height:calc(var(--brand-size, 20px) * 0.8188);aspect-ratio:747.85/107.74;flex:none}</style>
+<svg id="brandmarks" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false" style="position:absolute;width:0;height:0;overflow:hidden">
+<symbol id="brand-mark" viewBox="0 0 100 100"><g fill="none" stroke-width="14" stroke-linejoin="round" stroke-linecap="butt"><path d="M20 80L20 20L64 20" stroke="currentColor"/><path d="M80 20L80 80L36 80" stroke="currentColor"/></g></symbol>
+<symbol id="brand-word" viewBox="0 0 747.85 107.74"><path fill="currentColor" d="M43.12 107.74Q33.24 107.74 25.29 104.51Q17.34 101.29 11.68 94.84Q6.02 88.4 3.01 78.87Q0 69.34 0 56.73Q0 44.13 3.01 34.31Q6.02 24.5 11.68 17.84Q17.34 11.17 25.29 7.74Q33.24 4.3 43.12 4.3Q56.59 4.3 65.47 10.03Q74.36 15.76 79.66 27.36L63.47 35.96Q61.32 29.23 56.45 25.14Q51.58 21.06 43.12 21.06Q32.52 21.06 26.29 28.22Q20.06 35.39 20.06 48.28V64.04Q20.06 77.08 26.29 84.03Q32.52 90.97 43.12 90.97Q51.58 90.97 56.95 86.39Q62.32 81.81 64.76 75.07L80.09 84.1Q74.64 95.27 65.62 101.5Q56.59 107.74 43.12 107.74ZM122.21 107.74Q114.18 107.74 107.81 105.01Q101.43 102.29 96.92 97.13Q92.41 91.98 89.97 84.74Q87.54 77.51 87.54 68.48Q87.54 59.46 89.97 52.29Q92.41 45.13 96.92 40.04Q101.43 34.96 107.81 32.23Q114.18 29.51 122.21 29.51Q130.23 29.51 136.68 32.23Q143.12 34.96 147.64 40.04Q152.15 45.13 154.58 52.29Q157.02 59.46 157.02 68.48Q157.02 77.51 154.58 84.74Q152.15 91.98 147.64 97.13Q143.12 102.29 136.68 105.01Q130.23 107.74 122.21 107.74ZM122.21 92.98Q129.51 92.98 133.67 88.54Q137.82 84.1 137.82 75.5V61.6Q137.82 53.15 133.67 48.71Q129.51 44.27 122.21 44.27Q115.04 44.27 110.89 48.71Q106.73 53.15 106.73 61.6V75.5Q106.73 84.1 110.89 88.54Q115.04 92.98 122.21 92.98ZM169.77 71.49V53.3H210.74V71.49ZM228.22 106.02V6.02H292.55V22.78H247.13V46.99H286.68V63.75H247.13V106.02ZM332.52 107.74Q324.5 107.74 318.12 105.01Q311.75 102.29 307.23 97.13Q302.72 91.98 300.29 84.74Q297.85 77.51 297.85 68.48Q297.85 59.46 300.29 52.29Q302.72 45.13 307.23 40.04Q311.75 34.96 318.12 32.23Q324.5 29.51 332.52 29.51Q340.54 29.51 346.99 32.23Q353.44 34.96 357.95 40.04Q362.46 45.13 364.9 52.29Q367.34 59.46 367.34 68.48Q367.34 77.51 364.9 84.74Q362.46 91.98 357.95 97.13Q353.44 102.29 346.99 105.01Q340.54 107.74 332.52 107.74ZM332.52 92.98Q339.83 92.98 343.98 88.54Q348.14 84.1 348.14 75.5V61.6Q348.14 53.15 343.98 48.71Q339.83 44.27 332.52 44.27Q325.36 44.27 321.2 48.71Q317.05 53.15 317.05 61.6V75.5Q317.05 84.1 321.2 88.54Q325.36 92.98 332.52 92.98ZM425.64 93.55H424.93Q423.93 96.42 422.28 98.93Q420.63 101.43 418.12 103.44Q415.62 105.44 412.11 106.59Q408.6 107.74 404.01 107.74Q392.41 107.74 386.25 100.14Q380.09 92.55 380.09 78.51V31.23H398.42V76.65Q398.42 84.38 401.43 88.47Q404.44 92.55 411.03 92.55Q413.75 92.55 416.4 91.83Q419.05 91.12 421.06 89.61Q423.07 88.11 424.36 85.89Q425.64 83.67 425.64 80.66V31.23H443.98V106.02H425.64ZM462.61 106.02V31.23H480.95V43.7H481.66Q483.95 37.68 488.9 33.6Q493.84 29.51 502.58 29.51Q514.18 29.51 520.34 37.11Q526.5 44.7 526.5 58.74V106.02H508.17V60.6Q508.17 52.58 505.3 48.57Q502.44 44.56 495.85 44.56Q492.98 44.56 490.33 45.34Q487.68 46.13 485.6 47.64Q483.52 49.14 482.23 51.36Q480.95 53.58 480.95 56.59V106.02ZM590.69 93.55H589.97Q587.97 100 582.38 103.87Q576.79 107.74 569.34 107.74Q555.16 107.74 547.64 97.56Q540.11 87.39 540.11 68.48Q540.11 49.71 547.64 39.61Q555.16 29.51 569.34 29.51Q576.79 29.51 582.38 33.31Q587.97 37.11 589.97 43.55H590.69V0H609.03V106.02H590.69ZM575.21 92.55Q581.81 92.55 586.25 89.4Q590.69 86.25 590.69 80.37V56.59Q590.69 51.15 586.25 47.85Q581.81 44.56 575.21 44.56Q568.05 44.56 563.68 49.36Q559.31 54.15 559.31 62.18V75.07Q559.31 83.09 563.68 87.82Q568.05 92.55 575.21 92.55ZM657.88 107.74Q649.57 107.74 643.05 104.94Q636.53 102.15 632.02 97.06Q627.51 91.98 625.07 84.74Q622.64 77.51 622.64 68.48Q622.64 59.6 625 52.44Q627.36 45.27 631.81 40.19Q636.25 35.1 642.69 32.31Q649.14 29.51 657.31 29.51Q666.05 29.51 672.49 32.52Q678.94 35.53 683.09 40.69Q687.25 45.85 689.33 52.65Q691.4 59.46 691.4 67.19V73.21H641.69V75.07Q641.69 83.24 646.28 88.18Q650.86 93.12 659.89 93.12Q666.76 93.12 671.13 90.26Q675.5 87.39 678.94 82.95L688.83 93.98Q684.24 100.43 676.29 104.08Q668.34 107.74 657.88 107.74ZM657.59 43.27Q650.29 43.27 645.99 48.14Q641.69 53.01 641.69 60.74V61.89H672.35V60.6Q672.35 52.87 668.55 48.07Q664.76 43.27 657.59 43.27ZM705.01 106.02V31.23H723.35V46.7H724.07Q724.79 43.7 726.29 40.9Q727.79 38.11 730.23 35.96Q732.66 33.81 736.03 32.52Q739.4 31.23 743.84 31.23H747.85V48.57H742.12Q732.81 48.57 728.08 51.29Q723.35 54.01 723.35 60.17V106.02Z"/></symbol>
+</svg>
+<!-- @brand:end -->
+
+    <a class="brand-home rail-brand" href="/" title="Co-Founder" aria-label="Co-Founder home"><svg class="brand-mark" aria-hidden="true"><use href="#brand-mark"/></svg></a>
+    <nav class="product-rail" aria-label="Product">
+      <a
+        class="rail-link rail-new-session"
+        href="/?new=1"
+        title="New session"
+        aria-label="New session"
+        ><svg class="ico" aria-hidden="true"><use href="#i-plus" /></svg
+        ><span>New</span></a
+      >
+      <a class="rail-link" href="/" title="Alex"
+        ><svg class="ico" aria-hidden="true"><use href="#i-chat" /></svg
+        ><span>Alex</span></a
+      >
+      <a
+        class="rail-link rail-desktop"
+        href="/?open=search"
+        title="Search sessions and work (⌘K)"
+        ><svg class="ico" aria-hidden="true"><use href="#i-search" /></svg
+        ><span>Search</span></a
+      >
+      <a class="rail-link" href="/?destination=runs" title="Runs"
+        ><svg class="ico" aria-hidden="true"><use href="#i-board" /></svg
+        ><span>Runs</span></a
+      >
+      <a
+        class="rail-link"
+        data-destination-link="hiring"
+        href="/hiring.html"
+        aria-current="page"
+        title="Hiring"
+        ><svg class="ico" aria-hidden="true"><use href="#i-hiring" /></svg
+        ><span>Hiring</span></a
+      >
+      <a class="rail-link" href="/?destination=decisions" title="Decisions"
+        ><svg class="ico" aria-hidden="true"><use href="#i-shield" /></svg
+        ><span>Decisions</span></a
+      >
+      <a
+        class="rail-link rail-desktop"
+        href="/?destination=activity"
+        title="Activity"
+        ><svg class="ico" aria-hidden="true"><use href="#i-clock" /></svg
+        ><span>Activity</span></a
+      >
+      <span class="rail-spacer"></span>
+      <a class="rail-link rail-desktop" href="/?open=settings" title="Settings"
+        ><svg class="ico" aria-hidden="true"><use href="#i-gear" /></svg
+        ><span>Settings</span></a
+      >
+      <div class="rail-more">
+        <button
+          class="rail-link"
+          type="button"
+          id="moreNavBtn"
+          onclick="toggleMobileMore()"
+          aria-expanded="false"
+          aria-controls="mobileMore"
+          title="More"
+        >
+          <svg class="ico" aria-hidden="true"><use href="#i-plus" /></svg
+          ><span>More</span>
+        </button>
+        <div class="mobile-more-menu" id="mobileMore" hidden>
+          <a class="btn" data-variant="ghost" href="/?destination=activity"
+            ><svg class="ico" aria-hidden="true"><use href="#i-clock" /></svg
+            >Activity</a
+          >
+          <a class="btn" data-variant="ghost" href="/?open=search"
+            ><svg class="ico" aria-hidden="true"><use href="#i-search" /></svg
+            >Search</a
+          >
+          <a class="btn" data-variant="ghost" href="/?open=settings"
+            ><svg class="ico" aria-hidden="true"><use href="#i-gear" /></svg
+            >Settings</a
+          >
+        </div>
+      </div>
+    </nav>
+    <header class="top">
+      <a class="back" href="/">Alex</a>
+      <div id="acctWrap" class="account-wrap" data-menu-align="left">
+        <button class="btn" data-variant="ghost" data-shape="icon" id="acctBtn" type="button" onclick="toggleAcctMenu()" aria-haspopup="menu" aria-expanded="false" title="Account" aria-label="Account menu"><span class="acct-avatar" id="acctAvatar">·</span></button>
+        <div id="acctMenu" class="account-menu" role="menu" aria-label="Account" hidden>
+          <div class="menu-id"><span class="acct-avatar big" id="menuAvatar">·</span><span class="grow"><b id="acctName">Founder</b><span class="conn-sub" id="acctEmail"></span></span></div>
+          <hr />
+          <a class="menu-item" role="menuitem" href="/?open=profile"><span class="acct-avatar menu-profile-glyph" aria-hidden="true" id="profileMenuAvatar">·</span>Profile</a>
+          <a class="menu-item" role="menuitem" href="/?open=connectors"><svg class="ico" aria-hidden="true"><use href="#i-plug" /></svg>Connectors</a>
+          <a class="menu-item" role="menuitem" href="/?open=settings"><svg class="ico" aria-hidden="true"><use href="#i-gear" /></svg>Settings</a>
+          <hr />
+          <button class="menu-item danger" role="menuitem" id="logoutItem" type="button" onclick="logout()"><svg class="ico" aria-hidden="true"><use href="#i-sign-out" /></svg>Log out</button>
+        </div>
+      </div>
+      <div class="crumb">
+        <p class="micro" style="margin: 0">Hiring</p>
+        <h1 id="hiringContextTitle">Hiring operations</h1>
+      </div>
+      <span class="spacer"></span>
+      <button
+        class="btn roles-toggle"
+        data-variant="ghost"
+        id="rolesToggle"
+        onclick="showHiringHome()"
+        aria-label="Show hiring roles"
+        hidden
+      >
+        <svg class="ico" aria-hidden="true"><use href="#i-chev-left" /></svg
+        >Roles
+      </button>
+      <button
+        class="btn workspace-toggle"
+        data-variant="secondary"
+        id="workspaceToggle"
+        onclick="toggleHiringWorkspace()"
+        aria-label="Open contextual workspace"
+        aria-expanded="false"
+        aria-controls="hiringWorkspace"
+        hidden
+      >
+        Workspace
+      </button>
+    </header>
+    <div
+      class="hiring-shell"
+      id="hiringShell"
+      data-view="roles"
+      data-workspace="quiet"
+    >
+      <aside class="roles" aria-label="Hiring roles">
+        <div class="roles-inner">
+          <div class="roles-intro">
+            <div>
+              <h2 id="roleIndexTitle">Active roles</h2>
+              <p class="muted">
+                Review durable role progress, candidate evidence, and the next
+                human-controlled decision.
+              </p>
+            </div>
+          </div>
+          <section class="role-index" aria-labelledby="roleIndexTitle">
+            <div id="roles" aria-live="polite">
+              <div class="card loading-state" aria-busy="true">
+                <p class="muted">Loading active roles…</p>
+              </div>
+            </div>
+            <div id="rolesLoadStatus" class="inline-load-state" aria-live="polite"></div>
+          </section>
+        </div>
+      </aside>
+
+      <main class="cockpit" id="main">
+        <div class="card loading-state">
+          <h2>Hiring cockpit</h2>
+          <p class="muted">
+            Choose a role. This surface renders committed backend receipts only
+            and never advances workflow state optimistically.
+          </p>
+        </div>
+      </main>
+
+      <aside
+        class="context-workspace"
+        id="hiringWorkspace"
+        data-open="false"
+        aria-label="Contextual workspace"
+      >
+        <button
+          class="workspace-quiet"
+          type="button"
+          onclick="openHiringWorkspace()"
+          aria-label="Open role workspace"
+        >
+          <svg class="ico" aria-hidden="true"><use href="#i-clipboard" /></svg
+          ><span>Workspace</span>
+        </button>
+        <div class="workspace-panel">
+          <div class="workspace-head">
+            <h2>Role workspace</h2>
+            <span class="scope-pill" id="hiringScope">No role selected</span
+            ><button
+              class="btn workspace-close"
+              data-variant="ghost"
+              data-shape="icon"
+              type="button"
+              onclick="closeHiringWorkspace()"
+              aria-label="Close role workspace"
+              title="Close role workspace"
+            >
+              <svg class="ico" aria-hidden="true"><use href="#i-close" /></svg>
+            </button>
+          </div>
+          <div
+            class="workspace-tabs"
+            role="tablist"
+            aria-label="Role context"
+            onkeydown="handleHiringTabKey(event)"
+          >
+            <button
+              role="tab"
+              id="hiring-tab-work"
+              aria-controls="hiring-pane-work"
+              aria-selected="true"
+              tabindex="0"
+              data-hiring-tab="work"
+              onclick="selectHiringTab('work')"
+            >
+              Work
+            </button>
+            <button
+              role="tab"
+              id="hiring-tab-evidence"
+              aria-controls="hiring-pane-evidence"
+              aria-selected="false"
+              tabindex="-1"
+              data-hiring-tab="evidence"
+              onclick="selectHiringTab('evidence')"
+            >
+              Evidence
+            </button>
+            <button
+              role="tab"
+              id="hiring-tab-decisions"
+              aria-controls="hiring-pane-decisions"
+              aria-selected="false"
+              tabindex="-1"
+              data-hiring-tab="decisions"
+              onclick="selectHiringTab('decisions')"
+            >
+              Decisions
+            </button>
+            <button
+              role="tab"
+              id="hiring-tab-activity"
+              aria-controls="hiring-pane-activity"
+              aria-selected="false"
+              tabindex="-1"
+              data-hiring-tab="activity"
+              onclick="selectHiringTab('activity')"
+            >
+              Activity
+            </button>
+          </div>
+          <div class="workspace-body">
+            <section class="hiring-pane" id="hiring-pane-work">
+              <div class="workspace-empty">
+                Role brief, interview plan, browser handoff, and active tasks
+                appear here.
+              </div>
+            </section>
+            <section class="hiring-pane" id="hiring-pane-evidence" hidden>
+              <div class="workspace-empty">
+                Role evidence and publication receipts appear here.
+              </div>
+            </section>
+            <section class="hiring-pane" id="hiring-pane-decisions" hidden>
+              <div class="workspace-empty">
+                Exact policy approvals and candidate decisions stay separate
+                here.
+              </div>
+            </section>
+            <section class="hiring-pane" id="hiring-pane-activity" hidden>
+              <div class="workspace-empty">
+                Durable role events, waits, uncertainty, and receipts appear
+                here.
+              </div>
+            </section>
+          </div>
+        </div>
+      </aside>
+    </div>
+    <section
+      id="candidate"
+      class="candidate-route"
+      aria-labelledby="candidateTitle"
+      hidden
+    >
+      <div class="candidate-route-head">
+        <button
+          class="btn"
+          data-variant="ghost"
+          type="button"
+          onclick="closeCandidate()"
+        >
+          <svg class="ico" aria-hidden="true"><use href="#i-chev-left" /></svg
+          >Back to role
+        </button>
+        <h2 id="candidateTitle">Candidate workspace</h2>
+        <span class="scope-pill">Identity hidden</span>
+      </div>
+      <div class="candidate-record" id="candidateBody"></div>
+    </section>
+    <script>
+      const esc = (s) =>
+        String(s ?? "").replace(
+          /[&<>"']/g,
+          (c) =>
+            ({
+              "&": "&amp;",
+              "<": "&lt;",
+              ">": "&gt;",
+              '"': "&quot;",
+              "'": "&#39;",
+            })[c],
+        );
+      const nativeJsonStringify = JSON.stringify.bind(JSON);
+      JSON.stringify = (value, ...rest) => {
+        const rendered = nativeJsonStringify(value, ...rest);
+        return typeof rendered === "string"
+          ? rendered
+              .replaceAll("<", "\\u003c")
+              .replaceAll(">", "\\u003e")
+              .replaceAll("&", "\\u0026")
+              .replaceAll("'", "\\u0027")
+          : rendered;
+      };
+      let roles = [],
+        selected = null,
+        h4sConversationToken = "",
+        h4sSandboxId = "";
+      let rolesLoaded = false,
+        rolesVisibleCount = 12,
+        loadedRoleId = "",
+        candidateVisibleCount = 25;
+      async function api(path, options = {}) {
+        const { timeoutMs = 20000, ...requestOptions } = options,
+          controller = new AbortController(),
+          timeout = setTimeout(() => controller.abort(), timeoutMs);
+        try {
+          const r = await fetch(path, {
+              credentials: "same-origin",
+              ...requestOptions,
+              signal: requestOptions.signal || controller.signal,
+            }),
+            j = await r.json().catch(() => ({ error: "Invalid response" }));
+          if (!r.ok) throw new Error(j.message || j.error || "Request failed");
+          return j;
+        } catch (error) {
+          if (error.name === "AbortError")
+            throw new Error("Hiring took too long to respond.");
+          throw error;
+        } finally {
+          clearTimeout(timeout);
+        }
+      }
+      function initialsOf(name, email) {
+        const source = (name || "").trim() || (email || "").trim();
+        if (!source) return "F";
+        const parts = source.replace(/@.*$/, "").split(/[\s._-]+/).filter(Boolean),
+          initials = ((parts[0] || "")[0] || "") + ((parts[1] || "")[0] || "");
+        return (initials || source[0]).toUpperCase();
+      }
+      async function loadIdentity() {
+        try {
+          const account = await api("/auth/me", { timeoutMs: 10000 }),
+            sessionAccount = account?.mode === "session",
+            name = sessionAccount ? account.name || account.email : "Founder",
+            email = sessionAccount ? account.email : account?.mode === "token" ? "Signed in with the access key" : "Local development",
+            initials = initialsOf(sessionAccount ? account.name : "", sessionAccount ? account.email : "");
+          for (const id of ["acctAvatar", "menuAvatar", "profileMenuAvatar"])
+            document.querySelector(`#${id}`).textContent = initials;
+          document.querySelector("#acctName").textContent = name;
+          document.querySelector("#acctEmail").textContent = email;
+          document.querySelector("#logoutItem").hidden = account?.mode === "open";
+        } catch {
+          document.querySelector("#acctName").textContent = "Founder";
+          document.querySelector("#acctEmail").textContent = "Signed-in account";
+        }
+      }
+      function toggleAcctMenu() {
+        const menu = document.querySelector("#acctMenu"),
+          opening = menu.hidden;
+        menu.hidden = !opening;
+        document.querySelector("#acctBtn").setAttribute("aria-expanded", String(opening));
+        if (opening) menu.querySelector(".menu-item").focus();
+      }
+      document.addEventListener("click", (event) => {
+        if (!document.querySelector("#acctMenu").hidden && !event.target.closest("#acctWrap"))
+          toggleAcctMenu();
+      });
+      document.addEventListener("keydown", (event) => {
+        if (event.key === "Escape" && !document.querySelector("#acctMenu").hidden) {
+          toggleAcctMenu();
+          document.querySelector("#acctBtn").focus();
+        }
+      });
+      async function logout() {
+        try {
+          await api("/auth/logout", { method: "POST", body: "{}", timeoutMs: 10000 });
+        } catch {
+          // The local session may already have ended; the login page is still authoritative.
+        }
+        location.replace("/login.html");
+      }
+      function hiringScrollState() {
+        const nodes = [document.scrollingElement, document.querySelector("#main"), document.querySelector(".roles")];
+        return nodes.filter(Boolean).map((node) => [node, node.scrollTop, node.scrollLeft]);
+      }
+      function restoreHiringScroll(state) {
+        requestAnimationFrame(() => state.forEach(([node, top, left]) => {
+          if (node === document.scrollingElement || document.contains(node)) {
+            node.scrollTop = top;
+            node.scrollLeft = left;
+          }
+        }));
+      }
+      async function load() {
+        const scrollState = hiringScrollState();
+        const host = document.querySelector("#roles"),
+          status = document.querySelector("#rolesLoadStatus"),
+          firstLoad = !rolesLoaded;
+        if (firstLoad) {
+          host.innerHTML =
+            '<div class="card loading-state" aria-busy="true"><p class="muted">Loading active roles…</p></div>';
+          host.setAttribute("aria-busy", "true");
+          status.textContent = "";
+          delete status.dataset.tone;
+        } else {
+          host.dataset.refreshing = "true";
+          host.setAttribute("aria-busy", "true");
+          delete status.dataset.tone;
+          status.textContent = "Refreshing roles…";
+        }
+        try {
+          roles = (await api("/api/hiring/roles", { timeoutMs: 12000 })).roles || [];
+          rolesLoaded = true;
+          renderRoles();
+          restoreHiringScroll(scrollState);
+          status.textContent = "";
+          delete status.dataset.tone;
+          const candidateId = new URLSearchParams(location.search).get(
+            "candidate",
+          );
+          if (candidateId && roles[0]) {
+            await openRole(roles[0].role_id);
+            await openCandidate(candidateId);
+          } else if (selected && roles.some((role) => role.role_id === selected)) {
+            await openRole(selected);
+          } else showHiringHome();
+        } catch (e) {
+          if (rolesLoaded) {
+            status.innerHTML = `<span>Refresh failed. The last roles remain visible.</span><button class="btn" data-variant="secondary" data-size="sm" onclick="load()">Retry</button>`;
+            status.dataset.tone = "danger";
+          } else {
+            host.innerHTML =
+              '<div class="card error-state" role="alert"><svg class="ico ico-lg" aria-hidden="true"><use href="#i-alert"/></svg><h3>Active roles could not load</h3><p class="muted">Check your connection and try again. No role data was changed.</p><button class="btn" data-variant="secondary" onclick="load()">Retry loading roles</button></div>';
+          }
+        } finally {
+          delete host.dataset.refreshing;
+          host.removeAttribute("aria-busy");
+        }
+      }
+      function renderRoles() {
+        const visible = roles.slice(0, rolesVisibleCount);
+        document.querySelector("#roles").innerHTML = roles.length
+          ? visible
+              .map(
+                (r) =>
+                  `<button class="role-card" aria-current="${r.role_id === selected}" onclick="openRole('${esc(r.role_id)}')"><span class="role-card-head"><span><span class="micro">${esc(r.role_code || "ROLE")}</span><span class="role-card-title">${esc(r.role_title)}</span></span><span class="badge" data-tone="${r.role_state === "OPEN" ? "ok" : "accent"}">${esc(r.role_state)}</span></span><span class="muted">Policy ${esc(r.current_policy_version_id || "awaiting approval")}</span><span class="role-card-meta"><span>${r.synthetic ? "Read-only test role" : "Draft role"}</span><span>Human-controlled stages</span><span>Open cockpit →</span></span></button>`,
+              )
+              .join("") + `<div class="list-footer"><span class="micro" aria-live="polite">Showing ${visible.length} of ${roles.length} roles</span>${visible.length < roles.length ? '<button class="btn" data-variant="secondary" data-size="sm" aria-label="Load more hiring roles" onclick="loadMoreRoles()">Load more</button>' : ""}</div>`
+          : '<div class="role-index-empty" role="status"><div><svg class="ico ico-lg" aria-hidden="true"><use href="#i-hiring"/></svg><h3>No active roles</h3><p>Hiring roles you create with Alex will appear here. Nothing is published and no candidate is contacted without your explicit approval.</p><a class="btn" data-variant="secondary" href="/">Go to Alex</a></div></div>';
+      }
+      function loadMoreRoles() {
+        rolesVisibleCount += 12;
+        renderRoles();
+      }
+      async function recordManualPublication() {
+        const out = document.querySelector("#publicationStatus"),
+          url = document.querySelector("#publicationUrl").value.trim();
+        if (!selected) {
+          out.textContent = "Select an approved role first.";
+          return;
+        }
+        try {
+          const projection = await api(
+              `/api/hiring/roles/${encodeURIComponent(selected)}`,
+            ),
+            role = projection.role,
+            j = await api(
+              `/api/hiring/roles/${encodeURIComponent(selected)}/publication-receipts`,
+              {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                  "X-CSRF-Token": await csrf(),
+                },
+                body: JSON.stringify({
+                  destination: "MANUAL_BROWSER",
+                  public_url: url,
+                  attestation:
+                    "Founder manually published the exact approved role package and is recording its HTTPS location.",
+                  expected_role_version: role.version,
+                  client_request_id: `publication_${crypto.randomUUID().replaceAll("-", "_")}`,
+                }),
+              },
+            );
+          out.textContent = `Publication receipt ${j.receipt_id} committed. The role is now dormant awaiting a trusted application email.`;
+          await load();
+          await openRole(selected);
+        } catch (e) {
+          out.textContent = e.message;
+        }
+      }
+      async function copyApplicationLink(roleId) {
+        const status = document.querySelector("#applicationLinkStatus"),
+          url = new URL(
+            `/hiring-notice.html?role_id=${encodeURIComponent(roleId)}`,
+            location.origin,
+          ).href;
+        try {
+          await navigator.clipboard.writeText(url);
+          status.textContent = "Application link copied.";
+        } catch (_) {
+          status.textContent =
+            "Copy failed. Open the public job page and copy its address.";
+        }
+      }
+      async function csrf() {
+        return (await api("/api/hiring/csrf")).csrf_token;
+      }
+      async function activateProposedPolicy(role, policy) {
+        const status = document.querySelector("#policyActionStatus"),
+          button = document.querySelector("#approvePolicy");
+        if (button) button.disabled = true;
+        try {
+          const csrf = (await api("/api/hiring/csrf")).csrf_token,
+            approval = await api(
+              `/api/hiring/roles/${encodeURIComponent(role.role_id)}/approvals`,
+              {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                  "X-CSRF-Token": csrf,
+                },
+                body: JSON.stringify({
+                  run_id: role.run_id,
+                  policy_version_id: policy.policy_version_id,
+                  action_kind: "ACTIVATE_ROLE_POLICY",
+                  exact_action: {
+                    policy_version_id: policy.policy_version_id,
+                    policy_hash: policy.canonical_hash,
+                    role_description_hash: policy.role_description_hash,
+                  },
+                  client_request_id: `policy_approval_${crypto.randomUUID().replaceAll("-", "_")}`,
+                }),
+              },
+            );
+          status.textContent =
+            "Exact approval created. Confirming founder approval…";
+          await api(
+            `/api/hiring/approvals/${encodeURIComponent(approval.approval_id)}/resolve`,
+            {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                "X-CSRF-Token": csrf,
+              },
+              body: JSON.stringify({ decision: "GRANT", require_fresh: true }),
+            },
+          );
+          await api(
+            `/api/hiring/roles/${encodeURIComponent(role.role_id)}/policy-versions/${encodeURIComponent(policy.policy_version_id)}/approve`,
+            {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                "X-CSRF-Token": csrf,
+              },
+              body: JSON.stringify({
+                approval_id: approval.approval_id,
+                expected_role_version: role.version,
+              }),
+            },
+          );
+          await openRole(role.role_id);
+        } catch (e) {
+          status.textContent = e.message;
+          button?.removeAttribute("disabled");
+        }
+      }
+      let hiringActiveTab = "work";
+      function showHiringHome() {
+        const shell = document.querySelector("#hiringShell");
+        shell.dataset.view = "roles";
+        shell.dataset.workspace = "quiet";
+        document.querySelector("#hiringWorkspace").dataset.open = "false";
+        document.querySelector("#hiringContextTitle").textContent =
+          "Hiring operations";
+        document.querySelector("#rolesToggle").hidden = true;
+        document.querySelector("#workspaceToggle").hidden = true;
+        selected = null;
+        renderRoles();
+      }
+      function openHiringWorkspace() {
+        if (!selected) return;
+        const workspace = document.querySelector("#hiringWorkspace"),
+          shell = document.querySelector("#hiringShell"),
+          toggle = document.querySelector("#workspaceToggle");
+        workspace.dataset.open = "true";
+        shell.dataset.workspace = "open";
+        toggle.setAttribute("aria-expanded", "true");
+        toggle.setAttribute("aria-label", "Close contextual workspace");
+        document
+          .querySelector(`[data-hiring-tab="${hiringActiveTab}"]`)
+          ?.focus();
+      }
+      function closeHiringWorkspace() {
+        const workspace = document.querySelector("#hiringWorkspace"),
+          shell = document.querySelector("#hiringShell"),
+          toggle = document.querySelector("#workspaceToggle");
+        workspace.dataset.open = "false";
+        shell.dataset.workspace = "quiet";
+        toggle.setAttribute("aria-expanded", "false");
+        toggle.setAttribute("aria-label", "Open contextual workspace");
+        toggle.focus();
+      }
+      function selectHiringTab(tab, shouldOpen = true) {
+        hiringActiveTab = tab;
+        document.querySelectorAll("[data-hiring-tab]").forEach((button) => {
+          const active = button.dataset.hiringTab === tab;
+          button.setAttribute("aria-selected", String(active));
+          button.tabIndex = active ? 0 : -1;
+        });
+        document
+          .querySelectorAll(".hiring-pane")
+          .forEach((pane) => (pane.hidden = pane.id !== `hiring-pane-${tab}`));
+        if (shouldOpen) openHiringWorkspace();
+      }
+      function handleHiringTabKey(event) {
+        const tabs = [...document.querySelectorAll("[data-hiring-tab]")],
+          current = tabs.indexOf(document.activeElement);
+        if (current < 0) return;
+        let next = current;
+        if (event.key === "ArrowRight") next = (current + 1) % tabs.length;
+        else if (event.key === "ArrowLeft")
+          next = (current - 1 + tabs.length) % tabs.length;
+        else if (event.key === "Home") next = 0;
+        else if (event.key === "End") next = tabs.length - 1;
+        else return;
+        event.preventDefault();
+        selectHiringTab(tabs[next].dataset.hiringTab);
+      }
+      function toggleHiringWorkspace() {
+        if (document.querySelector("#hiringWorkspace").dataset.open === "true")
+          closeHiringWorkspace();
+        else openHiringWorkspace();
+      }
+      function toggleHiringView() {
+        showHiringHome();
+      }
+      function toggleMobileMore() {
+        const menu = document.querySelector("#mobileMore"),
+          button = document.querySelector("#moreNavBtn"),
+          open = menu.hidden;
+        menu.hidden = !open;
+        button.setAttribute("aria-expanded", String(open));
+      }
+      function listOrFallback(items, fallback) {
+        const values = (items || []).filter(Boolean);
+        return values.length
+          ? `<ul>${values.map((item) => `<li>${esc(item)}</li>`).join("")}</ul>`
+          : `<p class="muted">${esc(fallback)}</p>`;
+      }
+      const draftLines = (values) => (values || []).filter(Boolean).join("\n");
+      function roleDescriptionMarkup(role, contract, policy) {
+        const description = policy?.role_description || role.role_description || {},
+          qualifications = description.required_qualifications ||
+            (contract?.criteria || []).map((item) => item.label),
+          required = [
+            description.purpose,
+            description.responsibilities?.length,
+            qualifications.length,
+            description.preferred_qualifications?.length,
+            description.relevant_experience?.length,
+            description.location,
+            description.employment_type,
+            description.hiring_process?.length,
+            description.application_instructions,
+          ],
+          complete = required.every(Boolean);
+        if (role.synthetic) {
+          return `<section class="job-description" aria-labelledby="jobDescriptionTitle"><h4 id="jobDescriptionTitle">Test job description</h4><div class="job-description-grid"><div class="job-description-field"><h5>Role purpose</h5><p>${esc(description.purpose || contract?.role_summary || "")}</p></div><div class="job-description-field"><h5>Responsibilities</h5>${listOrFallback(description.responsibilities || [], "Test data is incomplete.")}</div><div class="job-description-field"><h5>Qualifications</h5>${listOrFallback(qualifications, "Test data is incomplete.")}</div></div><p class="micro">Read-only test data. It cannot be published or receive applications.</p></section>`;
+        }
+        const preview = policy && complete
+          ? `/hiring-notice.html?role_id=${encodeURIComponent(role.role_id)}&preview_policy=${encodeURIComponent(policy.policy_version_id)}`
+          : "";
+        return `<section class="job-description" aria-labelledby="jobDescriptionTitle" data-complete="${complete}"><h4 id="jobDescriptionTitle">Job description draft</h4><p class="micro">All required fields must be complete. Saving creates a new proposed version; it does not approve or publish anything.</p><form class="job-description-editor" id="roleDraftEditor" data-role-id="${esc(role.role_id)}" data-role-version="${esc(role.version)}" onsubmit="saveRoleDescriptionDraft(event)"><div class="editor-grid"><label data-wide="true">Role purpose / overview<textarea name="purpose" required maxlength="3000">${esc(description.purpose || "")}</textarea></label><label data-wide="true">Responsibilities <span class="micro">One per line</span><textarea name="responsibilities" required>${esc(draftLines(description.responsibilities))}</textarea></label><label data-wide="true">Success outcomes <span class="micro">One per line</span><textarea name="success_outcomes" required>${esc(draftLines(description.success_outcomes))}</textarea></label><label data-wide="true">Required qualifications <span class="micro">One per line</span><textarea name="required_qualifications" required>${esc(draftLines(qualifications))}</textarea></label><label data-wide="true">Preferred qualifications <span class="micro">One per line</span><textarea name="preferred_qualifications" required>${esc(draftLines(description.preferred_qualifications))}</textarea></label><label data-wide="true">Relevant experience <span class="micro">One per line</span><textarea name="relevant_experience" required>${esc(draftLines(description.relevant_experience))}</textarea></label><label>Location<input name="location" required maxlength="120" value="${esc(description.location || contract?.location_envelope?.[0] || "")}" /></label><label>Work arrangement<input name="work_arrangement" required maxlength="120" value="${esc(description.work_arrangement || contract?.location_envelope?.[1] || "")}" /></label><label>Employment type<input name="employment_type" required maxlength="120" value="${esc(description.employment_type || "")}" /></label><label>Compensation <span class="micro">Optional; omit rather than invent</span><input name="compensation" maxlength="500" value="${esc(description.compensation || "")}" /></label><label data-wide="true">Benefits <span class="micro">Optional, one per line</span><textarea name="benefits">${esc(draftLines(description.benefits))}</textarea></label><label data-wide="true">Hiring process <span class="micro">One step per line</span><textarea name="hiring_process" required>${esc(draftLines(description.hiring_process))}</textarea></label><label data-wide="true">Application instructions<textarea name="application_instructions" required maxlength="2000">${esc(description.application_instructions || "")}</textarea></label><label data-wide="true">Equal-opportunity statement <span class="micro">Optional</span><textarea name="equal_opportunity_statement" maxlength="2000">${esc(description.equal_opportunity_statement || "")}</textarea></label><label data-wide="true">Accessibility statement <span class="micro">Optional</span><textarea name="accessibility_statement" maxlength="2000">${esc(description.accessibility_statement || "")}</textarea></label></div><div class="job-description-actions"><button class="btn" data-variant="secondary" type="submit">Save edits as draft</button>${preview ? `<a class="btn" data-variant="secondary" href="${esc(preview)}">Review public job page</a>` : ""}</div><p id="draftSaveStatus" class="micro" aria-live="polite">${complete ? "This version is complete and can be previewed before approval." : "Complete every required field, then save a new draft before approval."}</p></form></section>`;
+      }
+
+      function draftList(form, name) {
+        return String(new FormData(form).get(name) || "")
+          .split(/\r?\n/).map((item) => item.trim()).filter(Boolean);
+      }
+      async function saveRoleDescriptionDraft(event) {
+        event.preventDefault();
+        const form = event.currentTarget,
+          data = new FormData(form),
+          status = document.querySelector("#draftSaveStatus"),
+          button = form.querySelector('button[type="submit"]');
+        button.disabled = true;
+        status.textContent = "Saving a new draft version…";
+        try {
+          await api(`/api/hiring/roles/${encodeURIComponent(form.dataset.roleId)}/job-description-drafts`, {
+            method: "POST",
+            headers: {"Content-Type": "application/json", "X-CSRF-Token": await csrf()},
+            body: JSON.stringify({
+              client_request_id: `role_draft_${crypto.randomUUID()}`,
+              expected_role_version: Number(form.dataset.roleVersion),
+              change_reason: "Founder edited the candidate-facing job description.",
+              purpose: String(data.get("purpose") || "").trim(),
+              responsibilities: draftList(form, "responsibilities"),
+              success_outcomes: draftList(form, "success_outcomes"),
+              required_qualifications: draftList(form, "required_qualifications"),
+              preferred_qualifications: draftList(form, "preferred_qualifications"),
+              relevant_experience: draftList(form, "relevant_experience"),
+              location: String(data.get("location") || "").trim(),
+              work_arrangement: String(data.get("work_arrangement") || "").trim(),
+              employment_type: String(data.get("employment_type") || "").trim(),
+              compensation: String(data.get("compensation") || "").trim(),
+              benefits: draftList(form, "benefits"),
+              hiring_process: draftList(form, "hiring_process"),
+              application_instructions: String(data.get("application_instructions") || "").trim(),
+              equal_opportunity_statement: String(data.get("equal_opportunity_statement") || "").trim(),
+              accessibility_statement: String(data.get("accessibility_statement") || "").trim(),
+            }),
+          });
+          status.textContent = "Draft saved. Reloading the exact proposed version…";
+          await openRole(form.dataset.roleId);
+        } catch (error) {
+          status.textContent = error.message || "The draft could not be saved.";
+          button.disabled = false;
+        }
+      }
+      function candidateInboxMarkup(groups, emptyMessage) {
+        const entries = Object.entries(groups),
+          total = entries.reduce((sum, [, items]) => sum + items.length, 0);
+        let remaining = candidateVisibleCount,
+          shown = 0,
+          markup = "";
+        for (const [state, items] of entries) {
+          const visible = items.slice(0, Math.max(0, remaining));
+          if (!visible.length) continue;
+          shown += visible.length;
+          remaining -= visible.length;
+          markup += `<h4>${esc(state)} <span class="micro">${items.length}</span></h4><table><thead><tr><th>Candidate</th><th>Policy</th><th>Committed state</th><th></th></tr></thead><tbody>${visible.map((c) => `<tr><td data-label="Candidate">${esc(c.candidate_code)}</td><td data-label="Policy">${esc(c.current_policy_version_id)}</td><td data-label="Committed state" class="state">${esc(c.candidate_state)}</td><td data-label="Open record"><button onclick="openCandidate('${esc(c.candidate_application_id)}')">Review evidence</button></td></tr>`).join("")}</tbody></table>`;
+        }
+        if (!total) return `<p class="muted">${esc(emptyMessage)}</p>`;
+        return markup + `<div class="list-footer"><span class="micro" aria-live="polite">Showing ${shown} of ${total} candidates</span>${shown < total ? '<button class="btn" data-variant="secondary" data-size="sm" aria-label="Load more candidates" onclick="loadMoreCandidates()">Load more</button>' : ""}</div>`;
+      }
+
+      function loadMoreCandidates() {
+        candidateVisibleCount += 25;
+        if (selected) openRole(selected);
+      }
+
+      async function openRole(id) {
+        const scrollState = hiringScrollState();
+        const root = document.querySelector("#main");
+        const preserveCurrent = loadedRoleId === id && root.children.length > 0;
+        if (loadedRoleId && loadedRoleId !== id) candidateVisibleCount = 25;
+        selected = id;
+        h4sConversationToken = "";
+        renderRoles();
+        const shell = document.querySelector("#hiringShell");
+        shell.dataset.view = "cockpit";
+        if (!preserveCurrent) {
+          shell.dataset.workspace = "quiet";
+          document.querySelector("#hiringWorkspace").dataset.open = "false";
+        }
+        document.querySelector("#rolesToggle").hidden = false;
+        document.querySelector("#workspaceToggle").hidden = false;
+        if (!preserveCurrent)
+          document
+            .querySelector("#workspaceToggle")
+            .setAttribute("aria-expanded", "false");
+        if (preserveCurrent) {
+          root.dataset.refreshing = "true";
+          root.setAttribute("aria-busy", "true");
+          root.querySelector("#roleRefreshStatus")?.remove();
+          root.insertAdjacentHTML("afterbegin", '<div class="inline-load-state" id="roleRefreshStatus">Refreshing this role…</div>');
+        } else {
+          root.innerHTML =
+            '<div class="card loading-state" aria-busy="true"><p class="muted">Loading committed role projection…</p></div>';
+        }
+        try {
+          const { role, candidates, policy_versions, policy_impacts } =
+              await api(`/api/hiring/roles/${encodeURIComponent(id)}`),
+            approvedPolicy = (policy_versions || []).find(
+              (p) => p.policy_version_id === role.current_policy_version_id,
+            ),
+            proposedPolicy = [...(policy_versions || [])]
+              .reverse()
+              .find((p) => p.status === "PROPOSED"),
+            displayPolicy = proposedPolicy || approvedPolicy,
+            contract = displayPolicy?.contract || role.draft_contract,
+            currentImpact = (policy_impacts || []).find(
+              (i) => i.policy_version_id === displayPolicy?.policy_version_id,
+            ),
+            needsApproval = displayPolicy?.status === "PROPOSED",
+            policyMeta = displayPolicy
+              ? `Policy ${esc(displayPolicy.policy_version_id)} · ${esc(displayPolicy.materiality)} · impact ${esc(currentImpact?.enumeration_status || "unavailable")} · ${esc((currentImpact?.active_candidate_ids || []).length)} active candidates`
+              : "The role package is saved, but its exact approval contract is not available yet.";
+          const groups = {};
+          for (const c of candidates)
+            (groups[c.candidate_state] ??= []).push(c);
+          const roleKind = role.synthetic
+              ? "READ-ONLY TEST ROLE"
+              : "DRAFT ROLE · INTERNAL REVIEW",
+            publicationText = role.synthetic
+              ? "No manual publication receipt. Publication stays a separate founder action in the contained Browser panel."
+              : role.role_state === "PUBLISHED"
+                ? "The approved job description has a recorded manual publication receipt."
+                : "Applications are not open yet. Approve the complete draft, then publish it through the separate manual publication step.",
+            candidateEmpty = role.synthetic
+              ? "Dormant: waiting for a trusted role-address application."
+              : "Candidate processing is unavailable for this internal draft.",
+            applicationsLabel = "Applications",
+            applicationsStatus = role.role_state === "PUBLISHED"
+              ? `${candidates.length} received`
+              : "Applications are not open yet",
+            applicationsHelp = role.role_state === "PUBLISHED"
+              ? role.mailbox_binding?.status
+                ? `Application channel: ${role.mailbox_binding.status}.`
+                : "Open the application page to review the live intake status."
+              : "Founder approval and a manual publication receipt are required before intake opens.";
+          const roleDescription = displayPolicy?.role_description || role.role_description || {},
+            draftComplete = Boolean(
+              roleDescription.purpose && roleDescription.responsibilities?.length &&
+              roleDescription.required_qualifications?.length &&
+              roleDescription.preferred_qualifications?.length &&
+              roleDescription.relevant_experience?.length && roleDescription.location &&
+              roleDescription.work_arrangement && roleDescription.employment_type &&
+              roleDescription.hiring_process?.length &&
+              roleDescription.application_instructions),
+            discussLink = `/?hiring_role=${encodeURIComponent(role.role_id)}`,
+            applicationLink = role.role_state === "PUBLISHED"
+              ? `<div class="application-actions"><a class="btn" data-variant="secondary" href="/hiring-notice.html?role_id=${encodeURIComponent(role.role_id)}">View public job page</a><button class="btn" data-variant="secondary" type="button" onclick='copyApplicationLink(${JSON.stringify(role.role_id)})'>Copy application link</button></div><span class="micro application-link-status" id="applicationLinkStatus" role="status" aria-live="polite"></span>` : "",
+            approveMarkup = needsApproval && draftComplete
+              ? `<button class="btn" data-variant="primary" id="approvePolicy" onclick='activateProposedPolicy(${JSON.stringify(role)},${JSON.stringify(displayPolicy)})'>Approve exact role package for internal use</button><p id="policyActionStatus" class="micro" aria-live="polite">Approval binds this exact complete draft. It does not publish, email, source, rank, decide, or contact anyone.</p>`
+              : needsApproval
+                ? '<p class="micro" id="policyActionStatus">Complete and save every required job-description field before approval.</p>'
+                : "",
+            publicationControl = !role.synthetic && role.publication_allowed === true && !(role.publication_receipts || []).length
+              ? '<div class="manual-publication"><label>Manually published HTTPS URL<input id="publicationUrl" type="url" placeholder="https://…" /></label><button class="btn" data-variant="secondary" onclick="recordManualPublication()">Record publication receipt</button><p class="micro">This records a page the Founder already published. It does not publish, email, or contact anyone.</p><p id="publicationStatus" class="micro" aria-live="polite"></p></div>'
+              : "";
+          root.innerHTML = `<section class="card role-summary"><div class="role-summary-head"><div><p class="micro">${esc(roleKind)} · ${esc(role.company_name || contract?.company_name || "Company")} · ${esc(role.role_code)}</p><h2>${esc(role.role_title)}</h2></div><a class="btn" data-variant="secondary" href="${esc(discussLink)}"><svg class="ico" aria-hidden="true"><use href="#i-chat"/></svg>Discuss with Alex</a></div><p class="micro">Role-level context only. Candidate identities and restricted evidence stay in Hiring; external actions still require their exact controls.</p><div class="grid"><div class="stat"><span class="muted">Role state</span><strong>${esc(role.role_state)}</strong></div><div class="stat"><span class="muted">Candidates</span><strong>${candidates.length}</strong></div><div class="stat"><span class="muted">${esc(applicationsLabel)}</span><strong>${esc(applicationsStatus)}</strong><span class="micro">${esc(applicationsHelp)}</span>${applicationLink}</div></div><p class="micro next-wake">Next wake: ${esc(role.role_state === "PUBLISHED" ? "trusted application intake" : "founder approval")}</p></section><section class="card role-materials" tabindex="-1"><h3>${needsApproval ? "Proposed" : displayPolicy ? "Approved" : "Saved"} role package</h3>${contract ? `<section><h4>Role brief</h4><p>${esc(contract.role_summary)}</p><p class="micro">${esc(contract.company_name)} · Target ${esc(contract.target_date)} · ${esc((contract.location_envelope || []).join(", "))}</p></section>${roleDescriptionMarkup(role, contract, displayPolicy)}<section><h4>Hiring scorecard</h4><ol>${(contract.criteria || []).map((c) => `<li><strong>${esc(c.label)}</strong> — ${esc(c.description)}</li>`).join("")}</ol></section><section><h4>Interview plan</h4><ol>${(contract.interview_plan || []).map((q) => `<li><strong>${esc(q.criterion_id)}</strong> — ${esc(q.text)}<br><span class="micro">Rubric: ${(q.rubric || []).map(esc).join("; ")}</span></li>`).join("")}</ol></section><p class="micro">${policyMeta}</p>${approveMarkup}` : '<p class="muted">No role contract is available yet.</p>'}</section><section class="card"><h3>Publication receipt</h3>${(role.publication_receipts || []).map((x) => `<p><button data-public-url="${esc(encodeURIComponent(x.public_url))}" onclick="openInAppBrowser(decodeURIComponent(this.dataset.publicUrl))">Open ${esc(x.destination)} receipt in Browser panel</button> · ${esc(x.verification_status)}<br><span class="micro">Recorded by ${esc(x.actor_id)} at ${esc(x.recorded_at)}</span></p>`).join("") || `<p class="muted">${esc(publicationText)}</p>`}${publicationControl}</section><section class="card"><h3>Candidate intake inbox</h3><p class="micro">Role-scoped applications and restricted CV evidence only. Alex does not score, rank, recommend, advance, or reject candidates.</p>${candidateInboxMarkup(groups, candidateEmpty)}</section>`;
+          loadedRoleId = id;
+          hydrateUnifiedRoleLayout(role);
+          if (preserveCurrent) restoreHiringScroll(scrollState);
+        } catch (e) {
+          if (preserveCurrent) {
+            const status = root.querySelector("#roleRefreshStatus");
+            if (status) {
+              status.dataset.tone = "danger";
+              status.innerHTML = `<span>Refresh failed. The current role remains visible.</span><button class="btn" data-variant="secondary" data-size="sm" onclick="openRole('${esc(id)}')">Retry</button>`;
+            }
+          } else {
+            root.innerHTML = `<div class="card error-state"><p class="error">${esc(e.message)}</p><button class="btn" data-variant="secondary" onclick="openRole('${esc(id)}')">Try again</button></div>`;
+          }
+        } finally {
+          delete root.dataset.refreshing;
+          root.removeAttribute("aria-busy");
+        }
+      }
+      async function loadH4S(roleId) {
+        const status = document.querySelector("#h4sStatus");
+        try {
+          const j = await api(
+            `/api/hiring/h4s/roles/${encodeURIComponent(roleId)}`,
+          );
+          if (!j.sandbox) {
+            status.textContent =
+              "No active sandbox is provisioned for this role.";
+            return;
+          }
+          h4sSandboxId = j.sandbox.sandbox_run_id;
+          const csrf = (await api("/api/hiring/csrf")).csrf_token;
+          const c = await api("/api/hiring/h4s/conversations", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "X-CSRF-Token": csrf,
+            },
+            body: JSON.stringify({
+              sandbox_run_id: h4sSandboxId,
+              candidate_application_id: "",
+            }),
+          });
+          h4sConversationToken = c.conversation_token;
+          const p = await api(
+            `/api/hiring/h4s/sandboxes/${encodeURIComponent(h4sSandboxId)}/projection`,
+          );
+          status.textContent =
+            "Read-only test conversation active · expires in 10 minutes.";
+          document.querySelector("#h4sPanel").hidden = false;
+          renderH4SProjection(p);
+        } catch (e) {
+          status.textContent = e.message;
+        }
+      }
+      function renderH4SProjection(p) {
+        let host = document.querySelector("#h4sTimeline");
+        if (!host) {
+          host = document.createElement("div");
+          host.id = "h4sTimeline";
+          host.className = "micro";
+          document.querySelector("#h4sPanel").parentElement.append(host);
+        }
+        const actions = p.actions || [],
+          replies = p.reply_correlations || [];
+        host.innerHTML = `<h4>Sandbox receipts</h4>${actions.length ? `<ol>${actions.map((a) => `<li><strong>${esc(a.action_kind)}</strong> · ${esc(a.status)}<br><span class="micro">approval ${esc(a.approval_id || "none")} · receipt ${esc(a.provider_effect_id || a.uncertainty_reason || a.error_code || "pending")}</span></li>`).join("")}</ol>` : '<p class="micro">No test-account effects have been approved.</p>'}<h4>Verified replies</h4>${replies.length ? `<ol>${replies.map((r) => `<li><strong>${esc(r.status)}</strong> · ${esc(r.safe_reason || "causally correlated")}<br><span class="micro">${esc(r.resolved_at || r.created_at || "")}</span></li>`).join("")}</ol>` : '<p class="micro">No provider reply receipt yet.</p>'}`;
+      }
+      async function askH4S() {
+        const out = document.querySelector("#h4sAnswer"),
+          question = document.querySelector("#h4sQuestion").value;
+        try {
+          const csrf = (await api("/api/hiring/csrf")).csrf_token,
+            j = await api("/api/hiring/h4s/conversations/answer", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                "X-CSRF-Token": csrf,
+              },
+              body: JSON.stringify({
+                conversation_token: h4sConversationToken,
+                question,
+                client_turn_id: `turn_${crypto.randomUUID().replaceAll("-", "_")}`,
+              }),
+            });
+          out.innerHTML = `<p>${esc(j.answer)}</p><p>Sources: ${(j.record_refs || []).map(esc).join(", ") || "none"}</p>`;
+        } catch (e) {
+          out.textContent = e.message;
+        }
+      }
+      async function openCandidate(id) {
+        const d = document.querySelector("#candidate"),
+          body = document.querySelector("#candidateBody");
+        body.innerHTML =
+          '<div class="card loading-state" aria-busy="true"><p>Loading committed evidence…</p></div>';
+        d.hidden = false;
+        document.body.dataset.candidateOpen = "true";
+        document.querySelector("#hiringShell").inert = true;
+        document.querySelector("#hiringShell").setAttribute("aria-hidden", "true");
+        d.querySelector(".candidate-route-head .btn")?.focus();
+        try {
+          const j = await api(
+              `/api/hiring/applications/${encodeURIComponent(id)}`,
+            ),
+            a = j.application,
+            p = j.assessment,
+            coverage = j.evidence_coverage || [],
+            artifacts = j.artifacts || [],
+            cited = [
+              ...new Set(
+                (p?.criteria || []).flatMap((c) =>
+                  (c.citations || []).map((x) => x.evidence_id),
+                ),
+              ),
+            ];
+          document.querySelector("#candidateTitle").textContent =
+            `Candidate ${a.candidate_code}`;
+          document.querySelector("#hiringContextTitle").textContent =
+            `Candidate ${a.candidate_code} · identity hidden`;
+          body.innerHTML = `<p class="micro">${esc(a.candidate_code)} · ${esc(a.candidate_state)} · identity hidden by default</p><button onclick='revealIdentity(${JSON.stringify(id)})'>Reveal identity with recent sign-in</button><p id="revealedIdentity" class="micro"></p><h2>Candidate application</h2><p class="micro">${artifacts.length} restricted document${artifacts.length === 1 ? "" : "s"}. CVs and application material stay in this role and are excluded from general search, profile memory, and company knowledge.</p><ul>${artifacts.map((item) => `<li>${esc(item.source_kind || "CV or resume")} · ${esc(item.content_type || "restricted document")} · ${esc(item.scope || "HIRING_RESTRICTED")}</li>`).join("") || "<li>No candidate document record is available yet.</li>"}</ul><h2>Evidence by approved criterion</h2><p class="micro">Policy ${esc(p?.policy_version_id || a.current_policy_version_id || "pending")} · labels report candidate-provided information as present, missing, or unclear. They are not scores or hiring advice.</p><div class="passport">${coverage.map((c) => `<section class="criterion"><strong>${esc(c.criterion_label || c.criterion_id)}</strong> <span class="${c.coverage === "MISSING" ? "unknown" : "supported"}">${esc(c.coverage)}</span><p>${esc(c.summary)}</p><p class="micro">Citations: ${(c.citations || []).map((x) => esc(x.evidence_id)).join(", ") || "none"}<br>Missing or unclear: ${(c.unknowns || []).map(esc).join("; ") || "none"}<br>Contradictions: ${(c.contradictions || []).map(esc).join("; ") || "none"}</p></section>`).join("") || '<p class="muted">Evidence mapping has not run. This is not negative evidence.</p>'}</div><h3>Causal timeline</h3><ol>${(j.timeline || []).map((e) => `<li><strong>${esc(e.event_kind)}</strong> <span class="micro">sequence ${esc(e.sequence)} · ${esc(e.occurred_at)}</span></li>`).join("") || "<li>Application received; no later workflow event is committed.</li>"}</ol><section class="card"><h3>Record a Founder decision</h3><label>Decision<select id="decisionKind"><option>HOLD</option><option>REQUEST_EVIDENCE</option><option>ADVANCE</option><option>DECLINE</option></select></label><label>Job-related reason<select id="decisionReason">${(j.approved_reason_codes || []).map((x) => `<option value="${esc(x)}">${esc(x)}</option>`).join("")}</select></label><label>Optional note<textarea id="decisionNote" maxlength="1000"></textarea></label><button id="decisionSubmit" onclick='submitDecision(${JSON.stringify(id)},${JSON.stringify(p?.assessment_id)},${a.version},${JSON.stringify(cited)})' ${p?.assessment_id ? "" : "disabled"}>Commit Founder decision</button><p class="micro">Only the Founder can explicitly change a phase or decline. This writes an append-only attributed decision; communication remains a separate exact approval obligation.</p></section><section class="card"><h3>Candidate data rights</h3><button onclick='exportCandidate(${JSON.stringify(id)})'>Export candidate data</button> <button onclick='deleteCandidate(${JSON.stringify(id)})'>Review deletion plan</button><p id="dataRightsStatus" class="micro">Recent sign-in is required. Provider email remains subject to the stated provider limitations.</p></section><p class="micro">Silence, confidence and elapsed time never create a decision.</p>`;
+        } catch (e) {
+          body.innerHTML = `<p class="error">${esc(e.message)}</p>`;
+        }
+      }
+      function closeCandidate() {
+        const route = document.querySelector("#candidate");
+        route.hidden = true;
+        delete document.body.dataset.candidateOpen;
+        const shell = document.querySelector("#hiringShell");
+        shell.inert = false;
+        shell.removeAttribute("aria-hidden");
+        const role = roles.find((item) => item.role_id === selected);
+        if (role)
+          document.querySelector("#hiringContextTitle").textContent =
+            `${role.role_title} · ${role.role_code}`;
+        const url = new URL(location.href);
+        url.searchParams.delete("candidate");
+        history.replaceState(null, "", url);
+        document
+          .querySelector(`[onclick*="openCandidate"]`)
+          ?.focus({ preventScroll: true });
+      }
+      async function revealIdentity(id) {
+        const out = document.querySelector("#revealedIdentity");
+        try {
+          const csrf = (await api("/api/hiring/csrf")).csrf_token,
+            j = await api(
+              `/api/hiring/applications/${encodeURIComponent(id)}/identity-reveal`,
+              {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                  "X-CSRF-Token": csrf,
+                },
+                body: JSON.stringify({
+                  client_request_id: `reveal_${crypto.randomUUID().replaceAll("-", "_")}`,
+                }),
+              },
+            );
+          out.textContent = [
+            j.identity.name,
+            j.identity.email,
+            j.identity.phone,
+          ]
+            .filter(Boolean)
+            .join(" · ");
+          setTimeout(() => {
+            out.textContent = "Identity hidden again.";
+          }, 30000);
+        } catch (e) {
+          out.textContent = e.message;
+        }
+      }
+      async function submitDecision(id, assessmentId, version, evidenceIds) {
+        const b = document.querySelector("#decisionSubmit");
+        b.disabled = true;
+        try {
+          const csrf = (await api("/api/hiring/csrf")).csrf_token;
+          const payload = {
+            schema_version: 1,
+            decision: document.querySelector("#decisionKind").value,
+            reason_codes: [document.querySelector("#decisionReason").value],
+            evidence_ids_reviewed: evidenceIds,
+            assessment_id: assessmentId,
+            expected_application_version: version,
+            client_request_id: `decision_${crypto.randomUUID().replaceAll("-", "_")}`,
+            note: document.querySelector("#decisionNote").value,
+            supersedes_decision_id: null,
+          };
+          await api(
+            `/api/hiring/applications/${encodeURIComponent(id)}/decisions`,
+            {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                "X-CSRF-Token": csrf,
+              },
+              body: JSON.stringify(payload),
+            },
+          );
+          await openRole(selected);
+          await openCandidate(id);
+        } catch (e) {
+          alert(e.message);
+        } finally {
+          b.disabled = false;
+        }
+      }
+      function openInAppBrowser(url) {
+        location.assign(`/?browser_url=${encodeURIComponent(url)}`);
+      }
+      async function exportCandidate(id) {
+        const out = document.querySelector("#dataRightsStatus");
+        try {
+          const csrf = (await api("/api/hiring/csrf")).csrf_token,
+            j = await api(
+              `/api/hiring/applications/${encodeURIComponent(id)}/data-export`,
+              {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                  "X-CSRF-Token": csrf,
+                },
+                body: JSON.stringify({
+                  client_request_id: `export_${crypto.randomUUID().replaceAll("-", "_")}`,
+                }),
+              },
+            );
+          const blob = new Blob([JSON.stringify(j, null, 2)], {
+              type: "application/json",
+            }),
+            url = URL.createObjectURL(blob),
+            a = document.createElement("a");
+          a.href = url;
+          a.download = `candidate-${id}-export.json`;
+          a.click();
+          URL.revokeObjectURL(url);
+          out.textContent = `Exported ${j.record_count} records. Audit ${j.audit_id}.`;
+        } catch (e) {
+          out.textContent = e.message;
+        }
+      }
+      async function deleteCandidate(id) {
+        const out = document.querySelector("#dataRightsStatus");
+        try {
+          const csrf = (await api("/api/hiring/csrf")).csrf_token,
+            plan = await api(
+              `/api/hiring/applications/${encodeURIComponent(id)}/data-deletion`,
+              {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                  "X-CSRF-Token": csrf,
+                },
+                body: JSON.stringify({
+                  execute: false,
+                  expected_inventory_hash: "",
+                  client_request_id: `plan_${crypto.randomUUID().replaceAll("-", "_")}`,
+                }),
+              },
+            );
+          if (
+            !confirm(
+              `Delete ${plan.delete_count} candidate records? The original provider email is not deleted.`,
+            )
+          ) {
+            out.textContent = "Deletion cancelled after dry-run.";
+            return;
+          }
+          const j = await api(
+            `/api/hiring/applications/${encodeURIComponent(id)}/data-deletion`,
+            {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                "X-CSRF-Token": csrf,
+              },
+              body: JSON.stringify({
+                execute: true,
+                expected_inventory_hash: plan.inventory_hash,
+                client_request_id: `delete_${crypto.randomUUID().replaceAll("-", "_")}`,
+              }),
+            },
+          );
+          out.textContent = `Deleted ${j.deleted} records. Receipt ${j.deletion_receipt_id}.`;
+          setTimeout(() => {
+            document.querySelector("#candidate").close();
+            openRole(selected);
+          }, 1000);
+        } catch (e) {
+          out.textContent = e.message;
+        }
+      }
+      function talkH4S() {
+        const out = document.querySelector("#h4sAnswer"),
+          Recognition =
+            window.SpeechRecognition || window.webkitSpeechRecognition;
+        if (!Recognition || !h4sConversationToken) {
+          out.textContent =
+            "Voice requires browser speech recognition and an active scoped sandbox.";
+          return;
+        }
+        const proto = location.protocol === "https:" ? "wss" : "ws",
+          ws = new WebSocket(proto + "://" + location.host + "/live/hiring"),
+          rec = new Recognition();
+        rec.lang = "en-US";
+        rec.interimResults = false;
+        ws.onopen = () => {
+          ws.send(JSON.stringify({ conversation_token: h4sConversationToken }));
+          rec.start();
+        };
+        rec.onresult = (e) =>
+          ws.send(
+            JSON.stringify({
+              text: e.results[0][0].transcript,
+              client_turn_id: `turn_${crypto.randomUUID().replaceAll("-", "_")}`,
+            }),
+          );
+        ws.onmessage = (e) => {
+          const frame = JSON.parse(e.data);
+          if (frame.error) {
+            out.textContent = frame.error;
+            return;
+          }
+          const text = (frame.transcript || {}).text || "";
+          out.innerHTML =
+            "<p>" +
+            esc(text) +
+            "</p><p>Sources: " +
+            (frame.record_refs || []).map(esc).join(", ") +
+            "</p>";
+          if (text && window.speechSynthesis) {
+            speechSynthesis.cancel();
+            speechSynthesis.speak(new SpeechSynthesisUtterance(text));
+          }
+          if (frame.turn_complete) ws.close();
+        };
+        rec.onerror = () => {
+          out.textContent = "Voice recognition ended without a question.";
+          ws.close();
+        };
+      }
+
+      // Composition adapter: the role API still returns the existing committed
+      // projection. This observer moves its renderers into the shared shell without
+      // changing authority, data access, or mutation paths.
+      function hydrateUnifiedRoleLayout(role) {
+        document.querySelector("#hiringShell").dataset.view = "cockpit";
+        const root = document.querySelector("#main");
+        const panes = {
+          work: document.querySelector("#hiring-pane-work"),
+          evidence: document.querySelector("#hiring-pane-evidence"),
+          decisions: document.querySelector("#hiring-pane-decisions"),
+          activity: document.querySelector("#hiring-pane-activity"),
+        };
+        Object.values(panes).forEach((pane) => pane.replaceChildren());
+        document.querySelector("#hiringScope").textContent =
+          `Role: ${role.role_code}`;
+        document.querySelector("#hiringContextTitle").textContent =
+          `${role.role_title} · ${role.role_code}`;
+        root
+          .querySelector(":scope > section.card")
+          ?.classList.add("role-summary");
+        root
+          .querySelector(":scope > section.card > p:last-child")
+          ?.classList.add("next-wake");
+        for (const card of [
+          ...root.querySelectorAll(":scope > section.card"),
+        ]) {
+          const title = (
+            card.querySelector("h3")?.textContent || ""
+          ).toLowerCase();
+          if (title.includes("role brief") || title.includes("role package"))
+            panes.work.append(card);
+          else if (title.includes("publication receipt"))
+            panes.activity.append(card);
+          else if (title.includes("interaction boundary"))
+            panes.evidence.append(card);
+          else if (title.includes("candidate board"))
+            card.classList.add("candidate-board");
+        }
+        const approve = document.querySelector("#approvePolicy"),
+          approvalStatus = document.querySelector("#policyActionStatus");
+        if (approve) {
+          const decision = document.createElement("div"),
+            review = document.createElement("button"),
+            actions = document.createElement("div");
+          decision.className = "card decision-approval";
+          decision.innerHTML =
+            '<h3>Exact role package needs your decision</h3><p>Review the full role brief, generated job description, scorecard, interview plan, and candidate-facing copy before approving.</p><p class="micro">This activates only the internal reviewed role policy. It does not publish, email, source, rank, decide, contact anyone, or invoke a provider.</p>';
+          review.className = "btn";
+          review.dataset.variant = "secondary";
+          review.type = "button";
+          review.textContent = "Review full package in Work";
+          review.addEventListener("click", () => {
+            selectHiringTab("work");
+            panes.work.querySelector(".role-materials")?.focus();
+          });
+          actions.className = "decision-actions";
+          actions.append(review, approve);
+          decision.append(actions);
+          if (approvalStatus) decision.append(approvalStatus);
+          panes.decisions.append(decision);
+        } else {
+          panes.decisions.innerHTML =
+            '<div class="workspace-empty">No role-level decision is pending. Candidate decisions remain inside one candidate record.</div>';
+        }
+        if (!panes.evidence.children.length)
+          panes.evidence.innerHTML =
+            '<div class="workspace-empty">No additional role evidence is linked yet.</div>';
+        if (!panes.activity.children.length)
+          panes.activity.innerHTML =
+            '<div class="workspace-empty">Durable role events and receipts appear here.</div>';
+        document
+          .querySelectorAll("#main button, #hiringWorkspace button")
+          .forEach((button) => {
+          if (!button.classList.contains("btn")) button.classList.add("btn");
+          if (!button.dataset.variant) button.dataset.variant = "secondary";
+        });
+        if (approve) {
+          openHiringWorkspace();
+          selectHiringTab("decisions", false);
+        } else selectHiringTab(hiringActiveTab, false);
+      }
+
+      function focusCandidateSection(id) {
+        document
+          .querySelector(`#${id}`)
+          ?.scrollIntoView({ behavior: "smooth", block: "start" });
+      }
+      function hydrateCandidateRecord() {
+        const body = document.querySelector("#candidateBody");
+        if (
+          !body.children.length ||
+          body.querySelector(".candidate-section-nav") ||
+          body.querySelector(".error")
+        )
+          return;
+        const headings = [...body.querySelectorAll("h2,h3")];
+        const evidence = headings.find((node) =>
+            node.textContent.includes("Evidence by approved criterion"),
+          ),
+          activity = headings.find((node) =>
+            node.textContent.includes("Causal timeline"),
+          ),
+          decision = headings.find((node) =>
+            node.textContent.includes("human decision"),
+          ),
+          work = headings.find((node) =>
+            node.textContent.includes("Candidate application"),
+          ),
+          rights = headings.find((node) =>
+            node.textContent.includes("data rights"),
+          );
+        if (evidence) evidence.id = "candidate-evidence";
+        if (activity) activity.id = "candidate-activity";
+        if (decision) decision.closest("section").id = "candidate-decisions";
+        if (work) work.id = "candidate-work";
+        else if (rights) rights.closest("section").id = "candidate-work";
+        const submit = body.querySelector("#decisionSubmit"),
+          match = submit
+            ?.getAttribute("onclick")
+            ?.match(/submitDecision\((?:'|")([^'"]+)/),
+          candidateId =
+            new URLSearchParams(location.search).get("candidate") ||
+            match?.[1] ||
+            "";
+        body.insertAdjacentHTML(
+          "afterbegin",
+          `<nav class="candidate-section-nav" aria-label="Candidate sections"><button class="btn" data-variant="ghost" onclick="focusCandidateSection('candidate-work')">Work</button><button class="btn" data-variant="ghost" onclick="focusCandidateSection('candidate-evidence')">Evidence</button><button class="btn" data-variant="ghost" onclick="focusCandidateSection('candidate-decisions')">Decisions</button><button class="btn" data-variant="ghost" onclick="focusCandidateSection('candidate-activity')">Activity</button></nav>${candidateId ? `<section class="card"><div class="scoped-alex-head"><svg class="ico" aria-hidden="true"><use href="#i-chat"/></svg><h3>Discuss with Alex</h3><span class="scope-pill">Candidate scope · identity hidden</span></div><p class="micro">This discussion is bound to this candidate and committed evidence only. Alex can explain present, missing, or unclear information, but cannot score, rank, advise a hiring outcome, commit a decision, or perform an external action.</p><textarea id="candidateQuestion" maxlength="2000" placeholder="Ask about this candidate's committed evidence"></textarea><button class="btn" onclick="askCandidateAlex('${esc(candidateId)}')">Ask Alex in candidate scope</button><div id="candidateAnswer" class="micro" aria-live="polite"></div></section>` : ""}`,
+        );
+        body.querySelectorAll("button").forEach((button) => {
+          if (!button.classList.contains("btn")) button.classList.add("btn");
+          if (!button.dataset.variant) button.dataset.variant = "secondary";
+        });
+        if (candidateId) {
+          const url = new URL(location.href);
+          url.searchParams.set("candidate", candidateId);
+          history.replaceState({ candidateId }, "", url);
+        }
+      }
+      const candidateObserver = new MutationObserver(hydrateCandidateRecord);
+      candidateObserver.observe(document.querySelector("#candidateBody"), {
+        childList: true,
+      });
+      addEventListener("popstate", () => {
+        if (!new URLSearchParams(location.search).get("candidate"))
+          closeCandidate();
+      });
+
+      async function askCandidateAlex(candidateId) {
+        const out = document.querySelector("#candidateAnswer"),
+          question = document.querySelector("#candidateQuestion").value.trim();
+        if (!question) {
+          out.textContent = "Enter a question first.";
+          return;
+        }
+        try {
+          const token = (
+              await api(`/api/hiring/applications/${encodeURIComponent(candidateId)}/conversations`, {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                  "X-CSRF-Token": await csrf(),
+                },
+                body: JSON.stringify({}),
+              })
+            ).conversation_token,
+            j = await api("/api/hiring/candidate-conversations/answer", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                "X-CSRF-Token": await csrf(),
+              },
+              body: JSON.stringify({
+                conversation_token: token,
+                question,
+                client_turn_id: `candidate_turn_${crypto.randomUUID().replaceAll("-", "_")}`,
+              }),
+            });
+          out.innerHTML = `<p>${esc(j.answer)}</p><p>Sources: ${(j.record_refs || []).map(esc).join(", ") || "none"}</p>`;
+        } catch (e) {
+          out.textContent = e.message;
+        }
+      }
+      loadIdentity();
+      load();
+    </script>
+  </body>
+</html>

@@ -35,7 +35,7 @@ async def request_approval(*, principal: ActorPrincipal, run_id: str,
                            client_request_id: str,
                            store: DurableStore | None = None,
                            ttl_minutes: int = 30) -> dict[str, Any]:
-    gate = authorize(principal, "resolve_approval", role_id=role_id)
+    gate = authorize(principal, "resolve_approval")
     if gate.get("error"):
         return gate
     if not exact_action or not 1 <= ttl_minutes <= 1440:
@@ -112,7 +112,7 @@ async def resolve_approval(*, principal: ActorPrincipal, approval_id: str,
         return _error("approval_not_found", "Approval does not exist.", 404)
     if approval.get("workspace_id") != principal.workspace_id:
         return _error("approval_not_found", "Approval does not exist.", 404)
-    gate = authorize(principal, "resolve_approval", role_id=approval["role_id"],
+    gate = authorize(principal, "resolve_approval",
                      require_fresh=_requires_fresh(approval, require_fresh))
     if gate.get("error"):
         return gate
@@ -186,7 +186,7 @@ async def validate_approval_claim(
     approval = await durable.get("approvals", approval_id)
     if not approval or approval.get("workspace_id") != principal.workspace_id:
         return _error("approval_not_found", "Approval does not exist.", 404)
-    gate = authorize(principal, "resolve_approval", role_id=approval["role_id"],
+    gate = authorize(principal, "resolve_approval",
                      require_fresh=_requires_fresh(approval, require_fresh))
     if gate.get("error"):
         return gate

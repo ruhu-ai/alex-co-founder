@@ -63,9 +63,9 @@ def test_dry_run_requires_a_real_verified_channel_and_mutates_nothing():
     )
 
     assert result["mode"] == "dry-run"
-    assert result["policy_count"] == 10
+    assert result["policy_count"] == 11
     assert result["uptime_check_id"] == "DRY_RUN_UPTIME_CHECK_ID"
-    assert len(result["policies_created"]) == 10
+    assert len(result["policies_created"]) == 11
     assert not any(" create " in f" {' '.join(command)} " for command in runner.commands)
 
 
@@ -86,7 +86,7 @@ def test_apply_creates_uptime_and_every_policy_with_notification_channel():
     policy_commands = [
         command for command in runner.commands if "monitoring policies create" in " ".join(command)
     ]
-    assert len(policy_commands) == 10
+    assert len(policy_commands) == 11
     for command in policy_commands:
         argument = next(item for item in command if item.startswith("--policy="))
         policy = json.loads(argument.removeprefix("--policy="))

@@ -1,0 +1,10 @@
+{
+  "schema_version": "cofounder.skill-qualification.v1",
+  "evidence_version": "1.0.0",
+  "status": "NOT_RUN",
+  "skill_id": "funding.draft-grounded-section",
+  "skill_version": "1.0.0",
+  "model_policy_version": "unqualified",
+  "suite_result_refs": [],
+  "capability_set_hash": "sha256:42915684ee129a38f70a702d0885f461d060e5c2bfd9210a7b16a9e4ba81691e"
+}
