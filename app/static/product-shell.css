@@ -201,6 +201,117 @@ body {
   width: var(--ico-lg);
   height: var(--ico-lg);
 }
+#acctWrap,
+.account-wrap {
+  position: relative;
+  flex: none;
+}
+.acct-avatar {
+  width: 26px;
+  height: 26px;
+  border-radius: var(--r-full);
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--accent);
+  color: var(--accent-on);
+  font: 700 var(--fs-1) / 1 var(--font-display);
+  letter-spacing: 0.02em;
+}
+.acct-avatar.big {
+  width: 36px;
+  height: 36px;
+  font-size: var(--fs-3);
+}
+.account-menu {
+  position: absolute;
+  top: calc(100% + var(--sp-2));
+  right: 0;
+  left: auto;
+  min-width: 264px;
+  padding: var(--sp-2);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  z-index: 40;
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: var(--r-4);
+  box-shadow: var(--e-3);
+}
+.account-wrap[data-menu-align="left"] .account-menu {
+  right: auto;
+  left: 0;
+}
+.account-menu[hidden] {
+  display: none;
+}
+.account-menu hr {
+  width: calc(100% + 2 * var(--sp-2));
+  border: 0;
+  border-top: 1px solid var(--divider);
+  margin: var(--sp-1) calc(-1 * var(--sp-2));
+}
+.account-menu .menu-id {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-2) var(--sp-3);
+}
+.account-menu .menu-id .grow {
+  min-width: 0;
+}
+.account-menu .menu-id b,
+.account-menu .menu-id .conn-sub {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.account-menu .menu-id b {
+  color: var(--ink-1);
+  font: 600 var(--fs-3) / var(--lh-3) var(--font-ui);
+}
+.account-menu .menu-id .conn-sub {
+  color: var(--ink-3);
+  font: 400 var(--fs-2) / var(--lh-2) var(--font-ui);
+}
+.account-menu .menu-item {
+  width: 100%;
+  min-height: 36px;
+  padding: var(--sp-2) var(--sp-3);
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-start;
+  gap: var(--sp-3);
+  border: 0;
+  border-radius: var(--r-2);
+  background: transparent;
+  color: var(--ink-1);
+  cursor: pointer;
+  text-align: left;
+  text-decoration: none;
+  font: 400 var(--fs-3) / var(--lh-3) var(--font-ui);
+}
+.account-menu .menu-item:hover {
+  background: var(--surface-2);
+}
+.account-menu .menu-item .ico {
+  color: var(--ink-2);
+}
+.account-menu .menu-profile-glyph {
+  width: var(--ico-md);
+  height: var(--ico-md);
+  font-size: 8px;
+}
+.account-menu .menu-item.danger {
+  color: var(--danger-ink);
+}
+.account-menu .menu-item.danger .ico {
+  color: var(--danger-ink);
+}
 #sprite {
   display: none;
 }

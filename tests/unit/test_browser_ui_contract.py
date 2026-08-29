@@ -53,7 +53,7 @@ def test_approval_ui_uses_workspace_scoped_receipted_v1_api():
 
 def test_investor_outreach_ui_exposes_drafts_uncertainty_and_exact_send():
     assert 'id="investorRuns"' in HTML
-    assert "/api/v1/investor-outreach?session_id=" in HTML
+    assert 'api("/api/v1/investor-outreach")' in HTML
     assert "/api/v1/outreach-drafts/${encodeURIComponent(draftId)}:request-approval" in HTML
     assert "/api/v1/outreach-drafts/${encodeURIComponent(draftId)}:send" in HTML
     assert "Send exact approved email" in HTML
@@ -82,6 +82,25 @@ def test_connector_mutations_use_workspace_scoped_receipted_v1_apis():
     assert 'api("/api/v1/integrations/gmail/label"' in HTML
     assert 'api("/api/v1/integrations/alex_mail:watch"' in HTML
     assert "client_request_id" in HTML
+
+
+def test_alex_drive_is_separate_and_generated_documents_target_it():
+    assert 'id="connAlexDrive"' in HTML
+    assert 'alex_drive: "connAlexDrive"' in HTML
+    assert 'api("/api/v1/integrations/alex-drive/files?limit=25")' in HTML
+    assert ':sync-alex-drive`' in HTML
+    assert "Save to Alex's Drive" in HTML
+
+
+def test_connector_list_is_grouped_by_account_ownership():
+    assert 'const CONNECTOR_ACCOUNT_GROUPS = [' in HTML
+    founder = HTML.index('{key: "founder", label: "Founder"')
+    alex = HTML.index('{key: "alex", label: "Alex"')
+    builtin = HTML.index('{key: "builtin", label: "Built-in tools"')
+    assert founder < alex < builtin
+    assert 'connector.account_group || LEGACY_CONNECTOR_ACCOUNT_GROUP' in HTML
+    assert 'aria-label="${esc(group.label)} connectors"' in HTML
+    assert 'group.key === "builtin"' in HTML
 
 
 def test_chat_ui_uses_workspace_scoped_receipted_v1_messages():

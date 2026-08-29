@@ -90,16 +90,17 @@ def prepare_hiring_role_brief(
         required_criteria: Must-have job-related qualifications only.
         responsibilities: Candidate-facing responsibilities for the role.
         success_outcomes: Founder-confirmed outcomes expected in the role.
-        preferred_criteria: Optional preferred, non-gating qualifications; use
-            an empty list when none were supplied.
+        preferred_criteria: Founder-confirmed preferred, non-gating
+            qualifications. At least one is required before the package can be
+            reviewed for approval.
         relevant_experience: Material job-related experience expectations.
         benefits: Founder-supplied benefits only; otherwise an empty list.
         hiring_process: Founder-supplied stages, or an empty list to use the
             safe internal default (criteria review, structured interview,
             Founder decision).
         application_instructions: Exact Founder-supplied candidate application
-            channel/instructions, or an empty string to mark it honestly as a
-            pre-publication gap. Never invent an email address or URL.
+            channel/instructions. This is required before review; never invent
+            an email address or URL.
         equal_opportunity_statement: Founder-confirmed, legally reviewed
             candidate wording, or an empty string. Never fabricate a claim.
         accessibility_statement: Founder-confirmed candidate accommodation
@@ -242,6 +243,7 @@ async def create_hiring_draft(
         principal=principal,
         role_id=role["role_id"],
         contract=contract,
+        role_description=dict(proposal.get("role_description") or {}),
         change_reason="Founder-confirmed role package from Alex conversation.",
         client_request_id=f"{request_id}:role-package",
     )

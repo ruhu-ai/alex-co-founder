@@ -1137,11 +1137,16 @@ an interval is not a health failure.
 
 The approved job description offers both the dedicated role address and, only
 after its independent channel gate passes, a role-bound application form. The
-form requires applicant name, an explicitly entered email address, cover note,
-PDF/DOCX résumé, and affirmative privacy consent; it never infers email from
-document contents. Its encrypted application and CV records converge on the
-same restricted candidate queue as role-addressed mail, while neither channel
-starts assessment, ranking, a decision, contact, or any external effect.
+separate candidate-facing page presents the complete approved job description
+before a simple form containing an explicitly entered email address, PDF/DOCX
+CV, and optional message. One **Submit application** control records acceptance
+of the adjacent role-specific privacy notice; the system never infers contact
+details from document contents. Its encrypted application and CV records
+converge on the same restricted candidate queue as role-addressed mail, while
+neither channel starts assessment, ranking, a decision, contact, or any external
+effect. Every published role in the internal workspace provides **View public
+job page** and **Copy application link** actions without rendering public intake
+controls or restricted candidate material in the workspace itself.
 Accommodation, withdrawal, and data-rights paths remain separate human or
 authenticated flows. Synthetic fixtures are never eligible for public intake.
 

@@ -4,77 +4,115 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <title>Open role · Co-Founder</title>
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/product-shell.css" />
     <style>
-      :root{color-scheme:light dark;--surface:#fff;--surface-2:#f5f7fb;--ink:#151923;--muted:#526071;--border:#d9deea;--accent:#2f5bd0;--on-accent:#fff}
-      @media(prefers-color-scheme:dark){:root{--surface:#10131a;--surface-2:#181d27;--ink:#edf0f7;--muted:#abb4c5;--border:#333b4d;--accent:#8fb2ff;--on-accent:#10131a}}
-      *{box-sizing:border-box}body{margin:0;background:var(--surface);color:var(--ink);font:16px/1.6 ui-sans-serif,system-ui,-apple-system,sans-serif}main{width:min(760px,calc(100% - 40px));margin:56px auto}h1,h2{line-height:1.25}h1{font-size:clamp(1.8rem,5vw,2.6rem);margin-bottom:8px}h2{font-size:1.08rem;margin:0 0 10px}p,li{color:var(--muted)}section{margin-top:24px;padding:20px;border:1px solid var(--border);border-radius:14px;background:var(--surface-2)}ul{margin:0;padding-left:22px}.eyebrow{color:var(--accent);font-weight:700}.status{border-left:4px solid var(--accent)}.meta{display:flex;flex-wrap:wrap;gap:8px 20px}.meta span{color:var(--muted)}a{color:var(--accent)}[hidden]{display:none!important}:focus-visible{outline:3px solid var(--accent);outline-offset:3px}
-      form{display:grid;gap:16px;margin-top:18px}.field{display:grid;gap:6px}.field label,.legend{font-weight:700;color:var(--ink)}input,textarea{width:100%;padding:11px 12px;border:1px solid var(--border);border-radius:9px;background:var(--surface);color:var(--ink);font:inherit}textarea{min-height:140px;resize:vertical}.help,.required-note,.privacy{font-size:.9rem;color:var(--muted)}.required{font-weight:600}.consent{display:grid;grid-template-columns:auto 1fr;gap:10px;align-items:start}.consent input{width:20px;height:20px;margin-top:3px}.submit{justify-self:start;min-height:44px;padding:10px 18px;border:0;border-radius:9px;background:var(--accent);color:var(--on-accent);font:inherit;font-weight:700;cursor:pointer}.submit:disabled{opacity:.55;cursor:not-allowed}.application-status{min-height:1.6em;font-weight:650}.email-option{padding:14px;border:1px solid var(--border);border-radius:10px;background:var(--surface)}
+      body{min-height:100vh;background:var(--surface-0);color:var(--ink-1)}
+      .job-page{width:min(820px,calc(100% - 40px));margin:0 auto;padding:var(--sp-9) 0 80px}
+      .job-header{padding-bottom:var(--sp-7);border-bottom:1px solid var(--divider)}
+      .eyebrow{margin:0 0 var(--sp-3);color:var(--accent-ink);font:600 var(--fs-2)/var(--lh-2) var(--font-ui);letter-spacing:var(--tr-label);text-transform:uppercase}
+      h1,h2{margin:0;color:var(--ink-1);font-family:var(--font-display);text-wrap:balance}
+      h1{max-width:18ch;font-size:clamp(32px,7vw,52px);line-height:1.08;letter-spacing:var(--tr-tight)}
+      h2{font-size:var(--fs-6);line-height:var(--lh-6)}
+      p,li{color:var(--ink-2)}
+      #company{margin:var(--sp-3) 0 0;font-size:var(--fs-5);line-height:var(--lh-5)}
+      .job-description{display:grid;gap:0}
+      .job-section{padding:var(--sp-7) 0;border-bottom:1px solid var(--divider)}
+      .job-section h2{margin-bottom:var(--sp-3)}
+      .job-section p{max-width:68ch;margin:0;white-space:pre-line}
+      .job-section ul{max-width:68ch;margin:0;padding-left:var(--sp-6);display:grid;gap:var(--sp-2)}
+      .meta{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:var(--sp-4)}
+      .meta-item{display:grid;gap:var(--sp-1);padding:var(--sp-4);border:1px solid var(--border);border-radius:var(--r-3);background:var(--surface-1)}
+      .meta-label{color:var(--ink-3);font:600 var(--fs-1)/var(--lh-1) var(--font-ui);letter-spacing:var(--tr-label);text-transform:uppercase}
+      .meta-value{color:var(--ink-1);font-weight:600}
+      .status{margin-bottom:var(--sp-7);padding:var(--sp-5);border:1px solid var(--border);border-left:4px solid var(--accent);border-radius:var(--r-3);background:var(--surface-1)}
+      .status h1{font-size:var(--fs-7);line-height:var(--lh-7)}
+      .status p{margin:var(--sp-2) 0 0}
+      .status button{margin-top:var(--sp-3)}
+      .application-section{margin-top:var(--sp-8);padding:var(--sp-7);border:1px solid var(--border);border-radius:var(--r-4);background:var(--surface-1);box-shadow:var(--e-1)}
+      .application-section>h2{font-size:var(--fs-7);line-height:var(--lh-7)}
+      .application-intro{margin:var(--sp-2) 0 0;max-width:68ch}
+      form{display:grid;gap:var(--sp-5);margin-top:var(--sp-6)}
+      .field{display:grid;gap:var(--sp-2)}
+      .field label{color:var(--ink-1);font-weight:600}
+      input,textarea{width:100%;min-height:44px;padding:10px 12px;border:1px solid var(--field);border-radius:var(--r-2);background:var(--surface-0);color:var(--ink-1);font:inherit}
+      input:hover,textarea:hover{border-color:var(--ink-3)}
+      input:focus,textarea:focus{border-color:var(--accent)}
+      input[type=file]{padding:8px}
+      textarea{min-height:128px;resize:vertical}
+      .help,.required-note,.privacy{margin:0;color:var(--ink-3);font-size:var(--fs-3);line-height:var(--lh-3)}
+      .required{font-weight:500;color:var(--ink-3)}
+      .privacy{padding-top:var(--sp-4);border-top:1px solid var(--divider)}
+      .submit{width:100%;min-height:48px;margin-top:var(--sp-1);border:0;border-radius:var(--r-3);background:var(--accent);color:var(--accent-on);font:600 var(--fs-4)/1 var(--font-ui);cursor:pointer}
+      .submit:hover{background:color-mix(in srgb,var(--accent) 86%,var(--ink-1))}
+      .submit:disabled{opacity:.5;cursor:not-allowed}
+      .application-status{min-height:var(--lh-4);margin:var(--sp-3) 0 0;color:var(--ink-1);font-weight:600}
+      .email-option{margin-top:var(--sp-5);padding:var(--sp-4);border:1px solid var(--divider);border-radius:var(--r-3);background:var(--surface-2)}
+      .email-option p{margin:var(--sp-1) 0 0}
+      a{color:var(--accent-ink)}
+      [hidden]{display:none!important}
+      @media(max-width:640px){.job-page{width:min(100% - 32px,820px);padding-top:var(--sp-7)}.meta{grid-template-columns:1fr}.application-section{padding:var(--sp-5)}}
     </style>
   </head>
   <body>
-    <main>
-      <p class="eyebrow">Open role</p>
+    <main class="job-page">
       <div id="status" class="status" role="status" aria-live="polite">
         <h1>Job description not live</h1>
         <p>This role is unavailable until its exact content is approved and a manual publication receipt exists.</p>
       </div>
       <article id="role" hidden aria-labelledby="roleTitle">
-        <h1 id="roleTitle"></h1><p id="company"></p>
-        <section><h2>Overview</h2><p id="overview"></p></section>
-        <section id="outcomesSection"><h2>What success looks like</h2><ul id="outcomes"></ul></section>
-        <section><h2>Responsibilities</h2><ul id="responsibilities"></ul></section>
-        <section><h2>Requirements</h2><ul id="requirements"></ul></section>
-        <section id="preferredSection"><h2>Preferred qualifications</h2><ul id="preferred"></ul></section>
-        <section id="experienceSection"><h2>Relevant experience</h2><ul id="experience"></ul></section>
-        <section><h2>Working model</h2><div class="meta"><span><strong>Location:</strong> <span id="location"></span></span><span><strong>Arrangement:</strong> <span id="arrangement"></span></span><span><strong>Employment:</strong> <span id="employment"></span></span></div></section>
-        <section id="compensationSection"><h2>Compensation and benefits</h2><ul id="compensation"></ul></section>
-        <section id="processSection"><h2>Hiring process</h2><ul id="process"></ul></section>
-        <section id="fairProcessSection"><h2>Fair and accessible process</h2><div id="fairProcess"></div></section>
-        <section id="applicationSection">
+        <div id="previewBanner" class="status" hidden><strong>Founder preview</strong><p>This is the exact candidate-facing draft under review. It is not published and applications are closed.</p><button class="btn" data-variant="secondary" type="button" onclick="history.back()">Back to role workspace</button></div>
+        <header class="job-header"><p class="eyebrow">Open role</p><h1 id="roleTitle"></h1><p id="company"></p></header>
+        <div class="job-description" aria-label="Job description">
+          <section class="job-section"><h2>Overview</h2><p id="overview"></p></section>
+          <section class="job-section" id="outcomesSection"><h2>What success looks like</h2><ul id="outcomes"></ul></section>
+          <section class="job-section"><h2>Responsibilities</h2><ul id="responsibilities"></ul></section>
+          <section class="job-section"><h2>Requirements</h2><ul id="requirements"></ul></section>
+          <section class="job-section" id="preferredSection"><h2>Preferred qualifications</h2><ul id="preferred"></ul></section>
+          <section class="job-section" id="experienceSection"><h2>Relevant experience</h2><ul id="experience"></ul></section>
+          <section class="job-section"><h2>Working model</h2><div class="meta"><div class="meta-item"><span class="meta-label">Location</span><span class="meta-value" id="location"></span></div><div class="meta-item"><span class="meta-label">Arrangement</span><span class="meta-value" id="arrangement"></span></div><div class="meta-item"><span class="meta-label">Employment</span><span class="meta-value" id="employment"></span></div></div></section>
+          <section class="job-section" id="compensationSection"><h2>Compensation and benefits</h2><ul id="compensation"></ul></section>
+          <section class="job-section" id="processSection"><h2>Hiring process</h2><ul id="process"></ul></section>
+          <section class="job-section" id="fairProcessSection"><h2>Fair and accessible process</h2><div id="fairProcess"></div></section>
+        </div>
+        <section class="application-section" id="applicationSection">
           <h2>Apply for this role</h2>
-          <p id="application"></p>
-          <p class="required-note"><span aria-hidden="true">*</span> Required field</p>
+          <p class="application-intro" id="application"></p>
+          <div id="roleEmailOption" class="email-option" hidden>
+            <strong>Prefer email?</strong>
+            <p>Send your application and CV to <a id="roleEmail"></a>. This address is dedicated to this role.</p>
+          </div>
           <form id="applicationForm" hidden enctype="multipart/form-data">
             <div class="field">
-              <label for="applicantName">Name <span class="required">(required)</span></label>
-              <input id="applicantName" name="applicant_name" autocomplete="name" maxlength="160" required aria-required="true" />
-            </div>
-            <div class="field">
               <label for="applicantEmail">Email address <span class="required">(required)</span></label>
-              <input id="applicantEmail" name="email" type="email" autocomplete="email" maxlength="254" required aria-required="true" />
-              <span class="help">Enter your email directly; it is never inferred from your resume.</span>
-            </div>
-            <div class="field">
-              <label for="coverNote">Message or cover note <span class="required">(required)</span></label>
-              <textarea id="coverNote" name="cover_note" maxlength="4000" required aria-required="true"></textarea>
+              <input id="applicantEmail" name="email" type="email" autocomplete="email" maxlength="254" required aria-required="true" aria-describedby="emailHelp" />
+              <span class="help" id="emailHelp">Enter your email directly; it is never inferred from your CV.</span>
             </div>
             <div class="field">
               <label for="resume">CV or resume <span class="required">(required)</span></label>
-              <input id="resume" name="resume" type="file" accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document" required aria-required="true" />
-              <span class="help">PDF or DOCX, up to 5 MB.</span>
+              <input id="resume" name="resume" type="file" accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document" required aria-required="true" aria-describedby="resumeHelp" />
+              <span class="help" id="resumeHelp">PDF or DOCX, up to 5 MB.</span>
             </div>
-            <label class="consent" for="privacyConsent">
-              <input id="privacyConsent" name="privacy_consent" type="checkbox" value="accepted" required aria-required="true" />
-              <span><strong>Privacy consent (required).</strong> <span id="privacyNotice" class="privacy"></span></span>
-            </label>
+            <div class="field">
+              <label for="coverNote">Message <span class="required">(optional)</span></label>
+              <textarea id="coverNote" name="cover_note" maxlength="4000" aria-describedby="messageHelp"></textarea>
+              <span class="help" id="messageHelp">Add any context you would like the hiring team to consider.</span>
+            </div>
+            <p id="privacyNotice" class="privacy"></p>
+            <input name="privacy_consent" type="hidden" value="accepted" />
             <input id="intakeToken" name="intake_token" type="hidden" />
             <input id="clientRequestId" name="client_request_id" type="hidden" />
             <button id="submitApplication" class="submit" type="submit">Submit application</button>
           </form>
-          <div id="roleEmailOption" class="email-option" hidden>
-            <strong>Prefer email?</strong>
-            <p>Send your application and resume to <a id="roleEmail"></a>. This address is dedicated to this role.</p>
-          </div>
           <p id="applicationStatus" class="application-status" role="status" aria-live="polite"></p>
         </section>
-        <p><a id="source" rel="noopener noreferrer">View the manually published source</a></p>
       </article>
     </main>
     <script>
       const byId=(id)=>document.getElementById(id);
       const fillList=(id,values,sectionId)=>{const list=byId(id),items=(values||[]).filter(Boolean);list.replaceChildren(...items.map((value)=>{const item=document.createElement("li");item.textContent=value;return item}));if(sectionId)byId(sectionId).hidden=!items.length};
       let activeRoleId="";
-      async function loadOpenRole(){const roleId=new URLSearchParams(location.search).get("role_id")||"";if(!/^[a-z][a-z0-9_:-]{2,127}$/.test(roleId))return;try{const response=await fetch(`/api/public/hiring/roles/${encodeURIComponent(roleId)}`);if(!response.ok)return;const data=await response.json(),role=data.open_role;if(!data.live||!role)return;activeRoleId=roleId;byId("status").hidden=true;byId("role").hidden=false;byId("roleTitle").textContent=role.title;byId("company").textContent=role.company_name;byId("overview").textContent=role.overview;fillList("outcomes",role.success_outcomes,"outcomesSection");fillList("responsibilities",role.responsibilities);fillList("requirements",role.must_have_qualifications);fillList("preferred",role.preferred_qualifications,"preferredSection");fillList("experience",role.relevant_experience,"experienceSection");byId("location").textContent=role.location||"Not specified";byId("arrangement").textContent=role.work_arrangement||"Not specified";byId("employment").textContent=role.employment_type||"Not specified";fillList("compensation",[role.compensation&&`Compensation: ${role.compensation}`,...(role.benefits||[])].filter(Boolean),"compensationSection");fillList("process",role.hiring_process,"processSection");const statements=[role.equal_opportunity_statement,role.accessibility_statement].filter(Boolean);byId("fairProcess").replaceChildren(...statements.map((value)=>{const paragraph=document.createElement("p");paragraph.textContent=value;return paragraph}));byId("fairProcessSection").hidden=!statements.length;byId("application").textContent=role.application_instructions;const intake=role.intake||{};byId("privacyNotice").textContent=intake.privacy_notice||"";byId("applicationForm").hidden=!intake.form_available;if(intake.form_available){byId("intakeToken").value=intake.intake_token||"";byId("clientRequestId").value=`application_${crypto.randomUUID()}`}const emailOption=byId("roleEmailOption"),emailLink=byId("roleEmail");emailOption.hidden=!intake.email_available;if(intake.email_available){emailLink.textContent=intake.role_email;emailLink.href=`mailto:${intake.role_email}`}if(!intake.form_available&&!intake.email_available)byId("applicationStatus").textContent="Applications are not open through this page yet.";const source=byId("source");source.href=role.published_source_url;source.hidden=!role.published_source_url}catch(_){return}}
+      async function loadOpenRole(){const params=new URLSearchParams(location.search),roleId=params.get("role_id")||"",previewPolicy=params.get("preview_policy")||"";if(!/^[a-z][a-z0-9_:-]{2,127}$/.test(roleId)||previewPolicy&&!/^[a-z][a-z0-9_:-]{2,127}$/.test(previewPolicy))return;try{const endpoint=previewPolicy?`/api/hiring/roles/${encodeURIComponent(roleId)}/job-description-preview/${encodeURIComponent(previewPolicy)}`:`/api/public/hiring/roles/${encodeURIComponent(roleId)}`,response=await fetch(endpoint,{credentials:"same-origin"});if(!response.ok)return;const data=await response.json(),role=data.open_role;if((!data.live&&!data.preview)||!role)return;activeRoleId=data.live?roleId:"";document.title=`${role.title} · ${role.company_name}`;byId("status").hidden=true;byId("role").hidden=false;byId("previewBanner").hidden=!data.preview;byId("roleTitle").textContent=role.title;byId("company").textContent=role.company_name;byId("overview").textContent=role.overview;fillList("outcomes",role.success_outcomes,"outcomesSection");fillList("responsibilities",role.responsibilities);fillList("requirements",role.must_have_qualifications);fillList("preferred",role.preferred_qualifications,"preferredSection");fillList("experience",role.relevant_experience,"experienceSection");byId("location").textContent=role.location;byId("arrangement").textContent=role.work_arrangement;byId("employment").textContent=role.employment_type;fillList("compensation",[role.compensation&&`Compensation: ${role.compensation}`,...(role.benefits||[])].filter(Boolean),"compensationSection");fillList("process",role.hiring_process,"processSection");const statements=[role.equal_opportunity_statement,role.accessibility_statement].filter(Boolean);byId("fairProcess").replaceChildren(...statements.map((value)=>{const paragraph=document.createElement("p");paragraph.textContent=value;return paragraph}));byId("fairProcessSection").hidden=!statements.length;byId("application").textContent=role.application_instructions;const intake=data.preview?{}:role.intake||{};byId("privacyNotice").textContent=intake.privacy_notice||"";byId("applicationForm").hidden=!intake.form_available;if(intake.form_available){byId("intakeToken").value=intake.intake_token||"";byId("clientRequestId").value=`application_${crypto.randomUUID()}`}const emailOption=byId("roleEmailOption"),emailLink=byId("roleEmail");emailOption.hidden=!intake.email_available;if(intake.email_available){emailLink.textContent=intake.role_email;emailLink.href=`mailto:${intake.role_email}`}if(!intake.form_available&&!intake.email_available)byId("applicationStatus").textContent=data.preview?"Applications are closed in preview.":"Applications are not open through this page yet."}catch(_){return}}
       byId("applicationForm").addEventListener("submit",async(event)=>{event.preventDefault();if(!activeRoleId)return;const form=event.currentTarget,button=byId("submitApplication"),status=byId("applicationStatus"),file=byId("resume").files[0];if(!file)return;if(file.size>5*1024*1024){status.textContent="Resume files must be 5 MB or smaller.";return}button.disabled=true;status.textContent="Submitting your application…";try{const response=await fetch(`/api/public/hiring/roles/${encodeURIComponent(activeRoleId)}/applications`,{method:"POST",body:new FormData(form)});const result=await response.json();if(!response.ok||result.error)throw new Error(result.message||"The application could not be submitted.");status.textContent=`Application received. Your reference is ${result.application_reference}.`;for(const element of form.elements)element.disabled=true}catch(error){status.textContent=error.message||"The application could not be submitted.";button.disabled=false}});
       loadOpenRole();
     </script>

@@ -12,7 +12,7 @@ pytestmark = pytest.mark.asyncio
 
 
 async def _connection(founder: str, connector: str, scopes=None):
-    is_alex = connector in {"alex_mail", "alex_calendar"}
+    is_alex = connector in {"alex_drive", "alex_mail", "alex_calendar"}
     return await firestore.upsert_data_connection(
         founder, connector,
         account_ref=("alex-role-mailbox" if is_alex
@@ -53,6 +53,31 @@ async def test_alex_calendar_is_a_separate_role_account_connector(fake_store):
     catalog = connectors.catalog(projection["connections"])
     calendar = next(row for row in catalog if row["name"] == "alex_calendar")
     assert calendar["connected"] is True
+
+
+async def test_alex_drive_is_role_owned_and_projects_only_full_scope(fake_store):
+    result = await connection_registry.project_verified_consent(
+        "founder", "alex_drive", "alex", account_hint="a***@ruhu.ai",
+        granted_scopes=google_oauth.SCOPE_MAP["alex_drive"])
+
+    assert result["status"] == "success"
+    assert [row["connector_id"] for row in result["connections"]] == [
+        "alex_drive"]
+    connection = result["connections"][0]
+    assert connection["account_ref"] == "alex-role-mailbox"
+    assert connection["granted_scopes"] == [
+        "https://www.googleapis.com/auth/drive"]
+
+
+async def test_connector_catalog_exposes_explicit_account_groups():
+    catalog = {row["name"]: row for row in connectors.catalog()}
+    assert {catalog[name]["account_group"] for name in (
+        "drive", "founder_gmail", "calendar")} == {"founder"}
+    assert {catalog[name]["account_group"] for name in (
+        "alex_drive", "alex_mail", "alex_calendar")} == {"alex"}
+    assert catalog["browser"]["account_group"] == "builtin"
+    assert all(row["account_group"] in {
+        "founder", "alex", "builtin", "available"} for row in catalog.values())
 
 
 async def test_stale_failure_cannot_overwrite_later_reconnect(fake_store):

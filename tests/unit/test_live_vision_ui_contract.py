@@ -32,6 +32,65 @@ def test_capture_is_gesture_bound_and_never_resumes_automatically():
     assert "localStorage.setItem" not in HTML[HTML.index("let consentGrants"):HTML.index("function renderVoiceCloud")]
 
 
+def test_foregrounding_selected_chrome_tab_does_not_end_voice_or_display_share():
+    capture = HTML.split("async function captureVisionSource(source, grantId)", 1)[1].split(
+        "function shareVision", 1,
+    )[0]
+    sampling = HTML.split("function startVisionSampling()", 1)[1].split(
+        "function pauseVision", 1,
+    )[0]
+    visibility = HTML.split('document.addEventListener("visibilitychange"', 1)[1].split(
+        'window.addEventListener("pagehide"', 1,
+    )[0]
+    continuation = HTML.split("function displayShareMayContinueWhileHidden()", 1)[1].split(
+        "function reconcileDisplayShareAfterVisibility", 1,
+    )[0]
+
+    assert "displayCaptureSelectionPending = true" in capture
+    assert "displayCaptureSelectionPending = false" in capture
+    assert 'document.hidden && current.source !== "display"' in sampling
+    assert "if (displayShareMayContinueWhileHidden()) return" in visibility
+    assert 'visual.source === "display"' in continuation
+    assert 'visual.track.readyState === "live"' in continuation
+    assert 'if (voice) closeLiveConnection();' in visibility
+    assert 'if (voice) closeLiveConnection();' in HTML.split(
+        'window.addEventListener("pagehide"', 1,
+    )[1].split("// ---------- session picker", 1)[0]
+
+
+def test_screen_capture_requires_explicit_source_selection_then_explicit_share():
+    begin = HTML.split("async function beginVision(source)", 1)[1].split(
+        "function cancelVisionConsent", 1,
+    )[0]
+    capture = HTML.split("async function captureVisionSource(source, grantId)", 1)[1].split(
+        "function shareVision", 1,
+    )[0]
+    share = HTML.split("function shareVision()", 1)[1].split(
+        "function startVisionSampling", 1,
+    )[0]
+
+    assert 'const VISUAL_SOURCES = new Set([ "camera", "display" ])' in HTML
+    assert "if (!VISUAL_SOURCES.has(source))" in begin
+    assert "navigator.mediaDevices.getDisplayMedia" not in begin
+    assert "navigator.mediaDevices.getDisplayMedia" in capture
+    assert 'video: true' in capture and 'audio: false' in capture
+    assert 'visual.state !== "preview"' in share
+    assert 'type: "media.prepare"' in share
+    assert '`${sourceName} preview — not shared`' in capture
+    assert "Nothing is being sent until you choose Share with Alex" in capture
+
+
+def test_screen_preview_names_the_browser_selected_scope_and_uses_screen_icon():
+    assert 'surface === "browser"' in HTML
+    assert 'surface === "window"' in HTML
+    assert 'surface === "monitor"' in HTML
+    assert "Selected tab only" in HTML
+    assert "Selected window only" in HTML
+    assert "Entire screen selected" in HTML
+    assert 'source === "display" ? "#i-screen-share" : "#i-camera"' in HTML
+    assert '`${sourceName} sharing controls`' in HTML
+
+
 def test_camera_permission_result_is_cancelled_if_live_voice_ended_or_paused():
     capture = HTML.split("async function captureVisionSource(source, grantId)", 1)[1].split(
         "function shareVision", 1,
@@ -69,7 +128,8 @@ def test_stale_visual_share_stops_local_capture_without_ending_voice():
     assert 'frame.type === "media.stopped"' in frames
     assert 'stopVision(frame.end_reason || "budget_exhausted", false)' in frames
     assert '"stale_generation", "visual_context_limit"' in frames
-    assert 'toast("Camera sharing ended because the app no longer has an active visual share.' in frames
+    assert "const source = visual ? visualSourceName(visual.source)" in frames
+    assert "`${source} sharing ended because the app no longer has an active visual share." in frames
     assert "closeLiveConnection" not in frames.split(
         '"stale_generation", "visual_context_limit"', 1,
     )[1].split("return;", 1)[0]
@@ -98,7 +158,7 @@ def test_live_visual_launch_controls_require_an_active_voice_call():
     assert "requires an active voice call" in display.lower() and "disabled" in display
     assert 'liveUi.lifecycle === "ACTIVE" && !liveUi.held && liveMicrophoneActive()' in HTML
     assert 'track.enabled && track.readyState === "live"' in HTML
-    assert 'button.disabled = readThrough() || !voiceActive || !capabilityEnabled' in HTML
+    assert 'button.disabled = readThrough() || !voiceActive || !capabilityEnabled || !!visual' in HTML
     assert 'syncVisionControlAvailability();constvisible' in HTML_SQUASHED
     begin = HTML.split("async function beginVision(source)", 1)[1].split(
         "function cancelVisionConsent", 1)[0]
@@ -242,19 +302,22 @@ def test_pause_and_resume_are_explicit_server_acknowledged_privacy_controls():
 
 
 def test_attention_hold_is_a_narrow_server_enforced_gate_not_a_prompt_rule():
-    assert '"voice.hold"' in LIVE
-    assert '"voice.attention.resume"' in LIVE
+    assert '"voice.attention.command"' in LIVE
+    assert '"voice.hold"' not in LIVE
     assert "attention_held = True" in LIVE
     assert "if voice_paused or attention_held:" in LIVE
     assert "if voice_paused or attention_held or not downstream_armed:" in LIVE
-    hold_branch = LIVE.split('elif frame_type == "voice.hold":', 1)[1].split(
-        'elif voice_paused:', 1,
-    )[0]
+    hold_branch = LIVE.split('reason_code": "addressed_hold_intent"', 1)[0].rsplit(
+        "hold_transcription", 1,
+    )[1]
     assert "queue.pause_audio()" in hold_branch
     assert "transcript_buffer.clear()" in hold_branch
     assert 'transcript.current_turn_id = ""' in hold_branch
     assert 'await media.stop("paused")' in hold_branch
+    assert "classify_addressed_attention_intent" in hold_branch
+    assert "hold_finished" in hold_branch
     assert "instruction" not in hold_branch.lower()
+    assert "max_remaining if attention_held" in LIVE
 
 
 def test_live_captions_are_temporary_and_never_appended_as_chat_messages():

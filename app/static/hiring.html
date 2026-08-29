@@ -251,6 +251,38 @@
       .job-description-field ul {
         margin: 0;
       }
+      .job-description-editor {
+        display: grid;
+        gap: var(--sp-4);
+      }
+      .job-description-editor .editor-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: var(--sp-4);
+      }
+      .job-description-editor label {
+        display: grid;
+        gap: var(--sp-2);
+        font-weight: 650;
+      }
+      .job-description-editor label[data-wide="true"] {
+        grid-column: 1 / -1;
+      }
+      .job-description-editor textarea { min-height: 7.5rem; }
+      .job-description-editor input,
+      .job-description-editor textarea {
+        width: 100%;
+      }
+      .job-description-actions {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: var(--sp-3);
+      }
+      @media (max-width: 760px) {
+        .job-description-editor .editor-grid { grid-template-columns: 1fr; }
+        .role-summary-head { align-items: stretch; flex-direction: column; }
+      }
       .job-post-copy {
         white-space: pre-wrap;
         overflow-wrap: anywhere;
@@ -294,7 +326,7 @@
     </style>
     <style>
       /* Unified Hiring workspace — shared product language from docs/36. Existing
-   API calls remain unchanged and synthetic/live gates remain server-owned. */
+   API calls remain unchanged and test/live gates remain server-owned. */
       :root {
         --surface-3: #222735;
         --field: #5d6475;
@@ -352,20 +384,25 @@
         flex-direction: column;
         align-items: center;
         gap: 4px;
-        padding: 8px 6px;
+        padding: calc(var(--header-h) + var(--sp-3)) 6px var(--sp-2);
         background: var(--surface-1);
         border-right: 1px solid var(--divider);
       }
       .rail-brand {
-        width: 40px;
-        height: 40px;
-        display: grid;
-        place-items: center;
-        border-radius: var(--r-3);
-        background: var(--accent-bg);
-        color: var(--accent-ink);
-        font-weight: 700;
-        margin-bottom: 8px;
+        position: fixed;
+        inset: 0 auto auto 0;
+        z-index: 33;
+        width: 64px;
+        height: var(--header-h);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-right: 1px solid var(--divider);
+        border-bottom: 1px solid var(--border);
+        border-radius: 0;
+        background: var(--surface-1);
+        color: var(--accent);
+        --brand-size: 18px;
       }
       .rail-link {
         width: 48px;
@@ -459,13 +496,6 @@
         border-right: 1px solid var(--divider);
         padding: var(--sp-3);
         background: var(--surface-1);
-      }
-      .roles .create-card {
-        background: transparent;
-        border-style: dashed;
-      }
-      .roles .demo-card {
-        margin-top: var(--sp-3);
       }
       .role {
         min-height: 58px;
@@ -596,6 +626,20 @@
       .manual-publication {
         margin: 0;
       }
+      .application-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: var(--sp-2);
+        margin-top: var(--sp-3);
+      }
+      .application-actions .btn {
+        min-height: 36px;
+      }
+      .application-link-status {
+        display: block;
+        min-height: var(--lh-2);
+        margin-top: var(--sp-2);
+      }
       .candidate-tabs {
         position: sticky;
         top: 0;
@@ -666,6 +710,14 @@
         }
       }
       @media (max-width: 899px) {
+        .product-rail,
+        .rail-brand {
+          width: 56px;
+        }
+        .top,
+        .hiring-shell {
+          margin-left: 56px;
+        }
         .hiring-shell {
           grid-template-columns: 1fr;
         }
@@ -706,10 +758,12 @@
           border-right: 0;
           border-top: 1px solid var(--divider);
         }
-        .rail-brand,
         .rail-spacer,
         .rail-desktop {
           display: none;
+        }
+        .rail-brand {
+          width: 56px;
         }
         .rail-link {
           width: 20%;
@@ -717,6 +771,7 @@
         }
         .top {
           margin-left: 0;
+          padding-left: calc(56px + var(--sp-2));
         }
         .top .pill {
           max-width: 42vw;
@@ -788,7 +843,7 @@
         }
       }
     </style>
-    <link rel="stylesheet" href="/product-shell.css" />
+    <link rel="stylesheet" href="/product-shell.css?v=20260829-header-left" />
     <style>
       /* Hiring-specific composition. The palette, typography, controls, icons and
    product rail come from product-shell.css; this file owns domain layout only. */
@@ -909,18 +964,8 @@
       .roles-intro h2 {
         margin-bottom: var(--sp-1);
       }
-      .roles-layout {
-        display: grid;
-        grid-template-columns: minmax(280px, 360px) minmax(0, 1fr);
-        gap: var(--sp-6);
-        align-items: start;
-      }
-      .roles .create-card,
-      .roles .demo-card {
-        margin: 0;
-        background: var(--surface-1);
-      }
       .role-index {
+        width: 100%;
         min-width: 0;
       }
       .role-index-head {
@@ -937,6 +982,58 @@
         display: grid;
         grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
         gap: var(--sp-3);
+      }
+      .role-index-empty {
+        grid-column: 1 / -1;
+        min-height: 320px;
+        display: grid;
+        place-items: center;
+        padding: var(--sp-7) var(--sp-4);
+        text-align: center;
+        border: 1px dashed var(--border);
+        border-radius: var(--r-4);
+        background: var(--surface-1);
+      }
+      .role-index-empty > div {
+        width: min(460px, 100%);
+      }
+      .role-index-empty .ico {
+        margin-bottom: var(--sp-3);
+        color: var(--accent);
+      }
+      .role-index-empty h3 {
+        margin-bottom: var(--sp-2);
+      }
+      .role-index-empty p {
+        margin-bottom: var(--sp-4);
+        color: var(--ink-2);
+      }
+      .list-footer {
+        grid-column: 1 / -1;
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: space-between;
+        gap: var(--sp-2);
+        min-height: 36px;
+        margin-top: var(--sp-2);
+      }
+      .list-footer .btn {
+        margin-inline-start: auto;
+      }
+      .inline-load-state {
+        display: flex;
+        align-items: center;
+        gap: var(--sp-2);
+        min-height: 32px;
+        color: var(--ink-3);
+        font: 500 var(--fs-2) / var(--lh-2) var(--font-ui);
+      }
+      .inline-load-state[data-tone="danger"] {
+        color: var(--danger);
+      }
+      [data-refreshing="true"] {
+        opacity: .82;
       }
       .role-card {
         min-height: 154px;
@@ -994,6 +1091,13 @@
         padding-bottom: var(--sp-5);
         border-bottom: 1px solid var(--divider);
       }
+      .role-summary-head {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: var(--sp-4);
+      }
+      .role-summary-head .btn { flex: 0 0 auto; }
       .role-summary .grid {
         grid-template-columns: repeat(3, minmax(120px, 1fr));
         margin-top: var(--sp-5);
@@ -1223,9 +1327,6 @@
         }
       }
       @media (max-width: 899px) {
-        .roles-layout {
-          grid-template-columns: 1fr;
-        }
         .roles-intro {
           align-items: start;
           flex-direction: column;
@@ -1271,6 +1372,7 @@
         .top {
           margin-left: 0;
           padding-inline: var(--sp-2);
+          padding-left: calc(56px + var(--sp-2));
         }
         .top .pill {
           max-width: 38vw;
@@ -1382,6 +1484,7 @@
 </svg>
 <!-- @brand:end -->
 
+    <a class="brand-home rail-brand" href="/" title="Co-Founder" aria-label="Co-Founder home"><svg class="brand-mark" aria-hidden="true"><use href="#brand-mark"/></svg></a>
     <nav class="product-rail" aria-label="Product">
       <a
         class="rail-link rail-new-session"
@@ -1461,14 +1564,24 @@
       </div>
     </nav>
     <header class="top">
-      <a class="brand-home" href="/" title="Co-Founder" aria-label="Co-Founder home"><svg class="brand-mark" aria-hidden="true"><use href="#brand-mark"/></svg></a>
       <a class="back" href="/">Alex</a>
+      <div id="acctWrap" class="account-wrap" data-menu-align="left">
+        <button class="btn" data-variant="ghost" data-shape="icon" id="acctBtn" type="button" onclick="toggleAcctMenu()" aria-haspopup="menu" aria-expanded="false" title="Account" aria-label="Account menu"><span class="acct-avatar" id="acctAvatar">·</span></button>
+        <div id="acctMenu" class="account-menu" role="menu" aria-label="Account" hidden>
+          <div class="menu-id"><span class="acct-avatar big" id="menuAvatar">·</span><span class="grow"><b id="acctName">Founder</b><span class="conn-sub" id="acctEmail"></span></span></div>
+          <hr />
+          <a class="menu-item" role="menuitem" href="/?open=profile"><span class="acct-avatar menu-profile-glyph" aria-hidden="true" id="profileMenuAvatar">·</span>Profile</a>
+          <a class="menu-item" role="menuitem" href="/?open=connectors"><svg class="ico" aria-hidden="true"><use href="#i-plug" /></svg>Connectors</a>
+          <a class="menu-item" role="menuitem" href="/?open=settings"><svg class="ico" aria-hidden="true"><use href="#i-gear" /></svg>Settings</a>
+          <hr />
+          <button class="menu-item danger" role="menuitem" id="logoutItem" type="button" onclick="logout()"><svg class="ico" aria-hidden="true"><use href="#i-sign-out" /></svg>Log out</button>
+        </div>
+      </div>
       <div class="crumb">
         <p class="micro" style="margin: 0">Hiring</p>
         <h1 id="hiringContextTitle">Hiring operations</h1>
       </div>
       <span class="spacer"></span>
-      <span class="pill" id="hiringMode">Founder-controlled drafts</span>
       <button
         class="btn roles-toggle"
         data-variant="ghost"
@@ -1503,113 +1616,21 @@
         <div class="roles-inner">
           <div class="roles-intro">
             <div>
-              <p class="micro">HIRING OPERATIONS</p>
-              <h2>Run a fair, evidence-led hiring process</h2>
+              <h2 id="roleIndexTitle">Active roles</h2>
               <p class="muted">
-                Long-running roles, candidate evidence and human decisions stay
-                durable. Alex can prepare and explain; Alex never ranks or
-                hires.
+                Review durable role progress, candidate evidence, and the next
+                human-controlled decision.
               </p>
             </div>
-            <span class="badge" data-tone="accent">Founder-controlled</span>
           </div>
-          <div class="roles-layout">
-            <div>
-              <section class="card create-card">
-                <h3>Start a hiring run with Alex</h3>
-                <p class="micro">
-                  Creates an internal DRAFT role package for Founder review.
-                  It cannot publish, contact, rank or decide.
-                </p>
-                <label
-                  >Founder objective<textarea
-                    id="hiringCommand"
-                    maxlength="700"
-                  >
-Forward Deployment Engineer for Ruhu, Inc. Full-time employee, based in Nigeria and working remotely.</textarea
-                  >
-                </label>
-                <button class="btn" id="startHiring" onclick="startHiringRun()">
-                  Create role brief
-                </button>
-                <p class="micro" id="startHiringStatus" aria-live="polite"></p>
-              </section>
-              <section class="card demo-card">
-                <h3>Controlled demo lane</h3>
-                <p class="micro">
-                  Separately gated. Reads only the exact marked application and
-                  sends only fixed test receipts.
-                </p>
-                <button
-                  class="btn"
-                  data-variant="secondary"
-                  id="beginInternalDemo"
-                  onclick="beginInternalDemo()"
-                >
-                  Begin controlled demo
-                </button>
-                <div
-                  id="internalDemoStatus"
-                  class="micro"
-                  aria-live="polite"
-                ></div>
-                <div id="internalDemoControls" hidden>
-                  <button
-                    class="btn"
-                    data-variant="secondary"
-                    onclick="importDemoApplication()"
-                  >
-                    Import marked CV email
-                  </button>
-                  <button
-                    class="btn"
-                    data-variant="secondary"
-                    onclick="requestDemoAction('INTERNAL_DEMO_SEND_RECAP')"
-                  >
-                    Review recap email
-                  </button>
-                  <button
-                    class="btn"
-                    data-variant="secondary"
-                    onclick="requestDemoAction('INTERNAL_DEMO_CREATE_CALENDAR_EVENT')"
-                  >
-                    Review calendar invite
-                  </button>
-                  <button
-                    class="btn"
-                    data-variant="secondary"
-                    onclick="requestDemoAction('INTERNAL_DEMO_CANCEL_CALENDAR_EVENT')"
-                  >
-                    Review cancellation
-                  </button>
-                  <button
-                    class="btn"
-                    data-variant="secondary"
-                    onclick="resetInternalDemo()"
-                  >
-                    Reset demo
-                  </button>
-                  <div id="internalDemoExact" class="micro"></div>
-                  <div id="internalDemoReceipts" class="micro"></div>
-                </div>
-              </section>
+          <section class="role-index" aria-labelledby="roleIndexTitle">
+            <div id="roles" aria-live="polite">
+              <div class="card loading-state" aria-busy="true">
+                <p class="muted">Loading active roles…</p>
+              </div>
             </div>
-            <section class="role-index" aria-labelledby="roleIndexTitle">
-              <div class="role-index-head">
-                <div>
-                  <h3 id="roleIndexTitle">Active roles</h3>
-                  <p class="micro">
-                    Durable roles · human-controlled stages · never ranked
-                  </p>
-                </div>
-              </div>
-              <div id="roles" aria-live="polite">
-                <div class="card loading-state" aria-busy="true">
-                  <p class="muted">Loading committed roles…</p>
-                </div>
-              </div>
-            </section>
-          </div>
+            <div id="rolesLoadStatus" class="inline-load-state" aria-live="polite"></div>
+          </section>
         </div>
       </aside>
 
@@ -1729,24 +1750,6 @@ Forward Deployment Engineer for Ruhu, Inc. Full-time employee, based in Nigeria 
                 here.
               </div>
             </section>
-            <section class="card manual-publication" id="manualPublication">
-              <h2>Record a manual job post</h2>
-              <p class="micro">
-                Record a public HTTPS URL after manual publication in the
-                contained Browser. This never publishes a job post.
-              </p>
-              <label
-                >Public HTTPS URL<input
-                  id="publicationUrl"
-                  type="url"
-                  placeholder="https://www.linkedin.com/jobs/view/…"
-              /></label>
-              <button onclick="recordManualPublication()">
-                Record publication receipt
-              </button>
-              <p id="publicationStatus" class="micro" aria-live="polite"></p>
-            </section>
-            <div class="alex-dock" id="hiringAlexDock" hidden></div>
           </div>
         </div>
       </aside>
@@ -1800,68 +1803,152 @@ Forward Deployment Engineer for Ruhu, Inc. Full-time employee, based in Nigeria 
         selected = null,
         h4sConversationToken = "",
         h4sSandboxId = "";
+      let rolesLoaded = false,
+        rolesVisibleCount = 12,
+        loadedRoleId = "",
+        candidateVisibleCount = 25;
       async function api(path, options = {}) {
-        const r = await fetch(path, { credentials: "same-origin", ...options });
-        const j = await r.json().catch(() => ({ error: "Invalid response" }));
-        if (!r.ok) throw new Error(j.message || j.error || "Request failed");
-        return j;
+        const { timeoutMs = 20000, ...requestOptions } = options,
+          controller = new AbortController(),
+          timeout = setTimeout(() => controller.abort(), timeoutMs);
+        try {
+          const r = await fetch(path, {
+              credentials: "same-origin",
+              ...requestOptions,
+              signal: requestOptions.signal || controller.signal,
+            }),
+            j = await r.json().catch(() => ({ error: "Invalid response" }));
+          if (!r.ok) throw new Error(j.message || j.error || "Request failed");
+          return j;
+        } catch (error) {
+          if (error.name === "AbortError")
+            throw new Error("Hiring took too long to respond.");
+          throw error;
+        } finally {
+          clearTimeout(timeout);
+        }
+      }
+      function initialsOf(name, email) {
+        const source = (name || "").trim() || (email || "").trim();
+        if (!source) return "F";
+        const parts = source.replace(/@.*$/, "").split(/[\s._-]+/).filter(Boolean),
+          initials = ((parts[0] || "")[0] || "") + ((parts[1] || "")[0] || "");
+        return (initials || source[0]).toUpperCase();
+      }
+      async function loadIdentity() {
+        try {
+          const account = await api("/auth/me", { timeoutMs: 10000 }),
+            sessionAccount = account?.mode === "session",
+            name = sessionAccount ? account.name || account.email : "Founder",
+            email = sessionAccount ? account.email : account?.mode === "token" ? "Signed in with the access key" : "Local development",
+            initials = initialsOf(sessionAccount ? account.name : "", sessionAccount ? account.email : "");
+          for (const id of ["acctAvatar", "menuAvatar", "profileMenuAvatar"])
+            document.querySelector(`#${id}`).textContent = initials;
+          document.querySelector("#acctName").textContent = name;
+          document.querySelector("#acctEmail").textContent = email;
+          document.querySelector("#logoutItem").hidden = account?.mode === "open";
+        } catch {
+          document.querySelector("#acctName").textContent = "Founder";
+          document.querySelector("#acctEmail").textContent = "Signed-in account";
+        }
+      }
+      function toggleAcctMenu() {
+        const menu = document.querySelector("#acctMenu"),
+          opening = menu.hidden;
+        menu.hidden = !opening;
+        document.querySelector("#acctBtn").setAttribute("aria-expanded", String(opening));
+        if (opening) menu.querySelector(".menu-item").focus();
+      }
+      document.addEventListener("click", (event) => {
+        if (!document.querySelector("#acctMenu").hidden && !event.target.closest("#acctWrap"))
+          toggleAcctMenu();
+      });
+      document.addEventListener("keydown", (event) => {
+        if (event.key === "Escape" && !document.querySelector("#acctMenu").hidden) {
+          toggleAcctMenu();
+          document.querySelector("#acctBtn").focus();
+        }
+      });
+      async function logout() {
+        try {
+          await api("/auth/logout", { method: "POST", body: "{}", timeoutMs: 10000 });
+        } catch {
+          // The local session may already have ended; the login page is still authoritative.
+        }
+        location.replace("/login.html");
+      }
+      function hiringScrollState() {
+        const nodes = [document.scrollingElement, document.querySelector("#main"), document.querySelector(".roles")];
+        return nodes.filter(Boolean).map((node) => [node, node.scrollTop, node.scrollLeft]);
+      }
+      function restoreHiringScroll(state) {
+        requestAnimationFrame(() => state.forEach(([node, top, left]) => {
+          if (node === document.scrollingElement || document.contains(node)) {
+            node.scrollTop = top;
+            node.scrollLeft = left;
+          }
+        }));
       }
       async function load() {
+        const scrollState = hiringScrollState();
+        const host = document.querySelector("#roles"),
+          status = document.querySelector("#rolesLoadStatus"),
+          firstLoad = !rolesLoaded;
+        if (firstLoad) {
+          host.innerHTML =
+            '<div class="card loading-state" aria-busy="true"><p class="muted">Loading active roles…</p></div>';
+          host.setAttribute("aria-busy", "true");
+          status.textContent = "";
+          delete status.dataset.tone;
+        } else {
+          host.dataset.refreshing = "true";
+          host.setAttribute("aria-busy", "true");
+          delete status.dataset.tone;
+          status.textContent = "Refreshing roles…";
+        }
         try {
-          roles = (await api("/api/hiring/roles")).roles || [];
+          roles = (await api("/api/hiring/roles", { timeoutMs: 12000 })).roles || [];
+          rolesLoaded = true;
           renderRoles();
+          restoreHiringScroll(scrollState);
+          status.textContent = "";
+          delete status.dataset.tone;
           const candidateId = new URLSearchParams(location.search).get(
             "candidate",
           );
           if (candidateId && roles[0]) {
             await openRole(roles[0].role_id);
             await openCandidate(candidateId);
+          } else if (selected && roles.some((role) => role.role_id === selected)) {
+            await openRole(selected);
           } else showHiringHome();
         } catch (e) {
-          document.querySelector("#roles").innerHTML =
-            `<div class="card error-state"><svg class="ico ico-lg" aria-hidden="true"><use href="#i-alert"/></svg><h3>Hiring could not load</h3><p class="muted">${esc(e.message)}</p><button class="btn" data-variant="secondary" onclick="load()">Try again</button></div>`;
+          if (rolesLoaded) {
+            status.innerHTML = `<span>Refresh failed. The last roles remain visible.</span><button class="btn" data-variant="secondary" data-size="sm" onclick="load()">Retry</button>`;
+            status.dataset.tone = "danger";
+          } else {
+            host.innerHTML =
+              '<div class="card error-state" role="alert"><svg class="ico ico-lg" aria-hidden="true"><use href="#i-alert"/></svg><h3>Active roles could not load</h3><p class="muted">Check your connection and try again. No role data was changed.</p><button class="btn" data-variant="secondary" onclick="load()">Retry loading roles</button></div>';
+          }
+        } finally {
+          delete host.dataset.refreshing;
+          host.removeAttribute("aria-busy");
         }
       }
       function renderRoles() {
+        const visible = roles.slice(0, rolesVisibleCount);
         document.querySelector("#roles").innerHTML = roles.length
-          ? roles
+          ? visible
               .map(
                 (r) =>
-                  `<button class="role-card" aria-current="${r.role_id === selected}" onclick="openRole('${esc(r.role_id)}')"><span class="role-card-head"><span><span class="micro">${esc(r.role_code || "ROLE")}</span><span class="role-card-title">${esc(r.role_title)}</span></span><span class="badge" data-tone="${r.role_state === "OPEN" ? "ok" : "accent"}">${esc(r.role_state)}</span></span><span class="muted">Policy ${esc(r.current_policy_version_id || "awaiting approval")}</span><span class="role-card-meta"><span>${r.synthetic ? "Synthetic fixture" : "Founder draft"}</span><span>Human-controlled stages</span><span>Open cockpit →</span></span></button>`,
+                  `<button class="role-card" aria-current="${r.role_id === selected}" onclick="openRole('${esc(r.role_id)}')"><span class="role-card-head"><span><span class="micro">${esc(r.role_code || "ROLE")}</span><span class="role-card-title">${esc(r.role_title)}</span></span><span class="badge" data-tone="${r.role_state === "OPEN" ? "ok" : "accent"}">${esc(r.role_state)}</span></span><span class="muted">Policy ${esc(r.current_policy_version_id || "awaiting approval")}</span><span class="role-card-meta"><span>${r.synthetic ? "Read-only test role" : "Draft role"}</span><span>Human-controlled stages</span><span>Open cockpit →</span></span></button>`,
               )
-              .join("")
-          : '<div class="card workspace-empty"><svg class="ico ico-lg" aria-hidden="true"><use href="#i-hiring"/></svg><h3>No hiring roles yet</h3><p>Start with a role objective. Nothing will be published and no candidate will be contacted.</p></div>';
+              .join("") + `<div class="list-footer"><span class="micro" aria-live="polite">Showing ${visible.length} of ${roles.length} roles</span>${visible.length < roles.length ? '<button class="btn" data-variant="secondary" data-size="sm" aria-label="Load more hiring roles" onclick="loadMoreRoles()">Load more</button>' : ""}</div>`
+          : '<div class="role-index-empty" role="status"><div><svg class="ico ico-lg" aria-hidden="true"><use href="#i-hiring"/></svg><h3>No active roles</h3><p>Hiring roles you create with Alex will appear here. Nothing is published and no candidate is contacted without your explicit approval.</p><a class="btn" data-variant="secondary" href="/">Go to Alex</a></div></div>';
       }
-      async function startHiringRun() {
-        const button = document.querySelector("#startHiring"),
-          out = document.querySelector("#startHiringStatus"),
-          context = document.querySelector("#hiringCommand").value.trim();
-        button.disabled = true;
-        out.textContent = "Creating the durable draft and proposed role brief…";
-        try {
-          const requestId = `hiring_${crypto.randomUUID().replaceAll("-", "_")}`,
-            sessionId = `hiring_ui_${crypto.randomUUID().replaceAll("-", "_")}`,
-            csrfToken = await csrf(),
-            j = await api("/api/v1/messages", {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-                "X-CSRF-Token": csrfToken,
-              },
-              body: JSON.stringify({
-                message: `/hiring ${context}`,
-                session_id: sessionId,
-                client_request_id: requestId,
-              }),
-            });
-          out.textContent = (j.replies || []).join(" ");
-          await load();
-          if (j.role_id) openRole(j.role_id);
-        } catch (e) {
-          out.textContent = e.message;
-        } finally {
-          button.disabled = false;
-        }
+      function loadMoreRoles() {
+        rolesVisibleCount += 12;
+        renderRoles();
       }
       async function recordManualPublication() {
         const out = document.querySelector("#publicationStatus"),
@@ -1887,7 +1974,7 @@ Forward Deployment Engineer for Ruhu, Inc. Full-time employee, based in Nigeria 
                   destination: "MANUAL_BROWSER",
                   public_url: url,
                   attestation:
-                    "Founder manually published this synthetic demo post in the contained Browser panel.",
+                    "Founder manually published the exact approved role package and is recording its HTTPS location.",
                   expected_role_version: role.version,
                   client_request_id: `publication_${crypto.randomUUID().replaceAll("-", "_")}`,
                 }),
@@ -1900,176 +1987,22 @@ Forward Deployment Engineer for Ruhu, Inc. Full-time employee, based in Nigeria 
           out.textContent = e.message;
         }
       }
-      let internalDemoRunId = "",
-        pendingInternalAction = null;
+      async function copyApplicationLink(roleId) {
+        const status = document.querySelector("#applicationLinkStatus"),
+          url = new URL(
+            `/hiring-notice.html?role_id=${encodeURIComponent(roleId)}`,
+            location.origin,
+          ).href;
+        try {
+          await navigator.clipboard.writeText(url);
+          status.textContent = "Application link copied.";
+        } catch (_) {
+          status.textContent =
+            "Copy failed. Open the public job page and copy its address.";
+        }
+      }
       async function csrf() {
         return (await api("/api/hiring/csrf")).csrf_token;
-      }
-      async function beginInternalDemo() {
-        const out = document.querySelector("#internalDemoStatus");
-        if (!selected) {
-          out.textContent = "Create and approve the Ruhu FDE role first.";
-          return;
-        }
-        try {
-          const j = await api("/api/hiring/internal-demo/runs", {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              "X-CSRF-Token": await csrf(),
-            },
-            body: JSON.stringify({
-              client_request_id: `internal_demo_${crypto.randomUUID().replaceAll("-", "_")}`,
-              role_id: selected,
-              ttl_minutes: 120,
-            }),
-          });
-          internalDemoRunId = j.demo_run_id;
-          out.textContent =
-            "Controlled demo active. No inbox read or provider action has happened.";
-          document.querySelector("#internalDemoControls").hidden = false;
-          await loadInternalProjection();
-        } catch (e) {
-          out.textContent = e.message;
-        }
-      }
-      async function loadInternalProjection() {
-        if (!internalDemoRunId) return;
-        const out = document.querySelector("#internalDemoReceipts");
-        try {
-          const p = await api(
-              `/api/hiring/internal-demo/runs/${encodeURIComponent(internalDemoRunId)}/projection`,
-            ),
-            actions = p.actions || [],
-            apps = p.applications || [];
-          out.innerHTML = `<h3>Committed proof</h3><p>Run: ${esc(p.demo_run.state)} · CV imports: ${apps.length}</p>${apps.map((a) => `<p>Imported ${esc(a.evidence?.candidate_name)} · ${esc(a.evidence?.document_pages)} PDF pages · source verified ${esc(a.evidence?.source_verified)}</p>`).join("")}${actions.length ? `<ol>${actions.map((a) => `<li>${esc(a.action_kind)} · <strong>${esc(a.status)}</strong> · receipt ${esc(a.provider_effect_id || a.error_code || "pending")}${a.status === "UNCERTAIN" ? ` <button data-action-id="${esc(a.action_id)}" onclick="reconcileDemoAction(this.dataset.actionId)">Reconcile</button>` : ""}</li>`).join("")}</ol>` : "<p>No mail or calendar effect has run.</p>"}`;
-        } catch (e) {
-          out.textContent = e.message;
-        }
-      }
-      async function importDemoApplication() {
-        const out = document.querySelector("#internalDemoStatus");
-        try {
-          const j = await api(
-            `/api/hiring/internal-demo/runs/${encodeURIComponent(internalDemoRunId)}/fixture-import`,
-            {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-                "X-CSRF-Token": await csrf(),
-              },
-              body: JSON.stringify({ acknowledge_fixture_only: true }),
-            },
-          );
-          out.textContent = `Imported the exact marked email as ${j.application_id}; no general inbox search occurred.`;
-          await loadInternalProjection();
-          await load();
-          if (selected) await openRole(selected);
-        } catch (e) {
-          out.textContent = e.message;
-        }
-      }
-      async function requestDemoAction(kind) {
-        const out = document.querySelector("#internalDemoExact");
-        try {
-          const j = await api(
-            `/api/hiring/internal-demo/runs/${encodeURIComponent(internalDemoRunId)}/approvals`,
-            {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-                "X-CSRF-Token": await csrf(),
-              },
-              body: JSON.stringify({
-                action_kind: kind,
-                client_request_id: `internal_approval_${crypto.randomUUID().replaceAll("-", "_")}`,
-              }),
-            },
-          );
-          pendingInternalAction = { approvalId: j.approval_id, kind };
-          out.innerHTML = `<h3>Exact action for approval</h3><pre>${esc(JSON.stringify(j.exact_action, null, 2))}</pre><button onclick="approveDemoAction()">Approve and execute this exact action</button>`;
-        } catch (e) {
-          out.textContent = e.message;
-        }
-      }
-      async function approveDemoAction() {
-        const out = document.querySelector("#internalDemoExact"),
-          pending = pendingInternalAction;
-        if (!pending) return;
-        try {
-          await api(
-            `/api/hiring/internal-demo/approvals/${encodeURIComponent(pending.approvalId)}/resolve`,
-            {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-                "X-CSRF-Token": await csrf(),
-              },
-              body: JSON.stringify({ decision: "GRANT" }),
-            },
-          );
-          const j = await api(
-            `/api/hiring/internal-demo/runs/${encodeURIComponent(internalDemoRunId)}/effect-executions`,
-            {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-                "X-CSRF-Token": await csrf(),
-              },
-              body: JSON.stringify({
-                approval_id: pending.approvalId,
-                action_kind: pending.kind,
-              }),
-            },
-          );
-          out.textContent = `Committed provider receipt: ${j.provider_effect_id || j.action_id}.`;
-          pendingInternalAction = null;
-          await loadInternalProjection();
-        } catch (e) {
-          out.textContent = e.message;
-        }
-      }
-      async function reconcileDemoAction(actionId) {
-        const out = document.querySelector("#internalDemoStatus");
-        try {
-          const j = await api(
-            `/api/hiring/internal-demo/runs/${encodeURIComponent(internalDemoRunId)}/effect-reconciliations`,
-            {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-                "X-CSRF-Token": await csrf(),
-              },
-              body: JSON.stringify({ action_id: actionId }),
-            },
-          );
-          out.textContent = `Reconciliation committed: ${j.receipt_status}.`;
-          await loadInternalProjection();
-        } catch (e) {
-          out.textContent = e.message;
-        }
-      }
-      async function resetInternalDemo() {
-        const out = document.querySelector("#internalDemoStatus");
-        try {
-          const j = await api(
-            `/api/hiring/internal-demo/runs/${encodeURIComponent(internalDemoRunId)}/reset`,
-            {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-                "X-CSRF-Token": await csrf(),
-              },
-              body: JSON.stringify({
-                acknowledge_provider_mail_retained: true,
-              }),
-            },
-          );
-          out.textContent = j.reset_note;
-          document.querySelector("#internalDemoControls").hidden = true;
-        } catch (e) {
-          out.textContent = e.message;
-        }
       }
       async function activateProposedPolicy(role, policy) {
         const status = document.querySelector("#policyActionStatus"),
@@ -2092,6 +2025,7 @@ Forward Deployment Engineer for Ruhu, Inc. Full-time employee, based in Nigeria 
                   exact_action: {
                     policy_version_id: policy.policy_version_id,
                     policy_hash: policy.canonical_hash,
+                    role_description_hash: policy.role_description_hash,
                   },
                   client_request_id: `policy_approval_${crypto.randomUUID().replaceAll("-", "_")}`,
                 }),
@@ -2138,8 +2072,6 @@ Forward Deployment Engineer for Ruhu, Inc. Full-time employee, based in Nigeria 
         document.querySelector("#hiringWorkspace").dataset.open = "false";
         document.querySelector("#hiringContextTitle").textContent =
           "Hiring operations";
-        document.querySelector("#hiringMode").textContent =
-          "Founder-controlled drafts";
         document.querySelector("#rolesToggle").hidden = true;
         document.querySelector("#workspaceToggle").hidden = true;
         selected = null;
@@ -2215,68 +2147,127 @@ Forward Deployment Engineer for Ruhu, Inc. Full-time employee, based in Nigeria 
           ? `<ul>${values.map((item) => `<li>${esc(item)}</li>`).join("")}</ul>`
           : `<p class="muted">${esc(fallback)}</p>`;
       }
-      function roleDescriptionMarkup(role, contract) {
-        const description = role.role_description || {},
-          location =
-            description.location || contract?.location_envelope?.[0] || "Not specified",
-          workArrangement =
-            description.work_arrangement ||
-            contract?.location_envelope?.[1] ||
-            "Not specified",
-          employmentType = description.employment_type || "Not specified",
-          responsibilities = description.responsibilities || [],
-          qualifications =
-            description.required_qualifications ||
+      const draftLines = (values) => (values || []).filter(Boolean).join("\n");
+      function roleDescriptionMarkup(role, contract, policy) {
+        const description = policy?.role_description || role.role_description || {},
+          qualifications = description.required_qualifications ||
             (contract?.criteria || []).map((item) => item.label),
-          preferredQualifications = description.preferred_qualifications || [],
-          relevantExperience = description.relevant_experience || [],
-          outcomes = description.success_outcomes || [],
-          benefits = description.benefits || [],
-          hiringProcess = description.hiring_process || [],
-          compensation = description.compensation || "",
-          applicationInstructions = description.application_instructions || "",
-          processStatements = [
-            description.equal_opportunity_statement,
-            description.accessibility_statement,
-          ].filter(Boolean),
-          honestUnknowns = description.honest_unknowns || [],
-          purpose = description.purpose || contract?.role_summary || "",
-          jobPost =
-            description.candidate_facing_job_post ||
-            contract?.public_job_description ||
-            "";
-        const fields = [
-          `<div class="job-description-field"><h5>Role purpose / overview</h5><p>${esc(purpose)}</p></div>`,
-          `<div class="job-description-field"><h5>Success outcomes</h5>${listOrFallback(outcomes, "No separate outcomes were recorded in this older fixture.")}</div>`,
-          `<div class="job-description-field"><h5>Responsibilities</h5>${listOrFallback(responsibilities, "No separate responsibilities were recorded in this older fixture.")}</div>`,
-          `<div class="job-description-field"><h5>Must-have qualifications</h5>${listOrFallback(qualifications, "No job-related qualifications were recorded.")}</div>`,
-          `<div class="job-description-field"><h5>Preferred qualifications</h5>${listOrFallback(preferredQualifications, "None supplied.")}</div>`,
-          `<div class="job-description-field"><h5>Relevant experience</h5>${listOrFallback(relevantExperience, "No separate experience expectations were recorded in this older fixture.")}</div>`,
-          `<div class="job-description-field"><h5>Location and work arrangement</h5><p>${esc(location)} · ${esc(workArrangement)}</p></div>`,
-          `<div class="job-description-field"><h5>Employment type</h5><p>${esc(employmentType)}</p></div>`,
-          compensation || benefits.length ? `<div class="job-description-field"><h5>Compensation and benefits</h5>${listOrFallback([compensation && `Compensation: ${compensation}`, ...benefits].filter(Boolean), "Not supplied.")}</div>` : "",
-          `<div class="job-description-field"><h5>Hiring process</h5>${listOrFallback(hiringProcess, "The process has not been supplied.")}</div>`,
-          processStatements.length ? `<div class="job-description-field"><h5>Fair and accessible process</h5>${listOrFallback(processStatements, "")}</div>` : "",
-          `<div class="job-description-field"><h5>Application instructions</h5><p>${esc(applicationInstructions || "To be added by the Founder before publication.")}</p></div>`,
-        ].filter(Boolean).join("");
-        return `<section class="job-description" aria-labelledby="jobDescriptionTitle"><h4 id="jobDescriptionTitle">Generated job description</h4><div class="job-description-grid">${fields}</div>${honestUnknowns.length ? `<p class="micro"><strong>Still to confirm before publication:</strong> ${honestUnknowns.map(esc).join(", ")}.</p>` : ""}<h4>Exact candidate-facing job-post copy</h4><div class="job-post-copy" tabindex="0">${esc(jobPost)}</div><p class="micro">Shown in full for review. This draft is not published or sent.</p></section>`;
+          required = [
+            description.purpose,
+            description.responsibilities?.length,
+            qualifications.length,
+            description.preferred_qualifications?.length,
+            description.relevant_experience?.length,
+            description.location,
+            description.employment_type,
+            description.hiring_process?.length,
+            description.application_instructions,
+          ],
+          complete = required.every(Boolean);
+        if (role.synthetic) {
+          return `<section class="job-description" aria-labelledby="jobDescriptionTitle"><h4 id="jobDescriptionTitle">Test job description</h4><div class="job-description-grid"><div class="job-description-field"><h5>Role purpose</h5><p>${esc(description.purpose || contract?.role_summary || "")}</p></div><div class="job-description-field"><h5>Responsibilities</h5>${listOrFallback(description.responsibilities || [], "Test data is incomplete.")}</div><div class="job-description-field"><h5>Qualifications</h5>${listOrFallback(qualifications, "Test data is incomplete.")}</div></div><p class="micro">Read-only test data. It cannot be published or receive applications.</p></section>`;
+        }
+        const preview = policy && complete
+          ? `/hiring-notice.html?role_id=${encodeURIComponent(role.role_id)}&preview_policy=${encodeURIComponent(policy.policy_version_id)}`
+          : "";
+        return `<section class="job-description" aria-labelledby="jobDescriptionTitle" data-complete="${complete}"><h4 id="jobDescriptionTitle">Job description draft</h4><p class="micro">All required fields must be complete. Saving creates a new proposed version; it does not approve or publish anything.</p><form class="job-description-editor" id="roleDraftEditor" data-role-id="${esc(role.role_id)}" data-role-version="${esc(role.version)}" onsubmit="saveRoleDescriptionDraft(event)"><div class="editor-grid"><label data-wide="true">Role purpose / overview<textarea name="purpose" required maxlength="3000">${esc(description.purpose || "")}</textarea></label><label data-wide="true">Responsibilities <span class="micro">One per line</span><textarea name="responsibilities" required>${esc(draftLines(description.responsibilities))}</textarea></label><label data-wide="true">Success outcomes <span class="micro">One per line</span><textarea name="success_outcomes" required>${esc(draftLines(description.success_outcomes))}</textarea></label><label data-wide="true">Required qualifications <span class="micro">One per line</span><textarea name="required_qualifications" required>${esc(draftLines(qualifications))}</textarea></label><label data-wide="true">Preferred qualifications <span class="micro">One per line</span><textarea name="preferred_qualifications" required>${esc(draftLines(description.preferred_qualifications))}</textarea></label><label data-wide="true">Relevant experience <span class="micro">One per line</span><textarea name="relevant_experience" required>${esc(draftLines(description.relevant_experience))}</textarea></label><label>Location<input name="location" required maxlength="120" value="${esc(description.location || contract?.location_envelope?.[0] || "")}" /></label><label>Work arrangement<input name="work_arrangement" required maxlength="120" value="${esc(description.work_arrangement || contract?.location_envelope?.[1] || "")}" /></label><label>Employment type<input name="employment_type" required maxlength="120" value="${esc(description.employment_type || "")}" /></label><label>Compensation <span class="micro">Optional; omit rather than invent</span><input name="compensation" maxlength="500" value="${esc(description.compensation || "")}" /></label><label data-wide="true">Benefits <span class="micro">Optional, one per line</span><textarea name="benefits">${esc(draftLines(description.benefits))}</textarea></label><label data-wide="true">Hiring process <span class="micro">One step per line</span><textarea name="hiring_process" required>${esc(draftLines(description.hiring_process))}</textarea></label><label data-wide="true">Application instructions<textarea name="application_instructions" required maxlength="2000">${esc(description.application_instructions || "")}</textarea></label><label data-wide="true">Equal-opportunity statement <span class="micro">Optional</span><textarea name="equal_opportunity_statement" maxlength="2000">${esc(description.equal_opportunity_statement || "")}</textarea></label><label data-wide="true">Accessibility statement <span class="micro">Optional</span><textarea name="accessibility_statement" maxlength="2000">${esc(description.accessibility_statement || "")}</textarea></label></div><div class="job-description-actions"><button class="btn" data-variant="secondary" type="submit">Save edits as draft</button>${preview ? `<a class="btn" data-variant="secondary" href="${esc(preview)}">Review public job page</a>` : ""}</div><p id="draftSaveStatus" class="micro" aria-live="polite">${complete ? "This version is complete and can be previewed before approval." : "Complete every required field, then save a new draft before approval."}</p></form></section>`;
       }
+
+      function draftList(form, name) {
+        return String(new FormData(form).get(name) || "")
+          .split(/\r?\n/).map((item) => item.trim()).filter(Boolean);
+      }
+      async function saveRoleDescriptionDraft(event) {
+        event.preventDefault();
+        const form = event.currentTarget,
+          data = new FormData(form),
+          status = document.querySelector("#draftSaveStatus"),
+          button = form.querySelector('button[type="submit"]');
+        button.disabled = true;
+        status.textContent = "Saving a new draft version…";
+        try {
+          await api(`/api/hiring/roles/${encodeURIComponent(form.dataset.roleId)}/job-description-drafts`, {
+            method: "POST",
+            headers: {"Content-Type": "application/json", "X-CSRF-Token": await csrf()},
+            body: JSON.stringify({
+              client_request_id: `role_draft_${crypto.randomUUID()}`,
+              expected_role_version: Number(form.dataset.roleVersion),
+              change_reason: "Founder edited the candidate-facing job description.",
+              purpose: String(data.get("purpose") || "").trim(),
+              responsibilities: draftList(form, "responsibilities"),
+              success_outcomes: draftList(form, "success_outcomes"),
+              required_qualifications: draftList(form, "required_qualifications"),
+              preferred_qualifications: draftList(form, "preferred_qualifications"),
+              relevant_experience: draftList(form, "relevant_experience"),
+              location: String(data.get("location") || "").trim(),
+              work_arrangement: String(data.get("work_arrangement") || "").trim(),
+              employment_type: String(data.get("employment_type") || "").trim(),
+              compensation: String(data.get("compensation") || "").trim(),
+              benefits: draftList(form, "benefits"),
+              hiring_process: draftList(form, "hiring_process"),
+              application_instructions: String(data.get("application_instructions") || "").trim(),
+              equal_opportunity_statement: String(data.get("equal_opportunity_statement") || "").trim(),
+              accessibility_statement: String(data.get("accessibility_statement") || "").trim(),
+            }),
+          });
+          status.textContent = "Draft saved. Reloading the exact proposed version…";
+          await openRole(form.dataset.roleId);
+        } catch (error) {
+          status.textContent = error.message || "The draft could not be saved.";
+          button.disabled = false;
+        }
+      }
+      function candidateInboxMarkup(groups, emptyMessage) {
+        const entries = Object.entries(groups),
+          total = entries.reduce((sum, [, items]) => sum + items.length, 0);
+        let remaining = candidateVisibleCount,
+          shown = 0,
+          markup = "";
+        for (const [state, items] of entries) {
+          const visible = items.slice(0, Math.max(0, remaining));
+          if (!visible.length) continue;
+          shown += visible.length;
+          remaining -= visible.length;
+          markup += `<h4>${esc(state)} <span class="micro">${items.length}</span></h4><table><thead><tr><th>Candidate</th><th>Policy</th><th>Committed state</th><th></th></tr></thead><tbody>${visible.map((c) => `<tr><td data-label="Candidate">${esc(c.candidate_code)}</td><td data-label="Policy">${esc(c.current_policy_version_id)}</td><td data-label="Committed state" class="state">${esc(c.candidate_state)}</td><td data-label="Open record"><button onclick="openCandidate('${esc(c.candidate_application_id)}')">Review evidence</button></td></tr>`).join("")}</tbody></table>`;
+        }
+        if (!total) return `<p class="muted">${esc(emptyMessage)}</p>`;
+        return markup + `<div class="list-footer"><span class="micro" aria-live="polite">Showing ${shown} of ${total} candidates</span>${shown < total ? '<button class="btn" data-variant="secondary" data-size="sm" aria-label="Load more candidates" onclick="loadMoreCandidates()">Load more</button>' : ""}</div>`;
+      }
+
+      function loadMoreCandidates() {
+        candidateVisibleCount += 25;
+        if (selected) openRole(selected);
+      }
+
       async function openRole(id) {
+        const scrollState = hiringScrollState();
+        const root = document.querySelector("#main");
+        const preserveCurrent = loadedRoleId === id && root.children.length > 0;
+        if (loadedRoleId && loadedRoleId !== id) candidateVisibleCount = 25;
         selected = id;
         h4sConversationToken = "";
         renderRoles();
         const shell = document.querySelector("#hiringShell");
         shell.dataset.view = "cockpit";
-        shell.dataset.workspace = "quiet";
-        document.querySelector("#hiringWorkspace").dataset.open = "false";
+        if (!preserveCurrent) {
+          shell.dataset.workspace = "quiet";
+          document.querySelector("#hiringWorkspace").dataset.open = "false";
+        }
         document.querySelector("#rolesToggle").hidden = false;
         document.querySelector("#workspaceToggle").hidden = false;
-        document
-          .querySelector("#workspaceToggle")
-          .setAttribute("aria-expanded", "false");
-        const root = document.querySelector("#main");
-        root.innerHTML =
-          '<div class="card loading-state" aria-busy="true"><p class="muted">Loading committed role projection…</p></div>';
+        if (!preserveCurrent)
+          document
+            .querySelector("#workspaceToggle")
+            .setAttribute("aria-expanded", "false");
+        if (preserveCurrent) {
+          root.dataset.refreshing = "true";
+          root.setAttribute("aria-busy", "true");
+          root.querySelector("#roleRefreshStatus")?.remove();
+          root.insertAdjacentHTML("afterbegin", '<div class="inline-load-state" id="roleRefreshStatus">Refreshing this role…</div>');
+        } else {
+          root.innerHTML =
+            '<div class="card loading-state" aria-busy="true"><p class="muted">Loading committed role projection…</p></div>';
+        }
         try {
           const { role, candidates, policy_versions, policy_impacts } =
               await api(`/api/hiring/roles/${encodeURIComponent(id)}`),
@@ -2286,7 +2277,7 @@ Forward Deployment Engineer for Ruhu, Inc. Full-time employee, based in Nigeria 
             proposedPolicy = [...(policy_versions || [])]
               .reverse()
               .find((p) => p.status === "PROPOSED"),
-            displayPolicy = approvedPolicy || proposedPolicy,
+            displayPolicy = proposedPolicy || approvedPolicy,
             contract = displayPolicy?.contract || role.draft_contract,
             currentImpact = (policy_impacts || []).find(
               (i) => i.policy_version_id === displayPolicy?.policy_version_id,
@@ -2295,45 +2286,66 @@ Forward Deployment Engineer for Ruhu, Inc. Full-time employee, based in Nigeria 
             policyMeta = displayPolicy
               ? `Policy ${esc(displayPolicy.policy_version_id)} · ${esc(displayPolicy.materiality)} · impact ${esc(currentImpact?.enumeration_status || "unavailable")} · ${esc((currentImpact?.active_candidate_ids || []).length)} active candidates`
               : "The role package is saved, but its exact approval contract is not available yet.";
-          document.querySelector("#hiringMode").textContent = role.synthetic
-            ? "Synthetic fixture · bounded internal demo"
-            : "Founder draft · internal review";
           const groups = {};
           for (const c of candidates)
             (groups[c.candidate_state] ??= []).push(c);
           const roleKind = role.synthetic
-              ? "SYNTHETIC FIXTURE · BOUNDED INTERNAL DEMO"
-              : "FOUNDER DRAFT · INTERNAL REVIEW",
+              ? "READ-ONLY TEST ROLE"
+              : "DRAFT ROLE · INTERNAL REVIEW",
             publicationText = role.synthetic
               ? "No manual publication receipt. Publication stays a separate founder action in the contained Browser panel."
-              : "Publication is unavailable for this internal draft. Approval does not publish, email, or invoke a provider.",
+              : role.role_state === "PUBLISHED"
+                ? "The approved job description has a recorded manual publication receipt."
+                : "Applications are not open yet. Approve the complete draft, then publish it through the separate manual publication step.",
             candidateEmpty = role.synthetic
               ? "Dormant: waiting for a trusted role-address application."
               : "Candidate processing is unavailable for this internal draft.",
-            applicationsLabel = role.synthetic ? "Mailbox" : "Applications",
-            applicationsStatus = role.mailbox_binding?.status
-              ? role.mailbox_binding.status
-              : role.synthetic
-                ? "not configured"
-                : "Not open yet",
-            applicationsHelp = role.mailbox_binding?.status
-              ? "The configured application channel is shown by its committed status."
-              : role.synthetic
-                ? "Fixture mailbox state only."
-                : "Choose an application channel only after the role package is approved.";
-          root.innerHTML = `<section class="card role-summary"><p class="micro">${esc(roleKind)} · ${esc(role.company_name || contract?.company_name || "Company")} · ${esc(role.role_code)}</p><h2>${esc(role.role_title)}</h2><div class="grid"><div class="stat"><span class="muted">Role state</span><strong>${esc(role.role_state)}</strong></div><div class="stat"><span class="muted">Candidates</span><strong>${candidates.length}</strong></div><div class="stat"><span class="muted">${esc(applicationsLabel)}</span><strong>${esc(applicationsStatus)}</strong><span class="micro">${esc(applicationsHelp)}</span></div></div><p class="micro next-wake">Next wake: ${esc(role.role_state === "PUBLISHED" ? "trusted application email" : "founder approval")}</p></section><section class="card role-materials" tabindex="-1"><h3>${needsApproval ? "Proposed" : displayPolicy ? "Approved" : "Saved"} role package</h3>${contract ? `<section><h4>Role brief</h4><p>${esc(contract.role_summary)}</p><p class="micro">${esc(contract.company_name)} · Target ${esc(contract.target_date)} · ${esc((contract.location_envelope || []).join(", "))} · ${esc(contract.compensation_envelope)}</p></section>${roleDescriptionMarkup(role, contract)}<section><h4>Hiring scorecard</h4><ol>${(contract.criteria || []).map((c) => `<li><strong>${esc(c.label)}</strong> — ${esc(c.description)}</li>`).join("")}</ol></section><section><h4>Interview plan</h4><ol>${(contract.interview_plan || []).map((q) => `<li><strong>${esc(q.criterion_id)}</strong> — ${esc(q.text)}<br><span class="micro">Rubric: ${(q.rubric || []).map(esc).join("; ")}</span></li>`).join("")}</ol></section><p class="micro">${policyMeta}</p>${needsApproval ? `<button class="btn" data-variant="primary" id="approvePolicy" onclick='activateProposedPolicy(${JSON.stringify(role)},${JSON.stringify(displayPolicy)})'>Approve exact role package for internal use</button><p id="policyActionStatus" class="micro" aria-live="polite">Approval binds this exact policy hash. It activates only the internal reviewed role policy; it does not publish, email, source, rank, decide, or contact anyone.</p>` : ""}` : '<p class="muted">No role contract is available yet.</p>'}</section><section class="card"><h3>Publication receipt</h3>${(role.publication_receipts || []).map((x) => `<p><button data-public-url="${esc(encodeURIComponent(x.public_url))}" onclick="openInAppBrowser(decodeURIComponent(this.dataset.publicUrl))">Open ${esc(x.destination)} receipt in Browser panel</button> · ${esc(x.verification_status)}<br><span class="micro">Recorded by ${esc(x.actor_id)} at ${esc(x.recorded_at)}</span></p>`).join("") || `<p class="muted">${esc(publicationText)}</p>`}</section><section class="card"><h3>Candidate intake inbox</h3><p class="micro">Role-scoped applications and restricted CV evidence only. Alex does not score, rank, recommend, advance, or reject candidates.</p>${
-            Object.entries(groups)
-              .map(
-                ([state, items]) =>
-                  `<h4>${esc(state)} <span class="micro">${items.length}</span></h4><table><thead><tr><th>Candidate</th><th>Policy</th><th>Committed state</th><th></th></tr></thead><tbody>${items.map((c) => `<tr><td data-label="Candidate">${esc(c.candidate_code)}</td><td data-label="Policy">${esc(c.current_policy_version_id)}</td><td data-label="Committed state" class="state">${esc(c.candidate_state)}</td><td data-label="Open record"><button onclick="openCandidate('${esc(c.candidate_application_id)}')">Review evidence</button></td></tr>`).join("")}</tbody></table>`,
-              )
-              .join("") ||
-            `<p class="muted">${esc(candidateEmpty)}</p>`
-          }</section>${role.synthetic ? '<section class="card"><h3>Alex · synthetic Hiring Run</h3><p class="micro">Fixture-only conversation. Alex cannot send mail, book meetings, choose a candidate, or use your ordinary connectors here.</p><p id="h4sStatus" class="micro">Loading sandbox authority…</p><div id="h4sPanel" hidden><label>Ask Alex about this role<textarea id="h4sQuestion" maxlength="2000" placeholder="Where are we with this hire?"></textarea></label><button onclick="askH4S()">Ask Alex</button> <button id="h4sTalk" type="button" onclick="talkH4S()">Talk to Alex</button><div id="h4sAnswer" class="micro" aria-live="polite"></div></div></section><section class="card"><h3>Fixture job description</h3><p class="muted">This read-only candidate preview exposes no internal assessment or controls and is never a production role.</p><a href="/hiring-notice.html?role_id=' + encodeURIComponent(role.role_id) + '">View fixture job description</a></section>' : '<section class="card"><h3>Alex · role conversation</h3><p class="micro">Discuss or refine this role in the normal Alex conversation. Only the selected role brief is carried across; candidate evidence stays in Hiring. Alex cannot publish, contact, rank, decide, or perform an external action without the existing exact controls.</p><a class="btn" data-variant="secondary" href="/?hiring_role=' + encodeURIComponent(role.role_id) + '">Discuss this role with Alex</a></section><section class="card"><h3>Candidate-facing job description</h3><p class="muted">This page remains clearly non-live until the exact role content is approved and a manual publication receipt exists.</p><a href="/hiring-notice.html?role_id=' + encodeURIComponent(role.role_id) + '">Preview job description</a></section>'}`;
+            applicationsLabel = "Applications",
+            applicationsStatus = role.role_state === "PUBLISHED"
+              ? `${candidates.length} received`
+              : "Applications are not open yet",
+            applicationsHelp = role.role_state === "PUBLISHED"
+              ? role.mailbox_binding?.status
+                ? `Application channel: ${role.mailbox_binding.status}.`
+                : "Open the application page to review the live intake status."
+              : "Founder approval and a manual publication receipt are required before intake opens.";
+          const roleDescription = displayPolicy?.role_description || role.role_description || {},
+            draftComplete = Boolean(
+              roleDescription.purpose && roleDescription.responsibilities?.length &&
+              roleDescription.required_qualifications?.length &&
+              roleDescription.preferred_qualifications?.length &&
+              roleDescription.relevant_experience?.length && roleDescription.location &&
+              roleDescription.work_arrangement && roleDescription.employment_type &&
+              roleDescription.hiring_process?.length &&
+              roleDescription.application_instructions),
+            discussLink = `/?hiring_role=${encodeURIComponent(role.role_id)}`,
+            applicationLink = role.role_state === "PUBLISHED"
+              ? `<div class="application-actions"><a class="btn" data-variant="secondary" href="/hiring-notice.html?role_id=${encodeURIComponent(role.role_id)}">View public job page</a><button class="btn" data-variant="secondary" type="button" onclick='copyApplicationLink(${JSON.stringify(role.role_id)})'>Copy application link</button></div><span class="micro application-link-status" id="applicationLinkStatus" role="status" aria-live="polite"></span>` : "",
+            approveMarkup = needsApproval && draftComplete
+              ? `<button class="btn" data-variant="primary" id="approvePolicy" onclick='activateProposedPolicy(${JSON.stringify(role)},${JSON.stringify(displayPolicy)})'>Approve exact role package for internal use</button><p id="policyActionStatus" class="micro" aria-live="polite">Approval binds this exact complete draft. It does not publish, email, source, rank, decide, or contact anyone.</p>`
+              : needsApproval
+                ? '<p class="micro" id="policyActionStatus">Complete and save every required job-description field before approval.</p>'
+                : "",
+            publicationControl = !role.synthetic && role.publication_allowed === true && !(role.publication_receipts || []).length
+              ? '<div class="manual-publication"><label>Manually published HTTPS URL<input id="publicationUrl" type="url" placeholder="https://…" /></label><button class="btn" data-variant="secondary" onclick="recordManualPublication()">Record publication receipt</button><p class="micro">This records a page the Founder already published. It does not publish, email, or contact anyone.</p><p id="publicationStatus" class="micro" aria-live="polite"></p></div>'
+              : "";
+          root.innerHTML = `<section class="card role-summary"><div class="role-summary-head"><div><p class="micro">${esc(roleKind)} · ${esc(role.company_name || contract?.company_name || "Company")} · ${esc(role.role_code)}</p><h2>${esc(role.role_title)}</h2></div><a class="btn" data-variant="secondary" href="${esc(discussLink)}"><svg class="ico" aria-hidden="true"><use href="#i-chat"/></svg>Discuss with Alex</a></div><p class="micro">Role-level context only. Candidate identities and restricted evidence stay in Hiring; external actions still require their exact controls.</p><div class="grid"><div class="stat"><span class="muted">Role state</span><strong>${esc(role.role_state)}</strong></div><div class="stat"><span class="muted">Candidates</span><strong>${candidates.length}</strong></div><div class="stat"><span class="muted">${esc(applicationsLabel)}</span><strong>${esc(applicationsStatus)}</strong><span class="micro">${esc(applicationsHelp)}</span>${applicationLink}</div></div><p class="micro next-wake">Next wake: ${esc(role.role_state === "PUBLISHED" ? "trusted application intake" : "founder approval")}</p></section><section class="card role-materials" tabindex="-1"><h3>${needsApproval ? "Proposed" : displayPolicy ? "Approved" : "Saved"} role package</h3>${contract ? `<section><h4>Role brief</h4><p>${esc(contract.role_summary)}</p><p class="micro">${esc(contract.company_name)} · Target ${esc(contract.target_date)} · ${esc((contract.location_envelope || []).join(", "))}</p></section>${roleDescriptionMarkup(role, contract, displayPolicy)}<section><h4>Hiring scorecard</h4><ol>${(contract.criteria || []).map((c) => `<li><strong>${esc(c.label)}</strong> — ${esc(c.description)}</li>`).join("")}</ol></section><section><h4>Interview plan</h4><ol>${(contract.interview_plan || []).map((q) => `<li><strong>${esc(q.criterion_id)}</strong> — ${esc(q.text)}<br><span class="micro">Rubric: ${(q.rubric || []).map(esc).join("; ")}</span></li>`).join("")}</ol></section><p class="micro">${policyMeta}</p>${approveMarkup}` : '<p class="muted">No role contract is available yet.</p>'}</section><section class="card"><h3>Publication receipt</h3>${(role.publication_receipts || []).map((x) => `<p><button data-public-url="${esc(encodeURIComponent(x.public_url))}" onclick="openInAppBrowser(decodeURIComponent(this.dataset.publicUrl))">Open ${esc(x.destination)} receipt in Browser panel</button> · ${esc(x.verification_status)}<br><span class="micro">Recorded by ${esc(x.actor_id)} at ${esc(x.recorded_at)}</span></p>`).join("") || `<p class="muted">${esc(publicationText)}</p>`}${publicationControl}</section><section class="card"><h3>Candidate intake inbox</h3><p class="micro">Role-scoped applications and restricted CV evidence only. Alex does not score, rank, recommend, advance, or reject candidates.</p>${candidateInboxMarkup(groups, candidateEmpty)}</section>`;
+          loadedRoleId = id;
           hydrateUnifiedRoleLayout(role);
-          if (role.synthetic) loadH4S(id);
+          if (preserveCurrent) restoreHiringScroll(scrollState);
         } catch (e) {
-          root.innerHTML = `<div class="card"><p class="error">${esc(e.message)}</p></div>`;
+          if (preserveCurrent) {
+            const status = root.querySelector("#roleRefreshStatus");
+            if (status) {
+              status.dataset.tone = "danger";
+              status.innerHTML = `<span>Refresh failed. The current role remains visible.</span><button class="btn" data-variant="secondary" data-size="sm" onclick="openRole('${esc(id)}')">Retry</button>`;
+            }
+          } else {
+            root.innerHTML = `<div class="card error-state"><p class="error">${esc(e.message)}</p><button class="btn" data-variant="secondary" onclick="openRole('${esc(id)}')">Try again</button></div>`;
+          }
+        } finally {
+          delete root.dataset.refreshing;
+          root.removeAttribute("aria-busy");
         }
       }
       async function loadH4S(roleId) {
@@ -2365,7 +2377,7 @@ Forward Deployment Engineer for Ruhu, Inc. Full-time employee, based in Nigeria 
             `/api/hiring/h4s/sandboxes/${encodeURIComponent(h4sSandboxId)}/projection`,
           );
           status.textContent =
-            "Synthetic sandbox active · conversation expires in 10 minutes.";
+            "Read-only test conversation active · expires in 10 minutes.";
           document.querySelector("#h4sPanel").hidden = false;
           renderH4SProjection(p);
         } catch (e) {
@@ -2671,16 +2683,11 @@ Forward Deployment Engineer for Ruhu, Inc. Full-time employee, based in Nigeria 
           decisions: document.querySelector("#hiring-pane-decisions"),
           activity: document.querySelector("#hiring-pane-activity"),
         };
-        const manual = document.querySelector("#manualPublication");
-        if (manual) manual.remove();
         Object.values(panes).forEach((pane) => pane.replaceChildren());
         document.querySelector("#hiringScope").textContent =
           `Role: ${role.role_code}`;
         document.querySelector("#hiringContextTitle").textContent =
           `${role.role_title} · ${role.role_code}`;
-        const dock = document.querySelector("#hiringAlexDock");
-        dock.hidden = true;
-        dock.replaceChildren();
         root
           .querySelector(":scope > section.card")
           ?.classList.add("role-summary");
@@ -2697,19 +2704,11 @@ Forward Deployment Engineer for Ruhu, Inc. Full-time employee, based in Nigeria 
             panes.work.append(card);
           else if (title.includes("publication receipt"))
             panes.activity.append(card);
-          else if (title.includes("alex ·")) {
-            dock.hidden = false;
-            dock.innerHTML = `<div class="scoped-alex-head"><svg class="ico" aria-hidden="true"><use href="#i-chat"/></svg><strong>Discuss with Alex</strong><span class="scope-pill">Role: ${esc(role.role_code)}</span></div>`;
-            dock.append(card);
-            card
-              .querySelectorAll("button")
-              .forEach((button) => button.classList.add("btn"));
-          } else if (title.includes("interaction boundary"))
+          else if (title.includes("interaction boundary"))
             panes.evidence.append(card);
           else if (title.includes("candidate board"))
             card.classList.add("candidate-board");
         }
-        if (manual && role.synthetic) panes.work.append(manual);
         const approve = document.querySelector("#approvePolicy"),
           approvalStatus = document.querySelector("#policyActionStatus");
         if (approve) {
@@ -2779,6 +2778,7 @@ Forward Deployment Engineer for Ruhu, Inc. Full-time employee, based in Nigeria 
           ),
           work = headings.find((node) =>
             node.textContent.includes("Candidate application"),
+          ),
           rights = headings.find((node) =>
             node.textContent.includes("data rights"),
           );
@@ -2853,6 +2853,7 @@ Forward Deployment Engineer for Ruhu, Inc. Full-time employee, based in Nigeria 
           out.textContent = e.message;
         }
       }
+      loadIdentity();
       load();
     </script>
   </body>

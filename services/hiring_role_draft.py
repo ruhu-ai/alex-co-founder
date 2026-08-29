@@ -20,6 +20,18 @@ _DEFAULT_HIRING_PROCESS = [
     "Structured interviews using the reviewed scorecard and interview plan",
     "A final human decision by the Founder",
 ]
+_REQUIRED_DESCRIPTION_FIELDS = {
+    "purpose": "role purpose",
+    "responsibilities": "responsibilities",
+    "required_qualifications": "required qualifications",
+    "preferred_qualifications": "preferred qualifications",
+    "relevant_experience": "relevant experience",
+    "location": "location",
+    "work_arrangement": "work arrangement",
+    "employment_type": "employment type",
+    "hiring_process": "hiring process",
+    "application_instructions": "application instructions",
+}
 _COMPENSATION_NOT_SUPPLIED = (
     "Not supplied — discuss with the Founder before publication")
 
@@ -42,6 +54,49 @@ def _clean_list(values: list[str] | None, *, limit: int = 12) -> list[str]:
         if len(cleaned) == limit:
             break
     return cleaned
+
+
+def role_description_missing_fields(description: dict[str, Any] | None) -> list[str]:
+    """Return candidate-facing fields that must be complete before approval.
+
+    Optional compensation, benefits and fair-process wording are omitted from
+    the public projection when absent. Required fields never receive invented
+    fallback copy.
+    """
+    source = dict(description or {})
+    missing: list[str] = []
+    list_fields = {
+        "responsibilities", "required_qualifications",
+        "preferred_qualifications", "relevant_experience", "hiring_process",
+    }
+    for key, label in _REQUIRED_DESCRIPTION_FIELDS.items():
+        value = source.get(key)
+        if key in list_fields:
+            present = bool(_clean_list(value if isinstance(value, list) else []))
+        else:
+            present = bool(str(value or "").strip())
+        if not present:
+            missing.append(label)
+    return missing
+
+
+def validate_role_description(
+        description: dict[str, Any] | None,
+        contract: RoleContract) -> dict[str, Any]:
+    """Validate that a structured draft is complete and bound to its contract."""
+    source = dict(description or {})
+    missing = role_description_missing_fields(source)
+    if missing:
+        return {"status": "needs_information", "error": True,
+                "error_code": "role_description_incomplete",
+                "message": "Complete the job description before approval.",
+                "missing_fields": missing}
+    if str(source.get("candidate_facing_job_post") or "").strip() != \
+            contract.public_job_description:
+        return _error(
+            "role_description_mismatch",
+            "The candidate-facing draft does not match the exact policy content.")
+    return {"status": "success", "role_description": source}
 
 
 def _bullet_section(title: str, values: list[str]) -> str:
@@ -148,12 +203,16 @@ def build_contract(
     process_lines = _clean_list(hiring_process) or list(_DEFAULT_HIRING_PROCESS)
     if not criteria:
         missing.append("job-related evidence criteria")
+    if not preferred_lines:
+        missing.append("preferred qualifications")
     if not responsibility_lines:
         missing.append("candidate-facing responsibilities")
     if not outcome_lines:
         missing.append("role success outcomes")
     if not experience_lines:
         missing.append("relevant experience expectations")
+    if not strings["application instructions"]:
+        missing.append("application instructions")
     reviewed_text = " ".join((
         strings["company"], strings["role"], strings["summary"],
         strings["location"], strings["work arrangement"],
@@ -331,7 +390,9 @@ def ruhu_fde_package() -> dict[str, Any]:
             "A practical role discussion using the same reviewed scorecard",
             "A final human decision by the Founder",
         ],
-        application_instructions="",
+        application_instructions=(
+            "Apply through the role-specific application form or role email "
+            "shown on this page after the Founder publishes the approved role."),
         accessibility_statement=(
             "Candidates may request an adjustment for any stage of the hiring "
             "process; the request will not be used as a hiring criterion."),

@@ -49,6 +49,7 @@ class MediaEndReason(StrEnum):
 _HELLO_FIELDS = frozenset({"type", "protocol_version", "client_capabilities"})
 _CLIENT_CAPABILITY_FIELDS = frozenset({
     "audio_pcm16", "visual_sources", "image_mime_types",
+    "local_attention_commands",
 })
 _SUPPORTED_IMAGE_MIME_TYPES = frozenset({"image/jpeg"})
 _SUPPORTED_VISUAL_SOURCES = frozenset(source.value for source in VisualSource)
@@ -96,6 +97,9 @@ def negotiate_hello(
     if not isinstance(capabilities.get("audio_pcm16", False), bool):
         return protocol_error(
             "protocol_violation", "audio_pcm16 must be true or false.")
+    if not isinstance(capabilities.get("local_attention_commands", False), bool):
+        return protocol_error(
+            "protocol_violation", "local_attention_commands must be true or false.")
 
     requested_sources = capabilities.get("visual_sources", [])
     requested_mimes = capabilities.get("image_mime_types", [])
@@ -124,6 +128,10 @@ def negotiate_hello(
             and "camera" in requested_sources,
             "display": bool(enabled_sources.get("display"))
             and "display" in requested_sources,
+            # This only admits a deterministic attention-state command. It
+            # grants no model, tool, workflow, or approval authority.
+            "attention_hold": bool(
+                capabilities.get("local_attention_commands", False)),
         },
         "limits": {
             "max_visual_sources": 1,

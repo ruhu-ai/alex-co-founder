@@ -3,8 +3,8 @@
 This module deliberately does not activate a production intake channel.  The
 form path is available only in an explicitly enabled non-Cloud local process,
 for a non-synthetic role whose exact policy and manual publication receipt are
-current.  Applicant identity, cover note, and resume bytes are encrypted before
-they enter the durable candidate queue or artifact store.  No assessment,
+current. Applicant email, optional message, and resume bytes are encrypted
+before they enter the durable candidate queue or artifact store. No assessment,
 ranking, contact, or provider action is started by intake.
 """
 
@@ -31,9 +31,10 @@ from services.resource_sensitivity import registration_policy
 MAX_RESUME_BYTES = 5 * 1024 * 1024
 TOKEN_TTL_SECONDS = 15 * 60
 PRIVACY_NOTICE = (
-    "We use the details and resume you submit only to review your application "
-    "for this role. They are kept in the role's restricted candidate queue and "
-    "are not used for automated ranking or a hiring decision."
+    "By submitting, you agree that the email address, optional message, and CV "
+    "you provide may be used only to review your application for this role. "
+    "They are kept in the role's restricted candidate queue and are not used "
+    "for automated ranking or a hiring decision."
 )
 _EMAIL = re.compile(r"^[^\s@]{1,64}@[^\s@]{1,190}\.[^\s@]{2,63}$")
 _REQUEST_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{7,127}$")
@@ -195,13 +196,14 @@ class HiringPublicIntakeService:
         name = " ".join(applicant_name.split())
         normalized_email = email.strip().casefold()
         note = cover_note.strip()
-        if not (1 <= len(name) <= 160):
-            return _error("applicant_name_invalid", "Enter your name.", 400)
+        if len(name) > 160:
+            return _error("applicant_name_invalid",
+                          "The applicant name must be 160 characters or fewer.", 400)
         if len(normalized_email) > 254 or not _EMAIL.fullmatch(normalized_email):
             return _error("applicant_email_invalid", "Enter a valid email address.", 400)
-        if not (1 <= len(note) <= 4000):
+        if len(note) > 4000:
             return _error("cover_note_invalid",
-                          "Add a message of no more than 4,000 characters.", 400)
+                          "The optional message must be 4,000 characters or fewer.", 400)
         if not consent_accepted:
             return _error("privacy_consent_required",
                           "Confirm the application privacy notice.", 400)

@@ -7,6 +7,7 @@ ROOT = Path(__file__).parents[2]
 INDEX = (ROOT / "app/static/index.html").read_text(encoding="utf-8")
 HIRING = (ROOT / "app/static/hiring.html").read_text(encoding="utf-8")
 OPEN_ROLE = (ROOT / "app/static/hiring-notice.html").read_text(encoding="utf-8")
+PRODUCT_SHELL = (ROOT / "app/static/product-shell.css").read_text(encoding="utf-8")
 VOICE_ORB_CSS = (ROOT / "app/static/alex-voice-orb.css").read_text(encoding="utf-8")
 VOICE_ORB_JS = (ROOT / "app/static/alex-voice-orb.js").read_text(encoding="utf-8")
 
@@ -17,6 +18,16 @@ def squashed(value: str) -> str:
 
 INDEX_SQUASHED = squashed(INDEX)
 HIRING_SQUASHED = squashed(HIRING)
+
+
+def test_theme_is_resolved_before_stylesheets_to_prevent_global_repaint():
+    head = INDEX.split("<head>", 1)[1].split("</head>", 1)[0]
+    bootstrap = 'localStorage.getItem("cofounder-theme")'
+    stylesheet = '<link rel="stylesheet" href="/product-shell.css?v=20260829-header-left"/>'
+    assert '<html lang="en" data-theme=' not in INDEX.split("<head>", 1)[0]
+    assert bootstrap in head
+    assert 't==="light"||t==="dark"' in head
+    assert head.index(bootstrap) < head.index(stylesheet)
 
 
 def test_alex_shell_is_conversation_first_with_stable_hiring_route():
@@ -129,10 +140,143 @@ def test_navigation_has_one_search_and_one_new_session_without_raw_header_id():
              for name in ("alex", "search", "runs", "hiring", "decisions", "activity")]
     assert order == sorted(order)
     assert 'rail-mark' not in rail and 'title="Co-Founder"' not in rail
-    assert 'Keep the header-aligned rail slot intentionally blank' in INDEX
+    assert INDEX.index('class="brand-home rail-brand"') < INDEX.index(
+        '<nav class="product-rail"')
+    assert 'inset: 0 auto auto 0' in INDEX
+    header = INDEX.split('<header>', 1)[1].split('</header>', 1)[0]
+    assert 'id="contextTitle">Alex</div>' in header
+    assert 'body>header>:is(.brand-home,.context-title){display:none;}' in INDEX_SQUASHED
     assert '#i-sparkle' not in rail
     assert '$("sessionTag").textContent = "session " +' not in INDEX
     assert '$("setSession").textContent = sessionId ||' not in INDEX
+
+
+def test_brand_mark_uses_the_same_reserved_top_left_slot_in_product_shells():
+    for html in (INDEX, HIRING):
+        assert html.count('class="brand-home rail-brand"') == 1
+        assert html.index('class="brand-home rail-brand"') < html.index(
+            '<nav class="product-rail"')
+        brand = html.split('class="brand-home rail-brand"', 1)[1].split(
+            '</a>', 1)[0]
+        assert 'href="#brand-mark"' in brand
+
+    hiring_header = HIRING.split('<header class="top">', 1)[1].split(
+        '</header>', 1)[0]
+    assert 'class="brand-home"' not in hiring_header
+    assert 'padding: calc(var(--header-h) + var(--sp-3)) 6px var(--sp-2)' in HIRING
+    assert 'color: var(--accent)' in HIRING
+    assert 'z-index: 33' in HIRING
+    assert 'justify-content:center' in HIRING_SQUASHED
+    assert '.rail-brand,.rail-spacer' not in HIRING_SQUASHED
+    assert 'padding-left:calc(56px+var(--sp-2))' in HIRING_SQUASHED
+
+
+def test_account_menu_does_not_duplicate_primary_hiring_navigation():
+    rail = INDEX.split('<nav class="product-rail"', 1)[1].split('</nav>', 1)[0]
+    account_menu = INDEX.split('id="acctMenu"', 1)[1].split(
+        'id="inboxBtn"', 1)[0]
+    assert 'data-destination-link="hiring"' in rail
+    assert 'Hiring operations' not in account_menu
+    assert "location.href='/hiring.html'" not in account_menu
+
+
+def test_account_menu_is_consistent_and_left_aligned_in_every_authenticated_header():
+    index_header = INDEX.split("<header>", 1)[1].split("</header>", 1)[0]
+    hiring_header = HIRING.split('<header class="top">', 1)[1].split(
+        "</header>", 1)[0]
+    for header in (index_header, hiring_header):
+        assert 'id="acctWrap" class="account-wrap" data-menu-align="left"' in header
+        assert 'id="acctMenu"' in header and "account-menu" in header
+        assert header.index('id="acctWrap"') < header.index('class="spacer"')
+        for label in ("Profile", "Connectors", "Settings", "Log out"):
+            assert label in header
+    assert 'href="/?open=profile"' in hiring_header
+    assert 'href="/?open=connectors"' in hiring_header
+    assert 'href="/?open=settings"' in hiring_header
+    assert 'launch.get("open") === "profile"' in INDEX
+    assert 'launch.get("open") === "connectors"' in INDEX
+    assert '.account-wrap[data-menu-align="left"] .account-menu' in PRODUCT_SHELL
+
+
+def test_main_mail_and_account_controls_precede_header_context():
+    header = INDEX.split("<header>", 1)[1].split("</header>", 1)[0]
+    assert header.index('id="acctWrap"') < header.index('id="inboxBtn"')
+    assert header.index('id="inboxBtn"') < header.index('id="contextTitle"')
+
+
+def test_settings_workspace_omits_internal_workflow_configuration():
+    settings = INDEX.split('id="settings"', 1)[1].split(
+        'id="visionConsent"', 1)[0]
+    assert "Loaded from the server config" not in settings
+    assert "workflows/grant_applications.yaml" not in settings
+    assert "<b>Workflow</b>" not in settings
+    assert 'id="setWorkflow"' not in INDEX
+
+
+def test_runs_is_a_global_cross_operation_page_with_separate_boundaries():
+    board = INDEX.split('id="board"', 1)[1].split('id="splitHandle"', 1)[0]
+    assert 'id="boardTitle">Runs</h2>' in board
+    assert "Funding, Hiring, and skill-backed work" in board
+    for operation in ("hiring", "funding", "skills"):
+        assert f'data-run-filter="{operation}"' in board
+    assert 'id="globalRuns"' in board
+    assert 'id="fundingDetails"' in board
+    assert 'id="futureOperations"' in board
+    assert "Planned—not active" in board
+    assert 'api("/api/v1/runs")' in INDEX
+    assert 'api(`/api/v1/pipeline?session_id=${encodeURIComponent(context)}`)' in INDEX
+    assert 'api("/api/v1/investor-outreach")' in INDEX
+    assert '"All operations"' in INDEX
+    assert '$("sessionTag").hidden = current === "runs"' in INDEX
+    assert 'document.body.dataset.pane = destination === "runs" ? "board" : "chat"' in INDEX
+    assert "Candidate identity, evidence, and decisions stay inside Hiring" in INDEX
+    assert 'href="/hiring.html">Open in Hiring</a>' in INDEX
+    assert "run-candidate" not in INDEX
+
+
+def test_runs_dashboard_stays_bounded_and_opens_paginated_history():
+    assert 'id="recentRuns"' in INDEX
+    assert 'id="runHistory"' in INDEX
+    assert 'id="runHistorySearch"' in INDEX
+    assert 'id="runHistoryOperation"' in INDEX
+    assert 'id="runHistoryStatus"' in INDEX
+    assert 'const RUN_DASHBOARD_LIMIT = 12' in INDEX
+    assert 'const RUN_RECENT_LIMIT = 6' in INDEX
+    assert 'const RUN_HISTORY_PAGE_SIZE = 25' in INDEX
+    assert 'groupCompletedRunTitles(completed)' in INDEX
+    assert 'Review ${options.groupCount} runs' in INDEX
+    assert 'current.slice(0, RUN_DASHBOARD_LIMIT)' in INDEX
+    assert 'recentGroups.slice(0, RUN_RECENT_LIMIT)' in INDEX
+    assert 'id="runHistoryMore"' in INDEX
+    assert 'rows.slice(0, runHistoryVisibleCount)' in INDEX
+    assert 'function loadMoreRunHistory()' in INDEX
+    assert 'Open run history (${filtered.length})' in INDEX
+    assert 'RUN_ATTENTION_STATUSES' in INDEX
+    assert 'prefers-reduced-motion: reduce' in INDEX
+    assert "Candidate identity, evidence, and decisions stay inside Hiring" in INDEX
+
+
+def test_growing_lists_use_load_more_and_stale_while_refreshing_contract():
+    assert "function visibleListRows(" in INDEX
+    assert "function loadMoreFooter(" in INDEX
+    for key in (
+        "investor-outreach", "funding-applications", "session-work",
+        "session-activity", "work-documents", "evidence-attachments",
+    ):
+        assert f'"{key}"' in INDEX
+    assert 'Refresh failed — showing the last data Alex sent.' in INDEX
+    assert 'document.body.dataset.refreshing = "true"' in INDEX
+    assert "captureScrollState()" in INDEX
+    assert "restoreScrollState(scrollState)" in INDEX
+    assert "rolesVisibleCount = 12" in HIRING
+    assert "candidateVisibleCount = 25" in HIRING
+    assert "function loadMoreRoles()" in HIRING
+    assert "function loadMoreCandidates()" in HIRING
+    assert "Refresh failed. The last roles remain visible." in HIRING
+    assert "Active roles could not load" in HIRING
+    assert "Retry loading roles" in HIRING
+    assert 'api("/api/hiring/roles", { timeoutMs: 12000 })' in HIRING
+    assert "restoreHiringScroll(scrollState)" in HIRING
 
 
 def test_rail_and_composer_use_unambiguous_generated_icons():
@@ -170,9 +314,9 @@ def test_mobile_destinations_are_fixed_and_more_contains_activity_and_search():
 def test_hiring_is_a_dedicated_shared_shell_with_scoped_candidate_work():
     assert 'class="hiring-shell"' in HIRING
     assert 'href="/hiring.html"aria-current="page"' in HIRING_SQUASHED
-    assert 'href="/product-shell.css"' in HIRING
+    assert 'href="/product-shell.css?v=20260829-header-left"' in HIRING
     assert 'data-view="roles"' in HIRING and 'data-workspace="quiet"' in HIRING
-    assert 'Start a hiring run with Alex' in HIRING
+    assert '<h2 id="roleIndexTitle">Active roles</h2>' in HIRING
     assert 'class="role-card"' in HIRING
     for tab in ("work", "evidence", "decisions", "activity"):
         assert f'data-hiring-tab="{tab}"' in HIRING
@@ -181,43 +325,64 @@ def test_hiring_is_a_dedicated_shared_shell_with_scoped_candidate_work():
     assert "identity hidden" in HIRING
     assert "/applications/${encodeURIComponent(candidateId)}/conversations" in HIRING
     assert "cannot score, rank, advise a hiring outcome, commit a decision, or perform an external action" in HIRING
-    assert "Synthetic fixture · bounded internal demo" in HIRING
+    assert "SYNTHETIC FIXTURE · BOUNDED INTERNAL DEMO" not in HIRING
+    assert "Synthetic fixture · bounded internal demo" not in HIRING
+    assert "Founder-controlled drafts" not in HIRING
+    assert "Synthetic sandbox active" not in HIRING
+    assert "Read-only test role" in HIRING
     assert "innerWidth>=900||candidateId" not in HIRING_SQUASHED
     assert "alex-orb" not in HIRING[HIRING.index("<body>"):]
     assert 'class="candidate-route"' in HIRING
     assert 'function closeCandidate()' in HIRING
 
 
-def test_hiring_role_creation_uses_the_authenticated_v1_command_boundary():
-    start = HIRING.split("async function startHiringRun()", 1)[1].split(
-        "async function recordManualPublication", 1)[0]
-    assert 'api("/api/v1/messages"' in start
-    assert '"X-CSRF-Token": csrfToken' in start
-    assert "csrfToken = await csrf()" in start
-    assert 'api("/wake"' not in start
+def test_hiring_home_is_roles_first_without_setup_or_demo_controls():
+    assert 'class="role-index" aria-labelledby="roleIndexTitle"' in HIRING
+    assert ".role-index {" in HIRING and "width: 100%;" in HIRING
+    assert 'class="role-index-empty" role="status"' in HIRING
+    assert "No active roles" in HIRING
+    assert "Hiring roles you create with Alex will appear here" in HIRING
+    assert '>Go to Alex</a>' in HIRING
+    for removed in (
+        "Start a hiring run with Alex",
+        "Controlled demo lane",
+        'id="hiringCommand"',
+        'id="beginInternalDemo"',
+        "async function startHiringRun()",
+        "/api/hiring/internal-demo/runs",
+    ):
+        assert removed not in HIRING
 
 
 def test_founder_hiring_package_is_readable_and_exact_approval_is_primary():
-    assert "Founder-controlled drafts" in HIRING
-    assert "FOUNDER DRAFT · INTERNAL REVIEW" in HIRING
-    assert "Generated job description" in HIRING
+    assert "Founder-controlled drafts" not in HIRING
+    assert "FOUNDER DRAFT · INTERNAL REVIEW" not in HIRING
+    assert "DRAFT ROLE · INTERNAL REVIEW" in HIRING
+    assert "Job description draft" in HIRING
     for label in (
         "Role purpose / overview", "Responsibilities",
-            "Must-have qualifications", "Preferred qualifications",
+            "Required qualifications", "Preferred qualifications",
             "Relevant experience", "Success outcomes", "Hiring process",
-        "Location and work arrangement", "Employment type",
-        "Exact candidate-facing job-post copy", "Hiring scorecard",
+        "Location", "Employment type", "Application instructions",
+        "Save edits as draft", "Review public job page", "Hiring scorecard",
         "Interview plan",
     ):
         assert label in HIRING
-    assert "Discuss this role with Alex" in HIRING
-    assert "Applications not open yet" in HIRING or "Not open yet" in HIRING
+    assert "Discuss with Alex" in HIRING
+    assert HIRING.count("Discuss with Alex</a>") == 1
+    assert 'id="hiringAlexDock"' not in HIRING
+    assert "Applications are not open yet" in HIRING
+    for editable in (
+            "purpose", "responsibilities", "required_qualifications",
+            "preferred_qualifications", "relevant_experience", "location",
+            "work_arrangement", "employment_type", "hiring_process",
+            "application_instructions"):
+        assert f'name="{editable}"' in HIRING
     assert "decision-actions" in HIRING
     assert "min-height: 42px" in HIRING
-    assert 'class="job-post-copy" tabindex="0"' in HIRING
     assert 'class="btn" data-variant="primary" id="approvePolicy"' in HIRING
     assert "Approve exact role package for internal use" in HIRING
-    assert "it does not publish, email, source, rank, decide, or contact anyone" in HIRING
+    assert "It does not publish, email, source, rank, decide, or contact anyone" in HIRING
     assert "actions.append(review, approve)" in HIRING
     assert "decision.append(actions)" in HIRING
     assert "Candidate intake inbox" in HIRING
@@ -234,22 +399,35 @@ def test_candidate_open_role_is_receipt_gated_and_contains_no_internal_controls(
     assert "manual publication receipt exists" in OPEN_ROLE
     for label in (
             "Overview", "Responsibilities", "Requirements", "Working model",
-            "Employment", "Apply for this role", "Name", "Email address",
-            "Message or cover note", "CV or resume", "Privacy consent"):
+            "Employment", "Apply for this role", "Email address",
+            "Message", "(optional)", "CV or resume", "Submit application"):
         assert label in OPEN_ROLE
+    assert 'id="applicantName"' not in OPEN_ROLE
+    form_start = OPEN_ROLE.index('<form id="applicationForm"')
+    form_end = OPEN_ROLE.index("</form>", form_start)
+    application_form = OPEN_ROLE[form_start:form_end]
+    assert application_form.count("<button") == 1
+    assert 'id="coverNote"' in application_form
+    assert 'id="coverNote" name="cover_note" maxlength="4000" required' not in application_form
+    assert OPEN_ROLE.index('<div class="job-description"') < form_start
+    assert 'id="applicationForm"' not in HIRING
+    assert "View public job page" in HIRING
+    assert "Copy application link" in HIRING
+    assert 'id="applicationLinkStatus" role="status" aria-live="polite"' in HIRING
     assert "/api/public/hiring/roles/" in OPEN_ROLE
     assert "/applications" in OPEN_ROLE
     assert 'accept=".pdf,.docx,application/pdf' in OPEN_ROLE
     assert "Resume files must be 5 MB or smaller" in OPEN_ROLE
-    assert "it is never inferred from your resume" in OPEN_ROLE
+    assert "it is never inferred from your CV" in OPEN_ROLE
     assert "This address is dedicated to this role" in OPEN_ROLE
+    assert "Not specified" not in OPEN_ROLE
+    assert "Founder preview" in OPEN_ROLE
     assert 'role="status" aria-live="polite"' in OPEN_ROLE
     for forbidden in (
             "Hiring scorecard", "Interview plan", "Approve exact",
             "candidate assessment", "policy hash", "provider credential"):
         assert forbidden not in OPEN_ROLE
-    assert "if (manual && role.synthetic)" in HIRING
-    assert "if (role.synthetic) loadH4S(id)" in HIRING
+    assert "Alex · synthetic Hiring Run" not in HIRING
 
 
 def test_unified_ui_does_not_add_a_client_authority_path():

@@ -1,4 +1,4 @@
-<!doctype html> <html lang="en" data-theme="dark"> <head> <meta charset="utf-8"/> <meta name="viewport" content="width=device-width,initial-scale=1"/> <title>Co-Founder</title> <link rel="icon" href="/favicon.svg" type="image/svg+xml"/><link rel="apple-touch-icon" href="/apple-touch-icon.png"/><link rel="manifest" href="/site.webmanifest"/><meta name="theme-color" media="(prefers-color-scheme: dark)" content="#090B10"/><meta name="theme-color" media="(prefers-color-scheme: light)" content="#EFF2F7"/><meta property="og:title" content="Co-Founder"/><meta property="og:description" content="The agent does the work; founders keep the judgment."/><meta property="og:image" content="/og-image.png"/> <link rel="stylesheet" href="/product-shell.css"/> <style> /* ============================================================================
+<!doctype html> <html lang="en"> <head> <meta charset="utf-8"/> <meta name="viewport" content="width=device-width,initial-scale=1"/> <title>Co-Founder</title> <link rel="icon" href="/favicon.svg" type="image/svg+xml"/><link rel="apple-touch-icon" href="/apple-touch-icon.png"/><link rel="manifest" href="/site.webmanifest"/><meta name="theme-color" media="(prefers-color-scheme: dark)" content="#090B10"/><meta name="theme-color" media="(prefers-color-scheme: light)" content="#EFF2F7"/><meta property="og:title" content="Co-Founder"/><meta property="og:description" content="The agent does the work; founders keep the judgment."/><meta property="og:image" content="/og-image.png"/> <script>(()=>{try{const t=localStorage.getItem("cofounder-theme");if(t==="light"||t==="dark")document.documentElement.dataset.theme=t;}catch{}})();</script> <link rel="stylesheet" href="/product-shell.css?v=20260829-header-left"/> <style> /* ============================================================================
    Workbench — the Co-Founder design system.  Spec: docs/16-design-system.md
    Layer 1: tokens.  Components below consume semantics only, never primitives.
    ========================================================================= */
@@ -504,6 +504,257 @@
         border-left: 2px solid var(--ink-3);
         padding-left: var(--sp-2);
       }
+      .runs-page {
+        gap: var(--sp-5);
+      }
+      .runs-intro {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: var(--sp-4);
+        flex-wrap: wrap;
+      }
+      .runs-intro h2,
+      .runs-intro p,
+      .runs-section h3,
+      .runs-section p {
+        margin: 0;
+      }
+      .runs-intro-copy {
+        display: grid;
+        gap: var(--sp-1);
+        max-width: 680px;
+      }
+      .runs-intro-copy p,
+      .runs-section-head p,
+      .operation-boundary,
+      .run-summary {
+        color: var(--ink-2);
+        font-size: var(--fs-2);
+        line-height: var(--lh-2);
+      }
+      .runs-filters {
+        display: flex;
+        gap: var(--sp-1);
+        flex-wrap: wrap;
+        flex-basis: 100%;
+      }
+      .runs-filter {
+        min-height: 36px;
+        border: 1px solid var(--border);
+        border-radius: var(--r-full);
+        padding: 0 var(--sp-3);
+        background: var(--surface-1);
+        color: var(--ink-2);
+        cursor: pointer;
+        font: 600 var(--fs-2) / 1 var(--font-ui);
+      }
+      .runs-filter[aria-pressed="true"] {
+        background: var(--accent-bg);
+        border-color: var(--accent);
+        color: var(--accent-ink);
+      }
+      .runs-family-grid,
+      .future-operations {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr));
+        gap: var(--sp-3);
+      }
+      .runs-list {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(min(300px, 100%), 1fr));
+        gap: var(--sp-3);
+      }
+      .operation-card,
+      .run-card,
+      .future-operation {
+        min-width: 0;
+      }
+      .operation-card {
+        display: grid;
+        gap: var(--sp-2);
+        padding: var(--sp-4);
+        border: 1px solid var(--border);
+        border-radius: var(--r-4);
+        background: var(--surface-2);
+      }
+      .operation-card-head,
+      .run-card-head,
+      .runs-section-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: var(--sp-2);
+      }
+      .operation-card .name,
+      .run-card .name {
+        font: 600 var(--fs-3) / var(--lh-3) var(--font-ui);
+        color: var(--ink-1);
+      }
+      .operation-card .name {
+        display: inline-flex;
+        align-items: center;
+        gap: var(--sp-2);
+      }
+      .operation-card .ico {
+        color: var(--accent-ink);
+      }
+      .operation-boundary {
+        display: flex;
+        align-items: flex-start;
+        gap: var(--sp-2);
+      }
+      .operation-boundary .ico {
+        width: var(--ico-sm);
+        height: var(--ico-sm);
+        flex: none;
+        margin-top: 2px;
+      }
+      .runs-section {
+        display: grid;
+        gap: var(--sp-3);
+      }
+      .runs-section-head h3 {
+        font: 600 var(--fs-4) / var(--lh-4) var(--font-display);
+        color: var(--ink-1);
+      }
+      .run-card {
+        display: grid;
+        gap: var(--sp-2);
+        padding: var(--sp-3);
+        border: 1px solid var(--border);
+        border-radius: var(--r-3);
+        background: var(--surface-1);
+      }
+      .run-card-actions {
+        display: flex;
+        align-items: center;
+        gap: var(--sp-2);
+        flex-wrap: wrap;
+      }
+      .runs-section-head-actions,
+      .run-history-controls,
+      .run-history-pagination {
+        display: flex;
+        align-items: center;
+        gap: var(--sp-2);
+        flex-wrap: wrap;
+      }
+      .run-history-controls .textin {
+        flex: 1 1 240px;
+        width: auto;
+      }
+      .run-history-controls select {
+        min-height: 36px;
+        border: 1px solid var(--border);
+        border-radius: var(--r-full);
+        padding: 0 var(--sp-3);
+        background: var(--surface-1);
+        color: var(--ink-1);
+        font: 500 var(--fs-2) / 1 var(--font-ui);
+      }
+      .run-history-list {
+        display: grid;
+        gap: var(--sp-2);
+      }
+      .run-history-row {
+        display: grid;
+        grid-template-columns: minmax(220px, 1fr) auto;
+        align-items: center;
+        gap: var(--sp-2) var(--sp-4);
+        padding: var(--sp-3);
+        border: 1px solid var(--border);
+        border-radius: var(--r-3);
+        background: var(--surface-1);
+      }
+      .run-history-row .run-card-head,
+      .run-history-row .run-card-actions {
+        min-width: 0;
+      }
+      .run-history-row .run-card-actions {
+        grid-column: 2;
+        grid-row: 1 / span 2;
+        justify-content: flex-end;
+      }
+      .run-history-row .operation-boundary {
+        grid-column: 1;
+      }
+      .run-history-pagination {
+        justify-content: flex-end;
+      }
+      .run-history-pagination .run-summary {
+        margin-right: auto;
+      }
+      .list-footer {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: space-between;
+        gap: var(--sp-2);
+        min-height: 36px;
+        margin-top: var(--sp-2);
+      }
+      .list-footer .btn {
+        margin-inline-start: auto;
+      }
+      .inline-load-state {
+        display: flex;
+        align-items: center;
+        gap: var(--sp-2);
+        min-height: 32px;
+        color: var(--ink-3);
+        font: 500 var(--fs-2) / var(--lh-2) var(--font-ui);
+      }
+      .inline-load-state[data-tone="danger"] {
+        color: var(--danger);
+      }
+      [data-refreshing="true"] {
+        opacity: .82;
+      }
+      .funding-detail {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: var(--sp-4);
+      }
+      .funding-detail > section {
+        min-width: 0;
+        display: grid;
+        align-content: start;
+        gap: var(--sp-2);
+      }
+      .funding-detail h4 {
+        margin: 0;
+        color: var(--ink-1);
+        font: 600 var(--fs-3) / var(--lh-3) var(--font-ui);
+      }
+      .future-operation {
+        display: grid;
+        gap: var(--sp-1);
+        padding: var(--sp-3);
+        border: 1px dashed var(--border);
+        border-radius: var(--r-3);
+        background: var(--surface-0);
+      }
+      .future-operation b {
+        color: var(--ink-1);
+      }
+      .future-operation .badge {
+        justify-self: start;
+      }
+      @media (max-width: 900px) {
+        .funding-detail {
+          grid-template-columns: 1fr;
+        }
+        .run-history-row {
+          grid-template-columns: 1fr;
+        }
+        .run-history-row .run-card-actions,
+        .run-history-row .operation-boundary {
+          grid-column: 1;
+          grid-row: auto;
+          justify-content: flex-start;
+        }
+      }
       .outreach-card {
         gap: var(--sp-2);
       }
@@ -614,15 +865,10 @@
         z-index: 10;
         box-shadow: var(--e-2);
       }
-      .context-title {
-        font: 700 var(--fs-5) / 1 var(--font-display);
-        letter-spacing: var(--tr-tight);
-        color: var(--ink-1);
-        margin-right: var(--sp-1);
-      }
       .brand-home {
         display: inline-flex;
         align-items: center;
+        justify-content: center;
         color: var(--accent);
         border-radius: var(--r-2);
         flex: none;
@@ -630,9 +876,6 @@
       .brand-home:focus-visible {
         outline: 2px solid var(--focus);
         outline-offset: 2px;
-      }
-      .brand-home {
-        --brand-size: 18px;
       }
       .chip {
         font: 500 var(--fs-1) / var(--lh-1) var(--font-mono);
@@ -869,7 +1112,7 @@
         flex-direction: column;
         min-height: 0;
       }
-      /* The left cell hosts two switchable surfaces — Pipeline and Browser (18) —
+      /* The left cell hosts two switchable surfaces — Runs and Browser (18) —
    and the drag handle on its hairline resizes it (--left-w, persisted). */
       #leftCell {
         position: relative;
@@ -1748,7 +1991,7 @@
       }
 
       /* One session is the context for the whole workbench. This compact index sits
-   above its transcript and mirrors the same linked work rendered in Pipeline,
+   above its transcript and mirrors the same linked work rendered in Runs,
    Browser, Review, and Documents; it is navigation/provenance, not a second
    domain store (docs/23 §§0, 8). */
       .session-work {
@@ -2524,6 +2767,25 @@
         font-size: var(--fs-2);
         line-height: var(--lh-2);
       }
+      #refreshing {
+        position: fixed;
+        inset-block-start: calc(var(--header-h) + var(--sp-2));
+        inset-inline-end: var(--sp-4);
+        z-index: 32;
+        display: none;
+        align-items: center;
+        gap: var(--sp-2);
+        padding: var(--sp-2) var(--sp-3);
+        border: 1px solid var(--border);
+        border-radius: var(--r-full);
+        background: var(--surface-2);
+        color: var(--ink-2);
+        box-shadow: var(--e-1);
+        font: 500 var(--fs-2) / var(--lh-2) var(--font-ui);
+      }
+      body[data-refreshing="true"] #refreshing {
+        display: inline-flex;
+      }
       body[data-offline="true"] #offline {
         display: flex;
       }
@@ -2617,6 +2879,16 @@
         color: var(--ink-3);
         margin: var(--sp-5) 0 var(--sp-2);
         padding: 0 var(--sp-4);
+      }
+      .connector-group-heading {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: var(--sp-2);
+      }
+      .connector-group-heading span:last-child {
+        font-weight: 500;
+        color: var(--ink-4);
       }
       /* Optional memory is absent until the server explicitly advertises it.
          This applies before JavaScript runs, so normal-app settings never flash
@@ -2915,11 +3187,24 @@
         flex-direction: column;
         align-items: center;
         gap: var(--sp-1);
-        /* Keep the header-aligned rail slot intentionally blank until an approved
-     Co-Founder product icon exists. Navigation begins below that band. */
         padding: calc(var(--header-h) + var(--sp-3)) 6px var(--sp-2);
         background: var(--surface-1);
         border-right: 1px solid var(--divider);
+      }
+      .rail-brand {
+        position: fixed;
+        inset: 0 auto auto 0;
+        z-index: 33;
+        width: 64px;
+        height: var(--header-h);
+        border-right: 1px solid var(--divider);
+        border-bottom: 1px solid var(--border);
+        border-radius: 0;
+        background: var(--surface-1);
+        --brand-size: 18px;
+      }
+      body > header > :is(.brand-home, .context-title) {
+        display: none;
       }
       .rail-link {
         width: 48px;
@@ -3402,6 +3687,9 @@
         .product-rail {
           width: 56px;
         }
+        .rail-brand {
+          width: 56px;
+        }
         body > header,
         body > #gateBanner,
         body > #offline {
@@ -3460,6 +3748,18 @@
         .rail-new-session {
           margin: 0;
         }
+        .rail-brand {
+          position: fixed;
+          inset: 0 auto auto 0;
+          z-index: 33;
+          width: 56px;
+          height: var(--header-h);
+          margin: 0;
+          border-right: 1px solid var(--divider);
+          border-bottom: 1px solid var(--border);
+          border-radius: 0;
+          background: var(--surface-1);
+        }
         .rail-link .ico {
           width: 19px;
           height: 19px;
@@ -3474,6 +3774,9 @@
         body > #gateBanner,
         body > #offline {
           margin-left: 0;
+        }
+        body > header {
+          padding-left: calc(56px + var(--sp-2));
         }
         body > main {
           margin-left: 0;
@@ -3594,7 +3897,111 @@
 <symbol id="brand-word" viewBox="0 0 747.85 107.74"><path fill="currentColor" d="M43.12 107.74Q33.24 107.74 25.29 104.51Q17.34 101.29 11.68 94.84Q6.02 88.4 3.01 78.87Q0 69.34 0 56.73Q0 44.13 3.01 34.31Q6.02 24.5 11.68 17.84Q17.34 11.17 25.29 7.74Q33.24 4.3 43.12 4.3Q56.59 4.3 65.47 10.03Q74.36 15.76 79.66 27.36L63.47 35.96Q61.32 29.23 56.45 25.14Q51.58 21.06 43.12 21.06Q32.52 21.06 26.29 28.22Q20.06 35.39 20.06 48.28V64.04Q20.06 77.08 26.29 84.03Q32.52 90.97 43.12 90.97Q51.58 90.97 56.95 86.39Q62.32 81.81 64.76 75.07L80.09 84.1Q74.64 95.27 65.62 101.5Q56.59 107.74 43.12 107.74ZM122.21 107.74Q114.18 107.74 107.81 105.01Q101.43 102.29 96.92 97.13Q92.41 91.98 89.97 84.74Q87.54 77.51 87.54 68.48Q87.54 59.46 89.97 52.29Q92.41 45.13 96.92 40.04Q101.43 34.96 107.81 32.23Q114.18 29.51 122.21 29.51Q130.23 29.51 136.68 32.23Q143.12 34.96 147.64 40.04Q152.15 45.13 154.58 52.29Q157.02 59.46 157.02 68.48Q157.02 77.51 154.58 84.74Q152.15 91.98 147.64 97.13Q143.12 102.29 136.68 105.01Q130.23 107.74 122.21 107.74ZM122.21 92.98Q129.51 92.98 133.67 88.54Q137.82 84.1 137.82 75.5V61.6Q137.82 53.15 133.67 48.71Q129.51 44.27 122.21 44.27Q115.04 44.27 110.89 48.71Q106.73 53.15 106.73 61.6V75.5Q106.73 84.1 110.89 88.54Q115.04 92.98 122.21 92.98ZM169.77 71.49V53.3H210.74V71.49ZM228.22 106.02V6.02H292.55V22.78H247.13V46.99H286.68V63.75H247.13V106.02ZM332.52 107.74Q324.5 107.74 318.12 105.01Q311.75 102.29 307.23 97.13Q302.72 91.98 300.29 84.74Q297.85 77.51 297.85 68.48Q297.85 59.46 300.29 52.29Q302.72 45.13 307.23 40.04Q311.75 34.96 318.12 32.23Q324.5 29.51 332.52 29.51Q340.54 29.51 346.99 32.23Q353.44 34.96 357.95 40.04Q362.46 45.13 364.9 52.29Q367.34 59.46 367.34 68.48Q367.34 77.51 364.9 84.74Q362.46 91.98 357.95 97.13Q353.44 102.29 346.99 105.01Q340.54 107.74 332.52 107.74ZM332.52 92.98Q339.83 92.98 343.98 88.54Q348.14 84.1 348.14 75.5V61.6Q348.14 53.15 343.98 48.71Q339.83 44.27 332.52 44.27Q325.36 44.27 321.2 48.71Q317.05 53.15 317.05 61.6V75.5Q317.05 84.1 321.2 88.54Q325.36 92.98 332.52 92.98ZM425.64 93.55H424.93Q423.93 96.42 422.28 98.93Q420.63 101.43 418.12 103.44Q415.62 105.44 412.11 106.59Q408.6 107.74 404.01 107.74Q392.41 107.74 386.25 100.14Q380.09 92.55 380.09 78.51V31.23H398.42V76.65Q398.42 84.38 401.43 88.47Q404.44 92.55 411.03 92.55Q413.75 92.55 416.4 91.83Q419.05 91.12 421.06 89.61Q423.07 88.11 424.36 85.89Q425.64 83.67 425.64 80.66V31.23H443.98V106.02H425.64ZM462.61 106.02V31.23H480.95V43.7H481.66Q483.95 37.68 488.9 33.6Q493.84 29.51 502.58 29.51Q514.18 29.51 520.34 37.11Q526.5 44.7 526.5 58.74V106.02H508.17V60.6Q508.17 52.58 505.3 48.57Q502.44 44.56 495.85 44.56Q492.98 44.56 490.33 45.34Q487.68 46.13 485.6 47.64Q483.52 49.14 482.23 51.36Q480.95 53.58 480.95 56.59V106.02ZM590.69 93.55H589.97Q587.97 100 582.38 103.87Q576.79 107.74 569.34 107.74Q555.16 107.74 547.64 97.56Q540.11 87.39 540.11 68.48Q540.11 49.71 547.64 39.61Q555.16 29.51 569.34 29.51Q576.79 29.51 582.38 33.31Q587.97 37.11 589.97 43.55H590.69V0H609.03V106.02H590.69ZM575.21 92.55Q581.81 92.55 586.25 89.4Q590.69 86.25 590.69 80.37V56.59Q590.69 51.15 586.25 47.85Q581.81 44.56 575.21 44.56Q568.05 44.56 563.68 49.36Q559.31 54.15 559.31 62.18V75.07Q559.31 83.09 563.68 87.82Q568.05 92.55 575.21 92.55ZM657.88 107.74Q649.57 107.74 643.05 104.94Q636.53 102.15 632.02 97.06Q627.51 91.98 625.07 84.74Q622.64 77.51 622.64 68.48Q622.64 59.6 625 52.44Q627.36 45.27 631.81 40.19Q636.25 35.1 642.69 32.31Q649.14 29.51 657.31 29.51Q666.05 29.51 672.49 32.52Q678.94 35.53 683.09 40.69Q687.25 45.85 689.33 52.65Q691.4 59.46 691.4 67.19V73.21H641.69V75.07Q641.69 83.24 646.28 88.18Q650.86 93.12 659.89 93.12Q666.76 93.12 671.13 90.26Q675.5 87.39 678.94 82.95L688.83 93.98Q684.24 100.43 676.29 104.08Q668.34 107.74 657.88 107.74ZM657.59 43.27Q650.29 43.27 645.99 48.14Q641.69 53.01 641.69 60.74V61.89H672.35V60.6Q672.35 52.87 668.55 48.07Q664.76 43.27 657.59 43.27ZM705.01 106.02V31.23H723.35V46.7H724.07Q724.79 43.7 726.29 40.9Q727.79 38.11 730.23 35.96Q732.66 33.81 736.03 32.52Q739.4 31.23 743.84 31.23H747.85V48.57H742.12Q732.81 48.57 728.08 51.29Q723.35 54.01 723.35 60.17V106.02Z"/></symbol>
 </svg>
 <!-- @brand:end -->
- <nav class="product-rail" aria-label="Product"> <button class="rail-link rail-new-session" type="button" onclick="newSession()" title="New session" aria-label="New session"> <svg class="ico" aria-hidden="true"><use href="#i-plus"/></svg><span>New</span> </button> <button class="rail-link" data-destination-link="alex" aria-current="page" onclick="navigateProduct('alex')" title="Alex"> <svg class="ico" aria-hidden="true"><use href="#i-chat"/></svg><span>Alex</span> </button> <button class="rail-link rail-desktop-only" data-destination-link="search" onclick="openSessions()" title="Search sessions and work (⌘K)" aria-haspopup="dialog"> <svg class="ico" aria-hidden="true"><use href="#i-search"/></svg><span>Search</span> </button> <button class="rail-link" data-destination-link="runs" onclick="navigateProduct('runs')" title="Runs"> <svg class="ico" aria-hidden="true"><use href="#i-board"/></svg><span>Runs</span> </button> <a class="rail-link" data-destination-link="hiring" href="/hiring.html" title="Hiring"> <svg class="ico" aria-hidden="true"><use href="#i-hiring"/></svg><span>Hiring</span> </a> <button class="rail-link" data-destination-link="decisions" onclick="navigateProduct('decisions')" title="Decisions"> <svg class="ico" aria-hidden="true"><use href="#i-shield"/></svg><span>Decisions</span> </button> <button class="rail-link rail-desktop-only" data-destination-link="activity" onclick="navigateProduct('activity')" title="Activity"> <svg class="ico" aria-hidden="true"><use href="#i-clock"/></svg><span>Activity</span> </button> <span class="rail-spacer"></span> <button class="rail-link rail-utility" onclick="openSettings()" title="Settings"> <svg class="ico" aria-hidden="true"><use href="#i-gear"/></svg><span>Settings</span> </button> <div class="rail-more"> <button class="rail-link" id="moreNavBtn" onclick="toggleMobileMore()" aria-expanded="false" aria-controls="mobileMore" title="More"> <svg class="ico" aria-hidden="true"><use href="#i-plus"/></svg><span>More</span> </button> <div class="mobile-more-menu" id="mobileMore" hidden> <button class="btn" data-variant="ghost" onclick="toggleMobileMore();navigateProduct('activity')"> <svg class="ico" aria-hidden="true"><use href="#i-clock"/></svg>Activity </button> <button class="btn" data-variant="ghost" onclick="toggleMobileMore();openSessions()"> <svg class="ico" aria-hidden="true"><use href="#i-search"/></svg>Search </button> <button class="btn" data-variant="ghost" onclick="toggleMobileMore();openSettings()"> <svg class="ico" aria-hidden="true"><use href="#i-gear"/></svg>Settings </button> </div> </div> </nav> <header> <div id="acctWrap"> <button class="btn" data-variant="ghost" data-shape="icon" id="acctBtn" onclick="toggleAcctMenu()" aria-haspopup="menu" aria-expanded="false" title="Account" aria-label="Account menu"> <span class="acct-avatar" id="acctAvatar">·</span> </button> <div id="acctMenu" class="menu" role="menu" aria-label="Account" hidden> <div class="menu-id"> <span class="acct-avatar big" id="menuAvatar">·</span> <span class="grow"> <b id="acctName">Founder</b> <span class="conn-sub" id="acctEmail"></span> </span> </div> <hr/> <button class="menu-item" role="menuitem" onclick="toggleAcctMenu();openConnections()"> <svg class="ico" aria-hidden="true"><use href="#i-plug"/></svg>Connectors </button> <button class="menu-item" role="menuitem" onclick="location.href='/hiring.html'"> <svg class="ico" aria-hidden="true"><use href="#i-board"/></svg>Hiring operations </button> <button class="menu-item" role="menuitem" onclick="toggleAcctMenu();openSettings()"> <svg class="ico" aria-hidden="true"><use href="#i-gear"/></svg>Settings </button> <hr/> <button class="menu-item danger" role="menuitem" id="logoutItem" onclick="logout()"> <svg class="ico" aria-hidden="true"><use href="#i-sign-out"/></svg>Log out </button> </div> </div> <button class="btn" data-variant="ghost" id="inboxBtn" onclick="openFounderInbox()" aria-haspopup="dialog" title="Needs your decision" aria-label="Open needs your decision inbox"> <svg class="ico" aria-hidden="true"><use href="#i-inbox"/></svg> <span class="badge" data-tone="attn" id="inboxCount" hidden>0</span> </button> <a class="brand-home" href="/" title="Co-Founder" aria-label="Co-Founder home"><svg class="brand-mark" aria-hidden="true"><use href="#brand-mark"/></svg></a> <div class="context-title" id="contextTitle">Alex</div> <span class="chip" id="contextScope">General conversation</span> <span class="chip" id="sessionTag"></span> <div class="spacer"></div> <div id="paneTabs" role="tablist" aria-label="Destination"> <button role="tab" aria-selected="false" onclick="showPane('board')"> <svg class="ico ico-sm" aria-hidden="true"> <use href="#i-board"/></svg>Runs </button> <button role="tab" aria-selected="true" onclick="showPane('chat')"> <svg class="ico ico-sm" aria-hidden="true"><use href="#i-chat"/></svg>Alex </button> <button role="tab" aria-selected="false" onclick="showPane('browser')"> <svg class="ico ico-sm" aria-hidden="true"> <use href="#i-globe"/></svg>Work </button> </div> <button class="btn" data-variant="secondary" data-shape="icon" id="drawerBtn" style="display: none" onclick="toggleDrawer()" title="Open contextual workspace" aria-label="Open contextual workspace"> <svg class="ico" aria-hidden="true"><use href="#i-clipboard"/></svg> </button> </header> <div id="gateBanner"></div> <div id="offline" role="status"> <svg class="ico ico-sm" aria-hidden="true"><use href="#i-alert"/></svg> <span>Can't reach the server — showing the last data Alex sent. Retrying…</span> </div> <main> <div id="leftCell"> <section id="board" aria-labelledby="boardTitle"> <h2 id="boardTitle">Pipeline</h2> <div id="boardCols" class="stack" aria-busy="true"> <div class="skel-card" aria-hidden="true"> <div class="skel skel-line title"></div> <div class="skel skel-line meta"></div> <div class="skel skel-line body"></div> <div class="skel skel-line body short"></div> </div> <div class="skel-card" aria-hidden="true"> <div class="skel skel-line title"></div> <div class="skel skel-line meta"></div> <div class="skel skel-line body short"></div> </div> <div class="skel-card" aria-hidden="true"> <div class="skel skel-line title"></div> <div class="skel skel-line meta"></div> <div class="skel skel-line body"></div> </div> </div> <h2 style="margin-top: var(--sp-5)">Committed applications</h2> <div id="apps" class="stack"></div> <h2 style="margin-top: var(--sp-5)">Investor outreach</h2> <div id="investorRuns" class="stack"></div> </section> <div id="splitHandle" role="separator" aria-orientation="vertical" tabindex="0" aria-label="Resize left panel" title="Drag to resize"></div> </div> <section id="chat" aria-labelledby="chatTitle"> <h2 id="chatTitle">Conversation</h2> <div class="conversation-context-row"> <button class="btn context-control" id="contextBtn" type="button" onclick="toggleSessionWork()" aria-expanded="false" aria-controls="sessionWork" title="Work in this session" aria-label="Work in this session, 0 items"> <svg class="ico" aria-hidden="true"><use href="#i-link"/></svg> <span class="badge" data-tone="info" id="contextCount">0</span> </button> </div> <section id="sessionWork" class="session-work" aria-labelledby="sessionWorkTitle" hidden> <div class="session-work-head"> <svg class="ico" aria-hidden="true"><use href="#i-link"/></svg> <b id="sessionWorkTitle">Work in this session</b> <span class="badge" data-tone="info" id="sessionWorkCount">0</span> <span class="session-readonly" id="sessionReadonly" hidden>Read only</span> </div> <div id="sessionWorkList" class="session-work-list"></div> <div id="sessionWorkStatus" class="foot" aria-live="polite"></div> </section> <div class="alex-live" id="alexLive" aria-label="Alex voice status" hidden> <div class="alex-cloud" id="alexCloud" data-state="CONNECTING" data-approval="none" aria-hidden="true"> <span class="alex-cloud-halo"></span> <canvas id="alexCloudCanvas"></canvas> </div> <div class="alex-live-copy"> <div class="alex-live-head"> <svg class="ico" aria-hidden="true"> <use id="alexStatusIcon" href="#i-refresh"/> </svg> <span id="alexStatusLabel">Connecting voice</span> <button class="caption-dismiss" id="voiceErrorDismiss" type="button" onclick="dismissVoiceStatus()" hidden> Dismiss </button> </div> <div class="live-captions" id="liveCaptionsPanel" aria-label="Live captions"> <div class="caption-row" id="captionYou" data-final="true" hidden> <b>You</b><span></span> </div> <div class="caption-row" id="captionAlex" data-final="true" hidden> <b>Alex</b><span></span> </div> <div class="caption-actions"> <button type="button" id="captionToggle" onclick="toggleCaptions()"> Hide captions </button> <button type="button" id="captionFinalOnly" onclick="toggleFinalCaptions()"> Final captions only: off </button> </div> </div> <div id="liveStatusAnnounce" role="status" aria-live="polite" class="sr-only"></div> </div> </div> <section class="vision-card" id="visionCard" aria-label="Vision sharing" hidden> <div class="vision-card-head"> <svg class="ico" aria-hidden="true"><use href="#i-globe"/></svg> <span class="grow"><b id="visionTitle">Previewing locally</b><span class="foot" id="visionDetail">Nothing is being sent.</span></span> </div> <video id="visionPreview" autoplay playsinline muted></video> <div class="vision-card-actions"> <button class="btn" data-variant="primary" data-size="sm" id="visionShareBtn" onclick="shareVision()"> Share with Alex </button> <button class="btn" data-variant="secondary" data-size="sm" id="visionPauseBtn" onclick="pauseVision()" hidden> Pause </button> <button class="btn" data-variant="secondary" data-size="sm" id="visionResumeBtn" onclick="resumeVision()" hidden> Resume </button> <button class="btn" data-variant="secondary" data-size="sm" id="visionCaptureBtn" onclick="captureVisionStill()"> Capture still </button> <button class="btn" data-variant="danger" data-size="sm" onclick="stopVision('user_stop')"> Stop </button> </div> </section> <div id="digestSlot"></div> <div id="chatlog" role="log" tabindex="0" aria-label="Conversation messages" aria-live="polite" aria-relevant="additions"></div> <button class="btn new-chat-items" id="newChatItems" type="button" onclick="scrollToLatestConversation()" hidden> New messages </button> <div id="composer"> <div class="pillbar"> <button class="cbtn" id="attachBtn" title="Add document or image" aria-label="Add document or image" onclick="document.getElementById('docUpload').click()"> <svg class="ico" aria-hidden="true"> <use href="#i-paperclip"/> </svg> </button> <input type="file" id="docUpload" style="display: none" accept=".pdf,.docx,.pptx,.xlsx,.txt,.csv,.jpg,.jpeg,.png,.webp" onchange="uploadDoc(this)"/> <select id="attachmentScope" class="attachment-scope" aria-label="Attachment use"> <option value="reference_only" selected="selected"> Use in conversation </option> <option value="profile">Add to Founder Profile</option> </select> <input id="msg" placeholder="Ask your co-founder…" autocomplete="off" aria-label="Message" onkeydown="if(event.key==='Enter')send()" oninput="$('sendBtn').disabled=!this.value.trim()"/> <button class="cbtn" id="micBtn" title="Record a voice note" aria-label="Record a voice note"> <svg class="ico" aria-hidden="true"><use href="#i-mic"/></svg> </button> <button class="cbtn voicecall" id="talkBtn" title="Talk to Alex in real time" aria-label="Talk to Alex in real time" onclick="toggleVoice()"> <svg class="ico" aria-hidden="true"> <use href="#i-waveform"/> </svg> </button> <button class="cbtn vision" id="cameraBtn" title="Share camera with Alex — requires an active voice call" aria-label="Share camera with Alex. Requires an active voice call" onclick="beginVision('camera')" disabled="disabled"> <svg class="ico" aria-hidden="true"><use href="#i-camera"/></svg> </button> <button class="cbtn vision" id="displayBtn" title="Share screen with Alex — requires an active voice call" aria-label="Share screen with Alex. Requires an active voice call" onclick="beginVision('display')" disabled="disabled"> <svg class="ico" aria-hidden="true"> <use href="#i-screen-share"/> </svg> </button> <button class="cbtn send" id="sendBtn" title="Send" aria-label="Send" onclick="send()" disabled="disabled"> <svg class="ico" aria-hidden="true"><use href="#i-send"/></svg> </button> </div> </div> </section> <div id="splitHandleRight" role="separator" aria-orientation="vertical" tabindex="0" aria-label="Resize contextual workspace" title="Drag to resize"></div> <section id="review" aria-labelledby="reviewTitle" data-tab="work"> <button class="workspace-quiet" type="button" onclick="openWorkspace('panel')" aria-label="Open contextual workspace" title="Open contextual workspace"> <svg class="ico" aria-hidden="true"><use href="#i-clipboard"/></svg> <span class="badge" data-tone="attn" id="workspaceDecisionCount" hidden>0</span> </button> <div class="workspace-panel"> <div class="workspace-head"> <h2 id="reviewTitle">Contextual workspace</h2> <button class="cbtn workspace-browser-control" id="browserLauncher" type="button" onclick="openBrowserTakeover()" aria-label="Open Browser" title="Open Browser"> <svg class="ico" aria-hidden="true"><use href="#i-globe"/></svg> </button> <button class="cbtn" id="focusStageBtn" type="button" onclick="toggleFocusStage()" aria-label="Toggle Focus Stage" title="Toggle Focus Stage"> <svg class="ico" aria-hidden="true"> <use href="#i-external"/></svg><span class="focus-label">Return</span> </button> <button class="cbtn" type="button" onclick="openWorkspace('quiet')" aria-label="Keep workspace quiet" title="Keep workspace quiet"> <svg class="ico" aria-hidden="true"><use href="#i-minus"/></svg> </button> </div> <section id="browserSurface" aria-labelledby="browserTitle" data-visible="false"> <div class="browser-takeover-head"> <button class="btn" data-variant="secondary" data-size="sm" id="browserCloseBtn" onclick="closeBrowserTakeover()"> <svg class="ico" aria-hidden="true"> <use href="#i-chev-left"/></svg>Back to workspace </button> <span class="grow"> <b id="browserPageTitle">Browser</b> <span class="conn-sub" id="browserSource">No active page</span> </span> <span class="badge" data-tone="info" id="browserLive" hidden>live</span> <button class="cbtn" id="browserFocusStageBtn" type="button" onclick="toggleFocusStage()" aria-label="Toggle Browser Focus Stage" title="Toggle Browser Focus Stage"> <svg class="ico" aria-hidden="true"> <use href="#i-external"/> </svg> </button> </div> <div class="browser-toolbar"> <svg class="ico" aria-hidden="true"><use href="#i-globe"/></svg> <input class="browser-urlbar" id="browserUrl" type="text" inputmode="url" placeholder="Ask Alex to open a URL" autocomplete="off" spellcheck="false" aria-label="Type a URL for Alex to open" onkeydown="if(event.key==='Enter')browseTo(this.value)"/> <button class="btn" data-variant="danger" data-size="sm" id="browserStopBtn" hidden onclick="stopBrowsing()"> Stop </button> </div> <div class="browser-goal" id="browserGoal" hidden></div> <div class="browser-stage" id="browserStage" aria-live="polite"></div> <div class="browser-timeline" id="browserTimeline" aria-label="Browser frame timeline"></div> <div class="browser-last" id="browserLast"></div> </section> <div id="approvalSlot"></div> <div id="refTabs" role="tablist" aria-label="Contextual workspace"></div> <div class="refzone workspace-scroll"> <div id="pane-work" class="pane" role="tabpanel" aria-labelledby="tab-work" tabindex="0"> <div id="workDocuments" class="stack"></div> <div id="stepperSlot"></div> <div id="sections" class="stack"> <div class="empty"> <svg class="ico ico-lg" aria-hidden="true"> <use href="#i-clipboard"/> </svg> <b>Nothing is open</b> <p>Alex will show the active draft, form, or task here.</p> </div> </div> <div id="fillReport" class="mono"></div> </div> <div id="pane-evidence" class="pane" role="tabpanel" aria-labelledby="tab-evidence" tabindex="0"> <div id="evidenceSlot"></div> <div id="reconSlot"></div> <div id="documents" class="stack"></div> </div> <div id="pane-decisions" class="pane" role="tabpanel" aria-labelledby="tab-decisions" tabindex="0"> <div class="empty workspace-empty"> <svg class="ico ico-lg" aria-hidden="true"> <use href="#i-shield"/> </svg> <b>Nothing needs your judgment</b> <p> Exact approvals and durable human decisions appear here. Conversation and drafting do not require approval. </p> </div> <button class="btn" data-variant="secondary" data-size="sm" onclick="openFounderInbox()"> Open decision inbox </button> </div> <div id="pane-activity" class="pane" role="tabpanel" aria-labelledby="tab-activity" tabindex="0"> <div id="audit" aria-busy="true"> <div class="skel-row" aria-hidden="true"> <div class="skel skel-line"></div> <div class="skel skel-chip"></div> </div> <div class="skel-row" aria-hidden="true"> <div class="skel skel-line"></div> <div class="skel skel-chip"></div> </div> <div class="skel-row" aria-hidden="true"> <div class="skel skel-line"></div> <div class="skel skel-chip"></div> </div> </div> </div> </div> </div> </section> </main> <!-- The approval gate (docs/16 §7.5): visually the heaviest surface on the
+<a class="brand-home rail-brand" href="/" title="Co-Founder" aria-label="Co-Founder home"><svg class="brand-mark" aria-hidden="true"><use href="#brand-mark"/></svg></a>
+<nav class="product-rail" aria-label="Product">
+  <button class="rail-link rail-new-session" type="button" onclick="newSession()" title="New session" aria-label="New session"><svg class="ico" aria-hidden="true"><use href="#i-plus"/></svg><span>New</span></button>
+  <button class="rail-link" data-destination-link="alex" aria-current="page" onclick="navigateProduct('alex')" title="Alex"><svg class="ico" aria-hidden="true"><use href="#i-chat"/></svg><span>Alex</span></button>
+  <button class="rail-link rail-desktop-only" data-destination-link="search" onclick="openSessions()" title="Search sessions and work (⌘K)" aria-haspopup="dialog"><svg class="ico" aria-hidden="true"><use href="#i-search"/></svg><span>Search</span></button>
+  <button class="rail-link" data-destination-link="runs" onclick="navigateProduct('runs')" title="Runs"><svg class="ico" aria-hidden="true"><use href="#i-board"/></svg><span>Runs</span></button>
+  <a class="rail-link" data-destination-link="hiring" href="/hiring.html" title="Hiring"><svg class="ico" aria-hidden="true"><use href="#i-hiring"/></svg><span>Hiring</span></a>
+  <button class="rail-link" data-destination-link="decisions" onclick="navigateProduct('decisions')" title="Decisions"><svg class="ico" aria-hidden="true"><use href="#i-shield"/></svg><span>Decisions</span></button>
+  <button class="rail-link rail-desktop-only" data-destination-link="activity" onclick="navigateProduct('activity')" title="Activity"><svg class="ico" aria-hidden="true"><use href="#i-clock"/></svg><span>Activity</span></button>
+  <span class="rail-spacer"></span>
+  <button class="rail-link rail-utility" onclick="openSettings()" title="Settings"><svg class="ico" aria-hidden="true"><use href="#i-gear"/></svg><span>Settings</span></button>
+  <div class="rail-more">
+    <button class="rail-link" id="moreNavBtn" onclick="toggleMobileMore()" aria-expanded="false" aria-controls="mobileMore" title="More"><svg class="ico" aria-hidden="true"><use href="#i-plus"/></svg><span>More</span></button>
+    <div class="mobile-more-menu" id="mobileMore" hidden>
+      <button class="btn" data-variant="ghost" onclick="toggleMobileMore();navigateProduct('activity')"><svg class="ico" aria-hidden="true"><use href="#i-clock"/></svg>Activity</button>
+      <button class="btn" data-variant="ghost" onclick="toggleMobileMore();openSessions()"><svg class="ico" aria-hidden="true"><use href="#i-search"/></svg>Search</button>
+      <button class="btn" data-variant="ghost" onclick="toggleMobileMore();openSettings()"><svg class="ico" aria-hidden="true"><use href="#i-gear"/></svg>Settings</button>
+    </div>
+  </div>
+</nav>
+<header>
+  <a class="brand-home" href="/" title="Co-Founder" aria-label="Co-Founder home"><svg class="brand-mark" aria-hidden="true"><use href="#brand-mark"/></svg></a>
+  <div id="acctWrap" class="account-wrap" data-menu-align="left">
+    <button class="btn" data-variant="ghost" data-shape="icon" id="acctBtn" onclick="toggleAcctMenu()" aria-haspopup="menu" aria-expanded="false" title="Account" aria-label="Account menu"><span class="acct-avatar" id="acctAvatar">·</span></button>
+    <div id="acctMenu" class="menu account-menu" role="menu" aria-label="Account" hidden>
+      <div class="menu-id"><span class="acct-avatar big" id="menuAvatar">·</span><span class="grow"><b id="acctName">Founder</b><span class="conn-sub" id="acctEmail"></span></span></div>
+      <hr/>
+      <button class="menu-item" role="menuitem" onclick="toggleAcctMenu();openProfile()"><span class="acct-avatar menu-profile-glyph" aria-hidden="true" id="profileMenuAvatar">·</span>Profile</button>
+      <button class="menu-item" role="menuitem" onclick="toggleAcctMenu();openConnections()"><svg class="ico" aria-hidden="true"><use href="#i-plug"/></svg>Connectors</button>
+      <button class="menu-item" role="menuitem" onclick="toggleAcctMenu();openSettings()"><svg class="ico" aria-hidden="true"><use href="#i-gear"/></svg>Settings</button>
+      <hr/>
+      <button class="menu-item danger" role="menuitem" id="logoutItem" onclick="logout()"><svg class="ico" aria-hidden="true"><use href="#i-sign-out"/></svg>Log out</button>
+    </div>
+  </div>
+  <button class="btn" data-variant="ghost" id="inboxBtn" onclick="openFounderInbox()" aria-haspopup="dialog" title="Needs your decision" aria-label="Open needs your decision inbox"><svg class="ico" aria-hidden="true"><use href="#i-inbox"/></svg><span class="badge" data-tone="attn" id="inboxCount" hidden>0</span></button>
+  <div class="context-title" id="contextTitle">Alex</div>
+  <span class="chip" id="contextScope">General conversation</span>
+  <span class="chip" id="sessionTag"></span>
+  <div class="spacer"></div>
+  <div id="paneTabs" role="tablist" aria-label="Destination">
+    <button role="tab" aria-selected="false" onclick="showPane('board')"><svg class="ico ico-sm" aria-hidden="true"><use href="#i-board"/></svg>Runs</button>
+    <button role="tab" aria-selected="true" onclick="showPane('chat')"><svg class="ico ico-sm" aria-hidden="true"><use href="#i-chat"/></svg>Alex</button>
+    <button role="tab" aria-selected="false" onclick="showPane('browser')"><svg class="ico ico-sm" aria-hidden="true"><use href="#i-globe"/></svg>Work</button>
+  </div>
+  <button class="btn" data-variant="secondary" data-shape="icon" id="drawerBtn" style="display: none" onclick="toggleDrawer()" title="Open contextual workspace" aria-label="Open contextual workspace"><svg class="ico" aria-hidden="true"><use href="#i-clipboard"/></svg></button>
+</header>
+<div id="gateBanner"></div>
+<div id="offline" role="status"><svg class="ico ico-sm" aria-hidden="true"><use href="#i-alert"/></svg><span>Refresh failed — showing the last data Alex sent.</span><button class="btn" data-variant="secondary" data-size="sm" type="button" onclick="refresh()">Retry</button></div>
+<div id="refreshing" role="status" aria-live="polite"><svg class="ico ico-sm" aria-hidden="true"><use href="#i-refresh"/></svg>Refreshing…</div>
+<main>
+<div id="leftCell">
+<section id="board" class="runs-page" aria-labelledby="boardTitle">
+  <div class="runs-intro">
+    <div class="runs-intro-copy">
+      <h2 id="boardTitle">Runs</h2>
+      <p>Durable work across Co-Founder. Funding, Hiring, and skill-backed work stay visible here while each operation keeps its own permissions.</p>
+    </div>
+    <div class="runs-filters" role="group" aria-label="Filter runs by operation">
+      <button class="runs-filter" type="button" data-run-filter="all" aria-pressed="true" onclick="setRunFilter('all')">All <span id="runCountAll">0</span></button>
+      <button class="runs-filter" type="button" data-run-filter="hiring" aria-pressed="false" onclick="setRunFilter('hiring')">Hiring <span id="runCountHiring">0</span></button>
+      <button class="runs-filter" type="button" data-run-filter="funding" aria-pressed="false" onclick="setRunFilter('funding')">Funding <span id="runCountFunding">0</span></button>
+      <button class="runs-filter" type="button" data-run-filter="skills" aria-pressed="false" onclick="setRunFilter('skills')">Skills <span id="runCountSkills">0</span></button>
+    </div>
+  </div>
+  <section class="runs-section" aria-labelledby="operationsTitle">
+    <div class="runs-section-head"><span><h3 id="operationsTitle">Operations</h3><p>One work view; separate domain boundaries.</p></span></div>
+    <div id="runFamilies" class="runs-family-grid"></div>
+  </section>
+  <section class="runs-section" aria-labelledby="activeRunsTitle">
+    <div class="runs-section-head"><span><h3 id="activeRunsTitle">Current work</h3><p id="activeRunsDescription">Active and attention-needed work across the selected operations.</p></span><div class="runs-section-head-actions"><button class="btn" data-variant="secondary" data-size="sm" id="currentRunsMore" type="button" onclick="openRunHistory('current')" hidden>View all current work</button></div></div>
+    <div id="globalRuns" class="runs-list" aria-live="polite" aria-busy="true"></div>
+  </section>
+  <section class="runs-section" aria-labelledby="recentRunsTitle">
+    <div class="runs-section-head"><span><h3 id="recentRunsTitle">Recently completed</h3><p id="recentRunsDescription">Completed executions are condensed by work item.</p></span><div class="runs-section-head-actions"><button class="btn" data-variant="secondary" data-size="sm" id="runHistoryBtn" type="button" onclick="openRunHistory('completed')" hidden>Open run history</button></div></div>
+    <div id="recentRuns" class="runs-list" aria-live="polite"></div>
+  </section>
+  <section class="runs-section" id="runHistory" aria-labelledby="runHistoryTitle" tabindex="-1" hidden>
+    <div class="runs-section-head"><span><h3 id="runHistoryTitle">Run history</h3><p>Search durable execution records and load older work without expanding the dashboard.</p></span><button class="btn" data-variant="ghost" data-size="sm" type="button" onclick="closeRunHistory()">Close history</button></div>
+    <div class="run-history-controls">
+      <input class="textin" id="runHistorySearch" type="search" placeholder="Search run titles" aria-label="Search run history" oninput="updateRunHistory()"/>
+      <select id="runHistoryOperation" aria-label="Filter run history by operation" onchange="updateRunHistory()"><option value="all">All operations</option><option value="funding">Funding</option><option value="hiring">Hiring</option><option value="skills">Skills</option></select>
+      <select id="runHistoryStatus" aria-label="Filter run history by status" onchange="updateRunHistory()"><option value="all">All statuses</option><option value="current">Current and attention needed</option><option value="attention">Needs attention</option><option value="completed">Completed</option></select>
+    </div>
+    <div id="runHistoryList" class="run-history-list" aria-live="polite"></div>
+    <div class="run-history-pagination"><span class="run-summary" id="runHistorySummary" aria-live="polite"></span><button class="btn" data-variant="secondary" data-size="sm" id="runHistoryMore" type="button" onclick="loadMoreRunHistory()">Load more</button></div>
+  </section>
+  <section class="runs-section" id="fundingDetails" aria-labelledby="fundingDetailsTitle">
+    <div class="runs-section-head"><span><h3 id="fundingDetailsTitle">Funding operations</h3><p>Opportunity discovery, applications, and investor outreach retain their existing approvals.</p></span></div>
+    <div class="funding-detail">
+      <section aria-labelledby="opportunitiesTitle"><h4 id="opportunitiesTitle">Opportunities</h4><div id="boardCols" class="stack" aria-busy="true"><div class="skel-card" aria-hidden="true"><div class="skel skel-line title"></div><div class="skel skel-line meta"></div><div class="skel skel-line body"></div></div></div></section>
+      <section aria-labelledby="applicationsTitle"><h4 id="applicationsTitle">Applications</h4><div id="apps" class="stack"></div></section>
+      <section aria-labelledby="investorTitle"><h4 id="investorTitle">Investor outreach</h4><div id="investorRuns" class="stack"></div></section>
+    </div>
+  </section>
+  <section class="runs-section" id="futureOperations" aria-labelledby="futureOperationsTitle">
+    <div class="runs-section-head"><span><h3 id="futureOperationsTitle">Future operations</h3><p>Planned—not active. Each will ship with its own data and permission boundary.</p></span></div>
+    <div class="future-operations">
+      <article class="future-operation"><b>Customer discovery</b><span class="run-summary">Interview sourcing and research synthesis.</span><span class="badge">Planned</span></article>
+      <article class="future-operation"><b>Compliance monitoring</b><span class="run-summary">Registrations, renewals, and filings.</span><span class="badge">Planned</span></article>
+      <article class="future-operation"><b>Bookkeeping reconciliation</b><span class="run-summary">Receipts, invoices, and monthly summaries.</span><span class="badge">Planned</span></article>
+      <article class="future-operation"><b>Vendor and partnership work</b><span class="run-summary">Documents, signatures, and follow-through.</span><span class="badge">Planned</span></article>
+    </div>
+  </section>
+</section>
+<div id="splitHandle" role="separator" aria-orientation="vertical" tabindex="0" aria-label="Resize left panel" title="Drag to resize"></div> </div> <section id="chat" aria-labelledby="chatTitle"> <h2 id="chatTitle">Conversation</h2> <div class="conversation-context-row"> <button class="btn context-control" id="contextBtn" type="button" onclick="toggleSessionWork()" aria-expanded="false" aria-controls="sessionWork" title="Work in this session" aria-label="Work in this session, 0 items"> <svg class="ico" aria-hidden="true"><use href="#i-link"/></svg> <span class="badge" data-tone="info" id="contextCount">0</span> </button> </div> <section id="sessionWork" class="session-work" aria-labelledby="sessionWorkTitle" hidden> <div class="session-work-head"> <svg class="ico" aria-hidden="true"><use href="#i-link"/></svg> <b id="sessionWorkTitle">Work in this session</b> <span class="badge" data-tone="info" id="sessionWorkCount">0</span> <span class="session-readonly" id="sessionReadonly" hidden>Read only</span> </div> <div id="sessionWorkList" class="session-work-list"></div> <div id="sessionWorkStatus" class="foot" aria-live="polite"></div> </section> <div class="alex-live" id="alexLive" aria-label="Alex voice status" hidden> <div class="alex-cloud" id="alexCloud" data-state="CONNECTING" data-approval="none" aria-hidden="true"> <span class="alex-cloud-halo"></span> <canvas id="alexCloudCanvas"></canvas> </div> <div class="alex-live-copy"> <div class="alex-live-head"> <svg class="ico" aria-hidden="true"> <use id="alexStatusIcon" href="#i-refresh"/> </svg> <span id="alexStatusLabel">Connecting voice</span> <button class="caption-dismiss" id="voiceErrorDismiss" type="button" onclick="dismissVoiceStatus()" hidden> Dismiss </button> </div> <div class="live-captions" id="liveCaptionsPanel" aria-label="Live captions"> <div class="caption-row" id="captionYou" data-final="true" hidden> <b>You</b><span></span> </div> <div class="caption-row" id="captionAlex" data-final="true" hidden> <b>Alex</b><span></span> </div> <div class="caption-actions"> <button type="button" id="captionToggle" onclick="toggleCaptions()"> Hide captions </button> <button type="button" id="captionFinalOnly" onclick="toggleFinalCaptions()"> Final captions only: off </button> </div> </div> <div id="liveStatusAnnounce" role="status" aria-live="polite" class="sr-only"></div> </div> </div> <section class="vision-card" id="visionCard" aria-label="Vision sharing" hidden> <div class="vision-card-head"> <svg class="ico" aria-hidden="true"><use href="#i-globe"/></svg> <span class="grow"><b id="visionTitle">Previewing locally</b><span class="foot" id="visionDetail">Nothing is being sent.</span></span> </div> <video id="visionPreview" autoplay playsinline muted></video> <div class="vision-card-actions"> <button class="btn" data-variant="primary" data-size="sm" id="visionShareBtn" onclick="shareVision()"> Share with Alex </button> <button class="btn" data-variant="secondary" data-size="sm" id="visionPauseBtn" onclick="pauseVision()" hidden> Pause </button> <button class="btn" data-variant="secondary" data-size="sm" id="visionResumeBtn" onclick="resumeVision()" hidden> Resume </button> <button class="btn" data-variant="secondary" data-size="sm" id="visionCaptureBtn" onclick="captureVisionStill()"> Capture still </button> <button class="btn" data-variant="danger" data-size="sm" onclick="stopVision('user_stop')"> Stop </button> </div> </section> <div id="digestSlot"></div> <div id="chatlog" role="log" tabindex="0" aria-label="Conversation messages" aria-live="polite" aria-relevant="additions"></div> <button class="btn new-chat-items" id="newChatItems" type="button" onclick="scrollToLatestConversation()" hidden> New messages </button> <div id="composer"> <div class="pillbar"> <button class="cbtn" id="attachBtn" title="Add document or image" aria-label="Add document or image" onclick="document.getElementById('docUpload').click()"> <svg class="ico" aria-hidden="true"> <use href="#i-paperclip"/> </svg> </button> <input type="file" id="docUpload" style="display: none" accept=".pdf,.docx,.pptx,.xlsx,.txt,.csv,.jpg,.jpeg,.png,.webp" onchange="uploadDoc(this)"/> <select id="attachmentScope" class="attachment-scope" aria-label="Attachment use"> <option value="reference_only" selected="selected"> Use in conversation </option> <option value="profile">Add to Founder Profile</option> </select> <input id="msg" placeholder="Ask your co-founder…" autocomplete="off" aria-label="Message" onkeydown="if(event.key==='Enter')send()" oninput="$('sendBtn').disabled=!this.value.trim()"/> <button class="cbtn" id="micBtn" title="Record a voice note" aria-label="Record a voice note"> <svg class="ico" aria-hidden="true"><use href="#i-mic"/></svg> </button> <button class="cbtn voicecall" id="talkBtn" title="Talk to Alex in real time" aria-label="Talk to Alex in real time" onclick="toggleVoice()"> <svg class="ico" aria-hidden="true"> <use href="#i-waveform"/> </svg> </button> <button class="cbtn vision" id="cameraBtn" title="Share camera with Alex — requires an active voice call" aria-label="Share camera with Alex. Requires an active voice call" onclick="beginVision('camera')" disabled="disabled"> <svg class="ico" aria-hidden="true"><use href="#i-camera"/></svg> </button> <button class="cbtn vision" id="displayBtn" title="Share screen with Alex — requires an active voice call" aria-label="Share screen with Alex. Requires an active voice call" onclick="beginVision('display')" disabled="disabled"> <svg class="ico" aria-hidden="true"> <use href="#i-screen-share"/> </svg> </button> <button class="cbtn send" id="sendBtn" title="Send" aria-label="Send" onclick="send()" disabled="disabled"> <svg class="ico" aria-hidden="true"><use href="#i-send"/></svg> </button> </div> </div> </section> <div id="splitHandleRight" role="separator" aria-orientation="vertical" tabindex="0" aria-label="Resize contextual workspace" title="Drag to resize"></div> <section id="review" aria-labelledby="reviewTitle" data-tab="work"> <button class="workspace-quiet" type="button" onclick="openWorkspace('panel')" aria-label="Open contextual workspace" title="Open contextual workspace"> <svg class="ico" aria-hidden="true"><use href="#i-clipboard"/></svg> <span class="badge" data-tone="attn" id="workspaceDecisionCount" hidden>0</span> </button> <div class="workspace-panel"> <div class="workspace-head"> <h2 id="reviewTitle">Contextual workspace</h2> <button class="cbtn workspace-browser-control" id="browserLauncher" type="button" onclick="openBrowserTakeover()" aria-label="Open Browser" title="Open Browser"> <svg class="ico" aria-hidden="true"><use href="#i-globe"/></svg> </button> <button class="cbtn" id="focusStageBtn" type="button" onclick="toggleFocusStage()" aria-label="Toggle Focus Stage" title="Toggle Focus Stage"> <svg class="ico" aria-hidden="true"> <use href="#i-external"/></svg><span class="focus-label">Return</span> </button> <button class="cbtn" type="button" onclick="openWorkspace('quiet')" aria-label="Keep workspace quiet" title="Keep workspace quiet"> <svg class="ico" aria-hidden="true"><use href="#i-minus"/></svg> </button> </div> <section id="browserSurface" aria-labelledby="browserTitle" data-visible="false"> <div class="browser-takeover-head"> <button class="btn" data-variant="secondary" data-size="sm" id="browserCloseBtn" onclick="closeBrowserTakeover()"> <svg class="ico" aria-hidden="true"> <use href="#i-chev-left"/></svg>Back to workspace </button> <span class="grow"> <b id="browserPageTitle">Browser</b> <span class="conn-sub" id="browserSource">No active page</span> </span> <span class="badge" data-tone="info" id="browserLive" hidden>live</span> <button class="cbtn" id="browserFocusStageBtn" type="button" onclick="toggleFocusStage()" aria-label="Toggle Browser Focus Stage" title="Toggle Browser Focus Stage"> <svg class="ico" aria-hidden="true"> <use href="#i-external"/> </svg> </button> </div> <div class="browser-toolbar"> <svg class="ico" aria-hidden="true"><use href="#i-globe"/></svg> <input class="browser-urlbar" id="browserUrl" type="text" inputmode="url" placeholder="Ask Alex to open a URL" autocomplete="off" spellcheck="false" aria-label="Type a URL for Alex to open" onkeydown="if(event.key==='Enter')browseTo(this.value)"/> <button class="btn" data-variant="danger" data-size="sm" id="browserStopBtn" hidden onclick="stopBrowsing()"> Stop </button> </div> <div class="browser-goal" id="browserGoal" hidden></div> <div class="browser-stage" id="browserStage" aria-live="polite"></div> <div class="browser-timeline" id="browserTimeline" aria-label="Browser frame timeline"></div> <div class="browser-last" id="browserLast"></div> </section> <div id="approvalSlot"></div> <div id="refTabs" role="tablist" aria-label="Contextual workspace"></div> <div class="refzone workspace-scroll"> <div id="pane-work" class="pane" role="tabpanel" aria-labelledby="tab-work" tabindex="0"> <div id="workDocuments" class="stack"></div> <div id="stepperSlot"></div> <div id="sections" class="stack"> <div class="empty"> <svg class="ico ico-lg" aria-hidden="true"> <use href="#i-clipboard"/> </svg> <b>Nothing is open</b> <p>Alex will show the active draft, form, or task here.</p> </div> </div> <div id="fillReport" class="mono"></div> </div> <div id="pane-evidence" class="pane" role="tabpanel" aria-labelledby="tab-evidence" tabindex="0"> <div id="evidenceSlot"></div> <div id="reconSlot"></div> <div id="documents" class="stack"></div> </div> <div id="pane-decisions" class="pane" role="tabpanel" aria-labelledby="tab-decisions" tabindex="0"> <div class="empty workspace-empty"> <svg class="ico ico-lg" aria-hidden="true"> <use href="#i-shield"/> </svg> <b>Nothing needs your judgment</b> <p> Exact approvals and durable human decisions appear here. Conversation and drafting do not require approval. </p> </div> <button class="btn" data-variant="secondary" data-size="sm" onclick="openFounderInbox()"> Open decision inbox </button> </div> <div id="pane-activity" class="pane" role="tabpanel" aria-labelledby="tab-activity" tabindex="0"> <div id="audit" aria-busy="true"> <div class="skel-row" aria-hidden="true"> <div class="skel skel-line"></div> <div class="skel skel-chip"></div> </div> <div class="skel-row" aria-hidden="true"> <div class="skel skel-line"></div> <div class="skel skel-chip"></div> </div> <div class="skel-row" aria-hidden="true"> <div class="skel skel-line"></div> <div class="skel skel-chip"></div> </div> </div> </div> </div> </div> </section> </main> <!-- The approval gate (docs/16 §7.5): visually the heaviest surface on the
      page. Nothing irreversible may look like a routine button. --> <div id="modal" class="dialog" role="dialog" aria-modal="true" aria-labelledby="gateTitle" onclick="if(event.target===this)closeApproval()"> <div class="box"> <div class="gate-head"> <svg class="ico ico-lg" aria-hidden="true"> <use href="#i-shield"/> </svg> <h3 id="gateTitle">Your approval is required</h3> </div> <p class="gate-body" id="modalText">Submit this application?</p> <div class="gate-details" id="gateDetails" style="display: none"></div> <div class="gate-note" id="gateNote"> Submitting is irreversible. Alex has filled the form and will not send anything until you approve here. </div> <div class="gate-actions"> <button class="btn" data-variant="danger" data-size="lg" id="gateConfirm" onclick="resolveApproval('grant')"> Approve &amp; submit </button> <button class="btn" data-variant="secondary" data-size="lg" onclick="resolveApproval('deny')"> Not yet </button> </div> </div> </div> <div id="connections" class="dialog" role="dialog" aria-modal="true" aria-label="Connectors" onclick="if(event.target===this)closeConnections()"> <div class="sheet"> <div id="connList"> <div style="display: flex;
               align-items: center;
               margin-bottom: 4px;
@@ -3607,7 +4014,10 @@
               margin: 12px 0 4px;"> <span class="cbadge big"><svg class="ico" aria-hidden="true"><use href="#i-chat"/></svg></span> <div class="grow"> <div class="conn-title">Alex's Mailbox</div> <div class="status-line" id="alexStatusLine"></div> </div> <button class="btn" data-variant="accent" data-size="sm" id="alexScanBtn" onclick="scanAlexMail()"> <svg class="ico ico-sm" aria-hidden="true"> <use href="#i-refresh"/></svg>Scan now </button> </div> <div class="foot"> alex@ruhu.ai — a real Workspace mailbox operated by Alex. When connecting, sign in <b>as alex@ruhu.ai</b> on the consent screen (not your own account). Program replies land here and wake the pipeline; follow-ups attach to matching applications. </div> <div class="grp-h">Last scan</div> <div class="grp" id="alexLastScan"></div> <div class="grp-h">Push notifications</div> <div class="grp"> <div class="crow"> <span class="grow">Gmail watch → Pub/Sub → webhook wakes Alex the moment mail arrives. Requires <code>ALEX_MAIL_PUBSUB_TOPIC</code> in .env.</span> <button class="btn" data-variant="quiet" data-size="sm" onclick="enableAlexWatch()"> Enable watch </button> </div> </div> <div class="grp-h">Access</div> <div class="grp"> <div class="crow"> <span class="grow"><b>Read &amp; search the whole mailbox</b></span><span class="tag tag-quiet">read-only</span> </div> <div class="crow"> <span class="grow"><b>Send mail</b></span><span class="tag tag-warn">approval-gated — every send needs your approval</span> </div> <div class="crow"> <span class="grow"><b>Delete / modify mail</b></span><span class="tag tag-warn">never</span> </div> </div> </div> <div id="connAlexCalendar" style="display: none"> <button class="x" style="float: right" onclick="closeConnections()" aria-label="Close"> <svg class="ico" aria-hidden="true"><use href="#i-close"/></svg> </button> <button class="btn" data-variant="quiet" data-size="sm" onclick="showConn('list')"> <svg class="ico ico-sm" aria-hidden="true"> <use href="#i-chev-left"/></svg>Connectors </button> <div style="display: flex;
               align-items: center;
               gap: 12px;
-              margin: 12px 0 4px;"> <span class="cbadge big"><svg class="ico" aria-hidden="true"> <use href="#i-calendar"/></svg></span> <div class="grow"> <div class="conn-title">Alex's Calendar</div> <div class="status-line" id="alexCalendarStatusLine"></div> </div> </div> <div class="foot"> alex@ruhu.ai — a separate Workspace calendar operated by Alex. When connecting, sign in <b>as alex@ruhu.ai</b> on the consent screen. This is distinct from the founder's Calendar and is used only for exact, approved interview invitations in the internal demo. </div> <div class="grp-h">Bounded access</div> <div class="grp"> <div class="crow"> <span class="grow"><b>Read the general calendar</b></span><span class="tag tag-warn">never</span> </div> <div class="crow"> <span class="grow"><b>Create, update, or cancel an interview invite</b></span><span class="tag tag-warn">exact approval required</span> </div> <div class="crow"> <span class="grow"><b>Reconcile an approved invitation</b></span><span class="tag tag-quiet">receipt only</span> </div> </div> </div> <div id="connSoon" style="display: none"> <button class="x" style="float: right" onclick="closeConnections()" aria-label="Close"> <svg class="ico" aria-hidden="true"><use href="#i-close"/></svg> </button> <button class="btn" data-variant="quiet" data-size="sm" onclick="showConn('list')"> <svg class="ico ico-sm" aria-hidden="true"> <use href="#i-chev-left"/></svg>Connectors </button> <div style="display: flex;
+              margin: 12px 0 4px;"> <span class="cbadge big"><svg class="ico" aria-hidden="true"> <use href="#i-calendar"/></svg></span> <div class="grow"> <div class="conn-title">Alex's Calendar</div> <div class="status-line" id="alexCalendarStatusLine"></div> </div> </div> <div class="foot"> alex@ruhu.ai — a separate Workspace calendar operated by Alex. When connecting, sign in <b>as alex@ruhu.ai</b> on the consent screen. This is distinct from the founder's Calendar and is used only for exact, approved interview invitations in the internal demo. </div> <div class="grp-h">Bounded access</div> <div class="grp"> <div class="crow"> <span class="grow"><b>Read the general calendar</b></span><span class="tag tag-warn">never</span> </div> <div class="crow"> <span class="grow"><b>Create, update, or cancel an interview invite</b></span><span class="tag tag-warn">exact approval required</span> </div> <div class="crow"> <span class="grow"><b>Reconcile an approved invitation</b></span><span class="tag tag-quiet">receipt only</span> </div> </div> </div> <div id="connAlexDrive" style="display: none"> <button class="x" style="float: right" onclick="closeConnections()" aria-label="Close"> <svg class="ico" aria-hidden="true"><use href="#i-close"/></svg> </button> <button class="btn" data-variant="quiet" data-size="sm" onclick="showConn('list')"> <svg class="ico ico-sm" aria-hidden="true"> <use href="#i-chev-left"/></svg>Connectors </button> <div style="display: flex;
+              align-items: center;
+              gap: 12px;
+              margin: 12px 0 4px;"> <span class="cbadge big"><svg class="ico" aria-hidden="true"><use href="#i-cloud-up"/></svg></span> <div class="grow"> <div class="conn-title">Alex's Drive</div> <div class="status-line" id="alexDriveStatusLine"></div> </div> </div> <div class="foot"> alex@ruhu.ai — Alex's separate role-owned Drive. Connect by signing in as the configured Alex account. This is not the Founder's selected-file connector. </div> <div class="grp-h">Recent files</div> <div class="grp" id="alexDriveFiles" aria-live="polite"></div> <div class="grp-h">Access</div> <div class="grp"> <div class="crow"> <span class="grow"><b>Read and organize Alex's files</b></span><span class="tag tag-quiet">full account scope</span> </div> <div class="crow"> <span class="grow"><b>Save generated documents</b></span><span class="tag tag-warn">exact Founder click</span> </div> <div class="crow"> <span class="grow"><b>Delete or share externally</b></span><span class="tag tag-warn">not silently exposed</span> </div> </div> </div> <div id="connSoon" style="display: none"> <button class="x" style="float: right" onclick="closeConnections()" aria-label="Close"> <svg class="ico" aria-hidden="true"><use href="#i-close"/></svg> </button> <button class="btn" data-variant="quiet" data-size="sm" onclick="showConn('list')"> <svg class="ico ico-sm" aria-hidden="true"> <use href="#i-chev-left"/></svg>Connectors </button> <div style="display: flex;
               align-items: center;
               gap: 12px;
               margin: 12px 0 4px;"> <span class="cbadge big" id="soonBadge">?</span> <div class="grow"> <div class="conn-title" id="soonTitle"></div> <div class="status-line"> <span class="tag tag-quiet">Coming soon</span> </div> </div> </div> <div class="grp"> <div class="crow"><span class="grow" id="soonBlurb"></span></div> </div> <div class="foot" id="soonNote"></div> </div> <div id="connDrive" style="display: none"> <button class="x" style="float: right" onclick="closeConnections()" aria-label="Close"> <svg class="ico" aria-hidden="true"><use href="#i-close"/></svg> </button> <button class="btn" data-variant="quiet" data-size="sm" onclick="showConn('list')"> <svg class="ico ico-sm" aria-hidden="true"> <use href="#i-chev-left"/></svg>Connectors </button> <div style="display: flex;
@@ -3623,7 +4033,7 @@
      stays in Connectors — this sheet is preferences, account, workspace. --> <div id="settings" class="dialog" role="dialog" aria-modal="true" aria-label="Settings" onclick="if(event.target===this)closeSettings()"> <div class="sheet"> <div style="display: flex;
             align-items: center;
             margin-bottom: 4px;
-            gap: 10px;"> <div> <div class="conn-title">Settings</div> <div class="conn-sub">Preferences for you and this workspace.</div> </div> <span style="flex: 1"></span> <button class="x" onclick="closeSettings()" aria-label="Close"> <svg class="ico" aria-hidden="true"><use href="#i-close"/></svg> </button> </div> <div class="grp-h">Appearance</div> <div class="grp"> <div class="crow"> <span class="grow"><b>Theme</b> <div class="conn-sub">System follows your OS setting.</div></span> <div class="seg" id="themeSeg" role="group" aria-label="Theme"> <button data-mode="system" aria-pressed="false" onclick="setThemeMode('system')"> System </button> <button data-mode="light" aria-pressed="false" onclick="setThemeMode('light')"> Light </button> <button data-mode="dark" aria-pressed="false" onclick="setThemeMode('dark')"> Dark </button> </div> </div> </div> <div class="grp-h">Account</div> <div class="grp"> <div class="crow"> <span class="acct-avatar big" id="setAvatar">·</span> <span class="grow"><b id="setAcctName">Founder</b> <div class="conn-sub" id="setAcctSub"></div></span> <button class="btn" data-variant="danger" data-size="sm" id="setLogout" onclick="logout()"> Log out </button> </div> </div> <div class="grp-h">Workspace</div> <div class="grp"> <div class="crow"> <span class="grow"><b>Co-founder</b> <div class="conn-sub"> The persona your agent answers as. </div></span> <span class="chip" id="setPersona"></span> </div> <div class="crow"> <span class="grow"><b>Workflow</b> <div class="conn-sub">Loaded from the server config.</div></span> <span class="chip" id="setWorkflow"></span> </div> <div class="crow"> <span class="grow"><b>Conversation</b> <div class="conn-sub" id="setSession"></div></span> <button class="btn" data-variant="secondary" data-size="sm" onclick="startPrivateSession()"> Start private conversation </button> </div> </div> <div class="grp-h">What Alex knows</div> <div class="grp" id="memorySettingsGroup" aria-live="polite"> <div class="crow"> <span class="grow"><b>Optional saved context</b> <div class="conn-sub" id="memoryStatus"> Loading memory policy… </div></span> <button class="btn" data-variant="secondary" data-size="sm" id="memoryToggle" onclick="toggleMemory()" disabled="disabled"> Enable </button> </div> <div class="crow" id="memoryCreateRow"> <span class="grow"><label for="memoryText"><b>Remember something</b></label> <div class="conn-sub"> Exact Founder-confirmed text only; never a transcript or unsaved import. </div> <input class="textin" id="memoryText" maxlength="1000" placeholder="Keep status updates concise and direct"/></span> <select id="memoryKind" aria-label="Memory type"> <option value="PREFERENCE">Preference</option> <option value="REUSABLE_CONTEXT">Reusable context</option> </select> <button class="btn" data-variant="primary" data-size="sm" onclick="rememberMemory()"> Remember </button> </div> <div id="memoryItems"></div> </div> </div> </div> <div id="visionConsent" class="dialog" role="dialog" aria-modal="true" aria-labelledby="visionConsentTitle" onclick="if(event.target===this)cancelVisionConsent()"> <div class="sheet"> <div class="conn-title" id="visionConsentTitle"> Share vision with Alex </div> <p id="visionConsentText"></p> <div class="foot" id="visionProviderSummary"></div> <div style="display: flex;
+            gap: 10px;"> <div> <div class="conn-title">Settings</div> <div class="conn-sub">Preferences for you and this workspace.</div> </div> <span style="flex: 1"></span> <button class="x" onclick="closeSettings()" aria-label="Close"> <svg class="ico" aria-hidden="true"><use href="#i-close"/></svg> </button> </div> <div class="grp-h">Appearance</div> <div class="grp"> <div class="crow"> <span class="grow"><b>Theme</b> <div class="conn-sub">System follows your OS setting.</div></span> <div class="seg" id="themeSeg" role="group" aria-label="Theme"> <button data-mode="system" aria-pressed="false" onclick="setThemeMode('system')"> System </button> <button data-mode="light" aria-pressed="false" onclick="setThemeMode('light')"> Light </button> <button data-mode="dark" aria-pressed="false" onclick="setThemeMode('dark')"> Dark </button> </div> </div> </div> <div class="grp-h" id="settingsAccountSection" tabindex="-1">Account</div> <div class="grp"> <div class="crow"> <span class="acct-avatar big" id="setAvatar">·</span> <span class="grow"><b id="setAcctName">Founder</b> <div class="conn-sub" id="setAcctSub"></div></span> <button class="btn" data-variant="danger" data-size="sm" id="setLogout" onclick="logout()"> Log out </button> </div> </div> <div class="grp-h">Workspace</div> <div class="grp"> <div class="crow"> <span class="grow"><b>Co-founder</b> <div class="conn-sub"> The persona your agent answers as. </div></span> <span class="chip" id="setPersona"></span> </div> <div class="crow"> <span class="grow"><b>Conversation</b> <div class="conn-sub" id="setSession"></div></span> <button class="btn" data-variant="secondary" data-size="sm" onclick="startPrivateSession()"> Start private conversation </button> </div> </div> <div class="grp-h">What Alex knows</div> <div class="grp" id="memorySettingsGroup" aria-live="polite"> <div class="crow"> <span class="grow"><b>Optional saved context</b> <div class="conn-sub" id="memoryStatus"> Loading memory policy… </div></span> <button class="btn" data-variant="secondary" data-size="sm" id="memoryToggle" onclick="toggleMemory()" disabled="disabled"> Enable </button> </div> <div class="crow" id="memoryCreateRow"> <span class="grow"><label for="memoryText"><b>Remember something</b></label> <div class="conn-sub"> Exact Founder-confirmed text only; never a transcript or unsaved import. </div> <input class="textin" id="memoryText" maxlength="1000" placeholder="Keep status updates concise and direct"/></span> <select id="memoryKind" aria-label="Memory type"> <option value="PREFERENCE">Preference</option> <option value="REUSABLE_CONTEXT">Reusable context</option> </select> <button class="btn" data-variant="primary" data-size="sm" onclick="rememberMemory()"> Remember </button> </div> <div id="memoryItems"></div> </div> </div> </div> <div id="visionConsent" class="dialog" role="dialog" aria-modal="true" aria-labelledby="visionConsentTitle" onclick="if(event.target===this)cancelVisionConsent()"> <div class="sheet"> <div class="conn-title" id="visionConsentTitle"> Share vision with Alex </div> <p id="visionConsentText"></p> <div class="foot" id="visionProviderSummary"></div> <div style="display: flex;
             justify-content: flex-end;
             gap: var(--sp-2);
             margin-top: var(--sp-4);"> <button class="btn" data-variant="secondary" data-size="md" onclick="cancelVisionConsent()"> Cancel </button> <button class="btn" data-variant="primary" data-size="md" id="visionConsentContinue" onclick="continueVisionConsent()"> Continue </button> </div> </div> </div> <!-- Session picker (grounded from the header search icon). Viewing is
@@ -3655,9 +4065,20 @@ let sessionId = null, activeApp = null, pendingApproval = null, thinking = false
 
 let sessionMemoryMode = "STANDARD", memoryPanelState = null;
 
-let pipelineApps = [], founderInboxRows = [], investorOutreaches = [];
+let pipelineApps = [], pipelineBoard = null, founderInboxRows = [], investorOutreaches = [];
 let backgroundPilotJobs = [], backgroundPilotEnabled = false;
 let backgroundSkillEnabled = false;
+let globalRunRows = [], runFilter = "all";
+try { runFilter = window.sessionStorage?.getItem("cofounder-runs-filter") || "all"; } catch {}
+let runHistoryVisibleCount = 25, runHistoryReturnFocus = null;
+const growingListVisible = Object.create(null);
+const GROWING_LIST_PAGE_SIZE = 20;
+// List audit: load-more applies to global run history, funding opportunity /
+// application / outreach collections, nested outreach drafts, session work and
+// activity, canonical documents, attachments, search results, Hiring roles,
+// and role candidate queues. Summary dashboards, Settings/connectors, exact
+// decision controls, and single application/role/candidate detail projections
+// are deliberately unpaginated so their complete state is not fragmented.
 // sessionId is always the explicitly active/write-bound conversation.
 // viewingSession is a read-through context only and must never replace it.
 let viewingSession = null, sessionResources = [], sessionResourcesTruncated = false;
@@ -3726,6 +4147,8 @@ function requireActiveContext(action = "do that") {
 
 // Every icon comes from the sprite (docs/16 §5) — never an emoji or symbol glyph.
 const ico = (name, cls = "") => `<svg class="ico ${cls}" aria-hidden="true"><use href="#i-${name}"/></svg>`;
+$("refreshing").innerHTML = `${ico("refresh", "ico-sm")}Refreshing…`;
+document.querySelector("#pane-decisions > .btn")?.remove();
 
 const emptyState = (icon, head, body, action = "") => `<div class="empty">${ico(icon, "ico-lg")}<b>${head}</b><p>${body}</p>${action}</div>`;
 
@@ -4434,6 +4857,228 @@ function markLoaded() {
     for (const id of [ "boardCols", "audit" ]) $(id).removeAttribute("aria-busy");
 }
 
+const RUN_OPERATION_UI = {
+    funding: {
+        label: "Funding", icon: "compass",
+        boundary: "Funding opportunities, applications, evidence, and submission approvals only."
+    },
+    hiring: {
+        label: "Hiring", icon: "hiring",
+        boundary: "Role summaries only. Candidate identity, evidence, and decisions stay inside Hiring."
+    },
+    skills: {
+        label: "Skills", icon: "file-doc",
+        boundary: "Only skill-backed work visible to you. A skill never widens tool or action authority."
+    },
+};
+
+function runStatusTone(status) {
+    if (status === "SUCCEEDED") return "ok";
+    if ([ "FAILED", "CANCELLED", "REJECTED" ].includes(status)) return "danger";
+    if ([ "WAITING", "PAUSED", "CANCELLING" ].includes(status)) return "attn";
+    return "info";
+}
+
+const RUN_DASHBOARD_LIMIT = 12;
+const RUN_RECENT_LIMIT = 6;
+const RUN_HISTORY_PAGE_SIZE = 25;
+const RUN_COMPLETED_STATUSES = new Set([ "SUCCEEDED", "CANCELLED", "REJECTED" ]);
+const RUN_ATTENTION_STATUSES = new Set([ "FAILED", "WAITING", "PAUSED" ]);
+const RUN_FILTER_KEY = "cofounder-runs-filter";
+
+function runIsCompleted(row) {
+    return RUN_COMPLETED_STATUSES.has(String(row.runtime_status || ""));
+}
+
+function runOpenAction(row, options = {}) {
+    if (options.groupCount > 1) {
+        return `<button class="btn" data-variant="secondary" data-size="sm" data-run-title="${esc(row.title || "")}" onclick="openRunHistory('completed',this.dataset.runTitle)">Review ${options.groupCount} runs</button>`;
+    }
+    if (row.operation_key === "hiring") {
+        return `<a class="btn" data-variant="secondary" data-size="sm" href="/hiring.html">Open in Hiring</a>`;
+    }
+    if (row.operation_key === "funding") {
+        return `<button class="btn" data-variant="secondary" data-size="sm" onclick="focusFundingRuns()">Open operation</button>`;
+    }
+    return row.origin_session_id
+      ? `<button class="btn" data-variant="secondary" data-size="sm" onclick="openRunConversation('${esc(row.origin_session_id)}')">Open conversation</button>` : "";
+}
+
+function runCardMarkup(row, options = {}) {
+    const operation = RUN_OPERATION_UI[row.operation_key] || RUN_OPERATION_UI.skills;
+    const groupCount = Number(options.groupCount || 1);
+    const executionCount = groupCount > 1
+      ? `<span class="badge" data-tone="neutral">${groupCount} runs</span>` : "";
+    return `<article class="${options.history ? "run-history-row" : "run-card"}" data-run-operation="${esc(row.operation_key)}">
+      <div class="run-card-head"><span class="name">${esc(row.title || "Untitled work")}</span>
+        <span>${executionCount}<span class="badge" data-tone="${runStatusTone(row.runtime_status)}">${esc(row.runtime_status)}</span></span></div>
+      <div class="meta"><span>${ico(operation.icon, "ico-sm")}${esc(row.operation_label)}</span>
+        ${row.updated_at ? `<time datetime="${esc(row.updated_at)}">${timeAgo(row.updated_at)}</time>` : ""}</div>
+      <div class="operation-boundary">${ico("shield", "ico-sm")}<span>${esc(row.access_label)}</span></div>
+      <div class="run-card-actions">${runOpenAction(row, {groupCount})}</div>
+    </article>`;
+}
+
+function groupCompletedRunTitles(rows) {
+    const groups = new Map();
+    rows.forEach(row => {
+        const key = `${row.operation_key}\u0000${row.title || "Untitled work"}`;
+        const existing = groups.get(key);
+        if (existing) existing.count += 1;
+        else groups.set(key, {row, count: 1});
+    });
+    return [ ...groups.values() ];
+}
+
+function renderGlobalRuns() {
+    if (!["all", "funding", "hiring", "skills"].includes(runFilter)) runFilter = "all";
+    document.querySelectorAll("[data-run-filter]").forEach(button =>
+        button.setAttribute("aria-pressed", String(button.dataset.runFilter === runFilter)));
+    const counts = {funding: 0, hiring: 0, skills: 0};
+    globalRunRows.forEach(row => {
+        if (Object.hasOwn(counts, row.operation_key)) counts[row.operation_key] += 1;
+    });
+    $("runCountAll").textContent = String(globalRunRows.length);
+    $("runCountHiring").textContent = String(counts.hiring);
+    $("runCountFunding").textContent = String(counts.funding);
+    $("runCountSkills").textContent = String(counts.skills);
+    $("runFamilies").innerHTML = Object.entries(RUN_OPERATION_UI).map(([key, item]) =>
+      `<article class="operation-card" data-operation-family="${key}">
+        <div class="operation-card-head"><span class="name">${ico(item.icon)}${esc(item.label)}</span>
+          <span class="badge" data-tone="neutral">${counts[key]} run${counts[key] === 1 ? "" : "s"}</span></div>
+        <div class="operation-boundary">${ico("shield", "ico-sm")}<span>${esc(item.boundary)}</span></div>
+        ${key === "hiring" ? `<a class="btn" data-variant="secondary" data-size="sm" href="/hiring.html">Open Hiring</a>`
+          : `<button class="btn" data-variant="ghost" data-size="sm" onclick="setRunFilter('${key}')">Show ${esc(item.label.toLowerCase())} work</button>`}
+      </article>`).join("");
+    const filtered = runFilter === "all" ? globalRunRows
+      : globalRunRows.filter(row => row.operation_key === runFilter);
+    const filterName = runFilter === "all" ? "all operations" : RUN_OPERATION_UI[runFilter].label;
+    const current = filtered.filter(row => !runIsCompleted(row));
+    const completed = filtered.filter(runIsCompleted);
+    const recentGroups = groupCompletedRunTitles(completed);
+    $("activeRunsDescription").textContent = `${current.length} active or attention-needed run${current.length === 1 ? "" : "s"} across ${filterName}.`;
+    $("globalRuns").removeAttribute("aria-busy");
+    $("globalRuns").innerHTML = current.slice(0, RUN_DASHBOARD_LIMIT).map(row =>
+        runCardMarkup(row)).join("") || emptyState("clipboard", "No current work in this view",
+        completed.length ? "Completed work is condensed below and remains available in run history." :
+        (runFilter === "all" ? "Start with Alex or open Hiring to begin a durable operation." : `No ${filterName.toLowerCase()} runs are active.`));
+    $("currentRunsMore").hidden = current.length <= RUN_DASHBOARD_LIMIT;
+    $("currentRunsMore").textContent = `View all current work (${current.length})`;
+    $("recentRunsDescription").textContent = `${completed.length} completed execution${completed.length === 1 ? "" : "s"} condensed into ${recentGroups.length} matching title${recentGroups.length === 1 ? "" : "s"}.`;
+    $("recentRuns").innerHTML = recentGroups.slice(0, RUN_RECENT_LIMIT).map(group =>
+        runCardMarkup(group.row, {groupCount: group.count})).join("") ||
+        emptyState("clipboard", "No completed work yet", "Completed runs will appear here without crowding current work.");
+    $("runHistoryBtn").hidden = filtered.length === 0;
+    $("runHistoryBtn").textContent = `Open run history (${filtered.length})`;
+    if (!$("runHistory").hidden) updateRunHistory(false);
+    $("fundingDetails").hidden = ![ "all", "funding" ].includes(runFilter);
+    $("futureOperations").hidden = runFilter !== "all";
+}
+
+function openRunHistory(scope = "all", query = "") {
+    runHistoryReturnFocus = document.activeElement;
+    $("runHistoryStatus").value = scope;
+    $("runHistoryOperation").value = runFilter;
+    $("runHistorySearch").value = query;
+    runHistoryVisibleCount = RUN_HISTORY_PAGE_SIZE;
+    $("runHistory").hidden = false;
+    updateRunHistory(false);
+    $("runHistory").focus({preventScroll: true});
+    $("runHistory").scrollIntoView({
+        block: "start",
+        behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth"
+    });
+}
+
+function closeRunHistory() {
+    $("runHistory").hidden = true;
+    if (runHistoryReturnFocus && document.contains(runHistoryReturnFocus)) {
+        runHistoryReturnFocus.focus();
+    }
+    runHistoryReturnFocus = null;
+}
+
+function updateRunHistory(resetPage = true) {
+    if (resetPage) runHistoryVisibleCount = RUN_HISTORY_PAGE_SIZE;
+    const query = $("runHistorySearch").value.trim().toLocaleLowerCase();
+    const operation = $("runHistoryOperation").value;
+    const status = $("runHistoryStatus").value;
+    const rows = globalRunRows.filter(row => {
+        if (operation !== "all" && row.operation_key !== operation) return false;
+        if (query && !String(row.title || "").toLocaleLowerCase().includes(query)) return false;
+        if (status === "completed" && !runIsCompleted(row)) return false;
+        if (status === "current" && runIsCompleted(row)) return false;
+        if (status === "attention" && !RUN_ATTENTION_STATUSES.has(String(row.runtime_status || ""))) return false;
+        return true;
+    });
+    const visibleRows = rows.slice(0, runHistoryVisibleCount);
+    $("runHistoryList").innerHTML = visibleRows.map(row =>
+        runCardMarkup(row, {history: true})).join("") ||
+        emptyState("search", "No runs match", "Try a different operation, status, or title.");
+    $("runHistorySummary").textContent = rows.length
+      ? `Showing ${visibleRows.length} of ${rows.length} runs` : "0 runs";
+    $("runHistoryMore").hidden = visibleRows.length >= rows.length;
+}
+
+function loadMoreRunHistory() {
+    runHistoryVisibleCount += RUN_HISTORY_PAGE_SIZE;
+    updateRunHistory(false);
+}
+
+function visibleListRows(key, rows, pageSize = GROWING_LIST_PAGE_SIZE) {
+    const count = growingListVisible[key] || pageSize;
+    return rows.slice(0, count);
+}
+
+function resetGrowingList(key) {
+    delete growingListVisible[key];
+}
+
+function loadMoreList(key, renderName, pageSize = GROWING_LIST_PAGE_SIZE) {
+    growingListVisible[key] = (growingListVisible[key] || pageSize) + pageSize;
+    const render = globalThis[renderName];
+    if (typeof render === "function") render();
+}
+
+function loadMoreFooter(key, shown, total, renderName, label = "items", pageSize = GROWING_LIST_PAGE_SIZE) {
+    if (!total) return "";
+    return `<div class="list-footer"><span class="foot" aria-live="polite">Showing ${shown} of ${total} ${esc(label)}</span>${shown < total ? `<button class="btn" data-variant="secondary" data-size="sm" type="button" aria-label="Load more ${esc(label)}" onclick="loadMoreList('${esc(key)}','${esc(renderName)}',${Number(pageSize)})">Load more</button>` : ""}</div>`;
+}
+
+function captureScrollState() {
+    const state = new Map();
+    for (const node of [document.scrollingElement, $("leftCell"), $("chatlog"), document.querySelector(".workspace-scroll")]) {
+        if (node) state.set(node, {top: node.scrollTop, left: node.scrollLeft});
+    }
+    return state;
+}
+
+function restoreScrollState(state) {
+    requestAnimationFrame(() => state.forEach((position, node) => {
+        if (!document.contains(node) && node !== document.scrollingElement) return;
+        node.scrollTop = position.top;
+        node.scrollLeft = position.left;
+    }));
+}
+
+function setRunFilter(filter) {
+    runFilter = [ "all", "funding", "hiring", "skills" ].includes(filter) ? filter : "all";
+    try { window.sessionStorage?.setItem(RUN_FILTER_KEY, runFilter); } catch {}
+    document.querySelectorAll("[data-run-filter]").forEach(button =>
+        button.setAttribute("aria-pressed", String(button.dataset.runFilter === runFilter)));
+    renderGlobalRuns();
+}
+
+function focusFundingRuns() {
+    setRunFilter("funding");
+    $("fundingDetails").scrollIntoView({block: "start"});
+}
+
+async function openRunConversation(session) {
+    await viewSession(session);
+    navigateProduct("alex");
+}
+
 function setOffline(down) {
     document.body.dataset.offline = down ? "true" : "";
     if (down && !offlineSince) offlineSince = Date.now();
@@ -4461,10 +5106,12 @@ function renderSessionWork() {
     $("sessionWorkCount").textContent = String(visible.length);
     $("sessionReadonly").hidden = !readThrough();
     $("sessionWorkStatus").textContent = sessionResourcesTruncated ? "This session has more linked work. Narrow it from Search to see older items." : visible.length ? "Select an item to focus it in the matching panel." : "New work created here will appear in this session.";
-    $("sessionWorkList").innerHTML = visible.map((row, index) => {
+    const shown = visibleListRows("session-work", visible, 12);
+    $("sessionWorkList").innerHTML = shown.map((row, index) => {
         const relationship = row.latest_occurrence && row.latest_occurrence.relationship;
         return `<button class="session-resource" data-session-resource="${index}"\n                    aria-label="Show ${esc(row.title || row.result_type)}">\n      <span class="cbadge sm">${ico(SESSION_RESOURCE_ICON[row.result_type] || "file-doc")}</span>\n      <span class="grow"><span class="name">${esc(row.title || "Untitled work")}</span>\n        <span class="conn-sub">${esc(relationship || "linked")} · ${esc(row.status || row.result_type)}</span></span>\n    </button>`;
-    }).join("");
+    }).join("") + loadMoreFooter("session-work", shown.length, visible.length,
+        "renderSessionWork", "work items", 12);
     if (!visible.length) {
         $("sessionWorkList").innerHTML = emptyState("clipboard", "No work linked yet", "Work created in this conversation will appear here.");
     }
@@ -4472,7 +5119,7 @@ function renderSessionWork() {
 }
 
 function renderSessionActivity() {
-  const rows = sessionResources.slice(0, 30);
+  const rows = sessionResources;
   const jobRows = backgroundPilotJobs.map(job => {
     const terminal = ["SUCCEEDED", "FAILED", "CANCELLED"].includes(job.runtime_status);
     const tone = job.runtime_status === "SUCCEEDED" ? "ok"
@@ -4517,8 +5164,11 @@ function renderSessionActivity() {
         data-background-brief="${esc(artifactId)}">Prepare private grounded brief</button>` : ""}
     </div>`;
   });
-  setTabState("activity", jobRows.length + resourceRows.length || null, false);
-  $("audit").innerHTML = [...jobRows, ...resourceRows].join("") || emptyState("shield", "No linked activity yet",
+  const allRows = [...jobRows, ...resourceRows];
+  const visibleRows = visibleListRows("session-activity", allRows, 25);
+  setTabState("activity", allRows.length || null, false);
+  $("audit").innerHTML = visibleRows.join("") + loadMoreFooter("session-activity", visibleRows.length,
+    allRows.length, "renderSessionActivity", "activity items", 25) || emptyState("shield", "No linked activity yet",
     "Searches, applications, documents, browser reports and evidence created in this session appear here.");
 }
 
@@ -4615,15 +5265,56 @@ function investorDraftAction(draft, runTerminal = false) {
 
 function renderInvestorOutreach() {
     investorOutreaches = investorOutreaches || [];
-    $("investorRuns").innerHTML = investorOutreaches.map(outreach => {
+    const visible = visibleListRows("investor-outreach", investorOutreaches, 10);
+    $("investorRuns").innerHTML = visible.map(outreach => {
         const run = outreach.run || {};
         const runStatus = run.runtime_status || "UNKNOWN";
         const terminal = [ "CANCELLED", "SUCCEEDED", "FAILED", "REJECTED" ].includes(runStatus);
         const control = terminal ? "" : (runStatus === "PAUSED" ? `<button class="btn" data-variant="secondary" data-size="sm" onclick="controlInvestorRun('${esc(run.run_id)}',${Number(run.version || 0)},'resume')">Resume</button>` : `<button class="btn" data-variant="secondary" data-size="sm" onclick="controlInvestorRun('${esc(run.run_id)}',${Number(run.version || 0)},'pause')">Pause</button>`) + (terminal ? "" : `<button class="btn" data-variant="ghost" data-size="sm" onclick="controlInvestorRun('${esc(run.run_id)}',${Number(run.version || 0)},'cancel')">Cancel</button>`);
         const retryable = [ "SCOPING", "SOURCING", "QUALIFYING", "DRAFTING_OUTREACH" ].includes(outreach.domain_state);
-        const drafts = (outreach.drafts || []).map(draft => `<div class="outreach-draft">\n      <div class="name">${esc(draft.recipient_email || "Recipient not verified")}</div>\n      <div class="meta"><span>${esc(draft.subject || "Untitled message")}</span>\n        <span class="badge" data-tone="info">${esc(draft.status || "DRAFTED")}</span></div>\n      <div class="message-preview">${esc(draft.body || "")}</div>\n      <div class="outreach-actions">${investorDraftAction(draft, terminal)}</div>\n    </div>`).join("");
+        const allDrafts = outreach.drafts || [];
+        const draftKey = `outreach-drafts-${outreach.outreach_id}`;
+        const visibleDrafts = visibleListRows(draftKey, allDrafts, 10);
+        const drafts = visibleDrafts.map(draft => `<div class="outreach-draft">\n      <div class="name">${esc(draft.recipient_email || "Recipient not verified")}</div>\n      <div class="meta"><span>${esc(draft.subject || "Untitled message")}</span>\n        <span class="badge" data-tone="info">${esc(draft.status || "DRAFTED")}</span></div>\n      <div class="message-preview">${esc(draft.body || "")}</div>\n      <div class="outreach-actions">${investorDraftAction(draft, terminal)}</div>\n    </div>`).join("") + loadMoreFooter(draftKey, visibleDrafts.length, allDrafts.length,
+          "renderInvestorOutreach", "drafts", 10);
         return `<article class="card outreach-card">\n      <div class="name">${esc(outreach.objective || "Investor outreach")}</div>\n      <div class="meta"><span class="badge" data-tone="info">${esc(outreach.domain_state || "SCOPING")}</span>\n        <span class="badge" data-tone="${runStatus === "FAILED" ? "danger" : runStatus === "PAUSED" ? "attn" : "info"}">${esc(runStatus)}</span>\n        <span>${Number(outreach.candidate_count || 0)} candidates · ${Number(outreach.draft_count || 0)} drafts</span></div>\n      <div class="outreach-actions">${control}${retryable ? `<button class="btn" data-variant="ghost" data-size="sm" onclick="retryInvestorOutreach('${esc(outreach.outreach_id)}')">Retry preparation</button>` : ""}</div>\n      ${drafts || `<div class="why">Research is running. No message can be sent until an exact draft is approved here.</div>`}\n    </article>`;
-    }).join("") || emptyState("target", "No investor outreach yet", readThrough() ? "No investor work was linked to this conversation." : "Ask Alex to find investors for a specific objective. Research and drafts come first; sending always waits for your exact approval.");
+    }).join("") + loadMoreFooter("investor-outreach", visible.length, investorOutreaches.length,
+        "renderInvestorOutreach", "outreach runs", 10) || emptyState("target", "No investor outreach yet", readThrough() ? "No investor work was linked to this conversation." : "Ask Alex to find investors for a specific objective. Research and drafts come first; sending always waits for your exact approval.");
+}
+
+function renderFundingLists() {
+    const groups = pipelineBoard?.opportunities || {};
+    const LANE_COPY = {SHORTLISTED: "Worth applying to", DISCOVERED: "Found, not yet scored",
+                       ARCHIVED: "Ruled out, with reasons"};
+    let html = "";
+    for (const state of ["SHORTLISTED", "DISCOVERED", "ARCHIVED"]) {
+        const items = groups[state] || [];
+        if (!items.length) continue;
+        const key = `opportunities-${state.toLowerCase()}`;
+        const visible = visibleListRows(key, items, 12);
+        html += `<div class="lane-label ${state}" title="${LANE_COPY[state]}">${state} · ${items.length}</div>`;
+        for (const o of visible) {
+            const why = o.archive_reason
+              ? `<div class="why arch">Ruled out — ${esc(o.archive_reason)}</div>`
+              : (o.fit_rationale ? `<div class="why">${esc(o.fit_rationale)}</div>` : "");
+            html += `<article class="card" id="opportunity-${esc(o.id || "")}">
+              <div class="name">${esc(o.name || "Untitled programme")}</div>
+              <div class="meta">${o.award ? `<span>${esc(o.award)}</span>` : ""}${deadlineChip(o)}</div>
+              ${fitMeter(o.fit_score)}${why}</article>`;
+        }
+        html += loadMoreFooter(key, visible.length, items.length, "renderFundingLists", "opportunities", 12);
+    }
+    $("boardCols").innerHTML = html || emptyState("compass", "Nothing found yet", readThrough() ? "No opportunities were linked to this conversation." : "Type /discover in chat to find grants, accelerators, and programmes that fit your company.");
+
+    const apps = pipelineApps || [];
+    const visibleApps = visibleListRows("funding-applications", apps, 12);
+    $("apps").innerHTML = visibleApps.map(a => `<article class="card appcard ${activeApp && activeApp.id === a.id ? "active" : ""}"
+       tabindex="0" role="button" data-app-id="${esc(a.id)}"
+       aria-label="Review ${esc(a.opportunity_name || a.id)}">
+       <div class="name">${esc(a.opportunity_name || a.id.slice(0, 8))}</div>
+       <div class="meta"><span class="badge" data-tone="info">${stateLabel(a.state)}</span>${deadlineChip(a)}</div>
+     </article>`).join("") + loadMoreFooter("funding-applications", visibleApps.length, apps.length,
+       "renderFundingLists", "applications", 12) || emptyState("clipboard", "No applications in flight", readThrough() ? "No applications were linked to this conversation." : "Pick a shortlisted programme and tell Alex to start—the interview and draft become durable work here.");
 }
 
 async function controlInvestorRun(runId, expectedVersion, operation) {
@@ -4697,18 +5388,34 @@ async function refresh() {
   const context = contextSessionId();
   if (!context) return;
   const generation = ++refreshGeneration;
+  const scrollState = captureScrollState();
+  if (booted) {
+    document.body.dataset.refreshing = "true";
+    for (const id of ["boardCols", "apps", "investorRuns", "globalRuns", "recentRuns", "audit"]) {
+      $(id)?.setAttribute("data-refreshing", "true");
+      $(id)?.setAttribute("aria-busy", "true");
+    }
+  }
   refreshGateBanner();
-  let board, resourceResult, investorResult, backgroundResult;
+  let board, resourceResult, investorResult, backgroundResult, globalRunsResult;
   try {
-    [board, resourceResult, investorResult, backgroundResult] = await Promise.all([
+    [board, resourceResult, investorResult, backgroundResult, globalRunsResult] = await Promise.all([
       api(`/api/v1/pipeline?session_id=${encodeURIComponent(context)}`),
       api(`/api/v1/sessions/${encodeURIComponent(context)}/resources?limit=2000`),
-      api(`/api/v1/investor-outreach?session_id=${encodeURIComponent(context)}`),
+      api("/api/v1/investor-outreach"),
       api(`/api/v1/background-pilot/jobs?session_id=${encodeURIComponent(context)}`),
+      api("/api/v1/runs"),
     ]);
     if (generation !== refreshGeneration || context !== contextSessionId()) return;
     setOffline(false);
   } catch {
+    if (generation === refreshGeneration) {
+      delete document.body.dataset.refreshing;
+      document.querySelectorAll('[data-refreshing="true"]').forEach(node => {
+        node.removeAttribute("data-refreshing");
+        node.removeAttribute("aria-busy");
+      });
+    }
     setOffline(true);
     // Before the first render there is nothing to preserve, so the skeletons
     // must resolve into an explanation rather than shimmering forever.
@@ -4724,33 +5431,21 @@ async function refresh() {
     // board during a blip reads as "everything was lost", which is worse.
     return;
   }
+  delete document.body.dataset.refreshing;
+  document.querySelectorAll('[data-refreshing="true"]').forEach(node => {
+    node.removeAttribute("data-refreshing");
+    node.removeAttribute("aria-busy");
+  });
   markLoaded();
   sessionResources = resourceResult.resources || [];
   sessionResourcesTruncated = !!resourceResult.truncated;
   backgroundPilotJobs = backgroundResult.jobs || [];
   backgroundPilotEnabled = !!backgroundResult.enabled;
   backgroundSkillEnabled = !!backgroundResult.grounded_brief_enabled;
+  globalRunRows = globalRunsResult.runs || [];
+  renderGlobalRuns();
   renderSessionWork();
-  const groups = board.opportunities || {};
-  const LANE_COPY = { SHORTLISTED: "Worth applying to", DISCOVERED: "Found, not yet scored",
-                      ARCHIVED: "Ruled out, with reasons" };
-  let html = "";
-  for (const state of ["SHORTLISTED", "DISCOVERED", "ARCHIVED"]) {
-    const items = groups[state] || [];
-    if (!items.length) continue;
-    html += `<div class="lane-label ${state}" title="${LANE_COPY[state]}">${state} · ${items.length}</div>`;
-    for (const o of items) {
-      // An archived item is evidence of a decision: its reason always shows.
-      const why = o.archive_reason
-        ? `<div class="why arch">Ruled out — ${esc(o.archive_reason)}</div>`
-        : (o.fit_rationale ? `<div class="why">${esc(o.fit_rationale)}</div>` : "");
-      html += `<article class="card" id="opportunity-${esc(o.id || "")}">
-        <div class="name">${esc(o.name || "Untitled programme")}</div>
-        <div class="meta">${o.award ? `<span>${esc(o.award)}</span>` : ""}${deadlineChip(o)}</div>
-        ${fitMeter(o.fit_score)}${why}</article>`;
-    }
-  }
-    $("boardCols").innerHTML = html || emptyState("compass", "Nothing found yet", readThrough() ? "No opportunities were linked to this session." : "Type /discover in chat to find grants, accelerators and programmes that fit your profile.");
+    pipelineBoard = board;
     const apps = board.applications || [];
     pipelineApps = apps;
     investorOutreaches = investorResult.outreaches || [];
@@ -4759,7 +5454,8 @@ async function refresh() {
         activeApp = null;
         clearReview();
     }
-    $("apps").innerHTML = apps.map(a => `<article class="card appcard ${activeApp && activeApp.id === a.id ? "active" : ""}"\n       tabindex="0" role="button" data-app-id="${esc(a.id)}"\n       aria-label="Review ${esc(a.opportunity_name || a.id)}">\n       <div class="name">${esc(a.opportunity_name || a.id.slice(0, 8))}</div>\n       <div class="meta"><span class="badge" data-tone="info">${stateLabel(a.state)}</span>${deadlineChip(a)}</div>\n     </article>`).join("") || emptyState("clipboard", "No applications in flight", readThrough() ? "No applications were linked to this conversation." : "Pick a shortlisted programme above and tell Alex to start — it interviews you, then drafts.");
+    renderFundingLists();
+    restoreScrollState(scrollState);
     if (!apps.length) clearReview();
     if (!activeApp && apps.length) loadApp(apps[0].id); else if (activeApp) loadApp(activeApp.id, true);
     refreshFounderInbox();
@@ -5401,12 +6097,27 @@ const stateLabel = st => esc(STATE_COPY[st] || String(st || "").replaceAll("_", 
 
 async function loadApp(id, silent) {
     const context = contextSessionId();
+    const sectionsHost = $("sections");
+    sectionsHost.querySelector("[data-app-load-state]")?.remove();
+    if (silent && activeApp?.id === id) {
+        sectionsHost.dataset.refreshing = "true";
+        sectionsHost.insertAdjacentHTML("afterbegin", '<div class="inline-load-state" data-app-load-state>Refreshing application…</div>');
+    }
     let loaded;
     try {
         loaded = await api(`/api/v1/applications/${id}?session_id=${encodeURIComponent(context)}`);
-    } catch {
+    } catch (error) {
+        delete sectionsHost.dataset.refreshing;
+        const message = `<div class="inline-load-state" data-app-load-state data-tone="danger"><span>Application details could not refresh. Existing content remains visible.</span><button class="btn" data-variant="secondary" data-size="sm" onclick="loadApp('${esc(id)}',true)">Retry</button></div>`;
+        if (activeApp?.id === id && sectionsHost.children.length) {
+            sectionsHost.querySelector("[data-app-load-state]")?.remove();
+            sectionsHost.insertAdjacentHTML("afterbegin", message);
+        } else {
+            sectionsHost.innerHTML = message;
+        }
         return;
     }
+    delete sectionsHost.dataset.refreshing;
     if (context !== contextSessionId()) return;
     activeApp = loaded;
     if (!activeApp || activeApp.error) return;
@@ -5643,7 +6354,10 @@ async function refreshGateBanner() {
         renderDecisionApprovals();
         syncLiveApprovalState();
     } catch {
-        /* banner is best-effort; the per-app banner still works */}
+        const host = $("gateBanner");
+        host.querySelector("[data-approval-load-state]")?.remove();
+        host.insertAdjacentHTML("afterbegin", `<div class="approval-banner" data-approval-load-state><div class="hd">${ico("alert")}Decisions could not refresh</div><p class="grow">Existing decisions remain visible. Retry before assuming nothing needs you.</p><button class="btn" data-variant="secondary" data-size="sm" onclick="refreshGateBanner()">Retry</button></div>`);
+    }
 }
 
 function showApproval(approvalId) {
@@ -5719,19 +6433,26 @@ function toggleFocusStage() {
 function navigateProduct(destination) {
     if (destination === "decisions") {
         document.body.dataset.destination = "alex";
+        document.body.dataset.pane = "chat";
         openWorkspace("panel", "decisions");
     } else if (destination === "activity") {
         document.body.dataset.destination = "alex";
+        document.body.dataset.pane = "chat";
         openWorkspace("panel", "activity");
     } else {
         document.body.dataset.destination = destination === "runs" ? "runs" : "alex";
+        document.body.dataset.pane = destination === "runs" ? "board" : "chat";
     }
     const current = destination === "decisions" || destination === "activity" ? destination : document.body.dataset.destination;
     document.querySelectorAll("[data-destination-link]").forEach(link => {
         if (link.tagName !== "A") link.setAttribute("aria-current", link.dataset.destinationLink === current ? "page" : "false");
     });
     $("contextTitle").textContent = current === "runs" ? "Runs" : current === "decisions" ? "Decisions" : current === "activity" ? "Activity" : "Alex";
-    $("contextScope").textContent = current === "runs" ? "Funding & program applications" : "General conversation";
+    $("contextScope").textContent = current === "runs" ? "All operations" : "General conversation";
+    $("sessionTag").hidden = current === "runs";
+    const responsivePane = current === "runs" ? "board" : "chat";
+    document.querySelectorAll("#paneTabs button").forEach((button, index) =>
+        button.setAttribute("aria-selected", String([ "board", "chat", "browser" ][index] === responsivePane)));
     if (current === "alex") renderHiringRoleContext();
 }
 
@@ -5748,13 +6469,14 @@ function toggleDrawer() {
 }
 
 function showPane(which) {
-    document.body.dataset.pane = which === "browser" ? "chat" : which;
-    const order = [ "board", "chat", "browser" ];
-    document.querySelectorAll("#paneTabs button").forEach((b, i) => b.setAttribute("aria-selected", String(order[i] === which)));
     if (which === "board") navigateProduct("runs"); else {
         navigateProduct("alex");
         if (which === "browser") openBrowserTakeover();
     }
+    document.body.dataset.pane = which === "browser" ? "chat" : which;
+    const order = [ "board", "chat", "browser" ];
+    document.querySelectorAll("#paneTabs button").forEach((button, index) =>
+        button.setAttribute("aria-selected", String(order[index] === which)));
 }
 
 // ---------- voice + docs ----------
@@ -6022,11 +6744,29 @@ function closePdf() {
 let allDocs = [];
 
 async function loadDocuments(context = contextSessionId()) {
-    const r = await api(`/api/v1/documents?session_id=${encodeURIComponent(context)}`);
-    if (context !== contextSessionId()) return;
-    allDocs = r.documents || [];
-    renderDocuments();
-    renderSessionDocCards();
+    const work = $("workDocuments"), evidence = $("documents");
+    for (const node of [work, evidence]) {
+        node.querySelector("[data-doc-load-state]")?.remove();
+        if (node.children.length) node.dataset.refreshing = "true";
+    }
+    try {
+        const r = await api(`/api/v1/documents?session_id=${encodeURIComponent(context)}`);
+        if (context !== contextSessionId()) return;
+        allDocs = r.documents || [];
+        renderDocuments();
+        renderSessionDocCards();
+    } catch (error) {
+        if (context !== contextSessionId()) return;
+        const message = `<div class="inline-load-state" data-doc-load-state data-tone="danger"><span>Documents could not refresh. The last results remain visible.</span><button class="btn" data-variant="secondary" data-size="sm" onclick="loadDocuments()">Retry</button></div>`;
+        if (allDocs.length || sessionResources.some(row => row.result_type === "artifact")) {
+            work.insertAdjacentHTML("afterbegin", message);
+        } else {
+            evidence.innerHTML = message;
+        }
+    } finally {
+        delete work.dataset.refreshing;
+        delete evidence.dataset.refreshing;
+    }
 }
 
 const DOC_ICONS = {
@@ -6040,7 +6780,7 @@ const DOC_ICONS = {
 // into inline handlers. Actions ride data-* attributes; one delegated
 // listener below dispatches them.
 function docCardHtml(d, showApp) {
-    return `<div class="doc-card" id="document-${esc(d.doc_key || d.id || "")}">\n    <span class="doc-badge ${esc(d.kind)}">${ico(DOC_ICONS[d.kind] || DOC_ICONS.docx)}</span>\n    <div style="min-width:0;flex:1">\n      <div class="name" title="${esc(d.title)}">${esc(d.title)}</div>\n      <div class="sub">v${d.version} · ${timeAgo(d.created_at)}${showApp && d.opportunity_name ? " · " + esc(d.opportunity_name) : ""}\n        · <span class="doc-tag" data-doc-action="session" data-session="${esc(d.session_id || "")}">Created in conversation</span></div>\n    </div>\n    <a class="cbtn" title="Download" aria-label="Download" href="/api/v1/artifacts/${encodeURIComponent(d.artifact_name)}/download?session_id=${encodeURIComponent(contextSessionId())}" download>\n      ${ico("download")}</a>\n    <button class="cbtn" title="Preview" aria-label="Preview"\n            data-doc-action="preview" data-artifact="${esc(d.artifact_name)}" data-title="${esc(d.title)}">\n      ${ico("eye")}</button>\n    <button class="cbtn" title="Copy to Drive" aria-label="Copy to Drive"\n            data-doc-action="drive" data-artifact="${esc(d.artifact_name)}" ${readThrough() ? "disabled" : ""}>\n      ${ico("cloud-up")}</button>\n  </div>`;
+    return `<div class="doc-card" id="document-${esc(d.doc_key || d.id || "")}">\n    <span class="doc-badge ${esc(d.kind)}">${ico(DOC_ICONS[d.kind] || DOC_ICONS.docx)}</span>\n    <div style="min-width:0;flex:1">\n      <div class="name" title="${esc(d.title)}">${esc(d.title)}</div>\n      <div class="sub">v${d.version} · ${timeAgo(d.created_at)}${showApp && d.opportunity_name ? " · " + esc(d.opportunity_name) : ""}\n        · <span class="doc-tag" data-doc-action="session" data-session="${esc(d.session_id || "")}">Created in conversation</span></div>\n    </div>\n    <a class="cbtn" title="Download" aria-label="Download" href="/api/v1/artifacts/${encodeURIComponent(d.artifact_name)}/download?session_id=${encodeURIComponent(contextSessionId())}" download>\n      ${ico("download")}</a>\n    <button class="cbtn" title="Preview" aria-label="Preview"\n            data-doc-action="preview" data-artifact="${esc(d.artifact_name)}" data-title="${esc(d.title)}">\n      ${ico("eye")}</button>\n    <button class="cbtn" title="Save to Alex's Drive" aria-label="Save to Alex's Drive"\n            data-doc-action="drive" data-artifact="${esc(d.artifact_name)}" ${readThrough() ? "disabled" : ""}>\n      ${ico("cloud-up")}</button>\n  </div>`;
 }
 
 function artifactCardHtml(row) {
@@ -6229,15 +6969,19 @@ function renderDocuments() {
     if (!allDocs.length) {
         work.innerHTML = "";
     } else {
+        const visibleDocs = visibleListRows("work-documents", allDocs, 20);
         const groups = {};
-        for (const d of allDocs) (groups[d.opportunity_name || "General"] ||= []).push(d);
-        work.innerHTML = Object.entries(groups).map(([name, docs]) => `<div class="lane-label DISCOVERED">${esc(name)} · ${docs.length}</div>` + docs.map(d => docCardHtml(d, false)).join("")).join("");
+        for (const d of visibleDocs) (groups[d.opportunity_name || "General"] ||= []).push(d);
+        work.innerHTML = Object.entries(groups).map(([name, docs]) => `<div class="lane-label DISCOVERED">${esc(name)}</div>` + docs.map(d => docCardHtml(d, false)).join("")).join("") +
+          loadMoreFooter("work-documents", visibleDocs.length, allDocs.length, "renderDocuments", "documents", 20);
     }
     if (!artifacts.length) {
         el.innerHTML = emptyState("file-doc", "No documents yet", "Attachments and source evidence linked to this session land here.");
         return;
     }
-    el.innerHTML = `<div class="lane-label DISCOVERED">Session attachments · ${artifacts.length}</div>` + artifacts.map(artifactCardHtml).join("");
+    const visibleArtifacts = visibleListRows("evidence-attachments", artifacts, 20);
+    el.innerHTML = `<div class="lane-label DISCOVERED">Session attachments · ${artifacts.length}</div>` + visibleArtifacts.map(artifactCardHtml).join("") +
+      loadMoreFooter("evidence-attachments", visibleArtifacts.length, artifacts.length, "renderDocuments", "attachments", 20);
 }
 
 // A produced document is canonical in Work. Its compact transcript reference
@@ -6301,7 +7045,7 @@ async function viewSession(sid) {
     const log = $("chatlog");
     log.innerHTML = "";
     if (!(h.messages || []).length) {
-        log.innerHTML = emptyState("chat", "No transcript in this session", "Its linked work still appears across Pipeline, Browser, Review and Documents.");
+        log.innerHTML = emptyState("chat", "No transcript in this session", "Its linked work still appears across Runs, Browser, Work, and Evidence.");
     }
     for (const m of h.messages || []) addMsg(m.role, m.text);
     await refresh();
@@ -6326,15 +7070,15 @@ async function backToSession() {
 }
 
 async function syncDrive(name) {
-    if (!requireActiveContext("copy a document to Drive")) return;
-    toast("Copying to Drive…");
-    const r = await api(`/api/v1/documents/${name}:sync-drive`, {
+    if (!requireActiveContext("save a document to Alex's Drive")) return;
+    toast("Saving to Alex's Drive…");
+    const r = await api(`/api/v1/documents/${name}:sync-alex-drive`, {
         method: "POST",
         body: JSON.stringify({
-            client_request_id: "drive_sync_" + crypto.randomUUID()
+            client_request_id: "alex_drive_sync_" + crypto.randomUUID()
         })
     });
-    toast(r.status === "success" ? "Copied to your Drive." : r.message || "Couldn't copy to Drive.", r.status === "success" ? "ok" : "danger");
+    toast(r.status === "success" ? "Saved to Alex's Drive." : r.message || "Couldn't save to Alex's Drive.", r.status === "success" ? "ok" : "danger");
 }
 
 // ---------- connections (Drive + Gmail) ----------
@@ -6342,6 +7086,8 @@ let connState = null;
 
 function openConnections() {
     showConn("list");
+    const subtitle = $("connList").querySelector(".conn-sub");
+    if (subtitle) subtitle.textContent = "Grouped by who owns each account or tool.";
     loadConnections();
     openDialog("connections", "#connSearch");
 }
@@ -6357,6 +7103,7 @@ const CONN_PANES = {
     calendar: "connCalendar",
     browser: "connBrowser",
     founder_gmail: "connGmail",
+    alex_drive: "connAlexDrive",
     alex_mail: "connAlex",
     alex_calendar: "connAlexCalendar",
     soon: "connSoon"
@@ -6392,6 +7139,20 @@ function showConn(which) {
 let connectorCatalog = [], connShowAll = false;
 
 const CONN_FOLD = 8;
+const CONNECTOR_ACCOUNT_GROUPS = [
+    {key: "founder", label: "Founder", description: "Your connected sources"},
+    {key: "alex", label: "Alex", description: "Alex-owned accounts"},
+    {key: "builtin", label: "Built-in tools", description: "No account required"}
+];
+const LEGACY_CONNECTOR_ACCOUNT_GROUP = {
+    drive: "founder", founder_gmail: "founder", calendar: "founder",
+    alex_drive: "alex", alex_mail: "alex", alex_calendar: "alex",
+    browser: "builtin"
+};
+
+function connectorAccountGroup(connector) {
+    return connector.account_group || LEGACY_CONNECTOR_ACCOUNT_GROUP[connector.name] || "available";
+}
 
 // Neutral marks, never logotypes (submission rules). Unknown connectors fall
 // back to the glyph the backend sends, so a server-side addition still renders.
@@ -6401,6 +7162,8 @@ const CONN_FOLD = 8;
 const CONN_ICON = {
     drive: "cloud-up",
     // company records
+    alex_drive: "file-doc",
+    // Alex's role-owned operational Drive
     founder_gmail: "inbox",
     // the watched-label mailbox
     imap: "at",
@@ -6465,12 +7228,20 @@ function connRow(c) {
 function renderConnectorList() {
     const q = ($("connSearch").value || "").trim().toLowerCase();
     const match = c => !q || c.title.toLowerCase().includes(q) || c.name.includes(q) || (c.aliases || []).some(a => a.includes(q));
-    const connected = connectorCatalog.filter(c => c.connected && match(c));
-    const available = connectorCatalog.filter(c => !c.connected && match(c));
+    const matches = connectorCatalog.filter(match);
+    const available = matches.filter(c => connectorAccountGroup(c) === "available");
     const shown = connShowAll || q ? available : available.slice(0, CONN_FOLD);
-    let html = "";
-    if (connected.length) html += `<div class="grp-h">Connected · ${connected.length}</div><div class="grp">${connected.map(connRow).join("")}</div>`;
-    html += `<div class="grp-h">Available</div><div class="grp">${shown.map(connRow).join("") || `<div class="crow"><span class="grow conn-sub">Nothing matches.</span></div>`}</div>`;
+    let html = CONNECTOR_ACCOUNT_GROUPS.map(group => {
+        const rows = matches.filter(c => connectorAccountGroup(c) === group.key);
+        if (!rows.length) return "";
+        const connected = rows.filter(c => c.connected).length;
+        const count = group.key === "builtin"
+          ? `${rows.length} available`
+          : `${connected} of ${rows.length} connected`;
+        return `<div class="grp-h connector-group-heading"><span>${esc(group.label)}</span><span>${esc(count)}</span></div><div class="grp" aria-label="${esc(group.label)} connectors">${rows.map(connRow).join("")}</div><div class="foot">${esc(group.description)}</div>`;
+    }).join("");
+    if (shown.length) html += `<div class="grp-h connector-group-heading"><span>Available</span><span>${available.length}</span></div><div class="grp" aria-label="Available connectors">${shown.map(connRow).join("")}</div>`;
+    if (!html) html = `<div class="grp-h">Search results</div><div class="grp"><div class="crow"><span class="grow conn-sub">Nothing matches.</span></div></div>`;
     if (!connShowAll && !q && available.length > CONN_FOLD) html += `<div class="foot">${available.length - CONN_FOLD} more · <a onclick="connShowAll=true;renderConnectorList()">show all</a></div>`;
     $("connListGroups").innerHTML = html;
 }
@@ -6511,10 +7282,21 @@ async function loadConnections() {
         return `<span class="dot"></span><span>${esc(row.status_line || "Connected")} · ${esc(access)}</span>\n      <span class="tag ${tone}">${esc(row.status)}</span>${disconnect}`;
     };
     $("driveStatusLine").innerHTML = durableStatus("drive", "selected files");
+    $("alexDriveStatusLine").innerHTML = durableStatus("alex_drive", "full read + write scope");
     $("gmailStatusLine").innerHTML = durableStatus("founder_gmail", "watched label");
     $("calendarStatusLine").innerHTML = durableStatus("calendar", "read + approval-gated create");
     $("alexStatusLine").innerHTML = durableStatus("alex_mail", "read + approval-gated send");
     $("alexCalendarStatusLine").innerHTML = durableStatus("alex_calendar", "exact approval-gated interview invitations");
+    if (conn.alex_drive) {
+        api("/api/v1/integrations/alex-drive/files?limit=25").then(j => {
+            const files = (j || {}).files || [];
+            $("alexDriveFiles").innerHTML = files.length ? files.map(file => `\n      <div class="crow">\n        <span class="cbadge sm">${ico("file-doc", "ico-sm")}</span>\n        <span class="grow"><b>${esc(file.name || "Untitled")}</b>\n          <span class="conn-sub">${esc(file.mime || "Drive file")}${file.modified_at ? " · " + esc(timeAgo(file.modified_at)) : ""}</span></span>\n        ${file.url ? `<a class="btn" data-variant="quiet" data-size="sm" href="${esc(file.url)}" target="_blank" rel="noopener noreferrer">Open</a>` : ""}\n      </div>`).join("") : `<div class="crow"><span class="grow conn-sub">Alex's Drive has no visible files yet.</span></div>`;
+        }).catch(() => {
+            $("alexDriveFiles").innerHTML = `<div class="crow"><span class="grow conn-sub">Could not load Alex's Drive files.</span></div>`;
+        });
+    } else {
+        $("alexDriveFiles").innerHTML = `<div class="crow"><span class="grow conn-sub">Connect Alex's Drive to inspect its files.</span></div>`;
+    }
     const alexLast = (connState.alex_mail || {}).last_scan;
     $("alexLastScan").innerHTML = alexLast && !alexLast.error ? (alexLast.events || []).map(e => `\n      <div class="crow">\n        <span class="tag tag-accent">${KIND_LABEL[e.kind] || e.kind}</span>\n        <span class="grow"><b>${esc(e.subject || "(no subject)")}</b>\n          <span class="conn-sub">${esc(e.from || "")} — ${esc((e.excerpt || "").slice(0, 90))}…</span></span>\n      </div>`).join("") || `<div class="crow"><span class="grow conn-sub">Scanned ${timeAgo(alexLast.at)} — no new mail.</span></div>` : `<div class="crow"><span class="grow conn-sub">${alexLast && alexLast.error ? esc(alexLast.error) : "Never scanned."}</span></div>`;
     if (conn.calendar) {
@@ -6669,11 +7451,25 @@ let voice = null;
 
 let visual = null;
 
+// getDisplayMedia may foreground the selected Chrome tab before its promise
+// resolves. That visibility transition is part of the founder's explicit
+// source selection, not a page teardown or an instruction to end Live voice.
+let displayCaptureSelectionPending = false;
+
 let pendingConsent = null;
 
 let consentGrants = {
     camera: "",
     display: ""
+};
+
+let localAttention = {
+    availability: "unknown",
+    failureReason: "",
+    recognition: null,
+    restartTimer: 0,
+    generation: 0,
+    language: "en-US"
 };
 
 let captionState = {
@@ -6700,6 +7496,7 @@ let liveUi = {
 let cloudFrame = 0, cloudLastFrame = 0;
 
 function resetLiveSessionAuthority() {
+    stopLocalAttentionListener();
     consentGrants = {
         camera: "",
         display: ""
@@ -6763,10 +7560,188 @@ function liveMicrophoneActive(current = voice) {
     return current.micStream.getAudioTracks().some(track => track.enabled && track.readyState === "live");
 }
 
+const VISUAL_SOURCES = new Set([ "camera", "display" ]);
+
+function visualSourceName(source) {
+    return source === "display" ? "Screen" : "Camera";
+}
+
+function displaySelectionDetail(track) {
+    const surface = track && track.getSettings ? track.getSettings().displaySurface : "";
+    if (surface === "browser") return "Selected tab only. Nothing is being sent until you choose Share with Alex.";
+    if (surface === "window") return "Selected window only. Nothing is being sent until you choose Share with Alex.";
+    if (surface === "monitor") return "Entire screen selected — hide unrelated windows and notifications. Nothing is being sent until you choose Share with Alex.";
+    return "Selected screen source. Nothing is being sent until you choose Share with Alex.";
+}
+
+function classifyLocalAttentionIntent(text) {
+    const normalized = String(text || "").normalize("NFKC").toLowerCase()
+        .replaceAll("’", "'").replace(/[^a-z0-9'\s]+/g, " ")
+        .replace(/\s+/g, " ").trim();
+    if (!normalized || normalized.length > 160) return null;
+    const addressed = normalized.match(/^(?:(?:hey|hi|hello|okay|ok|please)\s+){0,2}alex\b[\s,.:;!?-]*(.*)$/);
+    if (!addressed) return null;
+    const command = addressed[1].trim();
+    if (!command || command.includes("hold on to")) return null;
+    const polite = "(?:please\\s+)?";
+    const trailingPolite = "(?:\\s+please)?";
+    const request = "(?:(?:can|could|would|will)\\s+you\\s+)?(?:(?:actually|just)\\s+)?(?:(?:i\\s+(?:need|want)\\s+you\\s+to)\\s+)?";
+    const hold = new RegExp(`^${polite}${request}${polite}(?:hold(?:\\s+on)?|pause(?:\\s+and\\s+wait)?|wait(?:\\s+(?:(?:a|one)\\s+)?(?:moment|minute|second|sec))?|hang\\s+on|stand\\s+by|give\\s+me\\s+(?:(?:a|one)\\s+)?(?:moment|minute|second|sec)|(?:do\\s+not|don't)\\s+(?:listen|respond)(?:\\s+(?:yet|for\\s+now))?)${trailingPolite}(?:\\s+for\\s+(?:a|one)\\s+(?:moment|minute|second))?$`);
+    const resume = new RegExp(`^${polite}(?:resume|resume\\s+(?:listening|the\\s+conversation)|(?:you\\s+can\\s+)?(?:listen|respond|continue)(?:\\s+(?:again|now))?|start\\s+listening(?:\\s+again)?|come\\s+back|carry\\s+on|(?:i\\s+am|i'm|we\\s+are|we're)\\s+ready(?:\\s+now)?)${trailingPolite}$`);
+    if (hold.test(command)) return "hold";
+    if (resume.test(command)) return "resume";
+    return null;
+}
+
+function localAttentionRecognitionConstructor() {
+    // Chromium may expose the standards-facing constructor under its
+    // long-standing prefix. It is still admitted only when the constructor
+    // proves the on-device API; remote recognition is never a fallback.
+    return window.SpeechRecognition || window.webkitSpeechRecognition || null;
+}
+
+function localAttentionOptions() {
+    return {
+        langs: [ localAttention.language ],
+        processLocally: true,
+        quality: "command"
+    };
+}
+
+function boundedLocalAttentionOperation(operation, timeoutMs) {
+    return new Promise((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error("on-device speech operation timed out")), timeoutMs);
+        Promise.resolve(operation).then(value => {
+            clearTimeout(timer);
+            resolve(value);
+        }, error => {
+            clearTimeout(timer);
+            reject(error);
+        });
+    });
+}
+
+async function prepareLocalAttentionRecognition(allowInstall = false) {
+    const Recognition = localAttentionRecognitionConstructor();
+    localAttention.failureReason = "";
+    if (!Recognition || typeof Recognition.available !== "function") {
+        localAttention.availability = "unavailable";
+        localAttention.failureReason = "unsupported";
+        return false;
+    }
+    let probe;
+    try {
+        probe = new Recognition;
+    } catch {
+        localAttention.availability = "unavailable";
+        localAttention.failureReason = "constructor_failed";
+        return false;
+    }
+    if (!("processLocally" in probe)) {
+        localAttention.availability = "unavailable";
+        localAttention.failureReason = "remote_only";
+        return false;
+    }
+    try {
+        const options = localAttentionOptions();
+        const availability = await boundedLocalAttentionOperation(
+            Recognition.available(options), 5000);
+        if (availability === "downloadable" && allowInstall && typeof Recognition.install === "function") {
+            const installed = await boundedLocalAttentionOperation(
+                Recognition.install(options), 30000);
+            // Chrome can report a newly installed SODA pack as available while
+            // recognition in the same browser process still produces no
+            // results. Fail closed and request one browser restart; the next
+            // launch sees the already-installed pack as available.
+            localAttention.availability = installed ? "restart_required" : "unavailable";
+            localAttention.failureReason = installed ? "pack_installed" : "install_failed";
+            return false;
+        }
+        localAttention.availability = availability === "available" ? "available" : "unavailable";
+        localAttention.failureReason = availability === "available" ? "" : availability;
+    } catch {
+        localAttention.availability = "unavailable";
+        localAttention.failureReason = "probe_failed";
+    }
+    return localAttention.availability === "available";
+}
+
+function stopLocalAttentionListener() {
+    localAttention.generation += 1;
+    if (localAttention.restartTimer) clearTimeout(localAttention.restartTimer);
+    localAttention.restartTimer = 0;
+    const recognition = localAttention.recognition;
+    localAttention.recognition = null;
+    if (!recognition) return;
+    recognition.onend = null;
+    recognition.onerror = null;
+    recognition.onresult = null;
+    try {
+        recognition.abort();
+    } catch {}
+}
+
+function failLocalAttentionListener() {
+    if (!liveUi.held) return;
+    stopLocalAttentionListener();
+    closeLiveConnection(true);
+    toast("The private on-device resume listener stopped, so the live call was ended. No background speech was sent to Alex.", "danger");
+}
+
+function startLocalAttentionListener() {
+    stopLocalAttentionListener();
+    if (!voice || !liveUi.held || localAttention.availability !== "available") return false;
+    const Recognition = localAttentionRecognitionConstructor();
+    if (!Recognition) return false;
+    const generation = localAttention.generation;
+    let recognition;
+    try {
+        recognition = new Recognition;
+        recognition.processLocally = true;
+        recognition.lang = localAttention.language;
+        if ("quality" in recognition) recognition.quality = "command";
+        recognition.continuous = true;
+        recognition.interimResults = true;
+        recognition.maxAlternatives = 3;
+        recognition.onresult = event => {
+            if (!voice || !liveUi.held || generation !== localAttention.generation) return;
+            for (let index = event.resultIndex; index < event.results.length; index += 1) {
+                const result = event.results[index];
+                if (!result.isFinal) continue;
+                for (let alternative = 0; alternative < Math.min(3, result.length); alternative += 1) {
+                    const command = String(result[alternative].transcript || "");
+                    if (classifyLocalAttentionIntent(command) === "resume") {
+                        stopLocalAttentionListener();
+                        resumeAttention(command);
+                        return;
+                    }
+                }
+            }
+        };
+        recognition.onerror = event => {
+            if ([ "aborted", "no-speech" ].includes(String(event.error || ""))) return;
+            failLocalAttentionListener();
+        };
+        recognition.onend = () => {
+            if (!voice || !liveUi.held || generation !== localAttention.generation) return;
+            localAttention.recognition = null;
+            localAttention.restartTimer = setTimeout(() => {
+                if (!startLocalAttentionListener()) failLocalAttentionListener();
+            }, 250);
+        };
+        localAttention.recognition = recognition;
+        recognition.start();
+        return true;
+    } catch {
+        localAttention.recognition = null;
+        return false;
+    }
+}
+
 function voiceCloudState() {
     if (liveUi.lifecycle === "TERMINAL_ERROR") return [ "ERROR", "Voice connection lost", "alert" ];
     if (liveUi.lifecycle === "PAUSED" || liveUi.paused) return [ "PAUSED", "Paused — Alex cannot hear you", "pause" ];
-    if (liveUi.held) return [ "HELD", "On hold — Alex is connected but not receiving speech", "pause" ];
+    if (liveUi.held) return [ "HELD", "On hold — only the on-device ‘Alex resume’ listener is active", "pause" ];
     if (liveUi.lifecycle === "CONNECTING") return [ "CONNECTING", "Connecting voice", "refresh" ];
     if (liveUi.lifecycle === "RECONNECTING") return [ "RECONNECTING", "Reconnecting voice", "refresh" ];
     if (Date.now() < liveUi.interruptedUntil) return [ "INTERRUPTED", "Alex interrupted", "pause" ];
@@ -6800,8 +7775,8 @@ function syncVisionControlAvailability() {
     for (const [id, source, name] of [ [ "cameraBtn", "camera", "Share camera with Alex" ], [ "displayBtn", "display", "Share screen with Alex" ] ]) {
         const button = $(id);
         const capabilityEnabled = !!(voice && voice.visualEnabled && voice.visualEnabled[source]);
-        button.disabled = readThrough() || !voiceActive || !capabilityEnabled;
-        const reason = readThrough() ? "Resume this conversation before sharing" : liveUi.paused ? "Resume Alex before sharing" : liveUi.held ? "Resume Alex's attention before sharing" : !voiceActive ? "Requires an active voice call" : !capabilityEnabled ? "Unavailable for this voice call" : "Available during this active voice call";
+        button.disabled = readThrough() || !voiceActive || !capabilityEnabled || !!visual;
+        const reason = readThrough() ? "Resume this conversation before sharing" : liveUi.paused ? "Resume Alex before sharing" : liveUi.held ? "Resume Alex's attention before sharing" : !voiceActive ? "Requires an active voice call" : !capabilityEnabled ? "Unavailable for this voice call" : visual ? `Stop the current ${visualSourceName(visual.source).toLowerCase()} share first` : "Available during this active voice call";
         button.title = `${name} — ${reason.toLowerCase()}`;
         button.setAttribute("aria-label", `${name}. ${reason}`);
     }
@@ -6820,19 +7795,6 @@ function ensureVoicePauseControl() {
     return button;
 }
 
-function ensureVoiceHoldControl() {
-    let button = $("voiceHoldBtn");
-    if (button) return button;
-    button = document.createElement("button");
-    button.id = "voiceHoldBtn";
-    button.type = "button";
-    button.className = "voice-pause-control voice-attention-control";
-    button.onclick = toggleVoiceHold;
-    button.innerHTML = '<svg class="ico ico-sm" aria-hidden="true"><use id="voiceHoldIcon" href="#i-clock"/></svg><span id="voiceHoldLabel">Hold</span>';
-    ensureVoicePauseControl().insertAdjacentElement("afterend", button);
-    return button;
-}
-
 function renderVoiceCloud() {
     syncVisionControlAvailability();
     const visible = [ "CONNECTING", "ACTIVE", "PAUSED", "RECONNECTING", "TERMINAL_ERROR" ].includes(liveUi.lifecycle);
@@ -6848,7 +7810,6 @@ function renderVoiceCloud() {
     $("alexStatusIcon").setAttribute("href", `#i-${icon}`);
     $("voiceErrorDismiss").hidden = liveUi.lifecycle !== "TERMINAL_ERROR";
     const pauseButton = ensureVoicePauseControl();
-    const holdButton = ensureVoiceHoldControl();
     const paused = liveUi.lifecycle === "PAUSED" || liveUi.paused;
     pauseButton.hidden = ![ "CONNECTING", "ACTIVE", "PAUSED" ].includes(liveUi.lifecycle);
     pauseButton.disabled = liveUi.lifecycle === "RECONNECTING" || liveUi.lifecycle === "TERMINAL_ERROR";
@@ -6857,13 +7818,6 @@ function renderVoiceCloud() {
     pauseButton.title = paused ? "Resume Alex — microphone access requires your action" : "Pause Alex — stops microphone capture and Alex audio";
     $("voicePauseLabel").textContent = paused ? "Resume Alex" : "Pause Alex";
     $("voicePauseIcon").setAttribute("href", paused ? "#i-mic" : "#i-pause");
-    holdButton.hidden = liveUi.lifecycle !== "ACTIVE" || paused;
-    holdButton.disabled = paused || liveUi.lifecycle !== "ACTIVE";
-    holdButton.setAttribute("aria-pressed", String(liveUi.held));
-    holdButton.setAttribute("aria-label", liveUi.held ? "Resume Alex's attention" : "Put Alex on hold");
-    holdButton.title = liveUi.held ? "Resume Alex's attention — the existing microphone path will send only after this action" : "Put Alex on hold — keeps the call connected but stops speech from reaching Alex";
-    $("voiceHoldLabel").textContent = liveUi.held ? "Resume attention" : "Hold";
-    $("voiceHoldIcon").setAttribute("href", liveUi.held ? "#i-mic" : "#i-clock");
     const composedLabel = liveUi.approval && state !== "AWAITING_APPROVAL" ? `${label} · approval needed` : label;
     if ($("alexStatusLabel").textContent !== composedLabel) {
         $("alexStatusLabel").textContent = composedLabel;
@@ -6983,6 +7937,7 @@ async function ensureLiveConnection(forVoice = false) {
         audioEnvelopes: [],
         paused: false,
         held: false,
+        attentionHoldEnabled: false,
         controlWaiters: new Map
     };
     ws.onmessage = onVoiceFrame;
@@ -6997,7 +7952,8 @@ async function ensureLiveConnection(forVoice = false) {
         client_capabilities: {
             audio_pcm16: true,
             visual_sources: [ "camera", "display" ],
-            image_mime_types: [ "image/jpeg" ]
+            image_mime_types: [ "image/jpeg" ],
+            local_attention_commands: localAttention.availability === "available"
         }
     }));
     setTimeout(() => {
@@ -7084,7 +8040,7 @@ function stopLivePlayback(current = voice) {
 
 function requestVoiceControl(action) {
     const current = voice;
-    if (!current || current.ws.readyState !== WebSocket.OPEN || ![ "pause", "resume", "hold", "attention.resume" ].includes(action)) {
+    if (!current || current.ws.readyState !== WebSocket.OPEN || ![ "pause", "resume" ].includes(action)) {
         return Promise.reject(new Error("Live voice is not connected."));
     }
     const requestId = `voice_${action.replaceAll(".", "_")}_${crypto.randomUUID()}`;
@@ -7111,9 +8067,41 @@ function requestVoiceControl(action) {
     });
 }
 
+function requestAttentionResume(commandText) {
+    const current = voice;
+    if (!current || current.ws.readyState !== WebSocket.OPEN || !current.attentionHoldEnabled || classifyLocalAttentionIntent(commandText) !== "resume") {
+        return Promise.reject(new Error("An addressed on-device resume command is required."));
+    }
+    const action = "attention.resume";
+    const requestId = `voice_attention_resume_${crypto.randomUUID()}`;
+    return new Promise((resolve, reject) => {
+        const timeout = setTimeout(() => {
+            current.controlWaiters.delete(requestId);
+            reject(new Error("Voice attention resume was not confirmed."));
+        }, 2500);
+        current.controlWaiters.set(requestId, {
+            action,
+            resolve: frame => {
+                clearTimeout(timeout);
+                resolve(frame);
+            },
+            reject: error => {
+                clearTimeout(timeout);
+                reject(error);
+            }
+        });
+        current.ws.send(JSON.stringify({
+            type: "voice.attention.command",
+            client_request_id: requestId,
+            command_text: commandText
+        }));
+    });
+}
+
 async function pauseVoice() {
     if (liveUi.paused) return;
     const current = voice;
+    stopLocalAttentionListener();
     liveUi.paused = true;
     liveUi.held = false;
     liveUi.lifecycle = "PAUSED";
@@ -7141,8 +8129,8 @@ async function pauseVoice() {
     }
 }
 
-async function holdVoice() {
-    if (liveUi.paused || liveUi.held || !voice) return;
+function enterConversationalHold() {
+    if (liveUi.paused || liveUi.held || !voice || !voice.attentionHoldEnabled) return;
     const current = voice;
     liveUi.held = true;
     current.held = true;
@@ -7150,22 +8138,19 @@ async function holdVoice() {
     stopLivePlayback(current);
     clearLiveCaptions(true);
     renderVoiceCloud();
-    try {
-        await requestVoiceControl("hold");
-        toast("Alex is on hold. The call stays connected, but speech is not being sent to Alex.", "neutral");
-    } catch (error) {
-        closeLiveConnection(true);
-        toast("The server could not confirm Hold, so the live connection was closed.", "danger");
+    if (!startLocalAttentionListener()) {
+        failLocalAttentionListener();
+        return;
     }
+    toast("Alex is on hold. Background speech stays on this device and is ignored; say an addressed resume such as ‘Alex, resume’ to continue.", "neutral");
 }
 
-async function resumeAttention() {
+async function resumeAttention(commandText) {
     const current = voice;
     if (!current || liveUi.paused || !liveUi.held) return;
-    const button = ensureVoiceHoldControl();
-    button.disabled = true;
+    stopLocalAttentionListener();
     try {
-        await requestVoiceControl("attention.resume");
+        await requestAttentionResume(commandText);
         if (voice !== current || !liveMicrophoneActive(current)) throw new Error("Microphone path is no longer active.");
         current.held = false;
         liveUi.held = false;
@@ -7175,10 +8160,6 @@ async function resumeAttention() {
         closeLiveConnection(true);
         toast("Attention could not resume safely, so the live connection was closed.", "danger");
     }
-}
-
-function toggleVoiceHold() {
-    if (liveUi.held) resumeAttention(); else holdVoice();
 }
 
 async function resumeVoice() {
@@ -7227,8 +8208,12 @@ async function toggleVoice() {
     btn.classList.add("connecting");
     btn.disabled = true;
     try {
+        const attentionReady = await prepareLocalAttentionRecognition(true);
         await attachLiveMicrophone();
-        toast("Listening — just talk. Tap again to turn the microphone off.", "ok");
+        const attentionUnavailable = localAttention.availability === "restart_required"
+            ? "Chrome installed the private Hold language pack. Restart Chrome once, then start a new voice call to enable conversational Hold."
+            : "Listening — conversational Hold is unavailable because this browser has no verified on-device speech recognition.";
+        toast(attentionReady ? "Listening — say ‘Alex, hold on’ as a short direct command to hold, or tap again to end the call." : attentionUnavailable, attentionReady ? "ok" : "attn");
     } catch (error) {
         btn.classList.remove("connecting", "live");
         if (liveUi.paused) {
@@ -7246,6 +8231,7 @@ async function toggleVoice() {
 }
 
 function stopVoice() {
+    stopLocalAttentionListener();
     detachLiveMicrophone();
     stopLivePlayback(voice);
     liveUi.paused = false;
@@ -7262,6 +8248,7 @@ function stopVoice() {
 }
 
 function closeLiveConnection(terminalError = false) {
+    stopLocalAttentionListener();
     if (!voice) return;
     const current = voice;
     voice = null;
@@ -7297,6 +8284,7 @@ function closeLiveConnection(terminalError = false) {
 }
 
 function handleLiveClosed() {
+    stopLocalAttentionListener();
     if (!voice) return;
     const current = voice;
     voice = null;
@@ -7345,17 +8333,20 @@ function onVoiceFrame(evt) {
     } else if (frame.type === "hello.ack" && voice) {
         voice.protocolVersion = frame.protocol_version;
         voice.visualEnabled = frame.enabled || {};
+        voice.attentionHoldEnabled = !!(frame.enabled && frame.enabled.attention_hold);
         if (voice.settleHello) {
             voice.settleHello(true);
             voice.settleHello = null;
         }
         syncVisionControlAvailability();
-    } else if ([ "voice.pause.ack", "voice.resume.ack", "voice.hold.ack", "voice.attention.resume.ack" ].includes(frame.type) && voice) {
+    } else if ([ "voice.pause.ack", "voice.resume.ack", "voice.attention.resume.ack" ].includes(frame.type) && voice) {
         const waiter = voice.controlWaiters.get(frame.client_request_id);
         if (waiter && frame.type === `voice.${waiter.action}.ack`) {
             voice.controlWaiters.delete(frame.client_request_id);
             waiter.resolve(frame);
         }
+    } else if (frame.type === "voice.attention.held" && voice) {
+        enterConversationalHold();
     } else if (frame.type === "consent.challenge") {
         pendingConsent = {
             source: frame.source,
@@ -7400,8 +8391,8 @@ function onVoiceFrame(evt) {
         $("visionShareBtn").hidden = true;
         $("visionPauseBtn").hidden = false;
         $("visionResumeBtn").hidden = true;
-        $("visionTitle").textContent = `${visual.source === "camera" ? "Camera" : "Screen"} shared with Alex`;
-        $("visionDetail").textContent = "Up to one image per second; live frames are not saved.";
+        $("visionTitle").textContent = `${visualSourceName(visual.source)} shared with Alex`;
+        $("visionDetail").textContent = "Sharing stays visible here. Up to one image per second is sent; live frames are not saved.";
         startVisionSampling();
         renderVoiceCloud();
     } else if (frame.type === "media.stopped" && visual) {
@@ -7409,7 +8400,7 @@ function onVoiceFrame(evt) {
             visual.state = "paused";
             $("visionPauseBtn").hidden = true;
             $("visionResumeBtn").hidden = false;
-            $("visionTitle").textContent = "Vision paused — not sending";
+            $("visionTitle").textContent = `${visualSourceName(visual.source)} sharing paused — not sending`;
         } else {
             const source = visual.source === "camera" ? "Camera" : "Screen";
             stopVision(frame.end_reason || "budget_exhausted", false);
@@ -7417,9 +8408,9 @@ function onVoiceFrame(evt) {
         }
         renderVoiceCloud();
     } else if (frame.type === "media.throttle" && visual) {
-        $("visionDetail").textContent = "Vision slowed — voice remains connected.";
+        $("visionDetail").textContent = `${visualSourceName(visual.source)} sharing slowed — voice remains connected.`;
     } else if (frame.type === "media.limit_warning" && visual) {
-        $("visionDetail").textContent = `Vision stops in about ${Number(frame.remaining_seconds || 0)} seconds; voice continues.`;
+        $("visionDetail").textContent = `${visualSourceName(visual.source)} sharing stops in about ${Number(frame.remaining_seconds || 0)} seconds; voice continues.`;
     } else if (frame.type === "caption") {
         if (liveUi.paused || liveUi.held) return;
         renderCaptionEvent(frame);
@@ -7505,8 +8496,9 @@ function onVoiceFrame(evt) {
         renderLiveTranscript(frame.transcript);
     } else if (frame.type === "error") {
         if (frame.scope === "media" && [ "stale_generation", "visual_context_limit" ].includes(frame.code)) {
+            const source = visual ? visualSourceName(visual.source) : "Visual";
             if (visual) stopVision("budget_exhausted", false);
-            toast("Camera sharing ended because the app no longer has an active visual share. Voice remains connected. Choose Camera and Share again to restart.", "neutral");
+            toast(`${source} sharing ended because the app no longer has an active visual share. Voice remains connected. Choose ${source} and Share again to restart.`, "neutral");
             return;
         }
         toast(frame.message || "Live vision is unavailable.", "danger");
@@ -7597,6 +8589,10 @@ function toggleFinalCaptions() {
 }
 
 async function beginVision(source) {
+    if (!VISUAL_SOURCES.has(source)) {
+        toast("Choose camera or screen sharing.", "attn");
+        return;
+    }
     if (liveUi.lifecycle !== "ACTIVE" || !voice || !voice.micCtx) {
         toast("Start and connect a voice call before sharing camera or screen.", "attn");
         return;
@@ -7649,9 +8645,12 @@ async function continueVisionConsent() {
 }
 
 async function captureVisionSource(source, grantId) {
+    if (!VISUAL_SOURCES.has(source)) return;
     const currentVoice = voice;
+    const sourceName = visualSourceName(source);
     let stream;
     try {
+        if (source === "display") displayCaptureSelectionPending = true;
         stream = source === "camera" ? await navigator.mediaDevices.getUserMedia({
             video: true,
             audio: false
@@ -7661,13 +8660,13 @@ async function captureVisionSource(source, grantId) {
         });
         if (voice !== currentVoice || liveUi.lifecycle !== "ACTIVE" || !liveMicrophoneActive(currentVoice)) {
             stream.getTracks().forEach(track => track.stop());
-            toast("Camera sharing was cancelled because the voice call is no longer active.", "attn");
+            toast(`${sourceName} sharing was cancelled because the voice call is no longer active.`, "attn");
             return;
         }
         const track = stream.getVideoTracks()[0];
         if (!track || track.readyState !== "live") {
             stream.getTracks().forEach(item => item.stop());
-            toast("The camera did not provide an active video track.", "attn");
+            toast(`The selected ${sourceName.toLowerCase()} source did not provide an active video track.`, "attn");
             return;
         }
         visual = {
@@ -7696,21 +8695,32 @@ async function captureVisionSource(source, grantId) {
         });
         $("visionPreview").srcObject = stream;
         $("visionCard").hidden = false;
-        $("visionTitle").textContent = "Previewing locally";
-        const surface = track.getSettings && track.getSettings().displaySurface;
-        $("visionDetail").textContent = surface === "monitor" ? "Entire screen selected — hide unrelated windows and notifications. Nothing is being sent." : "Nothing is being sent until you choose Share with Alex.";
+        $("visionCard").setAttribute("aria-label", `${sourceName} sharing controls`);
+        $("visionCard").querySelector(".vision-card-head use").setAttribute("href", source === "display" ? "#i-screen-share" : "#i-camera");
+        $("visionTitle").textContent = `${sourceName} preview — not shared`;
+        $("visionDetail").textContent = source === "display" ? displaySelectionDetail(track) : "Local camera preview only. Nothing is being sent until you choose Share with Alex.";
         $("visionShareBtn").hidden = false;
         $("visionShareBtn").disabled = !visual.grantId;
         $("visionPauseBtn").hidden = true;
         $("visionResumeBtn").hidden = true;
-        // This local camera pilot is ephemeral-only. Ordinary explicit image
+        // Live visual capture is ephemeral-only. Ordinary explicit image
         // attachments remain available through the composer, but a Live frame
         // cannot be promoted into durable attachment state.
         $("visionCaptureBtn").hidden = source === "camera";
         renderVoiceCloud();
     } catch (error) {
         if (stream) stream.getTracks().forEach(track => track.stop());
-        toast("Camera or screen sharing was not started.", "attn");
+        toast(`${sourceName} sharing was not started. No ${sourceName.toLowerCase()} content was sent.`, "attn");
+    } finally {
+        if (source === "display") {
+            displayCaptureSelectionPending = false;
+            // If selection was cancelled after Chrome foregrounded another tab,
+            // do not leave an ordinary hidden voice call running indefinitely.
+            if (document.hidden && !displayShareMayContinueWhileHidden()) {
+                if (visual) stopVision("suspended");
+                if (voice) closeLiveConnection();
+            }
+        }
     }
 }
 
@@ -7718,7 +8728,7 @@ function shareVision() {
     if (!voice || !visual || !visual.grantId || visual.state !== "preview") return;
     visual.shareId = `share_${crypto.randomUUID()}`;
     visual.state = "starting";
-    $("visionTitle").textContent = "Starting share";
+    $("visionTitle").textContent = `Starting ${visualSourceName(visual.source).toLowerCase()} share`;
     $("visionShareBtn").disabled = true;
     voice.ws.send(JSON.stringify({
         type: "media.prepare",
@@ -7733,7 +8743,11 @@ function startVisionSampling() {
     if (!visual || visual.state !== "sharing") return;
     const current = visual;
     const sample = async () => {
-        if (!voice || visual !== current || current.state !== "sharing" || document.hidden) return;
+        // A selected display surface is expected to remain shared while the
+        // founder foregrounds that tab/window. Camera capture still stops on a
+        // hidden controller tab through the visibility lifecycle below.
+        if (!voice || visual !== current || current.state !== "sharing"
+                || document.hidden && current.source !== "display") return;
         const video = $("visionPreview");
         if (video.videoWidth && video.videoHeight) {
             const scale = Math.min(1, 768 / Math.max(video.videoWidth, video.videoHeight));
@@ -7766,6 +8780,24 @@ function startVisionSampling() {
     current.timer = setTimeout(sample, 0);
 }
 
+function displayShareMayContinueWhileHidden() {
+    if (displayCaptureSelectionPending) return true;
+    return !!(visual && visual.source === "display" && visual.track
+        && visual.track.readyState === "live"
+        && [ "preview", "starting", "sharing", "pausing", "paused" ].includes(visual.state));
+}
+
+function reconcileDisplayShareAfterVisibility() {
+    if (!visual || visual.source !== "display") return;
+    if (!voice || voice.ws.readyState !== WebSocket.OPEN
+            || !visual.track || visual.track.readyState !== "live") {
+        stopVision("suspended", false);
+        return;
+    }
+    if (visual.state === "sharing" && !visual.timer) startVisionSampling();
+    renderVoiceCloud();
+}
+
 function pauseVision() {
     if (!voice || !visual || visual.state !== "sharing") return;
     if (visual.timer) clearTimeout(visual.timer);
@@ -7777,7 +8809,7 @@ function pauseVision() {
         generation: visual.generation,
         end_reason: "paused"
     }));
-    $("visionTitle").textContent = "Vision paused — not sending";
+    $("visionTitle").textContent = `${visualSourceName(visual.source)} sharing paused — not sending`;
     renderVoiceCloud();
 }
 
@@ -7787,7 +8819,7 @@ function resumeVision() {
     visual.generation = 0;
     visual.state = "starting";
     $("visionResumeBtn").hidden = true;
-    $("visionTitle").textContent = "Starting share";
+    $("visionTitle").textContent = `Starting ${visualSourceName(visual.source).toLowerCase()} share`;
     voice.ws.send(JSON.stringify({
         type: "media.prepare",
         client_request_id: `prepare_${crypto.randomUUID()}`,
@@ -7847,8 +8879,15 @@ async function captureVisionStill() {
 
 document.addEventListener("visibilitychange", () => {
     if (document.hidden) {
+        // Selecting or viewing an explicitly shared display surface commonly
+        // backgrounds this controller tab. Chrome's native sharing indicator
+        // remains the globally visible Stop control; voice and the selected
+        // display share continue without creating a new grant or generation.
+        if (displayShareMayContinueWhileHidden()) return;
         if (visual) stopVision("suspended");
         if (voice) closeLiveConnection();
+    } else {
+        reconcileDisplayShareAfterVisibility();
     }
 });
 
@@ -7870,9 +8909,13 @@ let searchGeneration = 0;
 let searchCursor = null;
 
 let searchDebounce = null;
+const SEARCH_QUERY_KEY = "cofounder-session-search";
 
 async function openSessions() {
     openDialog("sessions", "#sessSearch");
+    if (!$("sessSearch").value) {
+        try { $("sessSearch").value = window.sessionStorage?.getItem(SEARCH_QUERY_KEY) || ""; } catch {}
+    }
     await runSearch({
         reset: true
     });
@@ -7888,8 +8931,14 @@ async function refreshFounderInbox() {
     try {
         result = await api("/api/v1/founder-inbox?status=UNREAD&limit=100");
     } catch {
+        if ($("founderInbox").dataset.open === "true") {
+            const target = $("founderInboxList");
+            target.querySelector("[data-inbox-load-state]")?.remove();
+            target.insertAdjacentHTML("afterbegin", `<div class="inline-load-state" data-inbox-load-state data-tone="danger"><span>Decision messages could not refresh. Existing items remain visible.</span><button class="btn" data-variant="secondary" data-size="sm" onclick="refreshFounderInbox()">Retry</button></div>`);
+        }
         return;
     }
+    $("founderInboxList").querySelector("[data-inbox-load-state]")?.remove();
     founderInboxRows = result.items || [];
     const count = founderInboxRows.length;
     $("inboxCount").textContent = String(count);
@@ -7975,6 +9024,7 @@ async function dismissFounderInbox(inboxId) {
 }
 
 function onSearchInput() {
+    try { window.sessionStorage?.setItem(SEARCH_QUERY_KEY, $("sessSearch").value || ""); } catch {}
     clearTimeout(searchDebounce);
     searchDebounce = setTimeout(() => runSearch({
         reset: true
@@ -8005,7 +9055,7 @@ async function runSearch({reset: reset = false} = {}) {
         $("sessGroups").dataset.stale = "";
         $("searchStatus").textContent = `Search failed: ${e.message || e}. Showing the last results.`;
         if (!searchRows.length) {
-            $("sessGroups").innerHTML = `<div class="grp"><div class="crow"><span class="grow conn-sub">Couldn't search just now. Try again.</span></div></div>`;
+            $("sessGroups").innerHTML = `<div class="grp"><div class="crow"><span class="grow conn-sub">Search failed. Try again without losing your filters.</span><button class="btn" data-variant="secondary" data-size="sm" onclick="runSearch({reset:true})">Retry</button></div></div>`;
         }
         return;
     }
@@ -8032,7 +9082,7 @@ function renderSessionsList() {
         $("sessGroups").innerHTML = `<div class="grp"><div class="crow"><span class="grow conn-sub">${q ? "No session matches that search." : "No sessions yet — start one by asking your co-founder for help."}</span></div></div>`;
         return;
     }
-    $("sessGroups").innerHTML = `<div class="grp-h">Sessions</div><div class="grp">${searchRows.map(resultRow).join("")}</div>` + (searchCursor ? `<div class="grp"><button class="crow connrow" data-search-more="1">\n         <span class="grow conn-sub">Show more</span></button></div>` : "");
+    $("sessGroups").innerHTML = `<div class="grp-h">Sessions</div><div class="grp">${searchRows.map(resultRow).join("")}</div>` + (searchCursor ? `<div class="grp"><button class="crow connrow" data-search-more="1">\n         <span class="grow conn-sub">Load more sessions</span></button></div>` : "");
 }
 
 function moveSearchActive(delta) {
@@ -8209,7 +9259,7 @@ async function loadIdentity() {
     const name = isSession ? acct.name || acct.email : "Founder";
     const sub = !acct ? "Not signed in" : isSession ? acct.email : acct.mode === "token" ? "Signed in with the access key" : "Local dev — open access";
     const ini = initialsOf(isSession ? acct.name : "", isSession ? acct.email : "");
-    for (const id of [ "acctAvatar", "menuAvatar", "setAvatar" ]) $(id).textContent = ini;
+    for (const id of [ "acctAvatar", "menuAvatar", "profileMenuAvatar", "setAvatar" ]) $(id).textContent = ini;
     $("acctName").textContent = name;
     $("acctEmail").textContent = sub;
     $("setAcctName").textContent = name;
@@ -8253,11 +9303,17 @@ async function logout() {
 
 function openSettings() {
     $("setPersona").textContent = PERSONA;
-    $("setWorkflow").textContent = WORKFLOW || "default";
     $("setSession").textContent = sessionId ? `${sessionMemoryMode === "PRIVATE" ? "Private" : "Standard"} conversation is active` : "No conversation yet";
     renderThemeSeg();
     openDialog("settings");
     if (memorySurfaceEnabled) loadMemoryPanel();
+}
+
+function openProfile() {
+    openSettings();
+    const accountSection = $("settingsAccountSection");
+    accountSection.focus({preventScroll: true});
+    accountSection.scrollIntoView({block: "nearest"});
 }
 
 function closeSettings() {
@@ -8439,6 +9495,12 @@ async function startAuthorizedApp() {
     } else if (launch.get("open") === "settings") {
         history.replaceState(null, "", location.pathname);
         openSettings();
+    } else if (launch.get("open") === "profile") {
+        history.replaceState(null, "", location.pathname);
+        openProfile();
+    } else if (launch.get("open") === "connectors") {
+        history.replaceState(null, "", location.pathname);
+        openConnections();
     }
     const hiringRoleId = launch.get("hiring_role");
     if (hiringRoleId) {

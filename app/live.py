@@ -30,7 +30,7 @@ from google.genai import types
 
 from agents.co_founder.agent import build_root_agent
 from agents.co_founder.config import LIVE_MODEL_ID
-from services import live_media, live_transcript, live_vision_protocol
+from services import live_attention, live_media, live_transcript, live_vision_protocol
 
 logger = logging.getLogger(__name__)
 
@@ -210,6 +210,7 @@ def register_live(app, session_service, founder_id: str) -> None:
         activity_revision = 0
         voice_paused = False
         attention_held = False
+        attention_hold_enabled = False
         downstream_armed = True
         pause_revision = 0
         control_receipts: dict[str, dict] = {}
@@ -323,7 +324,8 @@ def register_live(app, session_service, founder_id: str) -> None:
 
         async def upstream() -> None:
             """Browser frames -> LiveRequestQueue."""
-            nonlocal voice_paused, attention_held, downstream_armed, pause_revision
+            nonlocal voice_paused, attention_held, attention_hold_enabled
+            nonlocal downstream_armed, pause_revision
             application_frames = 0
             negotiated_v2 = False
             enabled_visual_sources: set[str] = set()
@@ -355,16 +357,21 @@ def register_live(app, session_service, founder_id: str) -> None:
                             })
                         await send(response)
                         negotiated_v2 = response.get("type") == "hello.ack"
+                        attention_hold_enabled = bool(
+                            (response.get("enabled") or {}).get("attention_hold"))
                         enabled_visual_sources = {
                             source for source in ("camera", "display")
                             if bool((response.get("enabled") or {}).get(source))}
                         continue
                     if negotiated_v2 and frame_type in {
-                            "voice.pause", "voice.resume", "voice.hold",
-                            "voice.attention.resume"}:
+                            "voice.pause", "voice.resume",
+                            "voice.attention.command"}:
                         request_id = str(frame.get("client_request_id") or "")
+                        expected_fields = ({"type", "client_request_id", "command_text"}
+                                           if frame_type == "voice.attention.command"
+                                           else {"type", "client_request_id"})
                         if (not request_id or len(request_id) > 128
-                                or set(frame) != {"type", "client_request_id"}):
+                                or set(frame) != expected_fields):
                             await send(live_vision_protocol.protocol_error(
                                 "protocol_violation",
                                 "Live voice control is invalid.",
@@ -403,26 +410,19 @@ def register_live(app, session_service, founder_id: str) -> None:
                                 "pause_revision": pause_revision,
                                 "state": "AWAITING_FRESH_AUDIO",
                             }
-                        elif frame_type == "voice.hold":
-                            attention_held = True
-                            downstream_armed = False
-                            queue.pause_audio()
-                            clear_visual_frames()
-                            stopped = await media.stop("paused")
-                            if stopped.get("type") == "media.stopped":
-                                await send(stopped)
-                            transcript_buffer.clear()
-                            transcript.current_turn_id = ""
-                            response = {
-                                "type": "voice.hold.ack",
-                                "client_request_id": request_id,
-                                "pause_revision": pause_revision,
-                                "state": "HELD",
-                            }
                         elif voice_paused:
                             await send(live_vision_protocol.protocol_error(
                                 "voice_paused",
                                 "Resume microphone capture before resuming attention.",
+                                scope="voice"))
+                            continue
+                        elif (not attention_hold_enabled or not attention_held
+                              or live_attention.classify_addressed_attention_intent(
+                                  str(frame.get("command_text") or ""))
+                              != live_attention.RESUME):
+                            await send(live_vision_protocol.protocol_error(
+                                "attention_command_invalid",
+                                "Only an on-device, addressed resume command can end Hold.",
                                 scope="voice"))
                             continue
                         else:
@@ -574,7 +574,8 @@ def register_live(app, session_service, founder_id: str) -> None:
 
         async def downstream() -> None:
             """ADK live events -> browser frames."""
-            nonlocal activity_revision
+            nonlocal activity_revision, attention_held, downstream_armed
+            nonlocal pause_revision
             try:
                 async for event in runner.run_live(
                         session=session,
@@ -588,6 +589,36 @@ def register_live(app, session_service, founder_id: str) -> None:
                             "Live vision stopped before provider rotation; voice may end. "
                             "Sharing will not resume automatically.",
                             scope="media"))
+                    hold_transcription = getattr(event, "input_transcription", None)
+                    hold_text = str(getattr(hold_transcription, "text", "") or "")
+                    hold_finished = bool(getattr(
+                        hold_transcription, "finished", False))
+                    if (attention_hold_enabled and hold_finished and not voice_paused
+                            and not attention_held
+                            and live_attention.classify_addressed_attention_intent(
+                                hold_text) == live_attention.HOLD):
+                        # The provider supplies the active-call transcript used
+                        # to recognize Hold. From this point, both ingress and
+                        # egress are deterministically fenced. The command is
+                        # deliberately omitted from captions and durable chat.
+                        attention_held = True
+                        downstream_armed = False
+                        pause_revision += 1
+                        queue.pause_audio()
+                        clear_visual_frames()
+                        stopped = await media.stop("paused")
+                        if stopped.get("type") == "media.stopped":
+                            await send(stopped)
+                        transcript_buffer.clear()
+                        transcript.current_turn_id = ""
+                        await send({
+                            "type": "voice.attention.held",
+                            "pause_revision": pause_revision,
+                            "state": "HELD",
+                            "reason_code": "addressed_hold_intent",
+                        })
+                        touch_activity()
+                        continue
                     if voice_paused or attention_held or not downstream_armed:
                         # Pause is a transcript/output fence as well as a local
                         # microphone teardown. Provider events already in flight
@@ -655,7 +686,11 @@ def register_live(app, session_service, founder_id: str) -> None:
             while True:
                 now = loop.time()
                 max_remaining = LIVE_MAX_SESSION_SECONDS - (now - connection_started)
-                idle_remaining = LIVE_IDLE_SECONDS - (now - last_meaningful_activity)
+                # Conversational Hold deliberately sends no background audio,
+                # so ordinary silence timeout must not masquerade as a failed
+                # hold. The hard Live session ceiling still applies.
+                idle_remaining = (max_remaining if attention_held else
+                                  LIVE_IDLE_SECONDS - (now - last_meaningful_activity))
                 remaining = min(max_remaining, idle_remaining)
                 if remaining > 0:
                     await asyncio.sleep(remaining)

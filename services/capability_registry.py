@@ -253,6 +253,10 @@ EXTERNAL_ACTION_CAPABILITIES: dict[str, CapabilityDescriptor] = {
     "export_drive_file": _effect(
         "export_drive_file", "drive", approval="signed_in_human_click.v1",
         reconciliation="drive_source_checksum.v1"),
+    "export_alex_drive_file": _effect(
+        "export_alex_drive_file", "alex_drive",
+        approval="signed_in_human_click.v1",
+        reconciliation="drive_source_checksum.v1"),
 }
 
 

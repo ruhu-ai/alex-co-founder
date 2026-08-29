@@ -1,21 +1,25 @@
 ## Inspiration
 
-Founders face the same operational problem in both hiring and funding: important
-work begins as an incomplete idea, expands across documents and websites, and
-then waits on a series of human decisions.
+Every founder — solo or part of a founding team — knows the operational grind.
+Nowhere is that grind more consequential than hiring. “We need to hire” quickly
+becomes a role definition, job description, application channel, evidence
+review, interview plan, references, offer, onboarding, and a trail of decisions
+that must remain human.
 
-In Hiring Operations, a founder must turn “we need to hire” into a clear role,
-candidate-ready job description, scorecard, interview plan, evidence review,
-and a documented decision process. In Funding Operations, the founder must find
-the right opportunity, interpret its requirements, answer recurring questions,
-prepare credible application materials, work through a portal, and follow up.
+Funding has the same failure mode. Opportunities are scattered across websites
+and PDFs, every application asks familiar questions in a new form, and by the
+fifteenth tailored version of “describe your traction,” the application often
+quietly dies.
 
-Most AI products can advise on either process, but advice often leaves the
-founder with more work. We wanted to build **Alex**, an AI co-founder that can
-carry the structured preparation while the founder retains judgment and
-control. Hiring and Funding are the first two operations, not the limits of the
-product: Co-Founder is designed so more founder workflows can use the same
-research, guidance, drafting, action, approval, and follow-up foundation.
+We did not want to build another chatbot that gives founders more advice. We
+wanted a persistent co-founder that **carries the operational load**, leads the
+workflow, and learns how the founders think while doing the work.
+
+Funding was the first operation we built. Hiring is the second and our primary
+demo because it proves the same foundation can support a more sensitive,
+human-decision-led journey. They are the first two operations, not the limits of
+Co-Founder: future workflows can reuse the same research, guidance, drafting,
+action, approval, and follow-up foundation.
 
 **Co-Founder does the work; the founder keeps the judgment.**
 
@@ -29,37 +33,10 @@ authority boundaries separate.
 
 ### Hiring Operations — our primary demo
 
-Hiring Operations carries a role from intake through recruitment and
-onboarding using three linked durable lifecycles.
-
-The role lifecycle is:
-
-`ROLE_INTAKE → [AWAITING_QUALIFIED_REVIEW] →`
-`AWAITING_ROLE_CONTRACT_APPROVAL → READY_TO_DISTRIBUTE →`
-`AWAITING_PUBLICATION_APPROVAL → AWAITING_FOUNDER_PUBLICATION → POSTED →`
-`OPEN → FILLING → FILLED → CLOSING → CLOSED`
-
-Each candidate follows a longer human-decision-led path through these pivotal
-states:
-
-`APPLICATION_RECEIVED → CONSENT_AND_NOTICE_VALIDATION → EVIDENCE_INGESTION →`
-`SCREEN_READY → AWAITING_SHORTLIST_DECISION → AWAITING_CONTACT_APPROVAL →`
-`WAITING_FOR_CANDIDATE_REPLY → SCHEDULING → AWAITING_INVITE_APPROVAL →`
-`WAITING_FOR_INTERVIEW → INTERVIEW_EVIDENCE_READY →`
-`AWAITING_INTERVIEW_DECISION → AWAITING_REFERENCE_PERMISSION →`
-`WAITING_FOR_REFERENCE → REFERENCE_EVIDENCE_READY →`
-`AWAITING_FINAL_DECISION → AWAITING_OFFER_APPROVAL →`
-`WAITING_FOR_OFFER_RESPONSE → OFFER_ACCEPTED | OFFER_DECLINED →`
-`CLOSING → CLOSED`
-
-At every human-decision stage, the Founder may also hold or decline; a candidate
-may withdraw. None of those outcomes can be inferred from silence, a timer, a
-failed message, or model output.
-
-An accepted offer starts a separate onboarding lifecycle:
-
-`ONBOARDING_INTAKE → AWAITING_PLAN_APPROVAL → PRE_START → FIRST_DAY →`
-`FIRST_WEEK → AWAITING_COMPLETION_REVIEW → COMPLETE → CLOSED`
+Hiring Operations carries a role from definition and approval through
+publication, candidate intake, evidence review, founder-led interviews and
+decisions, references, offers, and onboarding—with explicit approval before
+every consequential action.
 
 A Founder can ask Alex by text or live voice to start hiring. Alex clarifies the
 need and prepares a complete role contract: purpose, outcomes, responsibilities,
@@ -84,11 +61,9 @@ never leaks into general conversation or Funding Operations.
 
 ### Funding Operations
 
-Funding Operations takes a founder-selected opportunity through a durable,
-guarded application workflow:
-
-`INTERVIEWING → DRAFTING → AWAITING_REVIEW → APPROVED → FORM_FILLING →`
-`AWAITING_SUBMIT_APPROVAL → SUBMITTED → FOLLOW_UP → CLOSED`
+Funding Operations carries a founder-selected opportunity from guided
+interviews and grounded drafting through review, guarded form filling, exact
+submission approval, and follow-up.
 
 Alex can interpret sourced program requirements, lead a gap-filling interview,
 draft responses from verified company facts, capture section-level feedback,
@@ -106,6 +81,9 @@ The interface keeps conversation central and places durable work in a
 contextual workspace with **Work, Evidence, Decisions, and Activity**. Generated
 documents remain canonical in Work and can be linked compactly from the exact
 assistant turn that created them.
+
+Alex works from its own email, calendar, and Drive, while using
+founder-connected sources only with permission.
 
 Real-time voice uses the same tools and safeguards as text. The live surface
 includes captions, interruption handling, **Pause Alex** to stop microphone
@@ -146,99 +124,56 @@ We use a five-model stack, selecting each model for a specific workload:
 We also use **Cloud Text-to-Speech with Chirp 3 HD** for explicit read-aloud
 responses.
 
-Durable workflow records—not chat history—authorize every transition. Cloud
-SQL-compatible ADK sessions preserve conversation events, while Firestore stores
-applications, roles, evidence, approvals, actions, and audit receipts. External
-actions are idempotent and require server-resolved approvals bound to the exact
-Founder, workspace, target, and current content.
+Durable records—not chat history—authorize progress. ADK sessions preserve the
+conversation; Firestore holds workflow truth and exact approvals. Every
+external action is server-authorized, idempotent, and audited.
 
-The application is designed to run on Cloud Run with Cloud SQL, Firestore,
-Cloud Storage, Secret Manager, Pub/Sub, Cloud Scheduler, Cloud Tasks, and Cloud
-Build. More than 600 deterministic unit, integration, security, UI-contract,
-and regression tests cover the implementation; credentialed ADK model
-evaluations are an explicit gated CI run.
+Co-Founder runs on Google Cloud using Cloud Run, Cloud SQL, Firestore, Cloud
+Storage, Secret Manager, and event-driven services. More than 600 deterministic
+tests and gated ADK evaluations cover workflow, security, and UI behavior.
 
 ## Challenges we ran into
 
-### Making two workflows feel like one product
+**One product, separate truths.** Hiring and Funding share Alex, documents,
+decisions, and activity, but not indiscriminate access. Candidate evidence stays
+inside Hiring; application and portal state stays inside Funding.
 
-Hiring and Funding both involve evidence, drafting, approvals, and long-running
-work, but they cannot share data indiscriminately. Hiring contains restricted
-candidate information and human-only decisions; Funding contains application
-facts, program requirements, and portal actions. We created one Alex shell and
-interaction language while keeping each workflow's records and permissions
-scoped.
+**Assistance without stolen judgment.** Alex can organize candidate evidence,
+but a summary can easily drift into a recommendation. We enforced the boundary
+structurally: only the Founder can advance, reject, or hire.
 
-### Helping with hiring without making hiring decisions
-
-An evidence summary can easily drift into a score or recommendation. We made
-the distinction structural: Alex may report what candidate-provided evidence is
-present, missing, or unclear, but only the Founder can advance or reject a
-candidate. Draft approval also remains separate from publication or outreach.
-
-### Making funding browser work reliable
-
-Application portals rename fields, load controls dynamically, and sometimes
-accept only part of a form. Co-Founder fingerprints inspected fields, checks the
-page again before acting, reports exactly what succeeded, and stops rather than
-guessing when the page changes.
-
-### Making approval impossible to improvise
-
-A prompt telling the model to “ask first” was not enough. Approvals had to be
-server-owned, bound to the exact consequence, atomically claimed, and recorded.
-Chat, voice, websites, documents, and incoming email are all evidence—not
-authority.
-
-### Keeping live voice continuous and durable
-
-Real-time audio introduced races between microphone startup, socket closure,
-model turns, captions, and transcript persistence. We made startup
-cancellation-safe, serialized session revisions, and reconciled final turns
-exactly once into chronological history.
+**Reliable action beyond prompts.** Portals change, approvals become stale, and
+live audio races with sockets and transcripts. We added page fingerprints,
+server-bound approvals, idempotent actions, cancellation-safe media, and
+exactly-once transcript reconciliation instead of asking the model to be
+careful.
 
 ## Accomplishments that we're proud of
 
-- Built two coherent operational workflows rather than a conversational mockup.
-- Made Hiring a dedicated founder workspace spanning role definition,
-  publication, intake, evidence, interviews, references, offers, and onboarding
-  while preserving Founder-only decisions.
-- Built an end-to-end Funding workflow with grounded drafting, inspected browser
-  work, partial-success reporting, approvals, and follow-up state.
-- Preserved one conversation-first product language without leaking Hiring
-  evidence into general or Funding contexts.
-- Enforced consequential-action safeguards in code instead of prompts.
-- Made live voice multi-turn, durable, accessible, pausable, and compatible with
-  the same workflow authority model as text.
-- Built generated-document, citation, approval, action, and audit records around
-  stable identities rather than duplicated chat cards.
-- Added extensive deterministic tests and checked-in ADK evaluation sets for
-  grounding, safety gates, persona, artifacts, and long-running resume behavior.
+- Built two end-to-end operations rather than a conversational mockup.
+- Took Hiring from role definition through intake, interviews, references,
+  offers, and onboarding while preserving Founder-only decisions.
+- Took Funding from guided preparation through guarded browser work, submission,
+  and follow-up.
+- Unified both in one conversation-first, live-voice product without crossing
+  their evidence boundaries.
+- Enforced consequential actions in code and backed the system with durable
+  records, extensive tests, and gated evaluations.
 
 ## What we learned
 
-**State is more reliable than conversation history.** A transcript can explain
-what was discussed; it cannot prove what was approved, published, submitted, or
-completed.
+**State and guards beat conversation.** A transcript explains what was said; it
+cannot prove what was approved or completed. Consequential actions need durable
+state and code-owned gates.
 
-**Shared design does not require shared data.** Hiring and Funding can feel like
-one product while retaining different evidence, privacy, and authorization
-boundaries.
+**Evidence is not judgment.** Alex can organize what is present, missing, or
+unclear. Ranking candidates or making decisions belongs to the Founder.
 
-**Evidence is not judgment.** Organizing what is present, missing, or unclear is
-useful assistance. Ranking or recommending candidates would cross a boundary
-that belongs to the Founder.
+**One experience can preserve separate boundaries.** Hiring and Funding can
+share Alex without sharing every record, permission, or source.
 
-**Guards belong in code.** A safe agent is not one that usually follows an
-instruction. It is one that cannot perform a consequential action without the
-right durable state and exact approval.
-
-**Errors should be data.** Structured failures let Alex report partial progress
-and ask for the next safe action instead of inventing success.
-
-**Voice needs a privacy state machine, not only a microphone button.** Browser
-permission, local capture, forwarding, model receipt, playback, pause, hold,
-and transcript persistence are separate states.
+**Failures should be visible state.** Structured errors and explicit voice
+lifecycles let Alex report partial progress without inventing success.
 
 ## What's next for Co-Founder
 

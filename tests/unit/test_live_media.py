@@ -134,6 +134,29 @@ async def test_frame_is_validated_forwarded_once_and_never_stored(monkeypatch):
     assert late["code"] == "stale_generation"
 
 
+async def test_screen_share_uses_the_ephemeral_scoped_frame_path(monkeypatch):
+    _, shares = _fake_firestore(monkeypatch)
+    connection = live_media.LiveMediaConnection(
+        workspace_id="w", actor_id="a", session_id="s")
+    _, grant, _, started = await _grant_and_start(connection, source="display")
+    sent = []
+
+    async def forward(data):
+        sent.append(data)
+
+    payload = _jpeg()
+    response = await connection.media_frame({
+        "share_id": "share-1", "generation": started["generation"], "seq": 1,
+        "data": base64.b64encode(payload).decode(),
+    }, forward)
+
+    assert response is None and sent == [payload]
+    assert connection.active["source"] == "display"
+    assert shares["share-1"]["source"] == "DISPLAY"
+    assert shares["share-1"]["consent_grant_id"] == grant["consent_grant_id"]
+    assert "data" not in shares["share-1"] and "frame" not in shares["share-1"]
+
+
 async def test_total_session_budget_refuses_late_share_but_not_voice(monkeypatch):
     _fake_firestore(monkeypatch)
     connection = live_media.LiveMediaConnection(

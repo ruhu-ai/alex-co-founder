@@ -89,11 +89,6 @@
   background: var(--attn-bg);
   color: var(--attn-ink);
 }
-.voice-attention-control[aria-pressed="true"] {
-  border-color: var(--info);
-  background: var(--info-bg);
-  color: var(--info-ink);
-}
 .voice-pause-control:disabled { cursor: not-allowed; opacity: 0.55; }
 
 #alexStatusLabel {

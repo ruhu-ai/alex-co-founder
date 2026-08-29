@@ -33,6 +33,7 @@ from services.hiring_h4s_google import H4SGoogleEffectAdapter
 from services.hiring_h4s_reply import H4SReplyService
 from services.hiring_identity_vault import CandidateIdentityVault, fixture_key_wrapper
 from services.hiring_mailbox import HiringMailboxService
+from services.hiring_role_draft import build_contract
 from services.hiring_public_intake import (
     MAX_RESUME_BYTES,
     HiringPublicIntakeService,
@@ -67,6 +68,28 @@ class PolicyRequest(ClosedRequest):
     client_request_id: str
     change_reason: str = Field(max_length=1000)
     contract: RoleContract
+    role_description: dict[str, Any] | None = None
+
+
+class RoleDescriptionDraftRequest(ClosedRequest):
+    client_request_id: str = Field(min_length=3, max_length=200)
+    expected_role_version: int = Field(ge=1)
+    change_reason: str = Field(min_length=1, max_length=1000)
+    purpose: str = Field(min_length=1, max_length=3000)
+    responsibilities: list[str] = Field(min_length=1, max_length=12)
+    success_outcomes: list[str] = Field(min_length=1, max_length=12)
+    required_qualifications: list[str] = Field(min_length=1, max_length=12)
+    preferred_qualifications: list[str] = Field(min_length=1, max_length=12)
+    relevant_experience: list[str] = Field(min_length=1, max_length=12)
+    location: str = Field(min_length=1, max_length=120)
+    work_arrangement: str = Field(min_length=1, max_length=120)
+    employment_type: str = Field(min_length=1, max_length=120)
+    compensation: str = Field(default="", max_length=500)
+    benefits: list[str] = Field(default_factory=list, max_length=12)
+    hiring_process: list[str] = Field(min_length=1, max_length=12)
+    application_instructions: str = Field(min_length=1, max_length=2000)
+    equal_opportunity_statement: str = Field(default="", max_length=2000)
+    accessibility_statement: str = Field(default="", max_length=2000)
 
 
 class ApprovalRequest(ClosedRequest):
@@ -255,7 +278,7 @@ def _synthetic_demo_allowed(payload: SyntheticGuardRequest) -> dict[str, Any]:
     if not _fixture_id_allowed(payload.fixture_id):
         return {"status": "error", "error": True,
                 "error_code": "synthetic_fixture_not_authorized",
-                "message": "This synthetic fixture is not enabled by deployment policy.",
+                "message": "This read-only test role is not enabled by deployment policy.",
                 "http_status": 403}
     return {"status": "success"}
 
@@ -348,8 +371,8 @@ def register(app: FastAPI) -> None:
     @app.post("/api/public/hiring/roles/{role_id}/applications")
     async def submit_public_application(
             request: Request, role_id: str,
-            applicant_name: str = Form(...), email: str = Form(...),
-            cover_note: str = Form(...), privacy_consent: str = Form(...),
+            email: str = Form(...), cover_note: str = Form(""),
+            applicant_name: str = Form(""), privacy_consent: str = Form(...),
             intake_token: str = Form(...), client_request_id: str = Form(...),
             resume: UploadFile = File(...)):
         """Local-staged candidate intake; never enables a provider connector.
@@ -878,8 +901,84 @@ def register(app: FastAPI) -> None:
             return _response(principal)
         return _response(await hiring_policy_service.propose_policy(
             principal=principal, role_id=role_id, contract=payload.contract,
+            role_description=payload.role_description,
             change_reason=payload.change_reason,
             client_request_id=payload.client_request_id))
+
+    @app.post("/api/hiring/roles/{role_id}/job-description-drafts")
+    async def save_job_description_draft(
+            request: Request, role_id: str,
+            payload: RoleDescriptionDraftRequest):
+        """Save an immutable proposed role package; never publish or activate it."""
+        denied = _mutation_allowed(request)
+        if denied.get("error"):
+            return _response(denied)
+        principal = await _actor(request)
+        if isinstance(principal, dict):
+            return _response(principal)
+        role = await production_store().get("hiring_roles", role_id)
+        if (not role or role.get("workspace_id") != principal.workspace_id
+                or role.get("synthetic") is not False):
+            return JSONResponse({"status": "error", "error": True,
+                                 "error_code": "role_not_found",
+                                 "message": "Role does not exist."}, status_code=404)
+        gate = authorize(principal, "prepare_role")
+        if gate.get("error"):
+            return _response(gate)
+        if int(role.get("version", 0)) != payload.expected_role_version:
+            return _response({"status": "error", "error": True,
+                              "error_code": "version_conflict",
+                              "message": "Role changed; reload before saving."})
+        current_contract = RoleContract.model_validate(
+            role.get("draft_contract") or {})
+        package = build_contract(
+            company_name=current_contract.company_name,
+            role_title=current_contract.role_title,
+            role_summary=payload.purpose,
+            headcount_target=current_contract.headcount_target,
+            target_date=current_contract.target_date,
+            location=payload.location,
+            work_arrangement=payload.work_arrangement,
+            employment_type=payload.employment_type,
+            compensation_envelope=payload.compensation,
+            required_criteria=payload.required_qualifications,
+            responsibilities=payload.responsibilities,
+            success_outcomes=payload.success_outcomes,
+            preferred_criteria=payload.preferred_qualifications,
+            relevant_experience=payload.relevant_experience,
+            benefits=payload.benefits,
+            hiring_process=payload.hiring_process,
+            application_instructions=payload.application_instructions,
+            equal_opportunity_statement=payload.equal_opportunity_statement,
+            accessibility_statement=payload.accessibility_statement,
+            public_job_description=payload.purpose,
+        )
+        if package.get("status") != "success":
+            return _response(package)
+        result = await hiring_policy_service.propose_policy(
+            principal=principal, role_id=role_id,
+            contract=package["contract"],
+            role_description=package["role_description"],
+            change_reason=payload.change_reason,
+            client_request_id=payload.client_request_id)
+        return _response(result)
+
+    @app.get("/api/hiring/roles/{role_id}/job-description-preview/{policy_id}")
+    async def preview_job_description(
+            request: Request, role_id: str, policy_id: str):
+        """Founder-only preview of the exact proposed candidate-facing page."""
+        principal = await _actor(request)
+        if isinstance(principal, dict):
+            return _response(principal)
+        services = _services()
+        if not services:
+            return JSONResponse({"status": "error", "error": True,
+                                 "error_code": "hiring_unavailable",
+                                 "message": "Hiring is temporarily unavailable."},
+                                status_code=503)
+        return _response(await services[0].get_role_draft_preview(
+            principal=principal, role_id=role_id,
+            policy_version_id=policy_id))
 
     @app.get("/api/hiring/roles/{role_id}/policy-impact/{policy_id}")
     async def policy_impact(request: Request, role_id: str, policy_id: str):
@@ -1084,7 +1183,7 @@ def register(app: FastAPI) -> None:
         if not batch or not _fixture_id_allowed(str(batch.get("fixture_id") or "")):
             return JSONResponse({"status": "error", "error": True,
                                  "error_code": "synthetic_fixture_not_authorized",
-                                 "message": "Synthetic fixture processing is disabled."},
+                                 "message": "Read-only test processing is disabled."},
                                 status_code=403)
         result = await services[1].process_batch(payload.batch_id)
         # Workload provenance is written into the batch without exposing

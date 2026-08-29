@@ -54,11 +54,16 @@ def set_service_factory(fn: Callable[[], Any] | None) -> None:
     _service_factory = fn
 
 
-def _service(workspace_id: str = ""):
+def _service(workspace_id: str = "", *, account: str = "founder"):
     if _service_factory is not None:
         return _service_factory()
-    creds = (google_oauth.get_credentials("founder", workspace_id)
-             if workspace_id else google_oauth.get_credentials())
+    if workspace_id:
+        creds = google_oauth.get_credentials(account, workspace_id)
+    elif account == "founder":
+        # Preserve the legacy injectable call shape for local compatibility.
+        creds = google_oauth.get_credentials()
+    else:
+        creds = google_oauth.get_credentials(account)
     if creds is None:
         return None
     from googleapiclient.discovery import build
@@ -66,28 +71,39 @@ def _service(workspace_id: str = ""):
     return build("drive", "v3", credentials=creds, cache_discovery=False)
 
 
-def list_files(folder_id: str, limit: int = 25, workspace_id: str = "") -> dict:
-    """List files in ONE founder-selected folder (no recursive crawling)."""
-    svc = _service(workspace_id)
+def list_files(folder_id: str = "", limit: int = 25, workspace_id: str = "", *,
+               account: str = "founder") -> dict:
+    """List one folder, or the bounded Alex role-Drive root when no folder is set."""
+    svc = _service(workspace_id, account=account)
     if svc is None:
         return {"status": "error", "error": True,
                 "message": "Google OAuth not configured (run scripts/oauth_setup.py)"}
     try:
+        query = (f"'{_escape_drive_query(folder_id)}' in parents and "
+                 "trashed = false") if folder_id else "trashed = false"
         resp = svc.files().list(
-            q=f"'{folder_id}' in parents and trashed = false",
-            fields="files(id,name,mimeType,modifiedTime)",
-            pageSize=limit,
+            q=query,
+            fields="files(id,name,mimeType,modifiedTime,size,webViewLink,parents)",
+            orderBy="modifiedTime desc",
+            pageSize=max(1, min(int(limit), 100)),
         ).execute()
     except Exception as exc:
         return {"status": "error", "error": True, "message": f"drive list failed: {exc}"}
     return {"status": "success",
             "files": [{"id": f["id"], "name": f["name"],
-                       "mime": f.get("mimeType", "")} for f in resp.get("files", [])]}
+                       "mime": f.get("mimeType", ""),
+                       "modified_at": f.get("modifiedTime", ""),
+                       "size": int(f.get("size") or 0),
+                       "url": f.get("webViewLink", ""),
+                       "parents": list(f.get("parents") or [])}
+                      for f in resp.get("files", [])]}
 
 
-def fetch_file(file_id: str, workspace_id: str = "") -> dict:
+def fetch_file(file_id: str, workspace_id: str = "", *,
+               account: str = "founder") -> dict:
     """Compatibility wrapper that stores bytes returned by ``fetch_file_bytes``."""
-    fetched = fetch_file_bytes(file_id, workspace_id=workspace_id)
+    fetched = fetch_file_bytes(
+        file_id, workspace_id=workspace_id, account=account)
     if fetched.get("status") != "success":
         return fetched
     ext = fetched["detected_name"].rsplit(".", 1)[-1] \
@@ -100,9 +116,10 @@ def fetch_file(file_id: str, workspace_id: str = "") -> dict:
 
 
 def fetch_file_bytes(file_id: str, max_bytes: int = MAX_FETCH_BYTES,
-                     workspace_id: str = "") -> dict:
+                     workspace_id: str = "", *,
+                     account: str = "founder") -> dict:
     """Fetch one Drive file with bounded bytes and provider metadata as evidence."""
-    svc = _service(workspace_id)
+    svc = _service(workspace_id, account=account)
     if svc is None:
         return {"status": "error", "error": True,
                 "message": "Google OAuth not configured (run scripts/oauth_setup.py)"}
@@ -170,9 +187,10 @@ def _escape_drive_query(value: str) -> str:
 
 
 def reconcile_export(source_artifact_id: str, checksum: str,
-                     workspace_id: str = "") -> dict:
+                     workspace_id: str = "", *,
+                     account: str = "founder") -> dict:
     """Find an exported produced file by immutable app properties."""
-    svc = _service(workspace_id)
+    svc = _service(workspace_id, account=account)
     if svc is None:
         return {"status": "error", "error": True,
                 "error_code": "auth_required",
@@ -203,12 +221,13 @@ def reconcile_export(source_artifact_id: str, checksum: str,
 
 def upload_file(name: str, local_path: str, mime: str, *,
                 source_artifact_id: str, checksum: str,
-                workspace_id: str = "") -> dict:
-    """Copy a produced document to the founder's Drive (docs/15 §security).
+                workspace_id: str = "", account: str = "founder") -> dict:
+    """Copy a produced document to the selected role account's Drive.
 
-    Uses the per-file `drive.file` scope — never full-drive. Called only from
-    the founder-clicked sync endpoint: the click IS the approval."""
-    svc = _service(workspace_id)
+    Founder Drive uses per-file ``drive.file``. Alex Drive uses its full role
+    account grant. Both are called only from the founder-clicked, receipted
+    sync endpoint; provider scope never authorizes an application action."""
+    svc = _service(workspace_id, account=account)
     if svc is None:
         return {"status": "error", "error": True,
                 "message": "Google OAuth not configured (run scripts/oauth_setup.py)"}

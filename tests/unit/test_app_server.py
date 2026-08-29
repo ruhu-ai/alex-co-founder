@@ -147,6 +147,77 @@ class TestInvestorOutreachApi:
             "/api/v1/investor-outreach?session_id=session-foreign")
         assert foreign.status_code == 404
 
+
+class TestGlobalRunsApi:
+    def test_global_projection_keeps_domain_permissions_separate(
+            self, client, appmod, monkeypatch):
+        import time
+
+        from services.actor_identity import ActorPrincipal, WorkspaceRole
+        from services.durable_store import InMemoryDurableStore
+
+        store = InMemoryDurableStore()
+        principal = ActorPrincipal(
+            actor_id="actor-founder", workspace_id="workspace-a",
+            role=WorkspaceRole.FOUNDER,
+            session_auth_time=int(time.time()), membership_version=1,
+            membership_id="membership-founder")
+
+        async def platform_human(_request):
+            return principal
+
+        base = {
+            "workspace_id": "workspace-a", "runtime_status": "QUEUED",
+            "visibility_scope": "WORKSPACE", "version": 1,
+            "created_at": "2026-08-29T10:00:00+00:00",
+            "updated_at": "2026-08-29T10:00:00+00:00",
+        }
+        rows = {
+            "run-role": {**base, "run_id": "run-role", "run_kind": "ROLE",
+                         "domain_ref": "role-safe"},
+            "run-candidate": {
+                **base, "run_id": "run-candidate", "run_kind": "CANDIDATE",
+                "domain_ref": "candidate-secret"},
+            "run-skill": {
+                **base, "run_id": "run-skill", "run_kind": "BACKGROUND",
+                "domain_ref": "artifact-private",
+                "visibility_scope": "ACTOR_PRIVATE", "subject_kind": "ACTOR",
+                "subject_id": "actor-founder", "objective_summary": "Review evidence",
+                "skill_bindings": [{"skill_identity": "documents.example@1"}]},
+            "run-other-actor": {
+                **base, "run_id": "run-other-actor", "run_kind": "BACKGROUND",
+                "visibility_scope": "ACTOR_PRIVATE", "subject_kind": "ACTOR",
+                "subject_id": "actor-other", "domain_ref": "other-private"},
+            "run-other-workspace": {
+                **base, "workspace_id": "workspace-b", "run_id": "run-foreign",
+                "run_kind": "GRANT_APPLICATION", "domain_ref": "foreign"},
+        }
+        for run_id, row in rows.items():
+            asyncio.run(store.create("workflow_runs", run_id, row))
+        asyncio.run(store.create("hiring_roles", "role-safe", {
+            "workspace_id": "workspace-a", "role_title": "Product designer"}))
+        monkeypatch.setattr(appmod, "production_store", lambda: store)
+        monkeypatch.setattr(appmod, "_platform_human", platform_human)
+
+        response = client.get("/api/v1/runs")
+        assert response.status_code == 200
+        body = response.json()
+        assert [row["run_id"] for row in body["runs"]] == [
+            "run-role", "run-skill"]
+        role, skill = body["runs"]
+        assert role["title"] == "Product designer"
+        assert role["operation_key"] == "hiring"
+        assert skill["operation_key"] == "skills"
+        assert skill["skill_count"] == 1
+        assert body["operation_counts"] == {
+            "funding": 0, "hiring": 1, "skills": 1}
+        assert body["restricted_domains"] == [
+            "hiring_candidate", "hiring_onboarding"]
+        for row in body["runs"]:
+            assert "domain_ref" not in row
+            assert "subject_id" not in row
+            assert "candidate" not in str(row).lower()
+
 class TestConnectionProjection:
     def test_panel_uses_durable_rows_without_provider_calls(
             self, client, appmod, fake_store, monkeypatch):
@@ -233,13 +304,135 @@ class TestDriveExportReceipts:
         first = client.post(f"/api/documents/{artifact}/sync_drive")
         second = client.post(f"/api/documents/{artifact}/sync_drive")
 
-        assert first.status_code == 200 and second.status_code == 200
+        assert first.status_code == 200, first.text
+        assert second.status_code == 200, second.text
         assert second.json()["duplicate"] is True
         assert second.json()["file_id"] == "drive-file-1"
         assert len(calls) == 1
         receipt = fake_store.external_actions[first.json()["action_id"]]
         assert receipt["status"] == "SUCCEEDED"
         assert receipt["provider_effect_id"] == "drive-file-1"
+
+    def test_alex_drive_lists_with_role_credential_and_exports_exactly_once(
+            self, client, appmod, fake_store, tmp_path, monkeypatch):
+        import time
+
+        from services import (
+            approval_service,
+            drive_adapter,
+            external_action_service,
+            firestore,
+            google_oauth,
+            storage,
+        )
+        from services.actor_identity import ActorPrincipal, WorkspaceRole
+        from services.durable_store import InMemoryDurableStore
+
+        principal = ActorPrincipal(
+            actor_id="actor-founder", workspace_id=appmod.FOUNDER_ID,
+            role=WorkspaceRole.FOUNDER, session_auth_time=int(time.time()),
+            membership_version=1, membership_id="membership-founder")
+
+        async def _principal(*_args, **_kwargs):
+            return principal
+
+        monkeypatch.setattr(appmod, "_platform_human", _principal)
+        monkeypatch.setattr(appmod, "_route_principal", _principal)
+        command_store = InMemoryDurableStore()
+        monkeypatch.setattr(appmod, "production_store", lambda: command_store)
+
+        connection = asyncio.run(firestore.upsert_data_connection(
+            appmod.FOUNDER_ID, "alex_drive", account_ref="alex-role-mailbox",
+            auth_kind="google_oauth",
+            granted_scopes=google_oauth.SCOPE_MAP["alex_drive"],
+            status="CONNECTED"))
+        listed = []
+
+        def _list(folder_id, limit, workspace_id, *, account):
+            listed.append((folder_id, limit, workspace_id, account))
+            return {"status": "success", "files": [{
+                "id": "alex-file-1", "name": "Working brief.docx",
+                "mime": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                "modified_at": "2026-08-29T00:00:00Z", "size": 128,
+                "url": "https://drive.google.com/file/d/alex-file-1",
+                "parents": [],
+            }]}
+
+        monkeypatch.setattr(drive_adapter, "list_files", _list)
+        files = client.get("/api/v1/integrations/alex-drive/files")
+        assert files.status_code == 200
+        assert files.json()["files"][0]["id"] == "alex-file-1"
+        assert listed == [("", 25, appmod.FOUNDER_ID, "alex")]
+
+        monkeypatch.setattr(storage, "_root", lambda: str(tmp_path))
+        artifact = "docx_general_role_brief_v1.docx"
+        storage.save_bytes(artifact, b"produced document bytes")
+        document_id = asyncio.run(firestore.create_document_record(
+            appmod.FOUNDER_ID, artifact, "docx", "Role brief", "s1", "",
+            "", "sha256:spec", 1, "general:role-brief"))
+        uploads = []
+
+        def _upload(name, path, mime, *, source_artifact_id, checksum,
+                    workspace_id="", account="founder"):
+            uploads.append((name, source_artifact_id, workspace_id, account))
+            return {"status": "success", "file_id": "alex-drive-copy-1",
+                    "url": "https://drive.google.com/file/d/alex-drive-copy-1"}
+
+        monkeypatch.setattr(drive_adapter, "upload_file", _upload)
+        approvals = []
+        actions = {}
+
+        async def _request_approval(target, *, gate, details, **_kwargs):
+            approvals.append((target, gate, details))
+            return {"status": "success", "approval_id": "approval-alex-drive"}
+
+        async def _resolve_approval(**_kwargs):
+            return {"status": "success"}
+
+        async def _prepare(_workspace_id, connector_id, action_kind,
+                           idempotency_key, _request_metadata, **_kwargs):
+            prior = actions.get(idempotency_key)
+            if prior:
+                return {**prior, "duplicate": True}
+            row = {
+                "status": "success", "claimed": True, "duplicate": False,
+                "action_id": "action-alex-drive", "lease_owner": "lease-1",
+                "action_kind": action_kind, "connector_id": connector_id,
+            }
+            actions[idempotency_key] = row
+            return row
+
+        async def _finish(_workspace_id, action_id, _lease_owner, status,
+                          **kwargs):
+            actions[next(iter(actions))].update({
+                "action_id": action_id, "status": status,
+                "provider_effect_id": kwargs.get("provider_effect_id"),
+                "result_ref": kwargs.get("result_ref") or {},
+            })
+            return actions[next(iter(actions))]
+
+        monkeypatch.setattr(approval_service, "request_approval", _request_approval)
+        monkeypatch.setattr(
+            approval_service, "resolve_for_principal", _resolve_approval)
+        monkeypatch.setattr(external_action_service, "prepare", _prepare)
+        monkeypatch.setattr(external_action_service, "finish", _finish)
+        first = client.post(
+            f"/api/v1/documents/{artifact}:sync-alex-drive",
+            json={"client_request_id": "alex_drive_export_0001"})
+        second = client.post(
+            f"/api/v1/documents/{artifact}:sync-alex-drive",
+            json={"client_request_id": "alex_drive_export_0002"})
+
+        assert first.status_code == 200, first.text
+        assert second.status_code == 200, second.text
+        assert len(uploads) == 1
+        assert uploads[0] == (
+            artifact, document_id, appmod.FOUNDER_ID, "alex")
+        assert approvals[0][1] == "export_alex_drive_file"
+        assert approvals[0][2]["connector_id"] == "alex_drive"
+        receipt = next(iter(actions.values()))
+        assert receipt["connector_id"] == connection["connector_id"]
+        assert receipt["status"] == "SUCCEEDED"
 
     def test_ingestion_and_recon_prefixes_are_never_exportable(
             self, client, tmp_path, monkeypatch):

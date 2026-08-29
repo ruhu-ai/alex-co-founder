@@ -18,6 +18,8 @@ from services.hiring_public_intake import (
     HiringPublicIntakeService,
     build_public_intake_projection,
 )
+from services import hiring_policy_service
+from services.hiring_approval_service import request_approval, resolve_approval
 from services.hiring_role_draft import build_contract
 from services.hiring_run_answer import HiringCandidateConversationService
 from services.hiring_service import HiringService
@@ -119,7 +121,9 @@ def test_builder_blocks_material_gaps_and_does_not_invent_optional_terms():
         compensation_envelope="", required_criteria=["Production delivery"],
         responsibilities=["Own bounded production work"],
         success_outcomes=["Reliable releases"],
+        preferred_criteria=["Experience improving release workflows"],
         relevant_experience=["Shipped one production system"],
+        application_instructions="Apply through the published role page.",
         public_job_description="")
     assert safe["status"] == "success"
     description = safe["role_description"]
@@ -128,7 +132,7 @@ def test_builder_blocks_material_gaps_and_does_not_invent_optional_terms():
     post = description["candidate_facing_job_post"]
     assert "## Compensation and benefits" not in post
     assert "equal opportunity employer" not in post.lower()
-    assert "Application instructions will be added" in post
+    assert "Apply through the published role page." in post
 
 
 @pytest.mark.asyncio
@@ -160,6 +164,70 @@ async def test_founder_draft_is_non_synthetic_and_cannot_publish():
     assert refused["error_code"] == "publication_disabled"
 
 
+@pytest.mark.asyncio
+async def test_exact_complete_draft_is_promoted_but_not_published_by_approval():
+    store = InMemoryDurableStore()
+    service = _service(store)
+    package = _package()
+    created = await service.create_founder_draft_role(
+        principal=_founder(), contract=package["contract"],
+        role_description=package["role_description"],
+        client_request_id="founder_reviewable_draft")
+    role = created["role"]
+    proposed = await hiring_policy_service.propose_policy(
+        principal=_founder(), role_id=role["role_id"],
+        contract=package["contract"],
+        role_description=package["role_description"],
+        change_reason="Founder completed the candidate-facing draft.",
+        client_request_id="founder_reviewable_policy", store=store)
+    preview = await service.get_role_draft_preview(
+        principal=_founder(), role_id=role["role_id"],
+        policy_version_id=proposed["policy_version_id"])
+    assert preview["preview"] is True and preview["live"] is False
+    assert preview["open_role"]["application_instructions"] == (
+        package["role_description"]["application_instructions"])
+    assert preview["open_role"]["intake"]["form_available"] is False
+    exact_action = {
+        "policy_version_id": proposed["policy_version_id"],
+        "policy_hash": proposed["canonical_hash"],
+        "role_description_hash": proposed["role_description_hash"],
+    }
+    approval = await request_approval(
+        principal=_founder(), run_id=role["run_id"], role_id=role["role_id"],
+        policy_version_id=proposed["policy_version_id"],
+        action_kind="ACTIVATE_ROLE_POLICY", exact_action=exact_action,
+        client_request_id="founder_reviewable_approval", store=store)
+    await resolve_approval(
+        principal=_founder(), approval_id=approval["approval_id"],
+        decision="GRANT", store=store)
+    activated = await hiring_policy_service.approve_policy(
+        principal=_founder(), role_id=role["role_id"],
+        policy_version_id=proposed["policy_version_id"],
+        expected_role_version=role["version"],
+        approval_id=approval["approval_id"], store=store)
+
+    assert activated["status"] == "success"
+    committed = await store.get("hiring_roles", role["role_id"])
+    assert committed["role_state"] == "APPROVED"
+    assert committed["publication_allowed"] is True
+    assert committed["role_description"] == package["role_description"]
+    assert (await service.get_public_role(role["role_id"]))["error_code"] == (
+        "open_role_not_live")
+    tampered_description = dict(committed["role_description"])
+    tampered_description["preferred_qualifications"] = []
+    tampered = await store.compare_and_set(
+        "hiring_roles", role["role_id"], committed["version"],
+        {"role_description": tampered_description})
+    refused_publication = await service.record_publication(
+        principal=_founder(), role_id=role["role_id"],
+        destination="MANUAL_BROWSER",
+        public_url="https://example.test/jobs/deployment-engineer",
+        expected_version=tampered["version"],
+        client_request_id="tampered_publication",
+        attestation="Founder manually published the reviewed page.")
+    assert refused_publication["error_code"] == "role_description_incomplete"
+
+
 def test_prepare_tool_presents_exact_package_without_creating_role():
     context = SimpleNamespace(
         state={ss.K_USER_PROFILE_ID: "workspace_test",
@@ -175,9 +243,10 @@ def test_prepare_tool_presents_exact_package_without_creating_role():
         required_criteria=["Customer deployment delivery"],
         responsibilities=["Lead deployments"],
         success_outcomes=["Accountable launches"],
-        preferred_criteria=[],
+        preferred_criteria=["Experience improving deployment playbooks"],
         relevant_experience=["Owned a production deployment"],
-        benefits=[], hiring_process=[], application_instructions="",
+        benefits=[], hiring_process=[],
+        application_instructions="Apply through the published role page.",
         equal_opportunity_statement="", accessibility_statement="",
         public_job_description="Full candidate-facing copy.",
         tool_context=context)
@@ -215,9 +284,10 @@ async def test_create_tool_revalidates_founder_and_exact_confirmation(monkeypatc
         required_criteria=["Customer deployment delivery"],
         responsibilities=["Lead deployments"],
         success_outcomes=["Accountable launches"],
-        preferred_criteria=[],
+        preferred_criteria=["Experience improving deployment playbooks"],
         relevant_experience=["Owned a production deployment"],
-        benefits=[], hiring_process=[], application_instructions="",
+        benefits=[], hiring_process=[],
+        application_instructions="Apply through the published role page.",
         equal_opportunity_statement="", accessibility_statement="",
         public_job_description="Full candidate-facing copy.",
         tool_context=context)
@@ -265,6 +335,8 @@ async def test_public_role_requires_exact_manual_receipt_and_exposes_only_candid
         "policy_version_id": policy_id, "role_id": role_id,
         "workspace_id": "workspace_test", "status": "APPROVED",
         "canonical_hash": policy_hash,
+        "role_description_hash": hiring_tools.canonical_hash(
+            package["role_description"]),
         "contract": contract.model_dump(mode="json"), "version": 1,
     })
     role = {
@@ -328,12 +400,15 @@ async def test_local_public_form_encrypts_and_queues_without_automatic_processin
         "policy_version_id": policy_id, "role_id": role_id,
         "workspace_id": "workspace_test", "status": "APPROVED",
         "canonical_hash": policy_hash,
+        "role_description_hash": hiring_tools.canonical_hash(
+            package["role_description"]),
         "contract": contract.model_dump(mode="json"), "version": 1,
     })
     role = {
         "role_id": role_id, "workspace_id": "workspace_test",
         "journey_id": "journey_intake_test", "role_state": "PUBLISHED",
         "current_policy_version_id": policy_id, "current_policy_hash": policy_hash,
+        "role_description": package["role_description"],
         "publication_allowed": True, "candidate_processing_allowed": True,
         "public_application_form_enabled": True,
         "publication_receipts": [receipt],
@@ -364,16 +439,14 @@ async def test_local_public_form_encrypts_and_queues_without_automatic_processin
     no_consent = await service.submit(
         role_id=role_id, intake_token=projection["intake_token"],
         client_request_id="application_request_no_consent",
-        applicant_name="Candidate Person", email="candidate@example.test",
-        cover_note="I would like to be considered for this role.",
+        applicant_name="", email="candidate@example.test", cover_note="",
         consent_accepted=False, filename="candidate-resume.pdf",
         content_type="application/pdf", resume_bytes=resume)
     assert no_consent["error_code"] == "privacy_consent_required"
     submitted = await service.submit(
         role_id=role_id, intake_token=projection["intake_token"],
         client_request_id="application_request_001",
-        applicant_name="Candidate Person", email="candidate@example.test",
-        cover_note="I would like to be considered for this role.",
+        applicant_name="", email="candidate@example.test", cover_note="",
         consent_accepted=True, filename="candidate-resume.pdf",
         content_type="application/pdf", resume_bytes=resume)
     assert submitted["status"] == "success"
@@ -390,21 +463,18 @@ async def test_local_public_form_encrypts_and_queues_without_automatic_processin
     assert next(iter(saved.values())) != resume
     serialized = repr(store.records)
     assert "candidate@example.test" not in serialized
-    assert "Candidate Person" not in serialized
 
     duplicate = await service.submit(
         role_id=role_id, intake_token=projection["intake_token"],
         client_request_id="application_request_001",
-        applicant_name="Candidate Person", email="candidate@example.test",
-        cover_note="I would like to be considered for this role.",
+        applicant_name="", email="candidate@example.test", cover_note="",
         consent_accepted=True, filename="candidate-resume.pdf",
         content_type="application/pdf", resume_bytes=resume)
     assert duplicate["duplicate"] is True
     conflict = await service.submit(
         role_id=role_id, intake_token=projection["intake_token"],
         client_request_id="application_request_001",
-        applicant_name="Candidate Person", email="other@example.test",
-        cover_note="I would like to be considered for this role.",
+        applicant_name="", email="other@example.test", cover_note="",
         consent_accepted=True, filename="candidate-resume.pdf",
         content_type="application/pdf", resume_bytes=resume)
     assert conflict["error_code"] == "intake_idempotency_conflict"
@@ -564,6 +634,72 @@ def test_hiring_routes_expose_scoped_context_and_non_live_public_page(monkeypatc
     assert public.json()["error_code"] == "open_role_not_live"
 
 
+def test_editable_job_description_saves_proposed_version_and_previews_exact_copy(
+        monkeypatch):
+    import asyncio
+
+    from app import hiring_routes
+
+    store = InMemoryDurableStore()
+    service = _service(store)
+    package = _package()
+    created = asyncio.run(service.create_founder_draft_role(
+        principal=_founder(), contract=package["contract"],
+        role_description=package["role_description"],
+        client_request_id="editable_route_role"))
+    role = created["role"]
+
+    async def actor(_request):
+        return _founder()
+
+    monkeypatch.setattr(hiring_routes, "_actor", actor)
+    monkeypatch.setattr(hiring_routes, "_mutation_allowed", lambda _request: {})
+    monkeypatch.setattr(hiring_routes, "production_store", lambda: store)
+    monkeypatch.setattr(
+        hiring_policy_service, "production_store", lambda: store)
+    monkeypatch.setattr(hiring_routes, "_services", lambda: (service, object()))
+    app = FastAPI()
+    hiring_routes.register(app)
+    client = TestClient(app)
+    payload = {
+        "client_request_id": "editable_description_v2",
+        "expected_role_version": role["version"],
+        "change_reason": "Founder clarified the candidate-facing role.",
+        "purpose": "Own secure, reliable customer deployments.",
+        "responsibilities": ["Lead deployments from discovery through launch"],
+        "success_outcomes": ["Accountable production launches"],
+        "required_qualifications": ["Customer deployment delivery"],
+        "preferred_qualifications": ["Deployment playbook experience"],
+        "relevant_experience": ["Owned a production deployment"],
+        "location": "Nigeria",
+        "work_arrangement": "Remote",
+        "employment_type": "Full-time employee",
+        "compensation": "",
+        "benefits": [],
+        "hiring_process": ["Structured interview", "Founder decision"],
+        "application_instructions": "Apply through the published role page.",
+        "equal_opportunity_statement": "",
+        "accessibility_statement": "Adjustments are available on request.",
+    }
+    saved = client.post(
+        f"/api/hiring/roles/{role['role_id']}/job-description-drafts",
+        json=payload)
+    assert saved.status_code == 200
+    policy = saved.json()
+    assert policy["policy_status"] == "PROPOSED"
+    assert policy["role_description"]["purpose"] == payload["purpose"]
+
+    preview = client.get(
+        f"/api/hiring/roles/{role['role_id']}/job-description-preview/"
+        f"{policy['policy_version_id']}")
+    assert preview.status_code == 200
+    projection = preview.json()
+    assert projection["preview"] is True and projection["live"] is False
+    assert projection["open_role"]["overview"] == payload["purpose"]
+    assert projection["open_role"]["responsibilities"] == payload[
+        "responsibilities"]
+
+
 def test_public_application_route_converges_on_restricted_candidate_queue(monkeypatch):
     import asyncio
 
@@ -586,6 +722,8 @@ def test_public_application_route_converges_on_restricted_candidate_queue(monkey
         "policy_version_id": policy_id, "role_id": role_id,
         "workspace_id": "workspace_test", "status": "APPROVED",
         "canonical_hash": policy_hash,
+        "role_description_hash": hiring_tools.canonical_hash(
+            package["role_description"]),
         "contract": contract.model_dump(mode="json"), "version": 1,
     }))
     asyncio.run(store.create("hiring_roles", role_id, {
@@ -618,9 +756,7 @@ def test_public_application_route_converges_on_restricted_candidate_queue(monkey
     response = client.post(
         f"/api/public/hiring/roles/{role_id}/applications",
         data={
-            "applicant_name": "Applicant Example",
             "email": "applicant@example.test",
-            "cover_note": "Please consider my application.",
             "privacy_consent": "accepted",
             "intake_token": projection["intake_token"],
             "client_request_id": "application_route_request_001",

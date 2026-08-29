@@ -19,6 +19,7 @@ def _hello(**capability_overrides):
         "audio_pcm16": True,
         "visual_sources": ["camera", "display"],
         "image_mime_types": ["image/jpeg"],
+        "local_attention_commands": False,
     }
     capabilities.update(capability_overrides)
     return {
@@ -33,7 +34,8 @@ def test_v2_hello_is_safe_and_visual_disabled_by_default():
 
     assert result["type"] == "hello.ack"
     assert result["enabled"] == {
-        "audio": True, "camera": False, "display": False}
+        "audio": True, "camera": False, "display": False,
+        "attention_hold": False}
     assert result["limits"]["max_frame_bytes"] == 250_000
     assert result["limits"]["max_wire_frame_bytes"] == 340_000
     assert result["limits"]["visual_admission_remaining_seconds"] == 0
@@ -46,6 +48,20 @@ def test_camera_and_display_can_be_enabled_independently():
     assert result["enabled"]["display"] is False
 
 
+def test_conversational_hold_is_admitted_only_for_verified_local_commands():
+    disabled = protocol.negotiate_hello(_hello(local_attention_commands=False))
+    enabled = protocol.negotiate_hello(_hello(local_attention_commands=True))
+
+    assert disabled["enabled"]["attention_hold"] is False
+    assert enabled["enabled"]["attention_hold"] is True
+
+
+def test_attention_capability_must_be_boolean():
+    result = protocol.negotiate_hello(
+        _hello(local_attention_commands="yes"))
+    assert result["code"] == "protocol_violation"
+
+
 def test_local_camera_flags_do_not_implicitly_enable_display(monkeypatch):
     monkeypatch.setenv("ALEX_LIVE_VISION_ENABLED", "true")
     monkeypatch.setenv("ALEX_LIVE_CAMERA_ENABLED", "true")
@@ -53,6 +69,22 @@ def test_local_camera_flags_do_not_implicitly_enable_display(monkeypatch):
 
     assert live_media.enabled("camera") is True
     assert live_media.enabled("display") is False
+
+
+def test_screen_sharing_requires_both_master_and_display_flags(monkeypatch):
+    monkeypatch.setenv("ALEX_LIVE_VISION_ENABLED", "false")
+    monkeypatch.setenv("ALEX_LIVE_DISPLAY_ENABLED", "true")
+    assert live_media.enabled("display") is False
+
+    monkeypatch.setenv("ALEX_LIVE_VISION_ENABLED", "true")
+    assert live_media.enabled("display") is True
+
+
+def test_example_environment_keeps_live_visual_sources_fail_closed():
+    example = (Path(__file__).resolve().parents[2] / ".env.example").read_text()
+    assert "ALEX_LIVE_VISION_ENABLED=false" in example
+    assert "ALEX_LIVE_CAMERA_ENABLED=false" in example
+    assert "ALEX_LIVE_DISPLAY_ENABLED=false" in example
 
 
 def test_client_cannot_enable_sources_or_raise_limits():

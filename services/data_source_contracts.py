@@ -20,6 +20,7 @@ class ClosedValue(str, Enum):
 class ConnectorId(ClosedValue):
     UPLOAD = "upload"
     DRIVE = "drive"
+    ALEX_DRIVE = "alex_drive"
     FOUNDER_GMAIL = "founder_gmail"
     ALEX_MAIL = "alex_mail"
     ALEX_CALENDAR = "alex_calendar"
@@ -128,6 +129,7 @@ class ExternalActionKind(ClosedValue):
     SEND_EMAIL = "send_email"
     CREATE_CALENDAR_EVENT = "create_calendar_event"
     EXPORT_DRIVE_FILE = "export_drive_file"
+    EXPORT_ALEX_DRIVE_FILE = "export_alex_drive_file"
     CREATE_PORTAL_ACCOUNT = "create_portal_account"
     SUBMIT_APPLICATION = "submit_application"
     H4S_SEND_EMAIL = "h4s_send_email"
@@ -203,6 +205,13 @@ CONNECTOR_REGISTRY: dict[ConnectorId, ConnectorContract] = {
                    DataSourceRole.ACTION_DESTINATION}),
         ConnectionAuthKind.GOOGLE_OAUTH,
         "founder-selected files for reads; app-produced files only for export"),
+    ConnectorId.ALEX_DRIVE: ConnectorContract(
+        ConnectorId.ALEX_DRIVE,
+        frozenset({DataSourceRole.KNOWLEDGE,
+                   DataSourceRole.ACTION_DESTINATION}),
+        ConnectionAuthKind.GOOGLE_OAUTH,
+        "Alex role-owned Drive with full provider read/write scope; "
+        "consequential mutations remain exact approval-gated"),
     ConnectorId.FOUNDER_GMAIL: ConnectorContract(
         ConnectorId.FOUNDER_GMAIL, frozenset({DataSourceRole.EVENT}),
         ConnectionAuthKind.GOOGLE_OAUTH, "one founder-selected label; read-only"),

@@ -166,22 +166,21 @@ group anchored at the bottom. Candidate records are excluded from generic
 search unless a later reviewed Hiring contract explicitly permits bounded
 role-scoped search; v1 keeps them inside Hiring.
 
-The current “Pipeline” becomes a Runs view filtered to Funding & Program
-Applications, not a permanent navigation destination. This preserves the
-workflow while removing the product’s grant-tracker framing.
+The former “Pipeline” is now the Funding detail inside the global Runs
+destination, not a permanent navigation destination or the definition of all
+work. This preserves the workflow while removing the product’s grant-tracker
+framing.
 
-**Current implementation boundary:** the existing `?destination=runs` renderer
-is still the Funding & Program Applications pipeline plus investor outreach. It
-must describe that bounded content honestly; changing only its heading to a
-universal Runs dashboard would be false. **Proposed migration seam:** retain the
-global **Runs** destination and route today’s renderer through a visible
-`Funding & programmes` work-family filter. Add cross-domain run cards only after
-the durable background-job projections and rollout gates in
-[doc 40 §§7 and 15](40-durable-background-work.md) are implementation-approved
-and present. Hiring may contribute only redacted role/run summary metadata that
-doc 25 explicitly authorizes; candidate identity, Evidence Passports, decisions,
-notes, and restricted activity remain inside the dedicated Hiring workspace and
-are never hydrated into the generic Runs surface.
+**Implemented boundary:** `?destination=runs` is a global, server-projected work
+index with Funding, Hiring, and Skills families; investor outreach remains a
+separately guarded activity within Funding. The existing funding pipeline
+remains available as the Funding detail rather than defining the whole page.
+Skill-backed work appears only after its own rollout gate admits
+a real durable run. Hiring contributes only authorized role/run summary
+metadata; candidate identity, Evidence Passports, decisions, notes, onboarding,
+and restricted activity remain inside the dedicated Hiring workspace and are
+never hydrated into the generic Runs surface. Future-operation cards are marked
+`Planned` and have no launch action until their own contracts and gates exist.
 
 ### 4.3 Context header
 
@@ -481,6 +480,7 @@ behavior, and reducer tests are owned by
 | Connecting | Small blue form coalesces once into the fixed box. | “Connecting to Alex.” | One polite announcement; no microphone-listening claim before it is true. |
 | Listening | Wider, gently open lobes; silence settles. Founder-input energy may add only bounded local deformation while the mic is actually live. | Microphone icon beside “Listening.” | Input energy is decorative and never announced, retained, or used while Alex is speaking. |
 | Microphone off | Static, subdued blue silhouette. | Slashed-microphone icon + “Microphone off.” | The cloud remains only because the voice call is still connected; it never implies listening. |
+| On hold | Static, subdued blue silhouette; no input-energy response. | Pause icon beside “On hold — only the on-device ‘Alex resume’ listener is active.” No Hold button is rendered. | Normal audio ingress, model output, captions, and visual sharing are fenced. Only a locally classified, Alex-addressed resume intent can restore fresh audio forwarding. |
 | Thinking / Processing | Slightly compact cloud with very slow internal phase drift and a trusted specific activity label where available. | “Thinking” or closed-vocabulary activity text. | Never indefinite without wait/error fallback; model prose cannot select it. |
 | Speaking | Brighter, fuller lobes respond to Alex audio that is actually audible. | Speaker/waveform icon beside “Alex speaking.” | Motion derives from outgoing playback only. Pending approval remains a static external marker. |
 | Interrupted | A single 160–220 ms bounded compress/settle transition, then Listening. | Visible label changes immediately to “Listening.” | Queued output stops first; the transition never delays barge-in and produces no extra screen-reader announcement. |
@@ -491,6 +491,36 @@ behavior, and reducer tests are owned by
 There is no ordinary-chat `IDLE` cloud. A connected call with no microphone and
 no active output uses **Microphone off** or another truthful connected-call
 label, never “Alex ready” or simulated presence.
+
+#### Conversational Hold
+
+Hold is voice-only; the live surface has no Hold/Resume button. During an active
+call, a short command that directly addresses Alex and clearly means “wait” or
+“hold” (for example, “Alex, hold on” or “Hey Alex, wait a moment”) enters
+`HELD`. Mentioning Alex in background conversation, an unaddressed “hold on,”
+or a longer mixed-purpose request does not. The command is an attention-state
+intent only: it cannot authorize a tool, approval, memory write, workflow
+transition, or external action, and is omitted from durable conversation turns.
+
+In `HELD`, client and server both fence normal microphone audio before the Alex
+model, queued response audio is suppressed, interim captions are cleared, and
+active visual sharing stops. The call remains connected and the visible status
+states that only a local resume listener is active. That listener uses verified
+on-device `SpeechRecognition` with `processLocally=true`; it has no remote
+fallback, creates no caption/transcript, retains no utterance, and sends the
+server only a short addressed command after deterministic local classification.
+The server independently reclassifies it and accepts only resume intent such as
+“Alex, resume,” “Alex, continue now,” or “Alex, you can listen again.” All other
+background speech is discarded on device. If on-device recognition or its
+language pack is unavailable, conversational Hold is not negotiated for that
+call; if the listener fails while held, the call ends fail-closed. **Pause
+Alex** remains a separate explicit UI privacy control that releases microphone
+capture entirely.
+
+This implementation follows the browser's experimental on-device recognition
+contract for [`processLocally`](https://developer.mozilla.org/en-US/docs/Web/API/SpeechRecognition/processLocally),
+[`available()`](https://developer.mozilla.org/en-US/docs/Web/API/SpeechRecognition/available_static),
+and [`install()`](https://developer.mozilla.org/en-US/docs/Web/API/SpeechRecognition/install_static).
 
 ### 7.3 Vision sharing remains a separate truthful cue
 
@@ -885,19 +915,18 @@ credential, submission, approval, or effect authority.
 ### 11.1 Runs home
 
 Runs is an inspectable library, not a kanban permanently occupying the product.
-It offers filters for workflow family, status, needs-you, waiting, failed/
-uncertain, and date. Each run card shows objective, workflow family, domain
-stage, runtime status, next action/wake, last durable event, and pending count.
+The implemented page filters by workflow family and shows objective, family,
+runtime status, update time, and the relevant permission boundary. Status,
+needs-you, waiting, failed/uncertain, and date filters remain additive scale-up
+work once run volume warrants them; the page must not manufacture those values.
 
-This paragraph describes the proposed general surface, not current behavior.
-Until doc 40's relevant rollout gates are implemented and accepted, the route
-renders a clearly named **Funding & programmes** view using only the existing
-funding/application and investor-outreach projections. It does not synthesize
-placeholder research, Hiring, or background-job cards and does not infer a
-universal status from chat or client state. The future Runs index consumes one
-minimal, server-authorized `RunSummary` projection per admitted work family;
-selecting a Hiring summary deep-links into the authorized role cockpit rather
-than importing Hiring evidence into Runs.
+The implemented global surface consumes one minimal, server-authorized `RunSummary`
+projection per admitted work family. It does not synthesize active research,
+Hiring, or background-job cards and never infers status from chat or client
+state. Selecting a Hiring summary deep-links into the authorized role cockpit
+rather than importing Hiring evidence into Runs. Candidate and onboarding runs
+are excluded from the global projection; actor-private skill runs are returned
+only to their originating actor.
 
 Funding discovery and an application may render as one journey card while
 preserving distinct run identifiers, event logs, plans, evidence, and authority.
@@ -2041,8 +2070,8 @@ Reviewers should accept, revise, or reject each decision before implementation:
 - [ ] Approve the compact left icon rail over top navigation.
 - [ ] Approve rail destinations and their order: Alex, Search, Runs, Hiring,
       Decisions, Activity; utilities at bottom.
-- [ ] Approve replacing the permanent Pipeline surface with a Funding-filtered
-      Runs destination.
+- [ ] Approve the global Runs destination, with Funding as one filter/detail
+      beside Hiring, Skills, and separately gated future operations.
 - [ ] Approve the spacious clean conversation canvas, one compact Work in this
       session
       disclosure after initial/return presentation, and 64–68ch transcript

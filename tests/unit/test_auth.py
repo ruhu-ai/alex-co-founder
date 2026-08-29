@@ -43,7 +43,10 @@ def client(env):
 # ---------------------------------------------------------------------------
 
 def test_local_dev_is_open(client):
-    assert client.get("/private").status_code == 200
+    response = client.get("/private")
+    assert response.status_code == 200
+    assert response.headers["permissions-policy"] == (
+        "on-device-speech-recognition=(self)")
 
 
 def test_token_gate(env, client):

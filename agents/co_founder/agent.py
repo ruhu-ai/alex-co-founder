@@ -15,7 +15,7 @@ from .callbacks import (
     track_tool_outcome,
 )
 from .config import PERSONA_NAME, REASONING_MODEL
-from .instructions import ORCHESTRATOR_INSTRUCTION
+from .instructions import LIVE_ATTENTION_INSTRUCTION, ORCHESTRATOR_INSTRUCTION
 from .sub_agents import drafter, form_filler, interviewer, matchmaker, scout
 from .tools import a2a_talk as a2a_talk_tools
 from .tools import alex_mail as alex_mail_tools
@@ -77,9 +77,10 @@ def build_root_agent(model, live: bool = False) -> Agent:
     return Agent(
         name="co_founder",
         model=model,
-        instruction=ORCHESTRATOR_INSTRUCTION.replace(
+        instruction=(ORCHESTRATOR_INSTRUCTION.replace(
             "__WORKFLOW_DISPLAY_NAME__", _workflow.display_name
-        ).replace("__PERSONA_NAME__", PERSONA_NAME),
+        ).replace("__PERSONA_NAME__", PERSONA_NAME)
+                     + (LIVE_ATTENTION_INSTRUCTION if live else "")),
         tools=[
             pipeline.get_pipeline,
             pipeline.choose_opportunity,

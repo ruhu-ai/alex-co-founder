@@ -29,6 +29,7 @@ from services.hiring_contracts import (
     utc_now,
 )
 from services.hiring_identity_vault import CandidateIdentityVault
+from services.hiring_role_draft import validate_role_description
 from services.hiring_workflow_adapter import (
     HiringWorkflowAdapter,
     founder_draft_provenance,
@@ -56,6 +57,46 @@ def _is_https_url(value: str) -> bool:
         return False
     return bool(parts.scheme == "https" and parts.hostname
                 and "@" not in parts.netloc)
+
+
+def _candidate_facing_projection(
+        *, contract: RoleContract, description: dict[str, Any],
+        published_source_url: str = "", intake: dict[str, Any] | None = None,
+        preview: bool = False) -> dict[str, Any]:
+    """Build the closed public/preview projection from one exact role package."""
+    return {
+        "title": contract.role_title,
+        "company_name": contract.company_name,
+        "overview": str(description["purpose"]).strip(),
+        "success_outcomes": list(description.get("success_outcomes") or []),
+        "responsibilities": list(description["responsibilities"]),
+        "must_have_qualifications": list(
+            description["required_qualifications"]),
+        "preferred_qualifications": list(
+            description["preferred_qualifications"]),
+        "relevant_experience": list(description["relevant_experience"]),
+        "location": str(description["location"]).strip(),
+        "work_arrangement": str(
+            description.get("work_arrangement") or "").strip(),
+        "employment_type": str(description["employment_type"]).strip(),
+        "compensation": str(description.get("compensation") or "").strip(),
+        "benefits": list(description.get("benefits") or []),
+        "hiring_process": list(description["hiring_process"]),
+        "equal_opportunity_statement": str(
+            description.get("equal_opportunity_statement") or "").strip(),
+        "accessibility_statement": str(
+            description.get("accessibility_statement") or "").strip(),
+        "application_instructions": str(
+            description["application_instructions"]).strip(),
+        "candidate_facing_job_post": contract.public_job_description,
+        "published_source_url": published_source_url,
+        "intake": dict(intake or {
+            "form_available": False,
+            "email_available": False,
+            "privacy_notice": "",
+        }),
+        "preview": preview,
+    }
 
 
 class HiringService:
@@ -260,8 +301,28 @@ class HiringService:
             return _error(
                 "publication_disabled",
                 "This founder draft is internal-only; publication is not enabled.")
-        if not role.get("current_policy_version_id"):
+        policy_id = str(role.get("current_policy_version_id") or "")
+        if not policy_id:
             return _error("policy_not_active", "Approve the Role Contract first.")
+        policy = await self.store.get("hiring_policy_versions", policy_id)
+        if (not policy or policy.get("status") != "APPROVED"
+                or policy.get("canonical_hash") != role.get("current_policy_hash")):
+            return _error("policy_not_active", "Approve the Role Contract first.")
+        if role.get("synthetic") is False:
+            try:
+                contract = RoleContract.model_validate(policy.get("contract") or {})
+            except ValueError:
+                return _error("role_description_incomplete",
+                              "Complete and approve the job description first.")
+            description = dict(role.get("role_description") or {})
+            if (not policy.get("role_description_hash")
+                    or canonical_hash(description) !=
+                    policy.get("role_description_hash")):
+                return _error("role_description_incomplete",
+                              "Complete and approve the job description first.")
+            description_gate = validate_role_description(description, contract)
+            if description_gate.get("error"):
+                return description_gate
         receipt_id = stable_id("pubreceipt", role_id, client_request_id)
         if any(item.get("receipt_id") == receipt_id
                for item in role.get("publication_receipts", [])):
@@ -279,7 +340,7 @@ class HiringService:
             "actor_id": principal.actor_id, "recorded_at": utc_now(),
             "verification_status": "DISABLED_PENDING_TERMS_REVIEW",
             "automated_publication": False,
-            "policy_version_id": role["current_policy_version_id"],
+            "policy_version_id": policy_id,
             "policy_hash": role["current_policy_hash"],
         }
         committed = await self.store.compare_and_set(
@@ -334,66 +395,65 @@ class HiringService:
         except ValueError:
             return _error("open_role_not_live", "This open role is not live.", 404)
         description = dict(role.get("role_description") or {})
-        if description.get("candidate_facing_job_post") != \
-                contract.public_job_description:
-            description = {}
+        if (not policy.get("role_description_hash")
+                or canonical_hash(description) !=
+                policy.get("role_description_hash")):
+            return _error("open_role_not_live", "This open role is not live.", 404)
+        description_gate = validate_role_description(description, contract)
+        if description_gate.get("error"):
+            return _error("open_role_not_live", "This open role is not live.", 404)
         package = dict(role.get("publication_package") or {})
         application_address = str(package.get("application_address") or "").strip()
         latest_receipt = sorted(
             receipts, key=lambda item: str(item.get("recorded_at") or ""))[-1]
         if not _is_https_url(str(latest_receipt.get("public_url") or "")):
             return _error("open_role_not_live", "This open role is not live.", 404)
-        application_instructions = str(
-            description.get("application_instructions") or "").strip()
-        if not application_instructions:
-            application_instructions = (
-                f"Apply by email to {application_address}." if application_address
-                else "Use the application instructions on the manually published role page.")
         from services.hiring_public_intake import build_public_intake_projection
-
+        intake = build_public_intake_projection(role)
         return {
             "status": "success",
             "live": True,
-            "open_role": {
-                "title": contract.role_title,
-                "company_name": contract.company_name,
-                "overview": str(description.get("purpose") or "").strip()
-                or contract.role_summary,
-                "success_outcomes": list(
-                    description.get("success_outcomes") or []),
-                "responsibilities": list(
-                    description.get("responsibilities") or []),
-                "must_have_qualifications": list(
-                    description.get("required_qualifications") or [
-                        item.label for item in contract.criteria]),
-                "preferred_qualifications": list(
-                    description.get("preferred_qualifications") or []),
-                "relevant_experience": list(
-                    description.get("relevant_experience") or []),
-                "location": str(description.get("location") or "").strip()
-                or contract.location_envelope[0],
-                "work_arrangement": str(
-                    description.get("work_arrangement") or "").strip()
-                or (contract.location_envelope[1]
-                    if len(contract.location_envelope) > 1 else ""),
-                "employment_type": str(
-                    description.get("employment_type") or "").strip(),
-                "compensation": str(
-                    description.get("compensation") or "").strip(),
-                "benefits": list(description.get("benefits") or []),
-                "hiring_process": list(
-                    description.get("hiring_process") or []),
-                "equal_opportunity_statement": str(description.get(
-                    "equal_opportunity_statement") or "").strip(),
-                "accessibility_statement": str(description.get(
-                    "accessibility_statement") or "").strip(),
-                "application_instructions": application_instructions,
-                "candidate_facing_job_post": contract.public_job_description,
-                "published_source_url": str(
-                    latest_receipt.get("public_url") or "").strip(),
-                "synthetic_demo": False,
-                "intake": build_public_intake_projection(role),
-            },
+            "open_role": _candidate_facing_projection(
+                contract=contract, description=description,
+                published_source_url=str(latest_receipt["public_url"]),
+                intake=intake),
+        }
+
+    async def get_role_draft_preview(
+            self, *, principal: ActorPrincipal, role_id: str,
+            policy_version_id: str) -> dict[str, Any]:
+        """Return the exact candidate-facing proposed/approved draft to its Founder."""
+        gate = authorize(principal, "read_role")
+        if gate.get("error"):
+            return gate
+        role = await self.store.get("hiring_roles", role_id)
+        policy = await self.store.get(
+            "hiring_policy_versions", policy_version_id)
+        if (not role or not policy
+                or role.get("workspace_id") != principal.workspace_id
+                or policy.get("workspace_id") != principal.workspace_id
+                or policy.get("role_id") != role_id
+                or role.get("synthetic") is not False
+                or policy.get("status") not in {"PROPOSED", "APPROVED"}):
+            return _error("role_not_found", "Role preview does not exist.", 404)
+        try:
+            contract = RoleContract.model_validate(policy.get("contract") or {})
+        except ValueError:
+            return _error("role_description_incomplete",
+                          "Complete the job description before previewing it.")
+        description = dict(policy.get("role_description") or {})
+        if (not policy.get("role_description_hash")
+                or canonical_hash(description) !=
+                policy.get("role_description_hash")):
+            return _error("role_description_incomplete",
+                          "The reviewed job-description version is not intact.")
+        description_gate = validate_role_description(description, contract)
+        if description_gate.get("error"):
+            return description_gate
+        return {
+            "status": "success", "live": False, "preview": True,
+            "open_role": _candidate_facing_projection(
+                contract=contract, description=description, preview=True),
         }
 
     async def ingest_synthetic_application(

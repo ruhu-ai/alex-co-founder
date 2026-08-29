@@ -7,6 +7,7 @@ from typing import Any
 from services.actor_identity import ActorPrincipal, authorize
 from services.durable_store import DurableStore, production_store
 from services.hiring_contracts import RoleContract, canonical_hash, stable_id, utc_now
+from services.hiring_role_draft import validate_role_description
 
 
 def _error(code: str, message: str, http_status: int = 409) -> dict[str, Any]:
@@ -18,6 +19,7 @@ def _error(code: str, message: str, http_status: int = 409) -> dict[str, Any]:
 async def propose_policy(*, principal: ActorPrincipal, role_id: str,
                          contract: RoleContract, change_reason: str,
                          client_request_id: str,
+                         role_description: dict[str, Any] | None = None,
                          store: DurableStore | None = None,
                          crash_point: str = "") -> dict[str, Any]:
     gate = authorize(principal, "prepare_role")
@@ -33,6 +35,11 @@ async def propose_policy(*, principal: ActorPrincipal, role_id: str,
     sequence = max([int(item.get("sequence", 0)) for item in existing_versions] or [0]) + 1
     policy_id = stable_id("policy", role_id, client_request_id)
     payload = contract.model_dump(mode="json")
+    description = dict(role_description or role.get("role_description") or {})
+    if role.get("synthetic") is False:
+        description_gate = validate_role_description(description, contract)
+        if description_gate.get("error"):
+            return description_gate
     policy_hash = canonical_hash(payload)
     parent_id = str(role.get("current_policy_version_id") or "") or None
     parent = await durable.get("hiring_policy_versions", parent_id) if parent_id else None
@@ -50,6 +57,7 @@ async def propose_policy(*, principal: ActorPrincipal, role_id: str,
         "workspace_id": principal.workspace_id, "role_id": role_id,
         "sequence": sequence, "parent_version_id": parent_id,
         "canonical_hash": policy_hash, "contract": payload,
+        "role_description": description,
         "change_reason": change_reason[:1000], "materiality": diff["materiality"],
         "diff": diff["changes"], "status": "PREPARING_IMPACT",
         "approval_id": None, "approved_actor_id": None, "approved_at": None,
@@ -59,6 +67,8 @@ async def propose_policy(*, principal: ActorPrincipal, role_id: str,
         "synthetic_namespace": role.get("synthetic_namespace"),
         "fixture_id": role.get("fixture_id"),
     }
+    if role.get("synthetic") is False:
+        row["role_description_hash"] = canonical_hash(description)
     impact_id = stable_id("impact", policy_id, policy_hash)
     impact = {
         "schema_version": 1, "impact_id": impact_id,
@@ -84,7 +94,10 @@ async def propose_policy(*, principal: ActorPrincipal, role_id: str,
         existing = await durable.get("hiring_policy_versions", policy_id)
         if (not existing or existing.get("canonical_hash") != policy_hash
                 or existing.get("role_id") != role_id
-                or existing.get("created_by_actor_id") != principal.actor_id):
+                or existing.get("created_by_actor_id") != principal.actor_id
+                or (role.get("synthetic") is False
+                    and existing.get("role_description_hash") !=
+                    canonical_hash(description))):
             return _error("idempotency_conflict", "Request id names another policy.")
     if crash_point == "AFTER_POLICY_RESERVATION":
         return _error("injected_crash",
@@ -130,6 +143,21 @@ async def approve_policy(*, principal: ActorPrincipal, role_id: str,
     if policy.get("status") not in {"PROPOSED", "APPROVED"}:
         return _error("policy_not_ready",
                       "Policy impact must be finalized before approval.")
+    try:
+        contract = RoleContract.model_validate(policy.get("contract") or {})
+    except ValueError:
+        return _error("policy_not_ready", "The role package is invalid.")
+    description = dict(policy.get("role_description") or {})
+    if role.get("synthetic") is False:
+        if (not policy.get("role_description_hash")
+                or policy.get("role_description_hash") !=
+                canonical_hash(description)):
+            return _error(
+                "policy_not_ready",
+                "The reviewed job-description version is not intact.")
+        description_gate = validate_role_description(description, contract)
+        if description_gate.get("error"):
+            return description_gate
     impact = (await durable.list(
         "hiring_policy_impacts", filters={"policy_version_id": policy_version_id},
         limit=2))
@@ -139,15 +167,19 @@ async def approve_policy(*, principal: ActorPrincipal, role_id: str,
     pointer_matches = (
         role.get("current_policy_version_id") == policy_version_id
         and role.get("current_policy_hash") == policy["canonical_hash"])
+    exact_action = {
+        "policy_version_id": policy_version_id,
+        "policy_hash": policy["canonical_hash"],
+    }
+    if role.get("synthetic") is False:
+        exact_action["role_description_hash"] = str(
+            policy.get("role_description_hash") or "")
     if (not approval or approval.get("status") not in {"GRANTED", "CONSUMED"}
             or approval.get("workspace_id") != principal.workspace_id
             or approval.get("role_id") != role_id
             or approval.get("policy_version_id") != policy_version_id
             or approval.get("action_kind") != "ACTIVATE_ROLE_POLICY"
-            or approval.get("exact_action") != {
-                "policy_version_id": policy_version_id,
-                "policy_hash": policy["canonical_hash"],
-            }
+            or approval.get("exact_action") != exact_action
             or (approval.get("status") == "CONSUMED" and not pointer_matches)):
         return _error("approval_binding_mismatch", "Exact policy approval is required.")
     if pointer_matches:
@@ -155,11 +187,25 @@ async def approve_policy(*, principal: ActorPrincipal, role_id: str,
     else:
         if int(role.get("version", 0)) != expected_role_version:
             return _error("version_conflict", "Role changed; reload policy impact.")
+        role_changes: dict[str, Any] = {
+            "current_policy_version_id": policy_version_id,
+            "current_policy_hash": policy["canonical_hash"],
+            "updated_at": utc_now(),
+        }
+        if role.get("synthetic") is False:
+            publication_package = dict(role.get("publication_package") or {})
+            publication_package["public_job_description"] = (
+                contract.public_job_description)
+            role_changes.update({
+                "draft_contract": contract.model_dump(mode="json"),
+                "role_description": description,
+                "publication_package": publication_package,
+                "role_state": "APPROVED",
+                "publication_allowed": True,
+            })
         committed_role = await durable.compare_and_set(
             "hiring_roles", role_id, expected_role_version, {
-                "current_policy_version_id": policy_version_id,
-                "current_policy_hash": policy["canonical_hash"],
-                "updated_at": utc_now(),
+                **role_changes,
             })
         if not committed_role:
             return _error("version_conflict", "Role changed; reload policy impact.")

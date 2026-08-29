@@ -476,9 +476,15 @@ def install(app) -> None:
         if is_bootstrap and _wants_html(request):
             resp = RedirectResponse(_strip_key_query(request.url), status_code=303)
             _set_bootstrap_cookie(resp)
+            resp.headers.setdefault(
+                "Permissions-Policy", "on-device-speech-recognition=(self)")
             return resp
 
         response = await call_next(request)
+        # Conversational Hold may install/use only the browser's on-device
+        # recognition pack. The UI never falls back to remote Web Speech.
+        response.headers.setdefault(
+            "Permissions-Policy", "on-device-speech-recognition=(self)")
         if is_bootstrap:
             _set_bootstrap_cookie(response)
         return response

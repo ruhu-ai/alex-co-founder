@@ -80,7 +80,12 @@ from services.actor_identity import (
 from services.command_service import CommandService
 from services.command_service import transport_status as command_http_status
 from services.durable_store import AtomicMutation, production_store
-from services.workflow_contracts import RunKind, run_visible_to_actor, stable_id
+from services.workflow_contracts import (
+    RunKind,
+    normalize_runtime_status,
+    run_visible_to_actor,
+    stable_id,
+)
 from services.workflow_projection_service import (
     WorkflowProjectionService,
 )
@@ -800,7 +805,7 @@ async def _launch_hiring_command(*, principal: ActorPrincipal, context: str,
         return created
     proposed = await hiring_policy_service.propose_policy(
         principal=principal, role_id=created["role"]["role_id"],
-        contract=contract,
+        contract=contract, role_description=package["role_description"],
         change_reason=("Founder-started internal Ruhu FDE role package from "
                        "the explicit Hiring action."),
         client_request_id=f"{request_id}:role-package")
@@ -2109,18 +2114,20 @@ async def api_v1_investor_outreach(
 
 
 @app.get("/api/v1/investor-outreach")
-async def api_v1_list_investor_outreach(request: Request, session_id: str):
-    """List founder-visible outreach runs for one owned conversation."""
+async def api_v1_list_investor_outreach(request: Request, session_id: str = ""):
+    """List workspace outreach, optionally narrowed to one owned conversation."""
     principal = await _platform_human(request)
     if isinstance(principal, dict):
         return JSONResponse(principal, status_code=401)
-    if not await _workspace_session_exists(principal.workspace_id, session_id):
+    if session_id and not await _workspace_session_exists(
+            principal.workspace_id, session_id):
         return JSONResponse({"error": "not found"}, status_code=404)
     store = production_store()
+    filters = {"workspace_id": principal.workspace_id}
+    if session_id:
+        filters["origin_session_id"] = session_id
     rows = await store.list(
-        "investor_outreach",
-        filters={"workspace_id": principal.workspace_id,
-                 "origin_session_id": session_id}, limit=100)
+        "investor_outreach", filters=filters, limit=100)
     results = []
     for row in rows:
         run = await store.get("workflow_runs", str(row.get("run_id") or ""))
@@ -3184,6 +3191,111 @@ async def api_v1_change_membership(request: Request, actor_id: str,
                                else http_status(result)))
 
 
+_GLOBAL_RUN_META = {
+    RunKind.BACKGROUND.value: ("skills", "Skills", "Private skill work"),
+    RunKind.ROLE.value: ("hiring", "Hiring", "Role-level summary"),
+    RunKind.OPPORTUNITY_DISCOVERY.value: (
+        "funding", "Funding", "Funding records"),
+    RunKind.GRANT_APPLICATION.value: (
+        "funding", "Funding", "Funding records"),
+    RunKind.INVESTOR_OUTREACH.value: (
+        "funding", "Funding", "Investor outreach records"),
+}
+
+
+async def _global_run_title(store, row: dict) -> str:
+    """Return a useful title without crossing a domain's display boundary."""
+    kind = str(row.get("run_kind") or "")
+    domain_ref = str(row.get("domain_ref") or "")
+    if kind == RunKind.ROLE.value and domain_ref:
+        role = await store.get("hiring_roles", domain_ref)
+        if role and role.get("workspace_id") == row.get("workspace_id"):
+            return str(role.get("role_title") or "Hiring role")[:160]
+        return "Hiring role"
+    if kind == RunKind.GRANT_APPLICATION.value and domain_ref:
+        application = await store.get("applications", domain_ref)
+        if application:
+            return str(
+                application.get("opportunity_name")
+                or application.get("title")
+                or "Funding application"
+            )[:160]
+        return "Funding application"
+    if kind == RunKind.INVESTOR_OUTREACH.value and domain_ref:
+        outreach = await store.get("investor_outreach", domain_ref)
+        if outreach and outreach.get("workspace_id") == row.get("workspace_id"):
+            return str(outreach.get("objective") or "Investor outreach")[:160]
+        return "Investor outreach"
+    if kind == RunKind.BACKGROUND.value:
+        return str(row.get("objective_summary") or "Skill-backed work")[:160]
+    if kind == RunKind.OPPORTUNITY_DISCOVERY.value:
+        return "Opportunity discovery"
+    return "Co-Founder work"
+
+
+@app.get("/api/v1/runs")
+async def api_v1_list_runs(request: Request):
+    """Safe global work projection; domain records retain their own access rules.
+
+    Hiring candidate and onboarding runs intentionally do not appear here. Their
+    identity, evidence, decisions, and activity are available only through the
+    dedicated Hiring workspace. Actor-private skill runs are visible only to the
+    actor that started them.
+    """
+    principal = await _platform_human(request)
+    if isinstance(principal, dict):
+        return JSONResponse(principal, status_code=401)
+    store = production_store()
+    rows = await store.list(
+        "workflow_runs", filters={"workspace_id": principal.workspace_id},
+        limit=500)
+    visible = []
+    for row in rows:
+        kind = str(row.get("run_kind") or "")
+        meta = _GLOBAL_RUN_META.get(kind)
+        if not meta or not run_visible_to_actor(
+                row, workspace_id=principal.workspace_id,
+                actor_id=principal.actor_id):
+            continue
+        operation_key, operation_label, access_label = meta
+        try:
+            runtime_status = normalize_runtime_status(
+                str(row.get("runtime_status") or ""))
+        except ValueError:
+            # An invalid durable status is not presented as authoritative work.
+            continue
+        visible.append({
+            "run_id": str(row.get("run_id") or row.get("id") or ""),
+            "operation_key": operation_key,
+            "operation_label": operation_label,
+            "access_label": access_label,
+            "title": await _global_run_title(store, row),
+            "run_kind": kind,
+            "runtime_status": runtime_status,
+            "domain_state": str(row.get("domain_state") or ""),
+            "execution_mode": str(row.get("execution_mode") or "FOREGROUND"),
+            "visibility_scope": str(
+                row.get("visibility_scope") or "WORKSPACE"),
+            "origin_session_id": str(row.get("origin_session_id") or ""),
+            "updated_at": str(row.get("updated_at") or row.get("created_at") or ""),
+            "created_at": str(row.get("created_at") or ""),
+            "version": int(row.get("version") or 0),
+            "skill_count": len(row.get("skill_bindings") or []),
+        })
+    visible.sort(
+        key=lambda item: item.get("updated_at") or item.get("created_at") or "",
+        reverse=True)
+    return {
+        "status": "success",
+        "runs": visible,
+        "operation_counts": {
+            key: sum(1 for item in visible if item["operation_key"] == key)
+            for key in ("funding", "hiring", "skills")
+        },
+        "restricted_domains": ["hiring_candidate", "hiring_onboarding"],
+    }
+
+
 @app.get("/api/v1/runs/{run_id}")
 async def api_v1_get_run(request: Request, run_id: str):
     """Workspace-scoped durable run projection; chat is never the status."""
@@ -3954,7 +4066,7 @@ async def _read_upload(file: UploadFile, max_bytes: int,
 
 
 # ---------------------------------------------------------------------------
-# integrations (Drive + Gmail + Calendar — read-only OAuth, docs/12, adr/002)
+# integrations (Founder sources + Alex-owned Google services; docs/12, adr/002)
 # ---------------------------------------------------------------------------
 
 def _connector_oauth_redirect_uri(request: Request | None = None) -> str:
@@ -4003,8 +4115,8 @@ def _oauth_flow(scopes: list[str] | None = None, *, redirect_uri: str | None = N
 async def api_google_connect(request: Request, connector: str = ""):
     """Connect button target: redirect the browser to Google consent.
     ?connector=drive|founder_gmail|calendar requests only that connector's scopes on
-    the founder account; ?connector=alex_mail or alex_calendar consents AS
-    alex@ruhu.ai (sign in as that account on the consent screen) — adr/001."""
+    the founder account; ?connector=alex_drive|alex_mail|alex_calendar consents AS
+    alex@ruhu.ai (sign in as that account on the consent screen)."""
     from fastapi.responses import RedirectResponse
 
     from services import google_oauth
@@ -4442,6 +4554,33 @@ async def api_v1_drive_files(payload: DriveFileRequestV1, request: Request):
         error_code=str(result.get("error_code") or "source_grant_failed"))
     return JSONResponse(terminal, status_code=(
         200 if not result.get("error") else command_http_status(terminal)))
+
+
+@app.get("/api/v1/integrations/alex-drive/files")
+async def api_v1_alex_drive_files(
+        request: Request, folder_id: str = "", limit: int = 25):
+    """List a bounded view of Alex's role-owned Drive.
+
+    This is intentionally separate from Founder Drive source grants. The
+    authenticated workspace can inspect Alex's operational files; provider
+    scope does not itself authorize any mutation.
+    """
+    from services import connection_registry, drive_adapter
+
+    principal = await _platform_human(request)
+    if isinstance(principal, dict):
+        return JSONResponse(principal, status_code=401)
+    gate = await connection_registry.authorize_connector_operation(
+        principal.workspace_id, "alex_drive")
+    if gate.get("error"):
+        return JSONResponse(gate, status_code=409)
+    result = await asyncio.to_thread(
+        drive_adapter.list_files, folder_id, max(1, min(limit, 100)),
+        principal.workspace_id, account="alex")
+    await connection_registry.record_operation_result(
+        principal.workspace_id, "alex_drive", "drive_list", result)
+    return JSONResponse(result, status_code=(
+        200 if result.get("status") == "success" else 502))
 
 
 class GmailLabelRequest(BaseModel):
@@ -5298,11 +5437,16 @@ class DriveSyncV1(BaseModel):
 
 
 @app.post("/api/v1/documents/{artifact_name}:sync-drive")
+@app.post("/api/v1/documents/{artifact_name}:sync-alex-drive")
 @app.post("/api/documents/{artifact_name}/sync_drive", include_in_schema=False)
 async def api_sync_drive(
         artifact_name: str, request: Request, payload: DriveSyncV1 | None = None):
-    """Founder-clicked copy of a produced document to Drive — the click IS the
-    approval (docs/15 §security)."""
+    """Founder-clicked copy of a produced document to a selected Drive account.
+
+    The Alex destination uses Alex's role-owned account. The existing Drive
+    destination remains the Founder account for compatibility. Both paths use
+    the same exact, durable approval and action receipt.
+    """
     payload = payload or DriveSyncV1()
     import hashlib as _hashlib
     import pathlib as _pathlib
@@ -5325,6 +5469,11 @@ async def api_sync_drive(
     if isinstance(principal, dict):
         return JSONResponse(principal, status_code=401)
     workspace_id = principal.workspace_id
+    alex_destination = request.url.path.endswith(":sync-alex-drive")
+    connector_id = "alex_drive" if alex_destination else "drive"
+    action_kind = ("export_alex_drive_file" if alex_destination
+                   else "export_drive_file")
+    destination_label = "Alex's Drive" if alex_destination else "Founder Drive"
     command = None
     commands = CommandService(production_store())
     if not _re.fullmatch(r"[A-Za-z0-9_.-]+", artifact_name):
@@ -5339,6 +5488,10 @@ async def api_sync_drive(
     if not document:
         return JSONResponse({"error": "artifact is not in the produced-document registry"},
                             status_code=403)
+    connector_gate = await connection_registry.authorize_connector_operation(
+        workspace_id, connector_id)
+    if connector_gate.get("error"):
+        return JSONResponse(connector_gate, status_code=409)
     path = storage.artifact_path(artifact_name)
     if not os.path.exists(path):
         return JSONResponse({"error": "not found"}, status_code=404)
@@ -5353,12 +5506,13 @@ async def api_sync_drive(
                  "message": "A valid client_request_id is required."}, status_code=400)
         command = await commands.accept(
             principal=principal, client_request_id=payload.client_request_id,
-            command_type="document.sync_drive",
+            command_type=("document.sync_alex_drive" if alex_destination
+                          else "document.sync_drive"),
             request={"artifact_name": artifact_name, "document_id": document_id,
-                     "checksum": checksum})
+                     "checksum": checksum, "connector_id": connector_id})
         if command.get("error") or command.get("duplicate"):
             return JSONResponse(command, status_code=command_http_status(command))
-    idempotency_key = f"drive-export-v1:{document_id}:{checksum}"
+    idempotency_key = f"{connector_id}-export-v1:{document_id}:{checksum}"
     consequence_kwargs: dict[str, object] = {}
     if request.url.path.startswith("/api/v1/"):
         # A click is a valid same-human approval policy, but it still receives
@@ -5366,13 +5520,14 @@ async def api_sync_drive(
         from services import approval_service
 
         drive_subject = approval_service.action_subject_hash(
-            "export_drive_file", document_id,
+            action_kind, document_id,
             {"document_id": document_id, "artifact_name": artifact_name,
-             "checksum": checksum})
+             "checksum": checksum, "connector_id": connector_id})
         approval_request = await approval_service.request_approval(
-            document_id, gate="export_drive_file",
+            document_id, gate=action_kind,
             details={"document_id": document_id, "artifact_name": artifact_name,
-                     "checksum": checksum},
+                     "checksum": checksum, "connector_id": connector_id,
+                     "destination": destination_label},
             founder_id=workspace_id, session_id="",
             subject_hash=drive_subject,
             requested_by_actor_id=principal.actor_id)
@@ -5398,13 +5553,14 @@ async def api_sync_drive(
         consequence_kwargs = {
             "subject_hash": drive_subject, "approval_id": approval_id,
             "consume_approval": True,
-            "approval_gate": "export_drive_file",
+            "approval_gate": action_kind,
             "approval_target": document_id,
         }
     prepared = await external_action_service.prepare(
-        workspace_id, "drive", "export_drive_file", idempotency_key,
+        workspace_id, connector_id, action_kind, idempotency_key,
         {"document_id": document_id, "artifact_name": artifact_name,
-         "checksum": checksum}, resource_id=document_id,
+         "checksum": checksum, "connector_id": connector_id},
+        resource_id=document_id,
         **consequence_kwargs)
     if prepared.get("duplicate"):
         result = external_action_service.duplicate_result(prepared)
@@ -5424,26 +5580,36 @@ async def api_sync_drive(
             expected_version=command["version"], status="REJECTED",
             error_code=str(prepared.get("error_code") or "action_prepare_failed"))
         return JSONResponse(rejected, status_code=409)
+    upload_kwargs = {
+        "source_artifact_id": document_id,
+        "checksum": checksum,
+        "workspace_id": (workspace_id
+                         if request.url.path.startswith("/api/v1/") else ""),
+    }
+    if alex_destination:
+        upload_kwargs["account"] = "alex"
     result = await asyncio.to_thread(
         drive_adapter.upload_file, artifact_name, path,
         document_service.mime_for(ext) if ext in ("docx", "xlsx", "pptx", "pdf")
-        else "application/octet-stream", source_artifact_id=document_id,
-        checksum=checksum,
-        workspace_id=(workspace_id if request.url.path.startswith("/api/v1/") else ""))
+        else "application/octet-stream", **upload_kwargs)
     if result.get("status") == "success":
         await external_action_service.finish(
             workspace_id, prepared["action_id"], prepared["lease_owner"],
-            "SUCCEEDED", action_kind="export_drive_file",
+            "SUCCEEDED", action_kind=action_kind,
             idempotency_key=idempotency_key,
             provider_effect_id=result.get("file_id"),
             result_ref={"file_id": result.get("file_id", ""),
                         "url": result.get("url", ""),
-                        "checksum": checksum})
+                        "checksum": checksum,
+                        "connector_id": connector_id})
         await connection_registry.record_connector_success(
-            workspace_id, "drive", "export_drive_file")
-        await firestore.audit(actor=f"human:{principal.actor_id}", action="drive_sync",
+            workspace_id, connector_id, action_kind)
+        await firestore.audit(actor=f"human:{principal.actor_id}",
+                              action=("alex_drive_sync" if alex_destination
+                                      else "drive_sync"),
                               target=f"artifacts/{artifact_name}", result="success",
-                              detail=f"copied to Drive file {result.get('file_id')}")
+                              detail=(f"copied to {connector_id} file "
+                                      f"{result.get('file_id')}"))
         response = {**result, "action_id": prepared["action_id"],
                     "checksum": checksum}
         if command is None:
@@ -5458,13 +5624,15 @@ async def api_sync_drive(
     terminal = "UNCERTAIN" if result.get("uncertain") else "FAILED"
     await external_action_service.finish(
         workspace_id, prepared["action_id"], prepared["lease_owner"], terminal,
-        action_kind="export_drive_file", idempotency_key=idempotency_key,
+        action_kind=action_kind, idempotency_key=idempotency_key,
         uncertainty_reason=("provider_outcome_unconfirmed"
                             if terminal == "UNCERTAIN" else None),
-        result_ref={"document_id": document_id, "checksum": checksum},
+        result_ref={"document_id": document_id, "checksum": checksum,
+                    "connector_id": connector_id},
         error_code=result.get("error_code") or "provider_unavailable")
     await connection_registry.record_connector_failure(
-        workspace_id, "drive", result.get("error_code") or "provider_unavailable")
+        workspace_id, connector_id,
+        result.get("error_code") or "provider_unavailable")
     response = {**result, "action_id": prepared["action_id"]}
     if command is None:
         return response
@@ -5516,15 +5684,18 @@ async def _reconcile_external_action_for(
         return await calendar_adapter.reconcile_event(
             refs.get("event_id", ""), founder_id=workspace_id,
             action_id=action_id)
-    if kind == "export_drive_file":
+    if kind in {"export_drive_file", "export_alex_drive_file"}:
+        connector_id = str(
+            refs.get("connector_id") or receipt.get("connector_id") or "drive")
         checked = await asyncio.to_thread(
             drive_adapter.reconcile_export,
-            refs.get("document_id", ""), refs.get("checksum", ""), workspace_id)
+            refs.get("document_id", ""), refs.get("checksum", ""), workspace_id,
+            account=("alex" if connector_id == "alex_drive" else "founder"))
         if checked.get("error"):
             return checked
         status = "SUCCEEDED" if checked.get("exists") else "FAILED"
         resolved = await external_action_service.reconcile(
-            workspace_id, action_id, status, action_kind="export_drive_file",
+            workspace_id, action_id, status, action_kind=kind,
             idempotency_key=receipt.get("idempotency_key", ""),
             provider_effect_id=checked.get("file_id") if checked.get("exists") else None,
             result_ref={"file_id": checked.get("file_id", ""),

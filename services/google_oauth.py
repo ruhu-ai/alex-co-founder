@@ -1,10 +1,10 @@
-"""Founder-scoped Google OAuth (docs/12) + Alex's mailbox account (adr/001 v2).
+"""Founder-scoped Google OAuth plus Alex's role-owned Google account.
 
 Two accounts, each with its own refresh token:
   - "founder": read-only Drive + Gmail + Calendar (GOOGLE_OAUTH_REFRESH_TOKEN)
-  - "alex":    the alex@ruhu.ai role mailbox (ALEX_OAUTH_REFRESH_TOKEN) —
-               gmail.readonly + gmail.send; sending is approval-gated in code
-               (services/alex_mailbox.py), never by scope alone.
+  - "alex":    the alex@ruhu.ai role account (ALEX_OAUTH_REFRESH_TOKEN) —
+               full Drive plus mailbox/calendar scopes granted separately.
+               Provider scopes never replace application approval gates.
 
 Refresh tokens are obtained via the Connectors panel (in-browser loopback
 flow) or scripts/oauth_setup.py, and stored in Secret Manager (prod) or .env
@@ -28,6 +28,10 @@ SCOPE_MAP = {
         "https://www.googleapis.com/auth/drive.readonly",
         "https://www.googleapis.com/auth/drive.file",  # sync produced documents; per-file only
     ],
+    # Alex's role-owned Drive is operational storage, not a founder data source.
+    # The provider grant permits full read/write access inside that account;
+    # application code still owns every consequence/approval boundary.
+    "alex_drive": ["https://www.googleapis.com/auth/drive"],
     "founder_gmail": ["https://www.googleapis.com/auth/gmail.readonly"],
     "calendar": [
         "https://www.googleapis.com/auth/calendar.readonly",
@@ -47,7 +51,11 @@ SCOPE_MAP = {
 }
 # Which Google account each connector auths as (adr/001: Alex's mailbox is a
 # separate Workspace user). Unlisted connectors use the founder account.
-CONNECTOR_ACCOUNT = {"alex_mail": "alex", "alex_calendar": "alex"}
+CONNECTOR_ACCOUNT = {
+    "alex_drive": "alex",
+    "alex_mail": "alex",
+    "alex_calendar": "alex",
+}
 ACCOUNT_ENV = {"founder": "GOOGLE_OAUTH_REFRESH_TOKEN",
                "alex": "ALEX_OAUTH_REFRESH_TOKEN"}
 
@@ -393,7 +401,7 @@ def verify_consent(credentials, connector: str) -> dict:
             identity = build("oauth2", "v2", credentials=credentials,
                              cache_discovery=False).userinfo().get().execute()
             hint = identity.get("email", "")
-        elif connector == "drive":
+        elif connector in {"drive", "alex_drive"}:
             identity = build("drive", "v3", credentials=credentials,
                              cache_discovery=False).about().get(
                                  fields="user").execute().get("user", {})
