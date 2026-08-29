@@ -1,5 +1,6 @@
 services/capability_registry.py
   s_16e75b10efee22::t_5744a1e2a5339e 91-94
+  s_16e75b10efee22::t_48f70d98e93a64 87-90
 services/workflow_plan_validator.py
   s_16e75b10efee22::t_8d44116c6ec084 13
   s_16e75b10efee22::t_a38df55eb35f36 14,112-113,117
@@ -123,6 +124,7 @@ app/static/index.html
   s_16e75b10efee22::t_e932b9db8ae68a 2706
   s_16e75b10efee22::t_a04141f19766cb 2626,2648,2654-2660,2663,2667-2669,2829-2832,2834,2836-2838,2840-2853,2855-2861,2864-2881
   s_16e75b10efee22::t_6cf524c30e4683 4018-4029
+  s_16e75b10efee22::t_0f5308b069e7b6 3993-4017,4030-4037
 infra/firestore.indexes.json
   s_16e75b10efee22::t_bcfad1252a144f 195-204
   s_16e75b10efee22::t_b199bf6f534d54 232-238
