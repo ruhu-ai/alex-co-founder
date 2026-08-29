@@ -1,0 +1,21 @@
+services/connectors.py
+  s_bf598a20bfcdaa::t_23e305a84e8f57 70
+tests/unit/test_google_connector_expansion.py
+  s_bf598a20bfcdaa::t_23e305a84e8f57 27,41
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "75543c9246f367fdeae0b8a82909d00ae5414849",
+  "prompts": {},
+  "sessions": {
+    "s_bf598a20bfcdaa": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a04860-dde3-79c3-b2bd-2987b04adc68",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Ijidai Lassa <ijidai@cued.app>"
+    }
+  }
+}
