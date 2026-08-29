@@ -1,0 +1,36 @@
+app/static/hiring.html
+  s_16e75b10efee22::t_39777b7d00b21b 1821-1828,1927-1929,1933-1936,2048-2074,2098,2129,2132-2146
+tests/unit/test_auth.py
+  s_16e75b10efee22::t_6ed6344aca2df2 253-254
+tests/unit/test_google_login.py
+  s_16e75b10efee22::t_4ee22048134291 310-312
+  s_16e75b10efee22::t_ae95d8f0ee8e91 121
+  s_16e75b10efee22::t_0aab1a2d1f6f2f 108-120,122-128,244-309
+tests/unit/test_unified_product_ui_contract.py
+  s_16e75b10efee22::t_0aab1a2d1f6f2f 387-391
+app/static/login.html
+  s_16e75b10efee22::t_39777b7d00b21b 150-152,161,206-209
+  s_16e75b10efee22::t_0aab1a2d1f6f2f 185-193
+app/google_login.py
+  s_16e75b10efee22::t_39777b7d00b21b 242,251-256,261,264-268,273-274,282,361-365
+  s_16e75b10efee22::t_ae95d8f0ee8e91 269-272
+  s_16e75b10efee22::t_0aab1a2d1f6f2f 193-205,207,310-315,328-333,337-342,344-349,354-359,366-370
+tests/unit/test_browser_invariants.py
+  s_16e75b10efee22::t_0aab1a2d1f6f2f 326-328
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "d71734322ca9c55b0f7a9974c6ec26643df1d002",
+  "prompts": {},
+  "sessions": {
+    "s_16e75b10efee22": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0484d-a6bd-7182-90ae-527ccfd2a966",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": null
+    }
+  }
+}
