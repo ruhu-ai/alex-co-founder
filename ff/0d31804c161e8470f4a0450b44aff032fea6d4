@@ -1,0 +1,40 @@
+services/task_queue.py
+  s_16e75b10efee22::t_7897afbe50aa84 29,51
+  s_16e75b10efee22::t_e1cde0ab078c10 52
+scripts/phase7_cloud_audit.py
+  s_16e75b10efee22::t_59999b6ddc26f9 65,87,95
+tests/unit/test_spec40_gate_f_offline.py
+  s_16e75b10efee22::t_469bbf1fc2e27c 509-524
+.env.example
+  s_16e75b10efee22::t_7897afbe50aa84 18-25
+scripts/deploy.sh
+  s_16e75b10efee22::t_59999b6ddc26f9 114-116,143-145,204-205,225,239,250-253,315
+tests/unit/test_phase7_cloud_audit.py
+  s_16e75b10efee22::t_59999b6ddc26f9 63,71
+tests/unit/test_phase7_monitoring.py
+  s_16e75b10efee22::t_59999b6ddc26f9 66,68,89
+tests/unit/test_spec40_gate_f_runtime.py
+  s_16e75b10efee22::t_814cf7d6342295 258
+docs/13-deployment.md
+  s_16e75b10efee22::t_7897afbe50aa84 142
+services/background_skill_runtime.py
+  s_16e75b10efee22::t_7897afbe50aa84 356,358-361
+scripts/configure_phase7_monitoring.py
+  s_16e75b10efee22::t_7897afbe50aa84 32
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "ff0d31804c161e8470f4a0450b44aff032fea6d4",
+  "prompts": {},
+  "sessions": {
+    "s_16e75b10efee22": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0484d-a6bd-7182-90ae-527ccfd2a966",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Ijidai Lassa <ijidai@cued.app>"
+    }
+  }
+}
