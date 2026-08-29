@@ -1,0 +1,39 @@
+tests/unit/test_background_artifact_pilot.py
+  s_16e75b10efee22::t_265a6f13d3f36c 27,31,145
+skills/compiler.py
+  s_16e75b10efee22::t_e6102654ef05d7 180-185
+  s_16e75b10efee22::t_1514a829318c64 102-107,115-117,130-131,196-202
+tests/unit/test_background_pilot_routes.py
+  s_16e75b10efee22::t_265a6f13d3f36c 15,18,22,86
+skills/contracts.py
+  s_16e75b10efee22::t_26deb03d7aa58d 23-78
+tests/unit/test_spec40_gate_f_runtime.py
+  s_16e75b10efee22::t_265a6f13d3f36c 39,44,206
+skills/policy.py
+  s_16e75b10efee22::t_e6102654ef05d7 27-28
+tests/unit/test_skill_foundation.py
+  s_16e75b10efee22::t_b3fba045c9f2a5 50-53,149-151
+tests/unit/test_spec40_gate_f_offline.py
+  s_16e75b10efee22::t_b3fba045c9f2a5 143,150-154,248-249
+tests/unit/test_spec40_gate_f_routes.py
+  s_16e75b10efee22::t_265a6f13d3f36c 71,75,99,212
+  s_16e75b10efee22::t_0e21edec83ed6f 322,351-353,355-357
+skills/catalog.v1.json
+  s_16e75b10efee22::t_7670035dcc4607 3,144-391
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "13a08ce5c641383a3ba48494b1ddfeb9240a14a6",
+  "prompts": {},
+  "sessions": {
+    "s_16e75b10efee22": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0484d-a6bd-7182-90ae-527ccfd2a966",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Ijidai Lassa <ijidai@cued.app>"
+    }
+  }
+}
