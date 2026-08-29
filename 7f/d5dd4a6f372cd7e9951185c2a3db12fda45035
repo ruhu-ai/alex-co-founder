@@ -1,0 +1,201 @@
+agents/co_founder/tools/_common.py
+  s_16e75b10efee22::t_f04eae7d049752 8-14,88-96
+agents/co_founder/tools/attachments.py
+  s_16e75b10efee22::t_fa9b8023903f85 6,19,29-57
+agents/co_founder/tools/discovery.py
+  s_16e75b10efee22::t_bb11ac8e6371a5 8,22-51,133-166
+agents/co_founder/tools/documents.py
+  s_16e75b10efee22::t_5b8a667314db1f 10,31,52,55,89-119
+agents/co_founder/tools/drafting.py
+  s_16e75b10efee22::t_e457da2284a35d 9,37,64-89
+agents/co_founder/tools/profile.py
+  s_16e75b10efee22::t_c0b5978373ec11 9,58,95-126
+services/actor_identity.py
+  s_16e75b10efee22::t_be117a4606ee21 21-23,170,183-188
+services/foundation_skill_bindings.py
+  s_16e75b10efee22::t_e7755bee5d227d 1-367
+services/hiring_skill_bindings.py
+  s_16e75b10efee22::t_a2a1e7d2ddc4ec 1-128
+services/skill_compiler.py
+  s_16e75b10efee22::t_449555d2f1dc04 1-283
+services/skill_contract_catalog.py
+  s_16e75b10efee22::t_a7d465b91806f7 1-104
+services/skill_contracts.py
+  s_16e75b10efee22::t_1b5d64587c59b9 1-308
+services/skill_evaluation.py
+  s_16e75b10efee22::t_a472806f4aacdd 1-127
+services/skill_lifecycle.py
+  s_16e75b10efee22::t_9e1192ce1e24c2 1-237
+services/skill_pilot_evidence.py
+  s_16e75b10efee22::t_d2d156eb840642 1-187
+services/skill_registry.py
+  s_16e75b10efee22::t_c4d6d226998465 1-174
+services/skill_release_gate.py
+  s_16e75b10efee22::t_2d325bc6335a17 1-154
+services/skill_runtime.py
+  s_16e75b10efee22::t_56316986115e0d 1-524
+services/skill_synthetic_qualification.py
+  s_16e75b10efee22::t_bc86d03eaece6e 1-381
+skills/documents/produce_grounded_artifact/PLAYBOOK.md
+  s_16e75b10efee22::t_e7fbfac801bed8 1-30
+skills/documents/produce_grounded_artifact/evals/cases.yaml
+  s_16e75b10efee22::t_8cf39758b15352 1-10
+skills/documents/produce_grounded_artifact/schemas/input.v1.json
+  s_16e75b10efee22::t_6ca4a074e1cb3c 1-32
+skills/documents/produce_grounded_artifact/schemas/output.v1.json
+  s_16e75b10efee22::t_fd1e7437163d34 1-37
+skills/documents/produce_grounded_artifact/skill.yaml
+  s_16e75b10efee22::t_5485c2a36aaa84 1-101
+skills/documents/produce_grounded_artifact_v1_0_1/PLAYBOOK.md
+  s_16e75b10efee22::t_ca7148e411e3b8 1-30
+skills/documents/produce_grounded_artifact_v1_0_1/evals/cases.yaml
+  s_16e75b10efee22::t_3195cfd47985b5 1-10
+skills/documents/produce_grounded_artifact_v1_0_1/schemas/input.v1.json
+  s_16e75b10efee22::t_1e78f33df817ca 1-32
+skills/documents/produce_grounded_artifact_v1_0_1/schemas/output.v1.json
+  s_16e75b10efee22::t_58a15be816f92a 1-37
+skills/documents/produce_grounded_artifact_v1_0_1/skill.yaml
+  s_16e75b10efee22::t_d322ac7878558c 1-101
+skills/evidence/answer_from_attachments/PLAYBOOK.md
+  s_16e75b10efee22::t_9070c4cfabb433 1-30
+skills/evidence/answer_from_attachments/evals/cases.yaml
+  s_16e75b10efee22::t_c0c7ece1ec9356 1-10
+skills/evidence/answer_from_attachments/schemas/input.v1.json
+  s_16e75b10efee22::t_b18f6e3ccae159 1-24
+skills/evidence/answer_from_attachments/schemas/output.v1.json
+  s_16e75b10efee22::t_e46492c84cdfc3 1-30
+skills/evidence/answer_from_attachments/skill.yaml
+  s_16e75b10efee22::t_794d14aa387d80 1-102
+skills/evidence/answer_from_attachments_v1_0_1/PLAYBOOK.md
+  s_16e75b10efee22::t_6f062188f57473 1-30
+skills/evidence/answer_from_attachments_v1_0_1/evals/cases.yaml
+  s_16e75b10efee22::t_3ce5f5f3b43e4a 1-10
+skills/evidence/answer_from_attachments_v1_0_1/schemas/input.v1.json
+  s_16e75b10efee22::t_c0d229b2766d96 1-24
+skills/evidence/answer_from_attachments_v1_0_1/schemas/output.v1.json
+  s_16e75b10efee22::t_574b560d95e63c 1-30
+skills/evidence/answer_from_attachments_v1_0_1/skill.yaml
+  s_16e75b10efee22::t_07520a98bccb6a 1-102
+skills/funding/collect_application_facts/PLAYBOOK.md
+  s_16e75b10efee22::t_19e996b386fcea 1-30
+skills/funding/collect_application_facts/evals/cases.yaml
+  s_16e75b10efee22::t_60c81185d366a1 1-10
+skills/funding/collect_application_facts/schemas/input.v1.json
+  s_16e75b10efee22::t_81d3792370fd7b 1-22
+skills/funding/collect_application_facts/schemas/output.v1.json
+  s_16e75b10efee22::t_41511ca32151c8 1-50
+skills/funding/collect_application_facts/skill.yaml
+  s_16e75b10efee22::t_317cc8ed25b092 1-99
+skills/funding/collect_application_facts_v1_0_1/PLAYBOOK.md
+  s_16e75b10efee22::t_dc503fca2c62b8 1-30
+skills/funding/collect_application_facts_v1_0_1/evals/cases.yaml
+  s_16e75b10efee22::t_2c6907b36e5f55 1-10
+skills/funding/collect_application_facts_v1_0_1/schemas/input.v1.json
+  s_16e75b10efee22::t_01d36f4326dd63 1-22
+skills/funding/collect_application_facts_v1_0_1/schemas/output.v1.json
+  s_16e75b10efee22::t_e5f25d4055bae1 1-50
+skills/funding/collect_application_facts_v1_0_1/skill.yaml
+  s_16e75b10efee22::t_f11b03d4461267 1-99
+skills/funding/discover_opportunities/PLAYBOOK.md
+  s_16e75b10efee22::t_aae52048ea296c 1-30
+skills/funding/discover_opportunities/evals/cases.yaml
+  s_16e75b10efee22::t_d92e80cc109075 1-10
+skills/funding/discover_opportunities/schemas/input.v1.json
+  s_16e75b10efee22::t_75e01b7a3a90ea 1-14
+skills/funding/discover_opportunities/schemas/output.v1.json
+  s_16e75b10efee22::t_604b0d891dcc27 1-57
+skills/funding/discover_opportunities/skill.yaml
+  s_16e75b10efee22::t_32981af5a3b3c0 1-99
+skills/funding/discover_opportunities_v1_0_1/PLAYBOOK.md
+  s_16e75b10efee22::t_5b0060df94d88b 1-30
+skills/funding/discover_opportunities_v1_0_1/evals/cases.yaml
+  s_16e75b10efee22::t_93e6ea27959a25 1-10
+skills/funding/discover_opportunities_v1_0_1/schemas/input.v1.json
+  s_16e75b10efee22::t_a784daf458d673 1-14
+skills/funding/discover_opportunities_v1_0_1/schemas/output.v1.json
+  s_16e75b10efee22::t_f04736b17c1c1b 1-57
+skills/funding/discover_opportunities_v1_0_1/skill.yaml
+  s_16e75b10efee22::t_a8dd5e83a77b3e 1-99
+skills/funding/draft_grounded_section/PLAYBOOK.md
+  s_16e75b10efee22::t_1600e08cfc6753 1-30
+skills/funding/draft_grounded_section/evals/cases.yaml
+  s_16e75b10efee22::t_9ceb8b882a1fdd 1-10
+skills/funding/draft_grounded_section/schemas/input.v1.json
+  s_16e75b10efee22::t_ca17b9c092eb20 1-21
+skills/funding/draft_grounded_section/schemas/output.v1.json
+  s_16e75b10efee22::t_59d368264e27ae 1-31
+skills/funding/draft_grounded_section/skill.yaml
+  s_16e75b10efee22::t_993e21e4037c9a 1-100
+skills/funding/draft_grounded_section_v1_0_1/PLAYBOOK.md
+  s_16e75b10efee22::t_62b73af5f28bac 1-30
+skills/funding/draft_grounded_section_v1_0_1/evals/cases.yaml
+  s_16e75b10efee22::t_ed7f6e538f264e 1-10
+skills/funding/draft_grounded_section_v1_0_1/schemas/input.v1.json
+  s_16e75b10efee22::t_3f901464c1e460 1-21
+skills/funding/draft_grounded_section_v1_0_1/schemas/output.v1.json
+  s_16e75b10efee22::t_f945153832bf82 1-31
+skills/funding/draft_grounded_section_v1_0_1/skill.yaml
+  s_16e75b10efee22::t_a4031df7479a1b 1-100
+skills/hiring/assess_candidate_evidence/PLAYBOOK.md
+  s_16e75b10efee22::t_3e191f27523062 1-30
+skills/hiring/assess_candidate_evidence/evals/cases.yaml
+  s_16e75b10efee22::t_13484fb7024078 1-13
+skills/hiring/assess_candidate_evidence/schemas/input.v1.json
+  s_16e75b10efee22::t_abe64d845a29bf 1-23
+skills/hiring/assess_candidate_evidence/schemas/output.v1.json
+  s_16e75b10efee22::t_f26440a222ed61 1-71
+skills/hiring/assess_candidate_evidence/skill.yaml
+  s_16e75b10efee22::t_b4ee944814356f 1-101
+skills/hiring/prepare_role_package/PLAYBOOK.md
+  s_16e75b10efee22::t_bbf53de7600c38 1-30
+skills/hiring/prepare_role_package/evals/cases.yaml
+  s_16e75b10efee22::t_d59c8cf323c244 1-10
+skills/hiring/prepare_role_package/schemas/input.v1.json
+  s_16e75b10efee22::t_b634b057a7d814 1-27
+skills/hiring/prepare_role_package/schemas/output.v1.json
+  s_16e75b10efee22::t_97f4417266df7b 1-34
+skills/hiring/prepare_role_package/skill.yaml
+  s_16e75b10efee22::t_48f6a232c8c7e2 1-101
+skills/registry.compiled.json
+  s_16e75b10efee22::t_1cfdcd07024d6f 1
+skills/research/public_source/PLAYBOOK.md
+  s_16e75b10efee22::t_17f0df3ef8c5c3 1-30
+skills/research/public_source/evals/cases.yaml
+  s_16e75b10efee22::t_0e1732b4bac1d1 1-10
+skills/research/public_source/references/source-quality.md
+  s_16e75b10efee22::t_dfc0dce5254f90 1-3
+skills/research/public_source/schemas/input.v1.json
+  s_16e75b10efee22::t_9f5a2991cf9a42 1-14
+skills/research/public_source/schemas/output.v1.json
+  s_16e75b10efee22::t_8b42b19a166cc3 1-65
+skills/research/public_source/skill.yaml
+  s_16e75b10efee22::t_5de121d44aa8a3 1-109
+skills/research/public_source_v1_0_1/PLAYBOOK.md
+  s_16e75b10efee22::t_f65f1ed722e054 1-30
+skills/research/public_source_v1_0_1/evals/cases.yaml
+  s_16e75b10efee22::t_58e408cf3696c7 1-10
+skills/research/public_source_v1_0_1/references/source-quality.md
+  s_16e75b10efee22::t_ed1086aa55baec 1-3
+skills/research/public_source_v1_0_1/schemas/input.v1.json
+  s_16e75b10efee22::t_3a3b72640bf7bb 1-14
+skills/research/public_source_v1_0_1/schemas/output.v1.json
+  s_16e75b10efee22::t_5955d7815c3551 1-65
+skills/research/public_source_v1_0_1/skill.yaml
+  s_16e75b10efee22::t_e00d003dccab7f 1-109
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "7fd5dd4a6f372cd7e9951185c2a3db12fda45035",
+  "prompts": {},
+  "sessions": {
+    "s_16e75b10efee22": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0484d-a6bd-7182-90ae-527ccfd2a966",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Ijidai Lassa <ijidai@cued.app>"
+    }
+  }
+}
