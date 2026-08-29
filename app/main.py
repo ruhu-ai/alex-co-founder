@@ -774,18 +774,40 @@ async def _launch_investor_outreach(
                if prepared.get("error") else {})}
 
 
+async def _hiring_company_context(workspace_id: str) -> dict:
+    """Return bounded canonical company facts; profile state grants no authority."""
+    from services import profile_service
+
+    try:
+        profile = await profile_service.get_profile(workspace_id) or {}
+    except Exception as exc:
+        logging.getLogger(__name__).warning(
+            "Hiring company context unavailable: %s", type(exc).__name__)
+        return {}
+    allowed = {
+        "company", "company_name", "product", "product_description",
+        "mission", "sector", "market", "company_stage", "product_stage",
+        "customer_description", "headquarters",
+    }
+    return {
+        str(key): value for key, value in dict(profile.get("facts") or {}).items()
+        if str(key).casefold() in allowed
+        and isinstance(value, (str, int, float, bool))
+    }
+
+
 async def _launch_hiring_command(*, principal: ActorPrincipal, context: str,
                                   request_id: str) -> dict:
-    """Compile the Founder's description into an internal, editable role DRAFT."""
+    """Write the Founder's description into an internal, editable role DRAFT."""
     normalized = re.sub(r"\s+", " ", context).strip()
     if len(normalized) > _HIRING_CONTEXT_MAX:
         return {"error": True, "message": "Hiring context is too long."}
     services = hiring_routes._services()
     if not services:
         return {"error": True, "message": "Hiring draft storage is not configured."}
-    from services.hiring_role_draft import founder_description_package
+    from services.hiring_role_writer import write_founder_role_package
 
-    package = founder_description_package(
+    package = await write_founder_role_package(
         normalized,
         company_name=os.environ.get("HIRING_DEFAULT_COMPANY_NAME", "Ruhu"),
         location=os.environ.get("HIRING_DEFAULT_LOCATION", "Nigeria"),
@@ -793,9 +815,10 @@ async def _launch_hiring_command(*, principal: ActorPrincipal, context: str,
             "HIRING_DEFAULT_WORK_ARRANGEMENT", "Remote"),
         employment_type=os.environ.get(
             "HIRING_DEFAULT_EMPLOYMENT_TYPE", "Full-time employee"),
+        company_context=await _hiring_company_context(principal.workspace_id),
     )
     if package.get("status") != "success":
-        return {"error": True, "message": str(package.get(
+        return {**package, "error": True, "message": str(package.get(
             "message") or "The role description could not be drafted safely.")}
     contract = package["contract"]
     created = await services[0].create_founder_draft_role(
@@ -814,6 +837,7 @@ async def _launch_hiring_command(*, principal: ActorPrincipal, context: str,
         return proposed
     return {"status": "success", "role": created["role"], "policy": proposed,
             "assumptions": package.get("assumptions", {}),
+            "drafting_mode": package.get("drafting_mode", "GEMINI_GROUNDED"),
             "duplicate": created.get("duplicate", False)}
 
 
@@ -1050,6 +1074,10 @@ async def wake(payload: WakePayload, request: Request) -> dict:
                     "client_request_id": request_id})
             role = launch["role"]
             assumptions = launch.get("assumptions") or {}
+            drafting_note = (" This was an explicitly degraded local draft; "
+                              "Gemini was not used."
+                              if launch.get("drafting_mode") == "DEGRADED_LOCAL"
+                              else "")
             reply = (f"I created the durable draft hiring operation for {role['role_title']} at "
                      f"{role['company_name']} and prepared its role brief, scorecard, interview "
                      f"plan, full job description, and exact job-post draft. Open Hiring Operations "
@@ -1059,7 +1087,7 @@ async def wake(payload: WakePayload, request: Request) -> dict:
                      f"and {assumptions.get('employment_type', 'the configured employment type')}. "
                      "Approve the exact role package there, then publish it with the separate "
                      "Founder control. "
-                     "No post or email was sent.")
+                     f"No post or email was sent.{drafting_note}")
             await _append_chat_exchange(
                 session_id, payload.message, reply, f"command-{request_id}",
                 founder_id)

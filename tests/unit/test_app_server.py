@@ -27,6 +27,7 @@ def appmod():
     from services import (
         browser_service,
         discovery_service,
+        hiring_role_writer,
         profile_service,
         recon_service,
         voice_service,
@@ -40,6 +41,7 @@ def appmod():
     browser_service.set_reader_fn(None)
     browser_service.set_proposer_fn(None)
     voice_service.set_transcribe_fn(None)
+    hiring_role_writer.set_role_writer_fn(None)
     return m
 
 
@@ -60,6 +62,8 @@ def _clean_env(monkeypatch):
     monkeypatch.delenv("GOOGLE_OAUTH_CLIENT_SECRET", raising=False)
     monkeypatch.delenv("DISCOVER_COMMAND_ENABLED", raising=False)
     monkeypatch.delenv("HIRING_ENABLE_SYNTHETIC_DEMO", raising=False)
+    monkeypatch.delenv(
+        "HIRING_ROLE_WRITER_ALLOW_DEGRADED_LOCAL", raising=False)
     for name in (
         "DURABLE_MEMORY_M2_ENABLED",
         "DURABLE_MEMORY_M2_WORKSPACE_ALLOWLIST",
@@ -1045,6 +1049,11 @@ class TestDiscoverCommandAdapter:
 
         monkeypatch.setattr(
             appmod.hiring_policy_service, "propose_policy", _propose)
+        async def _company_context(_workspace_id):
+            return {}
+
+        monkeypatch.setattr(appmod, "_hiring_company_context", _company_context)
+        monkeypatch.setenv("HIRING_ROLE_WRITER_ALLOW_DEGRADED_LOCAL", "1")
 
         result = await appmod._launch_hiring_command(
             principal=founder,

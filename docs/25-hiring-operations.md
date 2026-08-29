@@ -12,6 +12,18 @@ separate Founder-clicked operation and produces only criterion-linked
 posting/outreach, automatic assessment, ranking, recommendation, advance,
 decline, offer, and onboarding effects remain disabled and unauthorized.
 
+**Role-package writing boundary:** normal `/hiring` drafting uses the configured
+Gemini model through an injectable, tool-less service boundary. The model sees
+only the exact Founder description, bounded canonical company facts, and the
+visible working-model assumptions. It fills the existing role-description
+fields; deterministic code preserves the title and numeric requirements,
+checks counts, duplication, grounded optional facts, prohibited selection
+criteria, and section overlap, then permits at most one bounded repair. Provider
+failure returns `role_writer_unavailable`; a second invalid response returns
+`role_draft_unsafe`; neither persists a role. The shallow compiler is available
+only as an explicitly labelled non-Cloud local fallback, and the synthetic FDE
+fixture never participates in normal drafting.
+
 **Decision:** build hiring as a curated, human-controlled outcome pack on the
 shared Alex runtime. A role may remain open for months. One durable parent role
 run coordinates independent candidate child runs, and an accepted candidate

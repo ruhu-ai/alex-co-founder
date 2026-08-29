@@ -135,7 +135,7 @@ def test_builder_blocks_material_gaps_and_does_not_invent_optional_terms():
     assert "Apply through the published role page." in post
 
 
-def test_founder_description_compiles_real_role_and_not_demo_fixture():
+def test_explicit_local_fallback_compiles_real_role_and_not_demo_fixture():
     package = founder_description_package(
         ("Founding Full-stack AI Engineer, with 4 or more years of experience, "
          "strong in Python or TypeScript full-stack web development, and "
@@ -145,7 +145,7 @@ def test_founder_description_compiles_real_role_and_not_demo_fixture():
         company_name="Ruhu", location="Nigeria", work_arrangement="Remote",
         employment_type="Full-time employee")
     assert package["status"] == "success"
-    assert package["contract"].role_title == "Founding Full-stack AI Engineer"
+    assert package["contract"].role_title == "Founding Full-Stack AI Engineer"
     assert package["contract"].role_title != "Forward Deployment Engineer"
     description = package["role_description"]
     assert any("4 or more years" in item for item in

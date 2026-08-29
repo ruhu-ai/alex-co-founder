@@ -14,6 +14,9 @@ _PROHIBITED = re.compile(
     r"disability|marital|pregnan|nationality|school prestige|employer prestige)\b",
     re.I,
 )
+_PROHIBITED_COPY_PHRASE = re.compile(
+    r"\b(?:culture\s*fit|school prestige|employer prestige|preferred nationality|"
+    r"must be under age|must be over age)\b", re.I)
 
 _DEFAULT_HIRING_PROCESS = [
     "Application review against the role's job-related criteria",
@@ -53,6 +56,21 @@ def _clean_list(values: list[str] | None, *, limit: int = 12) -> list[str]:
         if len(cleaned) == limit:
             break
     return cleaned
+
+
+def derive_role_title(description: str, *, company_name: str) -> str:
+    """Extract the Founder-supplied title without borrowing demo-role facts."""
+    normalized = re.sub(r"\s+", " ", str(description or "")).strip()
+    title = re.split(r"[,.;:]", normalized, maxsplit=1)[0].strip()
+    title = re.sub(
+        r"^(?:/hiring\s+|hire\s+|hiring\s+|we need\s+|we are hiring\s+|"
+        r"looking for\s+|a\s+|an\s+)", "", title, flags=re.I).strip()
+    title = re.sub(
+        rf"\s+for\s+{re.escape(company_name)}(?:\s*,?\s*inc\.?)?$",
+        "", title, flags=re.I).strip()
+    # Preserve the Founder's title while normalizing one common compound form.
+    title = re.sub(r"\bfull-stack\b", "Full-Stack", title, flags=re.I)
+    return title
 
 
 def role_description_missing_fields(description: dict[str, Any] | None) -> list[str]:
@@ -210,17 +228,22 @@ def build_contract(
         missing.append("relevant experience expectations")
     if not strings["application instructions"]:
         missing.append("application instructions")
-    reviewed_text = " ".join((
-        strings["company"], strings["role"], strings["summary"],
-        strings["location"], strings["work arrangement"],
-        strings["employment type"], strings["compensation"],
-        strings["job post notes"], *criteria, *responsibility_lines,
-        *outcome_lines, *preferred_lines, *experience_lines, *benefit_lines,
-        *process_lines))
-    if _PROHIBITED.search(reviewed_text):
+    # The strict protected-attribute guard applies to selection material. A
+    # whole-post word scan rejects valid technical/accessibility prose such as
+    # "race condition", "age-gating", or "users with a disability".
+    selection_text = " ".join((*criteria, *preferred_lines, *experience_lines))
+    if _PROHIBITED.search(selection_text):
         return _error(
             "prohibited_hiring_criterion",
             "The role brief contains a prohibited attribute or proxy. Use only "
+            "job-related evidence criteria.")
+    candidate_copy = " ".join((
+        strings["summary"], strings["job post notes"],
+        *responsibility_lines, *outcome_lines, *process_lines))
+    if _PROHIBITED_COPY_PHRASE.search(candidate_copy):
+        return _error(
+            "prohibited_hiring_criterion",
+            "The role brief contains prohibited hiring language. Use only "
             "job-related evidence criteria.")
     if missing:
         return {"status": "needs_information", "missing_fields": missing,
@@ -255,11 +278,6 @@ def build_contract(
             "rubric": ["Concrete scope", "Direct contribution", "Outcome evidence"],
         })
 
-    summary = strings["summary"]
-    if responsibility_lines:
-        summary += " Responsibilities: " + "; ".join(responsibility_lines) + "."
-    if outcome_lines:
-        summary += " Success outcomes: " + "; ".join(outcome_lines) + "."
     candidate_post = _render_candidate_post(
         company_name=strings["company"], role_title=strings["role"],
         role_summary=strings["summary"], success_outcomes=outcome_lines,
@@ -280,7 +298,7 @@ def build_contract(
             "schema_version": 1,
             "company_name": strings["company"],
             "role_title": strings["role"],
-            "role_summary": summary[:3000],
+            "role_summary": strings["summary"][:3000],
             "headcount_target": headcount_target,
             "target_date": strings["date"],
             "location_envelope": [strings["location"], strings["work arrangement"]],
@@ -406,26 +424,18 @@ def founder_description_package(
         description: str, *, company_name: str, location: str,
         work_arrangement: str, employment_type: str,
         headcount_target: int = 1) -> dict[str, Any]:
-    """Compile one Founder-authored role description into an editable draft.
+    """Compile an explicitly degraded local-only role draft.
 
-    The compiler is deliberately deterministic and conservative. It turns only
-    text the Founder supplied into job-related criteria and responsibilities;
-    workspace defaults fill the working model and are returned as explicit
-    assumptions for review. The result is still a DRAFT and grants no
-    publication, intake, assessment, communication, or hiring authority.
+    Normal `/hiring` uses the grounded model writer. This conservative compiler
+    remains available only behind the explicit local fallback flag and in unit
+    tests; it never borrows the synthetic FDE fixture or grants authority.
     """
     normalized = re.sub(r"\s+", " ", str(description or "")).strip()
     if len(normalized) < 12:
         return {"status": "needs_information", "error": True,
                 "error_code": "role_description_too_short",
                 "message": "Describe the role title and the job-related experience needed."}
-    title_fragment = re.split(r"[,.;:]", normalized, maxsplit=1)[0].strip()
-    title_fragment = re.sub(
-        r"^(?:hire|hiring|we need|we are hiring|looking for|a|an)\s+",
-        "", title_fragment, flags=re.I).strip()
-    title_fragment = re.sub(
-        rf"\s+for\s+{re.escape(company_name)}(?:\s*,?\s*inc\.?)?$",
-        "", title_fragment, flags=re.I).strip()
+    title_fragment = derive_role_title(normalized, company_name=company_name)
     if not title_fragment or len(title_fragment) > 160:
         return {"status": "needs_information", "error": True,
                 "error_code": "role_title_missing",

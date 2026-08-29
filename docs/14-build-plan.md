@@ -102,8 +102,10 @@ attachments to `/discover` or changing the competition lifecycle.
   Phase 0 stabilization gate first; no later runtime, memory, capability, or
   domain-expansion phase is authorized by the document alone.
 - **25 — role-scoped Hiring intake and collaboration**: normal `/hiring` creates
-  a real Founder-authored draft; the fixed FDE package remains an optional demo
-  fixture only. The app-owned public form stays closed until exact role approval,
+  a real Founder-authored draft through a tool-less Gemini writer that fills the
+  existing job-spec fields and passes deterministic quality/safety validation
+  with at most one repair. The fixed FDE package remains an optional demo fixture
+  only. The app-owned public form stays closed until exact role approval,
   a separate Founder publication click, and the dedicated encrypted-intake key.
   The safe local slice may exercise synthetic candidate applications, restricted
   CV/application records, evidence-to-criterion coverage labelled only
