@@ -1,0 +1,21 @@
+services/actor_identity.py
+  s_bf598a20bfcdaa::t_98c71cd7301874 64-67,71,93
+tests/unit/test_actor_identity_platform.py
+  s_bf598a20bfcdaa::t_98c71cd7301874 83-98
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "b061b41c0e277ff1153e53d5fbdc9122e43ac949",
+  "prompts": {},
+  "sessions": {
+    "s_bf598a20bfcdaa": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a04860-dde3-79c3-b2bd-2987b04adc68",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Ijidai Lassa <ijidai@cued.app>"
+    }
+  }
+}
