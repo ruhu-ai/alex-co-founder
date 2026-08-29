@@ -1,0 +1,21 @@
+app/static/index.html
+  s_bf598a20bfcdaa::t_1e01039a102767 3796-3803
+tests/unit/test_browser_ui_contract.py
+  s_bf598a20bfcdaa::t_1e01039a102767 100-108
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "26caa805940570e5e027a8bb671724049bfb0652",
+  "prompts": {},
+  "sessions": {
+    "s_bf598a20bfcdaa": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a04860-dde3-79c3-b2bd-2987b04adc68",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Ijidai Lassa <ijidai@cued.app>"
+    }
+  }
+}
