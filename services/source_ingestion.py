@@ -145,8 +145,9 @@ async def register_source_ingestion(
         if not source_grant_id:
             return _error("source_not_selected", "That file is not available.", 404)
         grant = await firestore.get_source_grant(founder_id, source_grant_id)
+        drive_connector = str((grant or {}).get("connector_id") or "")
         if (not grant or grant.get("status") != "ACTIVE"
-                or grant.get("connector_id") != "drive"
+                or drive_connector not in {"drive", "alex_drive"}
                 or scope not in (grant.get("allowed_ingestion_scopes") or [])):
             return _error("source_not_selected", "That file is not available.", 404)
         connection_id = str(grant.get("connection_id") or "")
@@ -169,15 +170,17 @@ async def register_source_ingestion(
         from services import drive_adapter
 
         try:
+            fetch_args = (provider_source_id, MAX_SOURCE_BYTES, founder_id)
+            if drive_connector == "alex_drive":
+                fetch_args += (drive_connector,)
             fetched = await asyncio.wait_for(asyncio.to_thread(
-                drive_adapter.fetch_file_bytes, provider_source_id,
-                MAX_SOURCE_BYTES, founder_id), timeout=45)
+                drive_adapter.fetch_file_bytes, *fetch_args), timeout=45)
         except TimeoutError:
             fetched = _error("provider_timeout", "Drive fetch timed out.", 504)
         from services import connection_registry
 
         await connection_registry.record_operation_result(
-            founder_id, "drive", "drive_fetch", fetched)
+            founder_id, drive_connector, "drive_fetch", fetched)
         if fetched.get("status") != "success":
             if fetched.get("error_code") in {"source_missing", "provider_rejected"}:
                 await firestore.mark_source_grant_missing(founder_id, source_grant_id)

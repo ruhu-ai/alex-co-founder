@@ -24,6 +24,7 @@ class ConnectorId(ClosedValue):
     FOUNDER_GMAIL = "founder_gmail"
     ALEX_MAIL = "alex_mail"
     ALEX_CALENDAR = "alex_calendar"
+    ALEX_DRIVE = "alex_drive"
     CALENDAR = "calendar"
     BROWSER = "browser"
 
@@ -127,6 +128,7 @@ class InboxResolution(ClosedValue):
 
 class ExternalActionKind(ClosedValue):
     SEND_EMAIL = "send_email"
+    SEND_FOUNDER_EMAIL = "send_founder_email"
     CREATE_CALENDAR_EVENT = "create_calendar_event"
     EXPORT_DRIVE_FILE = "export_drive_file"
     EXPORT_ALEX_DRIVE_FILE = "export_alex_drive_file"
@@ -213,8 +215,10 @@ CONNECTOR_REGISTRY: dict[ConnectorId, ConnectorContract] = {
         "Alex role-owned Drive with full provider read/write scope; "
         "consequential mutations remain exact approval-gated"),
     ConnectorId.FOUNDER_GMAIL: ConnectorContract(
-        ConnectorId.FOUNDER_GMAIL, frozenset({DataSourceRole.EVENT}),
-        ConnectionAuthKind.GOOGLE_OAUTH, "one founder-selected label; read-only"),
+        ConnectorId.FOUNDER_GMAIL,
+        frozenset({DataSourceRole.EVENT, DataSourceRole.ACTION_DESTINATION}),
+        ConnectionAuthKind.GOOGLE_OAUTH,
+        "one founder-selected label for reads; exact approval-gated send; no modify/delete"),
     ConnectorId.ALEX_MAIL: ConnectorContract(
         ConnectorId.ALEX_MAIL,
         frozenset({DataSourceRole.EVENT, DataSourceRole.ACTION_DESTINATION}),
@@ -222,9 +226,15 @@ CONNECTOR_REGISTRY: dict[ConnectorId, ConnectorContract] = {
         "role mailbox reads/events; exact approval-gated send"),
     ConnectorId.ALEX_CALENDAR: ConnectorContract(
         ConnectorId.ALEX_CALENDAR,
-        frozenset({DataSourceRole.ACTION_DESTINATION}),
+        frozenset({DataSourceRole.CONTEXT, DataSourceRole.ACTION_DESTINATION}),
         ConnectionAuthKind.GOOGLE_OAUTH,
-        "Alex role calendar; exact approval-gated interview invite create/update/cancel; no general calendar browsing"),
+        "Alex role calendar reads; exact approval-gated event create/update/cancel"),
+    ConnectorId.ALEX_DRIVE: ConnectorContract(
+        ConnectorId.ALEX_DRIVE,
+        frozenset({DataSourceRole.KNOWLEDGE,
+                   DataSourceRole.ACTION_DESTINATION}),
+        ConnectionAuthKind.GOOGLE_OAUTH,
+        "Alex-selected files for reads; app-produced files only for approval-gated export"),
     ConnectorId.CALENDAR: ConnectorContract(
         ConnectorId.CALENDAR,
         frozenset({DataSourceRole.CONTEXT,

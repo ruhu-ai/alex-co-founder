@@ -8,6 +8,7 @@
 # --- Secrets / credentials (NEVER bake into image layers) ---
 .env
 .env.*
+!.env.example
 .portal_secrets.json
 *.pem
 *.key
@@ -66,8 +67,9 @@ dist/
 # --- Tests (not imported at runtime) ---
 tests/
 
-# --- Docs & large binaries (not imported at runtime) ---
-docs/
+# --- Docs & large binaries (only the release-bound Spec 39 contract ships) ---
+docs/*
+!docs/39-durable-cross-session-memory.md
 *.pdf
 ssh-lambda.docx
 

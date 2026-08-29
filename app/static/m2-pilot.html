@@ -1,0 +1,407 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>What Alex knows — Local synthetic pilot</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <style>
+    :root {
+      color-scheme: dark;
+      --surface-canvas: #090b10;
+      --surface-panel: #12151d;
+      --surface-raised: #191d27;
+      --surface-subtle: #202633;
+      --surface-accent: #263f75;
+      --surface-danger: #351d24;
+      --ink-primary: #f4f6fb;
+      --ink-secondary: #b7bfce;
+      --ink-muted: #8791a3;
+      --ink-accent: #b9d1ff;
+      --ink-success: #8de1b4;
+      --ink-danger: #ffb4bf;
+      --border-default: #2b3240;
+      --border-strong: #3a465a;
+      --focus-ring: #90b4ff;
+      --shadow-panel: 0 16px 48px rgba(0, 0, 0, .28);
+      --radius-sm: 6px;
+      --radius-md: 10px;
+      --radius-lg: 16px;
+      --space-1: 4px;
+      --space-2: 8px;
+      --space-3: 12px;
+      --space-4: 16px;
+      --space-5: 20px;
+      --space-6: 24px;
+      --space-8: 32px;
+      --space-10: 40px;
+      --measure: 72rem;
+      font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      font-size: 14px;
+      line-height: 1.5;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; color: var(--ink-primary); background: var(--surface-canvas); }
+    button, input, select { font: inherit; }
+    button:focus-visible, input:focus-visible, select:focus-visible, summary:focus-visible {
+      outline: 2px solid var(--focus-ring); outline-offset: 2px;
+    }
+    [hidden] { display: none !important; }
+    .topbar {
+      position: sticky; top: 0; z-index: 10; display: flex; align-items: center;
+      gap: var(--space-3); min-height: 58px; padding: var(--space-3) max(var(--space-4), calc((100vw - var(--measure)) / 2));
+      background: color-mix(in srgb, var(--surface-canvas) 92%, transparent); border-bottom: 1px solid var(--border-default);
+      backdrop-filter: blur(14px);
+    }
+    .brand {
+      display: grid; place-items: center; width: 34px; height: 34px; border-radius: 50%;
+      background: var(--surface-accent); color: var(--ink-accent); font-weight: 750;
+    }
+    .top-title { font-weight: 700; letter-spacing: -.01em; }
+    .top-sub { color: var(--ink-muted); font-size: 12px; }
+    .spacer { flex: 1; }
+    .badge {
+      display: inline-flex; align-items: center; gap: 7px; min-height: 28px; padding: 4px 10px;
+      border: 1px solid var(--border-strong); border-radius: 999px; color: var(--ink-accent);
+      background: var(--surface-accent); font-size: 11px; font-weight: 750; letter-spacing: .055em;
+    }
+    .badge::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--ink-success); }
+    main { width: min(var(--measure), calc(100% - 32px)); margin: 0 auto; padding: var(--space-8) 0 var(--space-10); }
+    .crumb { color: var(--ink-muted); font-size: 12px; margin-bottom: var(--space-3); }
+    .crumb b { color: var(--ink-secondary); }
+    .hero { display: grid; grid-template-columns: 1fr auto; align-items: end; gap: var(--space-5); margin-bottom: var(--space-6); }
+    h1 { margin: 0 0 var(--space-2); font-size: clamp(28px, 4vw, 40px); line-height: 1.1; letter-spacing: -.035em; }
+    .lead { margin: 0; max-width: 62ch; color: var(--ink-secondary); font-size: 15px; }
+    .session-box { text-align: right; color: var(--ink-muted); font-size: 12px; }
+    .session-box strong { display: block; color: var(--ink-secondary); font-weight: 650; }
+    .notice-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-3); margin-bottom: var(--space-6); }
+    .notice { padding: var(--space-4); border: 1px solid var(--border-default); border-radius: var(--radius-md); background: var(--surface-panel); }
+    .notice b { display: block; margin-bottom: var(--space-1); font-size: 13px; }
+    .notice span { color: var(--ink-muted); font-size: 12px; }
+    .banner { margin-bottom: var(--space-4); padding: var(--space-3) var(--space-4); border-radius: var(--radius-md); border: 1px solid var(--border-strong); }
+    .banner.error { background: var(--surface-danger); color: var(--ink-danger); }
+    .banner.private { background: var(--surface-accent); color: var(--ink-accent); }
+    .panel { overflow: hidden; border: 1px solid var(--border-default); border-radius: var(--radius-lg); background: var(--surface-panel); box-shadow: var(--shadow-panel); }
+    .panel-head { display: flex; align-items: center; gap: var(--space-4); padding: var(--space-5) var(--space-6); border-bottom: 1px solid var(--border-default); }
+    .panel-head h2 { margin: 0 0 2px; font-size: 18px; letter-spacing: -.015em; }
+    .panel-head p { margin: 0; color: var(--ink-muted); font-size: 12px; }
+    .section { padding: var(--space-5) var(--space-6); }
+    .section + .section { border-top: 1px solid var(--border-default); }
+    .row { display: flex; align-items: center; gap: var(--space-4); }
+    .grow { flex: 1; min-width: 0; }
+    .row-title { font-weight: 650; }
+    .row-sub { color: var(--ink-muted); font-size: 12px; margin-top: 2px; }
+    .btn { min-height: 36px; padding: 7px 13px; border: 1px solid var(--border-strong); border-radius: var(--radius-sm); background: var(--surface-raised); color: var(--ink-primary); cursor: pointer; }
+    .btn:hover:not(:disabled) { background: var(--surface-subtle); }
+    .btn.primary { background: var(--surface-accent); color: var(--ink-accent); }
+    .btn.danger { background: var(--surface-danger); color: var(--ink-danger); }
+    .btn.quiet { min-height: 32px; padding: 5px 9px; font-size: 12px; }
+    .btn:disabled { cursor: not-allowed; opacity: .45; }
+    .form { display: grid; grid-template-columns: 1fr 170px auto; gap: var(--space-3); align-items: end; }
+    label { display: block; margin-bottom: var(--space-2); color: var(--ink-secondary); font-size: 12px; font-weight: 650; }
+    input, select { width: 100%; min-height: 40px; padding: 8px 11px; border: 1px solid var(--border-strong); border-radius: var(--radius-sm); background: var(--surface-canvas); color: var(--ink-primary); }
+    .section-title { margin: 0 0 var(--space-3); color: var(--ink-secondary); font-size: 12px; font-weight: 750; letter-spacing: .055em; text-transform: uppercase; }
+    .memory-list { display: grid; gap: var(--space-3); }
+    .memory { padding: var(--space-4); border: 1px solid var(--border-default); border-radius: var(--radius-md); background: var(--surface-raised); }
+    .memory-main { display: flex; align-items: flex-start; gap: var(--space-4); }
+    .memory-text { font-weight: 620; overflow-wrap: anywhere; }
+    .memory-meta { margin-top: var(--space-2); color: var(--ink-muted); font-size: 11px; }
+    .memory-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--space-2); }
+    .empty { padding: var(--space-6); border: 1px dashed var(--border-strong); border-radius: var(--radius-md); color: var(--ink-muted); text-align: center; }
+    details { margin-top: var(--space-4); color: var(--ink-muted); font-size: 12px; }
+    summary { cursor: pointer; color: var(--ink-secondary); }
+    .ledger { margin-top: var(--space-2); padding: var(--space-3); border-radius: var(--radius-sm); background: var(--surface-canvas); }
+    .footnote { margin-top: var(--space-5); color: var(--ink-muted); font-size: 11px; text-align: center; }
+    .skeleton { min-height: 80px; border-radius: var(--radius-md); background: var(--surface-raised); }
+    @media (max-width: 760px) {
+      .top-sub, .topbar .badge { display: none; }
+      .hero { grid-template-columns: 1fr; }
+      .session-box { text-align: left; }
+      .notice-grid { grid-template-columns: 1fr; }
+      .form { grid-template-columns: 1fr; }
+      .panel-head, .section { padding: var(--space-4); }
+      .memory-main { flex-direction: column; }
+      .memory-actions { justify-content: flex-start; }
+    }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand" aria-hidden="true">A</div>
+    <div><div class="top-title">Co-Founder</div><div class="top-sub">Isolated memory validation</div></div>
+    <div class="spacer"></div>
+    <span class="badge">LOCAL SYNTHETIC PILOT</span>
+  </header>
+
+  <main>
+    <div class="crumb">Settings <span aria-hidden="true">›</span> <b>What Alex knows</b></div>
+    <div class="hero">
+      <div>
+        <h1>What Alex knows</h1>
+        <p class="lead">Test optional saved context with one authenticated Founder and synthetic local data. Nothing here is imported from conversations or the normal app.</p>
+      </div>
+      <div class="session-box"><span id="sessionMode">Preparing local session…</span><strong id="sessionRef"></strong></div>
+    </div>
+
+    <div class="notice-grid" aria-label="Pilot boundaries">
+      <div class="notice"><b>Local namespace only</b><span>Separate SQLite data and deletion ledger.</span></div>
+      <div class="notice"><b>No automatic ingestion</b><span>Only text you explicitly remember is stored.</span></div>
+      <div class="notice"><b>No external effects</b><span>Cloud, connectors, workflows, and M3+ stay fenced off.</span></div>
+    </div>
+
+    <div id="errorBanner" class="banner error" role="alert" hidden></div>
+    <div id="privateBanner" class="banner private" role="status" hidden>
+      <b>Private session active.</b> Optional saved context is neither read nor written. Return to a standard synthetic session to manage memory.
+    </div>
+
+    <section class="panel" aria-labelledby="panelTitle">
+      <div class="panel-head">
+        <div class="grow"><h2 id="panelTitle">Optional saved context</h2><p id="memoryStatus">Checking the local pilot boundary…</p></div>
+        <button id="memoryToggle" class="btn primary" type="button" disabled>Enable</button>
+      </div>
+
+      <div class="section">
+        <div class="row">
+          <div class="grow"><div class="row-title">Session privacy</div><div class="row-sub">Private sessions make zero optional-memory reads or writes.</div></div>
+          <button id="privateButton" class="btn" type="button">Start private session</button>
+          <button id="standardButton" class="btn" type="button" hidden>Return to standard pilot</button>
+        </div>
+      </div>
+
+      <div id="rememberSection" class="section">
+        <h3 class="section-title">Remember something</h3>
+        <form id="rememberForm" class="form">
+          <div><label for="memoryText">Exact synthetic context</label><input id="memoryText" maxlength="1000" placeholder="Keep synthetic status updates concise and direct" autocomplete="off"></div>
+          <div><label for="memoryKind">Memory type</label><select id="memoryKind"><option value="PREFERENCE">Preference</option><option value="REUSABLE_CONTEXT">Reusable context</option></select></div>
+          <button id="rememberButton" class="btn primary" type="submit">Remember</button>
+        </form>
+      </div>
+
+      <div id="itemsSection" class="section">
+        <h3 class="section-title">Remembered context</h3>
+        <div id="memoryItems" class="memory-list"><div class="skeleton" aria-label="Loading"></div></div>
+        <details id="ledgerDetails" hidden><summary id="ledgerSummary"></summary><div id="ledgerBody" class="ledger"></div></details>
+        <div class="row"><div class="grow"><div class="row-title">Delete all saved context</div><div class="row-sub">Disables memory first and deny-first deletes every current synthetic lineage.</div></div><button id="deleteAllButton" class="btn danger" type="button">Delete all</button></div>
+        <div id="exportRow" class="row"><div class="grow"><div class="row-title">Export</div><div id="exportStatus" class="row-sub">Creates a short-lived encrypted local export in the background.</div></div><button id="exportButton" class="btn" type="button" disabled>Export</button></div>
+      </div>
+    </section>
+
+    <p class="footnote">Normal Co-Founder on port 8090 remains separate and M2-default-off. Cloud TTL, backup attestation, and named reviews remain pre-production gates.</p>
+  </main>
+
+  <script>
+    "use strict";
+    const $ = id => document.getElementById(id);
+    const view = {sessionId: "", private: false, enabled: false, status: null, exportId: ""};
+    let csrfToken = "";
+
+    function requestId(prefix) { return `${prefix}_${crypto.randomUUID()}`; }
+    function escapeHtml(value) {
+      return String(value ?? "").replace(/[&<>"']/g, char => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"})[char]);
+    }
+    async function api(path, options = {}) {
+      const method = String(options.method || "GET").toUpperCase();
+      const headers = {"Content-Type": "application/json", ...(options.headers || {})};
+      if (!["GET", "HEAD", "OPTIONS"].includes(method)) {
+        if (!csrfToken) {
+          const me = await fetch("/auth/me", {credentials: "same-origin"})
+            .then(response => response.ok ? response.json() : null)
+            .catch(() => null);
+          csrfToken = me?.csrf_token || "";
+        }
+        if (csrfToken) headers["X-CSRF-Token"] = csrfToken;
+      }
+      const response = await fetch(path, {credentials: "same-origin", ...options, headers});
+      let body = {};
+      try { body = await response.json(); } catch { body = {}; }
+      if (response.status === 401 && !path.startsWith("/auth/")) {
+        location.href = "/login.html";
+        throw new Error("Signed out");
+      }
+      if (!response.ok || body.error) throw new Error(body.message || body.error_code || `Request failed (${response.status})`);
+      return body;
+    }
+    function showError(error) {
+      $("errorBanner").textContent = error?.message || String(error);
+      $("errorBanner").hidden = false;
+    }
+    function clearError() { $("errorBanner").hidden = true; $("errorBanner").textContent = ""; }
+    function storeSession(id) { view.sessionId = id; localStorage.setItem("spec39M2PilotSession", id); }
+
+    async function createSession(mode) {
+      const created = await api("/api/v1/sessions", {method: "POST", body: JSON.stringify({client_request_id: requestId("pilot_session"), memory_mode: mode})});
+      storeSession(created.session_id);
+      return created.session_id;
+    }
+    async function sessionStatus(id) {
+      return api(`/api/v1/memory/status?session_id=${encodeURIComponent(id)}`);
+    }
+    async function findStandardSession() {
+      const listing = await api("/api/v1/sessions");
+      for (const candidate of (listing.sessions || []).slice(0, 20)) {
+        try {
+          const status = await sessionStatus(candidate.id);
+          if (!status.private_session) { storeSession(candidate.id); return status; }
+        } catch { /* an expired shell is skipped */ }
+      }
+      const id = await createSession("STANDARD");
+      return sessionStatus(id);
+    }
+    async function resolveSession() {
+      const stored = localStorage.getItem("spec39M2PilotSession");
+      if (stored) {
+        try { storeSession(stored); return await sessionStatus(stored); } catch { localStorage.removeItem("spec39M2PilotSession"); }
+      }
+      return findStandardSession();
+    }
+
+    function renderSession(status) {
+      view.private = status.private_session === true;
+      view.status = status;
+      view.enabled = !view.private && status.read_enabled === true;
+      $("sessionMode").textContent = view.private ? "Private synthetic session" : "Standard synthetic session";
+      $("sessionRef").textContent = view.sessionId ? `…${view.sessionId.slice(-8)}` : "";
+      $("privateBanner").hidden = !view.private;
+      $("privateButton").hidden = view.private;
+      $("standardButton").hidden = !view.private;
+      $("rememberSection").hidden = view.private;
+      $("itemsSection").hidden = view.private;
+      $("memoryToggle").hidden = view.private;
+      $("deleteAllButton").hidden = view.private;
+      $("exportRow").hidden = view.private;
+      $("memoryToggle").textContent = view.enabled ? "Disable" : "Enable";
+      $("memoryToggle").disabled = view.private || !status.pilot_eligible || !status.deletion_ledger_ready;
+      $("exportButton").disabled = view.private || status.export_available !== true;
+      $("exportStatus").textContent = status.export_available
+        ? `Creates an encrypted local background export that expires within ${Number(status.export_artifact_ttl_hours || 24)} hours.`
+        : "Export is unavailable because the local encrypted-delivery check did not pass.";
+      $("memoryStatus").textContent = view.private
+        ? "Private session — optional memory is fully excluded."
+        : view.enabled
+          ? "Enabled for this local synthetic Founder pilot. Saved context is advisory."
+          : "Disabled. Isolated items are retained but cannot be recalled or changed.";
+      for (const id of ["memoryText", "memoryKind", "rememberButton"]) $(id).disabled = !view.enabled;
+    }
+
+    function renderItems(items) {
+      const active = items.filter(item => ["active", "memory_disabled", "stale"].includes(item.display_state));
+      const evidence = items.filter(item => !active.includes(item));
+      $("memoryItems").innerHTML = active.length ? active.map(item => {
+        const controllable = ["active", "memory_disabled"].includes(item.display_state) && view.enabled;
+        return `<article class="memory" data-memory-id="${escapeHtml(item.memory_id)}"><div class="memory-main"><div class="grow"><div class="memory-text">${escapeHtml(item.summary || "Unavailable synthetic context")}</div><div class="memory-meta">${escapeHtml(item.memory_kind)} · ${escapeHtml(item.display_state)} · ${item.pinned ? "pinned · " : ""}expires ${escapeHtml(item.expires_at || "unknown")}<br>Source: ${escapeHtml(item.source_label || "Founder control")} · ${escapeHtml(item.freshness_status || "unknown")}</div></div><div class="memory-actions"><button class="btn quiet" data-action="correct" data-id="${escapeHtml(item.memory_id)}" data-version="${Number(item.version)}" ${controllable ? "" : "disabled"}>Correct</button><button class="btn quiet" data-action="pin" data-id="${escapeHtml(item.memory_id)}" data-version="${Number(item.version)}" ${controllable && !item.pinned ? "" : "disabled"}>${item.pinned ? "Pinned" : "Pin"}</button><button class="btn quiet danger" data-action="forget" data-id="${escapeHtml(item.memory_id)}" data-version="${Number(item.version)}" ${controllable ? "" : "disabled"}>Forget</button></div></div></article>`;
+      }).join("") : `<div class="empty">No active saved context. Add one exact synthetic fact or preference above.</div>`;
+      $("ledgerDetails").hidden = evidence.length === 0;
+      $("ledgerSummary").textContent = `${evidence.length} non-recallable record${evidence.length === 1 ? "" : "s"} retained as deletion/restore-fence evidence`;
+      const counts = evidence.reduce((out, item) => { out[item.display_state] = (out[item.display_state] || 0) + 1; return out; }, {});
+      $("ledgerBody").textContent = Object.entries(counts).map(([key, count]) => `${key}: ${count}`).join(" · ") + ". Content is not shown or recalled.";
+    }
+
+    async function refresh() {
+      clearError();
+      const status = await sessionStatus(view.sessionId);
+      renderSession(status);
+      if (view.private) { $("memoryItems").innerHTML = ""; return; }
+      const listed = await api(`/api/v1/memories?session_id=${encodeURIComponent(view.sessionId)}`);
+      renderItems(listed.items || []);
+    }
+
+    $("memoryToggle").addEventListener("click", async () => {
+      try {
+        clearError();
+        await api("/api/v1/memory/settings", {method: "POST", body: JSON.stringify({session_id: view.sessionId, enabled: !view.enabled, client_request_id: requestId("pilot_setting")})});
+        await refresh();
+      } catch (error) { showError(error); }
+    });
+    $("rememberForm").addEventListener("submit", async event => {
+      event.preventDefault();
+      const summary = $("memoryText").value.trim();
+      if (!summary) return;
+      try {
+        clearError();
+        await api("/api/v1/memories", {method: "POST", body: JSON.stringify({session_id: view.sessionId, client_request_id: requestId("pilot_remember"), memory_kind: $("memoryKind").value, summary, tags: []})});
+        $("memoryText").value = "";
+        await refresh();
+      } catch (error) { showError(error); }
+    });
+    $("memoryItems").addEventListener("click", async event => {
+      const button = event.target.closest("button[data-action]");
+      if (!button) return;
+      const id = button.dataset.id, version = Number(button.dataset.version), action = button.dataset.action;
+      try {
+        clearError();
+        if (action === "correct") {
+          const summary = prompt("Correct the exact synthetic saved text. The previous version becomes non-recallable evidence.");
+          if (!summary?.trim()) return;
+          await api(`/api/v1/memories/${encodeURIComponent(id)}:correct`, {method: "POST", body: JSON.stringify({session_id: view.sessionId, client_request_id: requestId("pilot_correct"), expected_version: version, summary: summary.trim()})});
+        } else if (action === "pin") {
+          await api(`/api/v1/memories/${encodeURIComponent(id)}:pin`, {method: "POST", body: JSON.stringify({session_id: view.sessionId, client_request_id: requestId("pilot_pin"), expected_version: version})});
+        } else if (action === "forget") {
+          if (!confirm("Forget this synthetic context? Recall stops immediately and the separate deletion ledger prevents restore resurrection.")) return;
+          await api(`/api/v1/memories/${encodeURIComponent(id)}:forget`, {method: "POST", body: JSON.stringify({session_id: view.sessionId, client_request_id: requestId("pilot_forget"), expected_version: version})});
+        }
+        await refresh();
+      } catch (error) { showError(error); }
+    });
+    $("privateButton").addEventListener("click", async () => {
+      try { clearError(); await createSession("PRIVATE"); await refresh(); } catch (error) { showError(error); }
+    });
+    $("standardButton").addEventListener("click", async () => {
+      try { clearError(); await findStandardSession(); await refresh(); } catch (error) { showError(error); }
+    });
+    $("deleteAllButton").addEventListener("click", async () => {
+      try {
+        clearError();
+        const plan = await api(`/api/v1/memories:delete-all-plan?session_id=${encodeURIComponent(view.sessionId)}`);
+        if (plan.requires_bounded_batch) throw new Error("Delete all needs a separately authorized bounded continuation.");
+        if (!confirm(`Delete all ${plan.item_count} synthetic saved record${plan.item_count === 1 ? "" : "s"}? Memory is disabled first and active recall stops immediately.`)) return;
+        await api("/api/v1/memories:delete-all", {method: "POST", body: JSON.stringify({session_id: view.sessionId, client_request_id: requestId("pilot_delete_all"), expected_plan_hash: plan.plan_hash})});
+        await refresh();
+      } catch (error) { showError(error); }
+    });
+    $("exportButton").addEventListener("click", async () => {
+      const button = $("exportButton"), status = $("exportStatus");
+      button.disabled = true;
+      try {
+        clearError();
+        if (!view.exportId) {
+          const result = await api("/api/v1/memory/exports", {method: "POST", body: JSON.stringify({session_id: view.sessionId, client_request_id: requestId("pilot_export")})});
+          view.exportId = result.export_id;
+          button.textContent = "Check export";
+          status.textContent = "Encrypted local export requested. Check when ready; this page does not poll in the background.";
+          return;
+        }
+        await api(`/api/v1/memory/exports/${encodeURIComponent(view.exportId)}:process`, {method: "POST", body: JSON.stringify({session_id: view.sessionId})});
+        const result = await api(`/api/v1/memory/exports/${encodeURIComponent(view.exportId)}?session_id=${encodeURIComponent(view.sessionId)}`);
+        if (!result.ready) {
+          status.textContent = `Export status: ${String(result.export_status || "pending").toLowerCase()}. Check again shortly.`;
+          return;
+        }
+        const separator = result.download_path.includes("?") ? "&" : "?";
+        location.href = `${result.download_path}${separator}session_id=${encodeURIComponent(view.sessionId)}`;
+        status.textContent = "Export download started. The encrypted local artifact remains isolated and expires automatically.";
+      } catch (error) {
+        showError(error);
+        status.textContent = error.message || "Export is unavailable.";
+      } finally {
+        button.disabled = view.private || view.status?.export_available !== true;
+      }
+    });
+
+    async function boot() {
+      try {
+        const config = await api("/api/config");
+        if (config.memory_surface_enabled !== true || config.memory_surface_mode !== "LOCAL_SYNTHETIC_PILOT") {
+          throw new Error("This surface is available only inside the isolated local synthetic pilot.");
+        }
+        const status = await resolveSession();
+        renderSession(status);
+        if (!view.private) {
+          const listed = await api(`/api/v1/memories?session_id=${encodeURIComponent(view.sessionId)}`);
+          renderItems(listed.items || []);
+        }
+      } catch (error) { showError(error); $("memoryStatus").textContent = "Pilot entry check did not pass."; }
+    }
+    boot();
+  </script>
+</body>
+</html>

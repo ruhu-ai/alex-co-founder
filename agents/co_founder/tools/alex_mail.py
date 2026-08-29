@@ -94,3 +94,31 @@ async def send_alex_email(tool_context: ToolContext, to: str, subject: str,
         requested_by_actor_id=actor_id(tool_context),
         session_id=(getattr(session, "id", "")
                     or getattr(session, "session_id", "")))
+
+
+async def send_founder_email(tool_context: ToolContext, to: str, subject: str,
+                             body: str, application_id: str = "") -> dict:
+    """Send one plain-text email from the connected Founder's Gmail.
+
+    Every send is bound to the exact recipient, subject, and body shown in the
+    approval panel. Without a matching, fresh, single-use Founder approval this
+    returns ``needs_approval`` and sends nothing. Optional memory never grants
+    this authority. Mailbox modification and deletion are not supported.
+
+    Args:
+        to: One recipient email address.
+        subject: Exact subject line the Founder will review.
+        body: Exact plain-text body the Founder will review.
+        application_id: Related application id, when applicable.
+
+    Returns:
+        A success receipt after approval, or errors-as-data with no send.
+    """
+    session = getattr(tool_context, "session", None)
+    return await alex_mailbox.send_email(
+        to=to, subject=subject, body=body, application_id=application_id,
+        founder_id=workspace_id(tool_context),
+        requested_by_actor_id=actor_id(tool_context),
+        session_id=(getattr(session, "id", "")
+                    or getattr(session, "session_id", "")),
+        connector_id="founder_gmail")

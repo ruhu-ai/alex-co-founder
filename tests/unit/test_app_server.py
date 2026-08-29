@@ -60,6 +60,21 @@ def _clean_env(monkeypatch):
     monkeypatch.delenv("GOOGLE_OAUTH_CLIENT_SECRET", raising=False)
     monkeypatch.delenv("DISCOVER_COMMAND_ENABLED", raising=False)
     monkeypatch.delenv("HIRING_ENABLE_SYNTHETIC_DEMO", raising=False)
+    for name in (
+        "DURABLE_MEMORY_M2_ENABLED",
+        "DURABLE_MEMORY_M2_WORKSPACE_ALLOWLIST",
+        "DURABLE_MEMORY_M2_ENTRY_GATE_ATTESTED",
+        "DURABLE_MEMORY_M2_RELEASE_CANDIDATE_SHA256",
+        "DURABLE_MEMORY_M2_ENTRY_ATTESTATION_SHA256",
+        "DURABLE_MEMORY_M2_LOCAL_PILOT",
+        "DURABLE_MEMORY_M2_LOCAL_ENTRY_ATTESTED",
+        "DURABLE_MEMORY_M2_LOCAL_WORKSPACE_ID",
+        "DURABLE_MEMORY_M2_LOCAL_FOUNDER_ID",
+        "DURABLE_MEMORY_BACKUP_POLICY_ATTESTED",
+        "DURABLE_MEMORY_BACKUP_POLICY_REF",
+        "MEMORY_DELETION_LEDGER_DATABASE",
+    ):
+        monkeypatch.delenv(name, raising=False)
 
 
 class TestAdminRoutesStripped:
@@ -486,6 +501,69 @@ class TestProfileConflictReview:
 class TestFounderGate:
     def test_dev_open_without_token(self, client):
         assert client.get("/api/config").status_code == 200
+
+    def test_memory_surface_config_is_default_off_and_local_pilot_explicit(
+            self, client, monkeypatch):
+        monkeypatch.delenv("DURABLE_MEMORY_M2_ENABLED", raising=False)
+        monkeypatch.delenv("DURABLE_MEMORY_M2_LOCAL_PILOT", raising=False)
+        config = client.get("/api/config").json()
+        assert config["memory_surface_enabled"] is False
+        assert config["memory_surface_mode"] == "OFF"
+
+        monkeypatch.setenv("DURABLE_MEMORY_M2_ENABLED", "true")
+        monkeypatch.setenv("DURABLE_MEMORY_M2_LOCAL_PILOT", "1")
+        monkeypatch.setenv("DURABLE_MEMORY_M2_LOCAL_ENTRY_ATTESTED", "1")
+        monkeypatch.setenv("DURABLE_MEMORY_M2_LOCAL_WORKSPACE_ID", "local-workspace")
+        monkeypatch.setenv("DURABLE_MEMORY_M2_LOCAL_FOUNDER_ID", "local-founder")
+        monkeypatch.delenv("K_SERVICE", raising=False)
+        config = client.get("/api/config").json()
+        assert config["memory_surface_enabled"] is True
+        assert config["memory_surface_mode"] == "LOCAL_SYNTHETIC_PILOT"
+
+    def test_normal_memory_surface_requires_exact_release_binding(
+            self, client, monkeypatch, appmod):
+        monkeypatch.setenv("DURABLE_MEMORY_M2_ENABLED", "true")
+        assert client.get("/api/config").json()["memory_surface_enabled"] is False
+
+        monkeypatch.setenv("DURABLE_MEMORY_M2_WORKSPACE_ALLOWLIST", "workspace-a")
+        monkeypatch.setenv("DURABLE_MEMORY_M2_MEMBERSHIP_CLASS", "FOUNDER")
+        monkeypatch.setenv("DURABLE_MEMORY_M2_ENTRY_GATE_ATTESTED", "true")
+        monkeypatch.setenv(
+            "DURABLE_MEMORY_M2_RELEASE_CANDIDATE_SHA256",
+            appmod.durable_memory.candidate_hash(),
+        )
+        monkeypatch.setenv(
+            "DURABLE_MEMORY_M2_ENTRY_ATTESTATION_SHA256",
+            "sha256:" + "a" * 64,
+        )
+        monkeypatch.setenv("DURABLE_MEMORY_BACKUP_POLICY_ATTESTED", "true")
+        monkeypatch.setenv("DURABLE_MEMORY_BACKUP_POLICY_REF", "policy:test")
+        monkeypatch.setenv("FIRESTORE_DATABASE", "app-db")
+        monkeypatch.setenv("MEMORY_DELETION_LEDGER_DATABASE", "memory-ledger")
+        monkeypatch.setenv("DURABLE_MEMORY_M2_EXPORT_DELIVERY_ATTESTED", "true")
+        monkeypatch.setenv("DURABLE_MEMORY_EXPORT_BUCKET", "memory-export-bucket")
+        monkeypatch.setenv(
+            "DURABLE_MEMORY_EXPORT_KMS_KEY_NAME",
+            "projects/test/locations/global/keyRings/spec39/cryptoKeys/export",
+        )
+        config = client.get("/api/config").json()
+        assert config["memory_surface_enabled"] is True
+        assert config["memory_surface_mode"] == "FOUNDER_CANARY"
+
+    def test_root_selects_pilot_document_only_in_local_pilot(
+            self, client, monkeypatch):
+        monkeypatch.delenv("K_SERVICE", raising=False)
+        monkeypatch.setenv("DURABLE_MEMORY_M2_LOCAL_PILOT", "1")
+        pilot = client.get("/")
+        assert pilot.status_code == 200
+        assert "LOCAL SYNTHETIC PILOT" in pilot.text
+        assert "Settings" in pilot.text and "What Alex knows" in pilot.text
+
+        monkeypatch.setenv("DURABLE_MEMORY_M2_LOCAL_PILOT", "0")
+        normal = client.get("/")
+        assert normal.status_code == 200
+        assert "LOCAL SYNTHETIC PILOT" not in normal.text
+        assert 'id="chatlog"' in normal.text
 
     def test_anonymous_rejected_when_token_set(self, client, monkeypatch):
         monkeypatch.setenv("APP_AUTH_TOKEN", "t0ken")

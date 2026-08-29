@@ -1,0 +1,147 @@
+{
+  "schema_version": 4,
+  "environment": "staging",
+  "candidate_sha256": "TBD",
+  "application_database": "(default)",
+  "workspace": {
+    "workspace_id": "TBD_SYNTHETIC_WORKSPACE",
+    "founder_actor_id": "TBD_SYNTHETIC_FOUNDER"
+  },
+  "deletion_ledger": {
+    "database": "TBD_SEPARATE_DATABASE",
+    "administrative_owner": "TBD",
+    "database_evidence_ref": "TBD",
+    "high_water_evidence_ref": "TBD",
+    "ordinary_restore_exclusion_ref": "TBD",
+    "replication_evidence_ref": "TBD"
+  },
+  "ttl": {
+    "collection_group": "memory_items",
+    "field_path": "expires_at_ts",
+    "dry_run_evidence_ref": "TBD",
+    "applied_evidence_ref": "TBD"
+  },
+  "backup_policy": {
+    "name": "TBD",
+    "policy_ref": "TBD",
+    "owner": "TBD",
+    "evidence_ref": "TBD",
+    "residual_days": 30,
+    "complete_waits_for_residual_expiry": true
+  },
+  "memory_export": {
+    "asynchronous": false,
+    "encrypted_at_rest": false,
+    "actor_attributed": false,
+    "current_source_authorization_filter": false,
+    "generic_search_excluded": false,
+    "artifact_ttl_hours": 0,
+    "bucket": "TBD",
+    "kms_key_name": "TBD",
+    "delivery_design_ref": "TBD",
+    "encryption_evidence_ref": "TBD",
+    "expiry_evidence_ref": "TBD"
+  },
+  "monitoring": {
+    "dashboard_ref": "TBD",
+    "notification_channel_ref": "TBD",
+    "alert_policy_refs": {
+      "cross_scope_hit": "TBD",
+      "missing_source_hit": "TBD",
+      "deleted_item_retrieval": "TBD",
+      "private_session_backend_call": "TBD",
+      "deletion_deadline_breach": "TBD",
+      "backend_error_spike": "TBD",
+      "cost_budget_exhaustion": "TBD",
+      "hiring_boundary": "TBD"
+    },
+    "kill_switch_rehearsal_ref": "TBD",
+    "rollback_rehearsal_ref": "TBD",
+    "durable_work_remained_available": false,
+    "deletion_jobs_remained_active": false,
+    "memory_off_after_rehearsal": false
+  },
+  "pilot_results": {
+    "usefulness": {
+      "eligible_cases": 0,
+      "useful_cases": 0,
+      "admitted_hits": 0,
+      "irrelevant_admitted_hits": 0,
+      "evidence_ref": "TBD"
+    },
+    "recall_paging": {
+      "max_pages": 0,
+      "max_candidates_examined": 0,
+      "max_source_reauthorizations": 0,
+      "max_admitted_hits": 0,
+      "silent_under_returns": 0,
+      "unauthorized_count_leaks": 0,
+      "evidence_ref": "TBD"
+    },
+    "latency_cost": {
+      "recall_p95_ms": 0,
+      "recall_max_ms": 0,
+      "max_context_tokens": 0,
+      "max_context_chars": 0,
+      "max_writes_per_workspace_day": 0,
+      "approved_cost_usd": 0,
+      "actual_cost_usd": 0,
+      "explicit_error_rate": 0,
+      "evidence_ref": "TBD"
+    },
+    "deletion": {
+      "recalls_after_deny": 0,
+      "writes_after_deny": 0,
+      "active_probe_hits": 0,
+      "reported_backup_residual_honestly": false,
+      "evidence_ref": "TBD"
+    },
+    "source_revocation": {
+      "recalls_after_revocation": 0,
+      "writes_after_revocation": 0,
+      "existence_signals": 0,
+      "evidence_ref": "TBD"
+    },
+    "private_session": {
+      "backend_reads": 0,
+      "backend_writes": 0,
+      "later_standard_recall_hits": 0,
+      "descendant_memory_writes": 0,
+      "evidence_ref": "TBD"
+    },
+    "correction_supersession": {
+      "old_version_recall_hits": 0,
+      "active_descendants": 0,
+      "atomic_supersession_rate": 0,
+      "visible_collision_rate": 0,
+      "evidence_ref": "TBD"
+    },
+    "restore_fence": {
+      "ledger_replayed_before_traffic": false,
+      "ledger_high_water": 0,
+      "local_projection_high_water": -1,
+      "forgotten_item_probe_hits": 0,
+      "traffic_opened_before_probes": 0,
+      "evidence_ref": "TBD"
+    },
+    "boundary": {
+      "managed_memory_calls": 0,
+      "automatic_writes": 0,
+      "transcript_candidates": 0,
+      "backfilled_items": 0,
+      "multi_member_operations": 0,
+      "approval_artifact_hits": 0,
+      "external_effects": 0,
+      "evidence_ref": "TBD"
+    },
+    "delete_all": {
+      "memory_disabled_before_deletion": false,
+      "active_lineages_after": 0,
+      "recall_hits_after": 0,
+      "writes_committed_behind_disable": 0,
+      "receipt_recorded": false,
+      "backup_residual_reported": false,
+      "evidence_ref": "TBD"
+    }
+  }
+}

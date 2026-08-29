@@ -55,11 +55,14 @@ def set_service_factory(fn: Callable[[], Any] | None) -> None:
     _service_factory = fn
 
 
-def _service(workspace_id: str = ""):
+def _service(workspace_id: str = "", connector_id: str = "calendar"):
     if _service_factory is not None:
         return _service_factory()
-    creds = (google_oauth.get_credentials("founder", workspace_id)
-             if workspace_id else google_oauth.get_credentials())
+    account = google_oauth.CONNECTOR_ACCOUNT.get(connector_id, "founder")
+    creds = (google_oauth.get_credentials(account, workspace_id)
+             if workspace_id else
+             google_oauth.get_credentials() if account == "founder" else
+             google_oauth.get_credentials(account))
     if creds is None:
         return None
     from googleapiclient.discovery import build
@@ -79,11 +82,12 @@ def _no_oauth() -> dict:
 
 
 async def list_upcoming(days_ahead: int = 7, max_results: int = 10,
-                        workspace_id: str = "") -> dict:
-    """Upcoming events on the founder's primary calendar."""
+                        workspace_id: str = "",
+                        connector_id: str = "calendar") -> dict:
+    """Upcoming events on the selected account's primary calendar."""
     import asyncio
 
-    svc = await asyncio.to_thread(_service, workspace_id)
+    svc = await asyncio.to_thread(_service, workspace_id, connector_id)
     if svc is None:
         return _no_oauth()
     time_min, time_max = _window(days_ahead)

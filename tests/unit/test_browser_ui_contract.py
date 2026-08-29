@@ -78,7 +78,8 @@ def test_founder_inbox_ui_uses_workspace_scoped_receipted_v1_api():
 def test_connector_mutations_use_workspace_scoped_receipted_v1_apis():
     assert 'api("/api/v1/integrations")' in HTML
     assert "/api/v1/integrations/${encodeURIComponent(row.connection_id)}" in HTML
-    assert 'api("/api/v1/integrations/drive/files"' in HTML
+    assert 'api(`/api/v1/integrations/${connector}/files`' in HTML
+    assert 'addDriveFile(\'alex_drive\')' in HTML
     assert 'api("/api/v1/integrations/gmail/label"' in HTML
     assert 'api("/api/v1/integrations/alex_mail:watch"' in HTML
     assert "client_request_id" in HTML

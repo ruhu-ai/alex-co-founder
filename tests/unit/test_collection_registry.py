@@ -30,8 +30,7 @@ def _collection_literals() -> dict[str, list[str]]:
         for path in sorted((REPO / tree).rglob("*.py")):
             text = path.read_text(encoding="utf-8")
             for match in _COLLECTION_LITERAL.finditer(text):
-                found.setdefault(match.group(1), []).append(
-                    str(path.relative_to(REPO)))
+                found.setdefault(match.group(1), []).append(str(path.relative_to(REPO)))
     return found
 
 
@@ -44,7 +43,8 @@ def test_every_collection_literal_is_registered():
     assert not unregistered, (
         "Unregistered Firestore collections found. Add them to "
         "services.firestore.TOP_LEVEL_COLLECTIONS (or SUBCOLLECTIONS) so "
-        f"export/deletion coverage can enumerate them: {unregistered}")
+        f"export/deletion coverage can enumerate them: {unregistered}"
+    )
 
 
 def test_registry_has_no_dead_entries():
@@ -56,7 +56,19 @@ def test_registry_has_no_dead_entries():
     present by name below instead).
     """
     referenced = set(_collection_literals())
-    grace = {"resource_index", "session_resource_links", "session_catalog"}
+    grace = {
+        "resource_index",
+        "session_resource_links",
+        "session_catalog",
+        # Document 39 M2 uses the generic DurableStore boundary; these names
+        # therefore cannot appear as direct Firestore `.collection()` calls.
+        "memory_source_manifests",
+        "memory_settings",
+        "memory_control_receipts",
+        "memory_deletion_tombstones",
+        "memory_deletion_jobs",
+        "memory_export_jobs",
+    }
     dead = firestore.REGISTERED_COLLECTIONS - referenced - grace
     assert not dead, f"Registered but unreferenced collections: {sorted(dead)}"
 
@@ -70,7 +82,12 @@ def test_docs23_projections_are_registered():
 def test_docs24_safety_records_are_registered_and_lifecycle_covered():
     from services import data_lifecycle
 
-    expected = {"data_connections", "source_grants", "external_events",
-                "founder_inbox", "external_actions"}
+    expected = {
+        "data_connections",
+        "source_grants",
+        "external_events",
+        "founder_inbox",
+        "external_actions",
+    }
     assert expected.issubset(firestore.TOP_LEVEL_COLLECTIONS)
     assert data_lifecycle.registry_coverage()["status"] == "success"

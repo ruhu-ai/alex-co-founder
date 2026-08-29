@@ -96,11 +96,11 @@ def set_service_factory(fn: Callable[[], Any] | None) -> None:
     _service_factory = fn
 
 
-def _service(workspace_id: str = ""):
+def _service(workspace_id: str = "", account: str = "alex"):
     if _service_factory is not None:
         return _service_factory()
-    creds = (google_oauth.get_credentials("alex", workspace_id)
-             if workspace_id else google_oauth.get_credentials("alex"))
+    creds = (google_oauth.get_credentials(account, workspace_id)
+             if workspace_id else google_oauth.get_credentials(account))
     if creds is None:
         return None
     from googleapiclient.discovery import build
@@ -556,7 +556,8 @@ def _rfc822_message_id(target: str, subject_hash: str, approval_id: str) -> str:
 
 
 async def reconcile_sent(message_id: str, *, founder_id: str = "",
-                         action_id: str = "") -> dict:
+                         action_id: str = "",
+                         connector_id: str = "alex_mail") -> dict:
     """Did an UNCERTAIN send actually land? (docs/24 §11.2 step 8.)
 
     `message_id` is the RFC822 Message-ID returned alongside a
@@ -565,7 +566,12 @@ async def reconcile_sent(message_id: str, *, founder_id: str = "",
     reconciliation that must happen before anyone considers a resend. Read-only
     and safe to repeat.
     """
-    svc = await asyncio.to_thread(_service, founder_id)
+    if connector_id not in {"alex_mail", "founder_gmail"}:
+        return {"status": "error", "error": True,
+                "error_code": "invalid_contract", "message": "Unknown Gmail connector."}
+    account = google_oauth.CONNECTOR_ACCOUNT.get(connector_id, "founder")
+    action_kind = "send_email" if connector_id == "alex_mail" else "send_founder_email"
+    svc = await asyncio.to_thread(_service, founder_id, account)
     if svc is None:
         return _no_oauth()
     needle = (message_id or "").strip().strip("<>")
@@ -593,13 +599,13 @@ async def reconcile_sent(message_id: str, *, founder_id: str = "",
                         "sent. A fresh approval is needed to try again.")}
     if founder_id and action_id:
         receipt = await firestore.get_external_action(founder_id, action_id)
-        if not receipt or receipt.get("action_kind") != "send_email":
+        if not receipt or receipt.get("action_kind") != action_kind:
             return {"status": "error", "error": True,
                     "error_code": "owner_mismatch",
                     "message": "email action receipt not found"}
         resolved = await external_action_service.reconcile(
             founder_id, action_id, "SUCCEEDED" if matches else "FAILED",
-            action_kind="send_email",
+            action_kind=action_kind,
             idempotency_key=receipt.get("idempotency_key", ""),
             provider_effect_id=(matches[0].get("id", "") if matches else None),
             result_ref={"rfc822_message_id": f"<{needle}>"},
@@ -612,8 +618,9 @@ async def reconcile_sent(message_id: str, *, founder_id: str = "",
 
 async def send_email(to: str, subject: str, body: str, application_id: str = "",
                      founder_id: str = "", session_id: str = "",
-                     requested_by_actor_id: str = "") -> dict:
-    """Send mail from alex@ruhu.ai — approval-gated (principle 5).
+                     requested_by_actor_id: str = "",
+                     connector_id: str = "alex_mail") -> dict:
+    """Send mail from an account-bound connector — approval-gated.
 
     The approval is bound to the EXACT payload (docs/24 §11.1: "exact
     subject/body/recipient binding; single-use"). Without a matching approval:
@@ -627,7 +634,13 @@ async def send_email(to: str, subject: str, body: str, application_id: str = "",
     B under an approval for message A sent A and reported success, which is
     both the wrong message and a false receipt.
     """
-    svc = await asyncio.to_thread(_service, founder_id)
+    if connector_id not in {"alex_mail", "founder_gmail"}:
+        return {"status": "error", "error": True,
+                "error_code": "invalid_contract", "message": "Unknown Gmail connector."}
+    account = google_oauth.CONNECTOR_ACCOUNT.get(connector_id, "founder")
+    action_kind = "send_email" if connector_id == "alex_mail" else "send_founder_email"
+    approval_gate = action_kind
+    svc = await asyncio.to_thread(_service, founder_id, account)
     if svc is None:
         return _no_oauth()
     if not to or "@" not in to:
@@ -637,12 +650,14 @@ async def send_email(to: str, subject: str, body: str, application_id: str = "",
                 "message": "Sending email requires a founder-bound session."}
     from services import approval_service
 
-    target = f"email:{application_id or 'general'}"
+    target = (f"email:{application_id or 'general'}"
+              if connector_id == "alex_mail" else
+              f"founder_email:{application_id or 'general'}")
     details = {"to": to, "subject": subject, "body": body}
     # The identity of THIS message, derived from the current call arguments —
     # the same derivation used when the request was minted, so a grant only
     # satisfies the gate for the payload it was shown.
-    subject_hash = approval_service.action_subject_hash("send_email", target, details)
+    subject_hash = approval_service.action_subject_hash(approval_gate, target, details)
     if not subject_hash:
         return {"status": "error", "error": True,
                 "error_code": "approval_binding_missing",
@@ -650,7 +665,7 @@ async def send_email(to: str, subject: str, body: str, application_id: str = "",
                             "subject and body must all be present.")}
 
     claim = await approval_service.claim_for_action(
-        target, "send_email", founder_id=founder_id, session_id=session_id,
+        target, approval_gate, founder_id=founder_id, session_id=session_id,
         expected_subject_hash=subject_hash)
     if claim.get("status") != "success":
         code = claim.get("error_code") or "approval_missing"
@@ -661,7 +676,7 @@ async def send_email(to: str, subject: str, body: str, application_id: str = "",
             # this branch would let a prompt-injected re-invocation destroy the
             # founder's real pending grant.
             await firestore.audit(
-                "agent:orchestrator", "send_email", target, "refused",
+                "agent:orchestrator", action_kind, target, "refused",
                 f"{code}: approval does not cover this recipient/subject/body")
             return {"status": "error", "error": True, "error_code": code,
                     "message": ("Action blocked: the founder's approval covers a "
@@ -670,14 +685,14 @@ async def send_email(to: str, subject: str, body: str, application_id: str = "",
                                 "approval is untouched. Ask the founder to approve "
                                 "this exact message before sending it.")}
         requested = await approval_service.request_approval(
-            target, gate="send_email", details=details, founder_id=founder_id,
+            target, gate=approval_gate, details=details, founder_id=founder_id,
             session_id=session_id, subject_hash=subject_hash,
             requested_by_actor_id=requested_by_actor_id)
         if requested.get("status") != "success":
             # Surface the real reason rather than promising an approval request
             # that was never created.
             return requested
-        await firestore.audit("agent:orchestrator", "send_email", target,
+        await firestore.audit("agent:orchestrator", action_kind, target,
                               "refused", "no GRANTED approval — requested founder approval")
         return {"status": "needs_approval", "error": True,
                 "approval_id": requested.get("approval_id"),
@@ -693,13 +708,13 @@ async def send_email(to: str, subject: str, body: str, application_id: str = "",
     if authority.get("error"):
         return authority
     rfc822_id = _rfc822_message_id(target, subject_hash, approval_id)
-    idempotency_key = f"alex-email-v1:{target}:{subject_hash}"
+    idempotency_key = f"{connector_id}-email-v1:{target}:{subject_hash}"
     prepared = await external_action_service.prepare(
-        founder_id, "alex_mail", "send_email", idempotency_key,
+        founder_id, connector_id, action_kind, idempotency_key,
         {"target": target, "subject_hash": subject_hash},
         session_id=session_id, application_id=application_id or None,
         subject_hash=subject_hash, approval_id=approval_id,
-        consume_approval=True, approval_gate="send_email",
+        consume_approval=True, approval_gate=approval_gate,
         approval_target=target)
     if prepared.get("duplicate"):
         return external_action_service.duplicate_result(prepared)
@@ -712,7 +727,8 @@ async def send_email(to: str, subject: str, body: str, application_id: str = "",
                 "message": "This email send is already in progress."}
     mime = email.mime.text.MIMEText(body)
     mime["to"], mime["subject"] = to, subject
-    mime["from"] = "Alex (Ruhu AI co-founder) <alex@ruhu.ai>"
+    if connector_id == "alex_mail":
+        mime["from"] = "Alex (Ruhu AI co-founder) <alex@ruhu.ai>"
     # Deterministic id set BEFORE transmission: after an ambiguous failure it
     # is the only handle that can prove whether the message landed.
     mime["Message-ID"] = rfc822_id
@@ -729,12 +745,12 @@ async def send_email(to: str, subject: str, body: str, application_id: str = "",
         # resend that could duplicate a delivered message.
         http_status = getattr(getattr(exc, "resp", None), "status", "")
         await firestore.audit(
-            "agent:orchestrator", "send_email", target, "uncertain",
+            "agent:orchestrator", action_kind, target, "uncertain",
             f"provider outcome uncertain: rfc822msgid={rfc822_id} "
             f"error={type(exc).__name__} http={http_status}"[:200])
         await external_action_service.finish(
             founder_id, prepared["action_id"], prepared["lease_owner"],
-            "UNCERTAIN", action_kind="send_email",
+            "UNCERTAIN", action_kind=action_kind,
             idempotency_key=idempotency_key,
             result_ref={"rfc822_message_id": rfc822_id},
             uncertainty_reason="provider_outcome_unconfirmed",
@@ -750,12 +766,12 @@ async def send_email(to: str, subject: str, body: str, application_id: str = "",
                             "reconcile it against the mailbox by its message id to "
                             "find out for certain; after that the founder can grant "
                             "a fresh approval if it really did not go.")}
-    await firestore.audit("agent:orchestrator", "send_email", target, "success",
+    await firestore.audit("agent:orchestrator", action_kind, target, "success",
                           f"to={to} subject={subject[:80]} message_id={sent.get('id')} "
                           f"rfc822msgid={rfc822_id}")
     await external_action_service.finish(
         founder_id, prepared["action_id"], prepared["lease_owner"], "SUCCEEDED",
-        action_kind="send_email", idempotency_key=idempotency_key,
+        action_kind=action_kind, idempotency_key=idempotency_key,
         provider_effect_id=sent.get("id"),
         result_ref={"message_id": sent.get("id", ""),
                     "rfc822_message_id": rfc822_id})

@@ -102,6 +102,7 @@ def build_root_agent(model, live: bool = False) -> Agent:
             alex_mail_tools.search_alex_mail,
             alex_mail_tools.read_alex_message,
             alex_mail_tools.send_alex_email,
+            alex_mail_tools.send_founder_email,
             browse_tools.open_page,
             browse_tools.read_page,
             browse_tools.browser_action,
