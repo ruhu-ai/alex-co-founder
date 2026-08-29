@@ -24,6 +24,8 @@ skills/approvals/spec40-gate-f-offline-qualification.json
 tests/unit/test_spec40_founder_stage_approval.py
   s_16e75b10efee22::t_4d087ff3dca530 95,102
   s_16e75b10efee22::t_5cbc6dd77b8635 1-20,22-23,26-28,32-51,53-57,60-68,70-72,74-78,80,85-86,89-90,92-94,103-104,106,116-121,123-127,130,137-138,171-188,200-225,270-273,276-278,280-292,294,296-297,300-301,303,310,316-317
+app/static/index.html
+  s_16e75b10efee22::t_20ad573213c69a 3660,4504,4514,4516-4517,4544-4562,4732,6075-6079
 ---
 {
   "schema_version": "authorship/3.0.0",
