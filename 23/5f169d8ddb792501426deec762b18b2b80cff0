@@ -1,0 +1,27 @@
+tests/unit/test_local_launcher.py
+  s_16e75b10efee22::t_2a84a339453f5f 37-42
+tests/unit/test_browser_agent.py
+  s_16e75b10efee22::t_e4f7e6b999535a 216-219,241-246
+tests/conftest.py
+  s_16e75b10efee22::t_f077fa05762d4f 2166-2174
+tests/unit/test_app_server.py
+  s_16e75b10efee22::t_69933284e1d2ed 52-54,56,58-59
+  s_16e75b10efee22::t_1b749aed42f1f8 473
+  s_16e75b10efee22::t_5c08777fb78ece 48-51,55,57
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "235f169d8ddb792501426deec762b18b2b80cff0",
+  "prompts": {},
+  "sessions": {
+    "s_16e75b10efee22": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0484d-a6bd-7182-90ae-527ccfd2a966",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": null
+    }
+  }
+}
