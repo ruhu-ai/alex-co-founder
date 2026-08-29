@@ -1,0 +1,22 @@
+services/background_skill_runtime.py
+  s_16e75b10efee22::t_88e6a20c511e11 275,293-306
+tests/unit/test_spec40_gate_f_runtime.py
+  s_16e75b10efee22::t_88e6a20c511e11 21,183-209
+  s_16e75b10efee22::t_6591bbbed2ee9b 210-211
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "f522a72bb5a6ced7872a31343ac0ec8051510581",
+  "prompts": {},
+  "sessions": {
+    "s_16e75b10efee22": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0484d-a6bd-7182-90ae-527ccfd2a966",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Ijidai Lassa <ijidai@cued.app>"
+    }
+  }
+}
