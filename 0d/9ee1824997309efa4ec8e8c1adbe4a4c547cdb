@@ -1,0 +1,23 @@
+tests/unit/test_spec40_gate_f_runtime.py
+  s_16e75b10efee22::t_baa430e273feb3 22,177,179,184-185,190,192,352-361,380-410
+  s_16e75b10efee22::t_8cdab25b0d1dae 411-412
+services/background_skill_runtime.py
+  s_16e75b10efee22::t_f766f672d7e4ea 77-88
+  s_16e75b10efee22::t_baa430e273feb3 53,71-76,89-100,232,262,272-273,277-281
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "0d9ee1824997309efa4ec8e8c1adbe4a4c547cdb",
+  "prompts": {},
+  "sessions": {
+    "s_16e75b10efee22": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0484d-a6bd-7182-90ae-527ccfd2a966",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Ijidai Lassa <ijidai@cued.app>"
+    }
+  }
+}
