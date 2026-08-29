@@ -1,0 +1,21 @@
+AGENTS.md
+  s_77f1bb234f38de::t_98db432ff74d0c 7-20
+docs/README.md
+  s_77f1bb234f38de::t_98db432ff74d0c 26-43
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "318f2d28ca1301fff05f83b818c5a5364d8f18de",
+  "prompts": {},
+  "sessions": {
+    "s_77f1bb234f38de": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a046ae-fe02-7782-82b7-4676370ad1b6",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Ijidai Lassa <ijidai@cued.app>"
+    }
+  }
+}
