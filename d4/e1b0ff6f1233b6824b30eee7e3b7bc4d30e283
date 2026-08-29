@@ -32,6 +32,7 @@ services/workload_identity.py
   s_16e75b10efee22::t_2bd233501a3c5a 38-41,43,53-59,61
 scripts/phase7_cloud_audit.py
   s_16e75b10efee22::t_bcfad1252a144f 65,86,99
+  s_16e75b10efee22::t_3991fe4c91215a 93
 services/command_dispatcher.py
   s_16e75b10efee22::t_b9db1a4a05007a 57-61,122-123
 services/platform_operations.py
@@ -49,6 +50,7 @@ services/durable_store.py
   s_16e75b10efee22::t_d027b0188765f2 59-60
 scripts/deploy.sh
   s_16e75b10efee22::t_73a1a41b7d0dd1 111-113,137,197-198,217,230-231,238-241,303
+  s_16e75b10efee22::t_3991fe4c91215a 138-139
 services/background_pilot_local_app.py
   s_16e75b10efee22::t_48ccfb3d95c1d2 1-15,17-19,21-35,38-44,46-76,79-80,82-125,128-133,135-141,143-154,161-163,175-178,180-185,345-359,362-373,375-379,386-388
   s_16e75b10efee22::t_8126c8d6cded82 81,134,142,374
@@ -79,6 +81,7 @@ services/background_pilot_canary_app.py
   s_16e75b10efee22::t_139d404af8a7fc 81-82,150-153
 tests/unit/test_phase7_cloud_audit.py
   s_16e75b10efee22::t_bcfad1252a144f 62
+  s_16e75b10efee22::t_0a285176103759 69
 docs/background-work-founder-artifact-pilot-evidence.md
   s_16e75b10efee22::t_da02ec610e2992 125-127
   s_16e75b10efee22::t_17bb2e57929fe7 312-379,385
@@ -123,6 +126,8 @@ app/static/index.html
   s_16e75b10efee22::t_369822e2c48d0e 4475-4495,4497-4501,4509-4510,4512-4514,4518-4553
   s_16e75b10efee22::t_578a103009a84d 4675,4677,4681,4704-4705
   s_16e75b10efee22::t_e932b9db8ae68a 4554
+  s_16e75b10efee22::t_a04141f19766cb 4474,4496,4502-4508,4511,4515-4517,4671-4674,4676,4678-4680,4682-4695,4697-4703,4706-4723
+  s_16e75b10efee22::t_6cf524c30e4683 6048-6059
 infra/firestore.indexes.json
   s_16e75b10efee22::t_bcfad1252a144f 214-223
   s_16e75b10efee22::t_b199bf6f534d54 251-257
