@@ -11,16 +11,16 @@ from fastapi.testclient import TestClient
 
 from agents.co_founder import state_schema as ss
 from agents.co_founder.tools import hiring as hiring_tools
+from services import hiring_policy_service
 from services.actor_identity import ActorPrincipal, WorkspaceRole
 from services.durable_store import InMemoryDurableStore
+from services.hiring_approval_service import request_approval, resolve_approval
 from services.hiring_identity_vault import CandidateIdentityVault, fixture_key_wrapper
 from services.hiring_public_intake import (
     HiringPublicIntakeService,
     build_public_intake_projection,
 )
-from services import hiring_policy_service
-from services.hiring_approval_service import request_approval, resolve_approval
-from services.hiring_role_draft import build_contract
+from services.hiring_role_draft import build_contract, founder_description_package
 from services.hiring_run_answer import HiringCandidateConversationService
 from services.hiring_service import HiringService
 from services.hiring_workflow_adapter import HiringWorkflowAdapter
@@ -133,6 +133,28 @@ def test_builder_blocks_material_gaps_and_does_not_invent_optional_terms():
     assert "## Compensation and benefits" not in post
     assert "equal opportunity employer" not in post.lower()
     assert "Apply through the published role page." in post
+
+
+def test_founder_description_compiles_real_role_and_not_demo_fixture():
+    package = founder_description_package(
+        ("Founding Full-stack AI Engineer, with 4 or more years of experience, "
+         "strong in Python or TypeScript full-stack web development, and "
+         "building AI or LLM powered products. They should work directly with "
+         "founders, own delivery from idea to production and make practical "
+         "technical decisions in a fast moving startup."),
+        company_name="Ruhu", location="Nigeria", work_arrangement="Remote",
+        employment_type="Full-time employee")
+    assert package["status"] == "success"
+    assert package["contract"].role_title == "Founding Full-stack AI Engineer"
+    assert package["contract"].role_title != "Forward Deployment Engineer"
+    description = package["role_description"]
+    assert any("4 or more years" in item for item in
+               description["required_qualifications"])
+    assert any("Python or TypeScript" in item for item in
+               description["required_qualifications"])
+    assert description["location"] == "Nigeria"
+    assert description["work_arrangement"] == "Remote"
+    assert description["preferred_qualifications"] == []
 
 
 @pytest.mark.asyncio
@@ -356,6 +378,8 @@ async def test_public_role_requires_exact_manual_receipt_and_exposes_only_candid
     receipt = {
         "receipt_id": "receipt_public_test", "policy_version_id": policy_id,
         "policy_hash": policy_hash, "automated_publication": False,
+        "destination": "COFOUNDER_PUBLIC_ROLE_PAGE",
+        "verification_status": "VERIFIED_APP_OWNED",
         "public_url": "https://example.test/jobs/deployment-engineer",
         "recorded_at": "2099-01-01T00:00:00+00:00",
     }
@@ -369,6 +393,86 @@ async def test_public_role_requires_exact_manual_receipt_and_exposes_only_candid
     assert open_role["application_instructions"]
     assert not ({"policy_hash", "policy_version_id", "candidates", "approvals"}
                 & set(open_role))
+
+
+@pytest.mark.asyncio
+async def test_founder_publish_click_opens_only_app_owned_role_intake():
+    store = InMemoryDurableStore()
+    service = _service(store)
+    package = _package()
+    created = await service.create_founder_draft_role(
+        principal=_founder(), contract=package["contract"],
+        role_description=package["role_description"],
+        client_request_id="publish_app_owned_role")
+    role = created["role"]
+    policy_id = "policy_app_owned_publish"
+    policy_hash = hiring_tools.canonical_hash(package["contract"])
+    await store.create("hiring_policy_versions", policy_id, {
+        "policy_version_id": policy_id, "role_id": role["role_id"],
+        "workspace_id": "workspace_test", "status": "APPROVED",
+        "canonical_hash": policy_hash,
+        "role_description_hash": hiring_tools.canonical_hash(
+            package["role_description"]),
+        "contract": package["contract"].model_dump(mode="json"), "version": 1,
+    })
+    approved = await store.compare_and_set(
+        "hiring_roles", role["role_id"], role["version"], {
+            "role_state": "APPROVED", "current_policy_version_id": policy_id,
+            "current_policy_hash": policy_hash, "publication_allowed": True,
+        })
+    published = await service.record_publication(
+        principal=_founder(), role_id=role["role_id"],
+        destination="COFOUNDER_PUBLIC_ROLE_PAGE",
+        public_url=("https://cofounder.example/hiring-notice.html?role_id="
+                    + role["role_id"]),
+        expected_version=approved["version"],
+        client_request_id="publish_app_owned_role_click",
+        attestation="Founder clicked Publish approved role.")
+    assert published["verification_status"] == "VERIFIED_APP_OWNED"
+    current = await store.get("hiring_roles", role["role_id"])
+    assert current["role_state"] == "PUBLISHED"
+    assert current["candidate_processing_allowed"] is True
+    assert current["public_application_form_enabled"] is True
+
+
+@pytest.mark.asyncio
+async def test_external_publication_receipt_never_opens_app_intake():
+    store = InMemoryDurableStore()
+    service = _service(store)
+    package = _package()
+    created = await service.create_founder_draft_role(
+        principal=_founder(), contract=package["contract"],
+        role_description=package["role_description"],
+        client_request_id="external_receipt_role")
+    role = created["role"]
+    policy_id = "policy_external_receipt"
+    policy_hash = hiring_tools.canonical_hash(package["contract"])
+    await store.create("hiring_policy_versions", policy_id, {
+        "policy_version_id": policy_id, "role_id": role["role_id"],
+        "workspace_id": "workspace_test", "status": "APPROVED",
+        "canonical_hash": policy_hash,
+        "role_description_hash": hiring_tools.canonical_hash(
+            package["role_description"]),
+        "contract": package["contract"].model_dump(mode="json"), "version": 1,
+    })
+    approved = await store.compare_and_set(
+        "hiring_roles", role["role_id"], role["version"], {
+            "role_state": "APPROVED", "current_policy_version_id": policy_id,
+            "current_policy_hash": policy_hash, "publication_allowed": True,
+        })
+    recorded = await service.record_publication(
+        principal=_founder(), role_id=role["role_id"], destination="LINKEDIN",
+        public_url="https://example.test/jobs/external-receipt",
+        expected_version=approved["version"],
+        client_request_id="external_receipt_only",
+        attestation="Founder recorded an external publication receipt.")
+    assert recorded["verification_status"] == "DISABLED_PENDING_TERMS_REVIEW"
+    current = await store.get("hiring_roles", role["role_id"])
+    assert current["candidate_processing_allowed"] is False
+    assert current["public_application_form_enabled"] is False
+    assert build_public_intake_projection(current)["form_available"] is False
+    assert (await service.get_public_role(role["role_id"]))[
+        "error_code"] == "open_role_not_live"
 
 
 def _resume_pdf() -> bytes:
@@ -393,6 +497,8 @@ async def test_local_public_form_encrypts_and_queues_without_automatic_processin
     receipt = {
         "receipt_id": "receipt_intake_test", "policy_version_id": policy_id,
         "policy_hash": policy_hash, "automated_publication": False,
+        "destination": "COFOUNDER_PUBLIC_ROLE_PAGE",
+        "verification_status": "VERIFIED_APP_OWNED",
         "public_url": "https://example.test/jobs/deployment-engineer",
         "recorded_at": "2099-01-01T00:00:00+00:00",
     }
@@ -478,6 +584,89 @@ async def test_local_public_form_encrypts_and_queues_without_automatic_processin
         consent_accepted=True, filename="candidate-resume.pdf",
         content_type="application/pdf", resume_bytes=resume)
     assert conflict["error_code"] == "intake_idempotency_conflict"
+
+
+@pytest.mark.asyncio
+async def test_founder_click_maps_public_resume_without_ranking_or_deciding(
+        monkeypatch):
+    store = InMemoryDurableStore()
+    service = _service(store)
+    package = _package()
+    created = await service.create_founder_draft_role(
+        principal=_founder(), contract=package["contract"],
+        role_description=package["role_description"],
+        client_request_id="public_assessment_role")
+    role = created["role"]
+    policy_id = "policy_public_assessment"
+    policy_hash = hiring_tools.canonical_hash(package["contract"])
+    await store.create("hiring_policy_versions", policy_id, {
+        "policy_version_id": policy_id, "role_id": role["role_id"],
+        "workspace_id": "workspace_test", "status": "APPROVED",
+        "canonical_hash": policy_hash,
+        "role_description_hash": hiring_tools.canonical_hash(
+            package["role_description"]),
+        "contract": package["contract"].model_dump(mode="json"), "version": 1,
+    })
+    receipt = {
+        "receipt_id": "receipt_public_assessment",
+        "policy_version_id": policy_id, "policy_hash": policy_hash,
+        "automated_publication": False,
+        "destination": "COFOUNDER_PUBLIC_ROLE_PAGE",
+        "verification_status": "VERIFIED_APP_OWNED",
+        "public_url": "https://example.test/hiring-notice.html",
+        "recorded_at": "2099-01-01T00:00:00+00:00",
+    }
+    role = await store.compare_and_set("hiring_roles", role["role_id"], 1, {
+        "role_state": "PUBLISHED", "current_policy_version_id": policy_id,
+        "current_policy_hash": policy_hash, "publication_allowed": True,
+        "candidate_processing_allowed": True,
+        "public_application_form_enabled": True,
+        "publication_receipts": [receipt],
+    })
+    key_hex = "61" * 32
+    monkeypatch.setenv("HIRING_PUBLIC_INTAKE_ENABLED", "1")
+    monkeypatch.setenv("HIRING_PUBLIC_INTAKE_KEY", key_hex)
+    saved: dict[str, bytes] = {}
+    monkeypatch.setattr(
+        "services.hiring_public_intake.storage.save_bytes",
+        lambda name, data: saved.setdefault(name, data) and name)
+    monkeypatch.setattr(
+        "services.hiring_public_intake.storage.read_bytes",
+        lambda name: saved[name])
+    projection = build_public_intake_projection(role)
+    intake = HiringPublicIntakeService(store=store)
+    submitted = await intake.submit(
+        role_id=role["role_id"], intake_token=projection["intake_token"],
+        client_request_id="application_public_assessment_001",
+        applicant_name="Synthetic Applicant",
+        email="synthetic-applicant@example.test", cover_note="",
+        consent_accepted=True, filename="resume.pdf",
+        content_type="application/pdf", resume_bytes=_resume_pdf())
+    assert submitted["status"] == "success"
+    application = (await store.list(
+        "candidate_applications", filters={"role_id": role["role_id"]}))[0]
+    monkeypatch.setattr(
+        "services.document_ingestion.extract_chunks",
+        lambda path, suffix: {"status": "success", "chunks": [{
+            "id": "resume-block-1", "content": (
+                "Owned customer deployment delivery and accountable production launches."),
+            "locator": {"page": 1},
+        }]})
+    mapped = await service.assess_public_application(
+        principal=_founder(), application_id=application["candidate_application_id"],
+        expected_application_version=application["version"],
+        client_request_id="map_public_assessment_001")
+    assert mapped["status"] == "success"
+    assert mapped["candidate_state"] == "AWAITING_HUMAN_DECISION"
+    assessment = await store.get("candidate_assessments", mapped["assessment_id"])
+    serialized = repr(assessment).casefold()
+    assert not any(term in serialized for term in (
+        "total_score", "ranking", "recommendation", "best_candidate"))
+    committed = await store.get(
+        "candidate_applications", application["candidate_application_id"])
+    assert committed["role_id"] == role["role_id"]
+    assert committed["current_decision_id"] is None
+    assert committed["external_actions"] == []
 
 
 @pytest.mark.asyncio
@@ -715,6 +904,8 @@ def test_public_application_route_converges_on_restricted_candidate_queue(monkey
     receipt = {
         "receipt_id": "receipt_route_intake", "policy_version_id": policy_id,
         "policy_hash": policy_hash, "automated_publication": False,
+        "destination": "COFOUNDER_PUBLIC_ROLE_PAGE",
+        "verification_status": "VERIFIED_APP_OWNED",
         "public_url": "https://example.test/jobs/route-intake",
         "recorded_at": "2099-01-01T00:00:00+00:00",
     }

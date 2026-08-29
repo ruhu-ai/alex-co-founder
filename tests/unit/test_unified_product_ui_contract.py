@@ -275,7 +275,8 @@ def test_growing_lists_use_load_more_and_stale_while_refreshing_contract():
     assert "Refresh failed. The last roles remain visible." in HIRING
     assert "Active roles could not load" in HIRING
     assert "Retry loading roles" in HIRING
-    assert 'api("/api/hiring/roles", { timeoutMs: 12000 })' in HIRING
+    assert '"?include_demo=true"' in HIRING
+    assert '{ timeoutMs: 12000 }' in HIRING
     assert "restoreHiringScroll(scrollState)" in HIRING
 
 

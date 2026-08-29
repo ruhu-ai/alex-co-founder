@@ -6,6 +6,7 @@ import asyncio
 import hashlib
 import os
 from typing import Any, Literal
+from urllib.parse import quote
 
 from fastapi import FastAPI, File, Form, Request, UploadFile
 from fastapi.responses import JSONResponse
@@ -33,11 +34,11 @@ from services.hiring_h4s_google import H4SGoogleEffectAdapter
 from services.hiring_h4s_reply import H4SReplyService
 from services.hiring_identity_vault import CandidateIdentityVault, fixture_key_wrapper
 from services.hiring_mailbox import HiringMailboxService
-from services.hiring_role_draft import build_contract
 from services.hiring_public_intake import (
     MAX_RESUME_BYTES,
     HiringPublicIntakeService,
 )
+from services.hiring_role_draft import build_contract
 from services.hiring_run_answer import (
     HiringCandidateConversationService,
     HiringRunAnswerService,
@@ -79,7 +80,7 @@ class RoleDescriptionDraftRequest(ClosedRequest):
     responsibilities: list[str] = Field(min_length=1, max_length=12)
     success_outcomes: list[str] = Field(min_length=1, max_length=12)
     required_qualifications: list[str] = Field(min_length=1, max_length=12)
-    preferred_qualifications: list[str] = Field(min_length=1, max_length=12)
+    preferred_qualifications: list[str] = Field(default_factory=list, max_length=12)
     relevant_experience: list[str] = Field(min_length=1, max_length=12)
     location: str = Field(min_length=1, max_length=120)
     work_arrangement: str = Field(min_length=1, max_length=120)
@@ -116,6 +117,16 @@ class PublicationRequest(ClosedRequest):
     attestation: str
     expected_role_version: int = Field(ge=1)
     client_request_id: str
+
+
+class PublishRoleRequest(ClosedRequest):
+    expected_role_version: int = Field(ge=1)
+    client_request_id: str = Field(min_length=3, max_length=200)
+
+
+class AssessApplicationRequest(ClosedRequest):
+    expected_application_version: int = Field(ge=1)
+    client_request_id: str = Field(min_length=3, max_length=200)
 
 
 class BindingRequest(SyntheticGuardRequest):
@@ -375,7 +386,7 @@ def register(app: FastAPI) -> None:
             applicant_name: str = Form(""), privacy_consent: str = Form(...),
             intake_token: str = Form(...), client_request_id: str = Form(...),
             resume: UploadFile = File(...)):
-        """Local-staged candidate intake; never enables a provider connector.
+        """Role-scoped candidate intake; never enables a provider connector.
 
         The service re-resolves the exact live role/policy/receipt and stores a
         restricted encrypted queue item. The public caller cannot select a
@@ -857,6 +868,8 @@ def register(app: FastAPI) -> None:
         rows = await production_store().list(
             "hiring_roles", filters={"workspace_id": principal.workspace_id},
             order_by="updated_at", descending=True, limit=200)
+        if request.query_params.get("include_demo") != "true":
+            rows = [row for row in rows if row.get("synthetic") is not True]
         return {"status": "success", "roles": rows}
 
     @app.get("/api/hiring/roles/{role_id}")
@@ -1058,6 +1071,53 @@ def register(app: FastAPI) -> None:
             principal=principal, role_id=role_id, destination=payload.destination,
             public_url=payload.public_url, attestation=payload.attestation,
             expected_version=payload.expected_role_version,
+            client_request_id=payload.client_request_id))
+
+    @app.post("/api/hiring/roles/{role_id}/publish")
+    async def publish_role(request: Request, role_id: str,
+                           payload: PublishRoleRequest):
+        """Publish the exact approved package on the app-owned public page."""
+        denied = _mutation_allowed(request)
+        if denied.get("error"):
+            return _response(denied)
+        principal = await _actor(request)
+        services = _services()
+        if isinstance(principal, dict):
+            return _response(principal)
+        if not services:
+            return _response({"status": "error", "error": True,
+                              "error_code": "hiring_unavailable",
+                              "message": "Hiring is temporarily unavailable."})
+        configured = os.environ.get("AGENT_BASE_URL", "").rstrip("/")
+        base = (configured if os.environ.get("K_SERVICE") else
+                str(request.base_url).rstrip("/"))
+        public_url = f"{base}/hiring-notice.html?role_id={quote(role_id)}"
+        return _response(await services[0].record_publication(
+            principal=principal, role_id=role_id,
+            destination="COFOUNDER_PUBLIC_ROLE_PAGE", public_url=public_url,
+            attestation=("Founder clicked Publish approved role for the exact "
+                         "approved app-owned job page."),
+            expected_version=payload.expected_role_version,
+            client_request_id=payload.client_request_id))
+
+    @app.post("/api/hiring/applications/{application_id}/assess")
+    async def assess_application(request: Request, application_id: str,
+                                 payload: AssessApplicationRequest):
+        """Founder-clicked criterion mapping; never scores or decides."""
+        denied = _mutation_allowed(request)
+        if denied.get("error"):
+            return _response(denied)
+        principal = await _actor(request)
+        services = _services()
+        if isinstance(principal, dict):
+            return _response(principal)
+        if not services:
+            return _response({"status": "error", "error": True,
+                              "error_code": "hiring_unavailable",
+                              "message": "Hiring is temporarily unavailable."})
+        return _response(await services[0].assess_public_application(
+            principal=principal, application_id=application_id,
+            expected_application_version=payload.expected_application_version,
             client_request_id=payload.client_request_id))
 
     @app.post("/api/hiring/roles/{role_id}/mailbox-binding")

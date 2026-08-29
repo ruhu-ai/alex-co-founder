@@ -29,6 +29,15 @@ def founder_draft_provenance() -> dict[str, str]:
     }
 
 
+def founder_application_provenance() -> dict[str, str]:
+    """Production provenance for explicit Founder-triggered evidence mapping."""
+    return {
+        "provenance_class": "FOUNDER_APPLICATION",
+        "processing_mode": "FOUNDER_TRIGGERED_EVIDENCE_ONLY",
+        "policy_version": "founder-public-application-v1",
+    }
+
+
 class HiringWorkflowAdapter:
     """Admit synthetic runs plus the exact non-executable Founder role draft."""
 
@@ -41,6 +50,9 @@ class HiringWorkflowAdapter:
                     "message": "The hiring adapter accepts hiring definitions only."}
         if (definition.workflow_kind == "hiring_role:v1"
                 and provenance == founder_draft_provenance()):
+            return {"status": "success"}
+        if (definition.workflow_kind == "hiring_candidate:v1"
+                and provenance == founder_application_provenance()):
             return {"status": "success"}
         return hiring_activation.require_synthetic({
             "synthetic": provenance.get("provenance_class") == "SYNTHETIC",

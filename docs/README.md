@@ -73,7 +73,7 @@ founder's voice and thinking through explicit feedback capture.
 | `23-session-resources-review-prompt.md` | Adversarial architecture review prompt for spec 23 | Review only |
 | `24-data-source-reliability.md` | Current datasource hardening: connection health, source grants, safe Drive ingestion, event correlation/inbox, evidence authority, and external-action receipts | Proposed; review before build |
 | `24-data-source-review-prompt.md` | Adversarial implementation-readiness review prompt for spec 24 | Review only |
-| `25-hiring-operations.md` | Months-long hiring outcome pack: email-first applications, manual LinkedIn publication, role/candidate/onboarding runs, human decisions, evidence/identity boundaries, surfaces, retention, evals, and build gates | H0–H3 synthetic-only implemented; H4–H7 gated |
+| `25-hiring-operations.md` | Founder-authored role drafts, app-owned publication/application intake, role-scoped evidence, human decisions, identity boundaries, retention, evals, and build gates | Bounded Founder workflow implemented; external effects and automated employment decisions gated |
 | `26-hiring-h0-h3-verification.md` | Implementation map and deterministic verification evidence for the synthetic-only hiring foundation | H0–H3 verification |
 | `27-ruhu-fde-walkthrough.md` | Durable synthetic Ruhu Forward Deployment Engineer walkthrough and recording order | Synthetic demo only |
 | `28-hiring-qualified-review-packet.md` | External employment, privacy, accessibility, retention, terms, and security review decisions required before any pilot | Pending qualified sign-off |

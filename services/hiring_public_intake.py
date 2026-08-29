@@ -1,9 +1,8 @@
-"""Closed, local-staged public application intake for manually published roles.
+"""Closed, role-scoped public application intake for Founder-published roles.
 
-This module deliberately does not activate a production intake channel.  The
-form path is available only in an explicitly enabled non-Cloud local process,
-for a non-synthetic role whose exact policy and manual publication receipt are
-current. Applicant email, optional message, and resume bytes are encrypted
+The form path is available only when explicitly enabled with a dedicated
+256-bit intake key, for a non-synthetic role whose exact policy and publication
+receipt are current. Applicant email, optional message, and resume bytes are encrypted
 before they enter the durable candidate queue or artifact store. No assessment,
 ranking, contact, or provider action is started by intake.
 """
@@ -49,18 +48,22 @@ def _unb64(value: str) -> bytes:
     return base64.urlsafe_b64decode(value + "=" * (-len(value) % 4))
 
 
-def _configured_local_key() -> bytes | None:
-    """Resolve the explicit local-only key; never derive it from app auth state."""
-    if os.environ.get("K_SERVICE") or os.environ.get(
-            "HIRING_PUBLIC_INTAKE_LOCAL_ENABLED") != "1":
+def _configured_intake_key() -> bytes | None:
+    """Resolve the dedicated intake key; never derive it from app auth state."""
+    enabled = os.environ.get("HIRING_PUBLIC_INTAKE_ENABLED") == "1"
+    raw = os.environ.get("HIRING_PUBLIC_INTAKE_KEY", "")
+    if not enabled and not os.environ.get("K_SERVICE"):
+        enabled = os.environ.get("HIRING_PUBLIC_INTAKE_LOCAL_ENABLED") == "1"
+        raw = os.environ.get("HIRING_PUBLIC_INTAKE_LOCAL_KEY", "")
+    if not enabled:
         return None
-    raw = os.environ.get("HIRING_PUBLIC_INTAKE_LOCAL_KEY", "")
     if not re.fullmatch(r"[0-9a-fA-F]{64}", raw):
         return None
     return bytes.fromhex(raw)
 
 
-def _active_manual_receipt(role: dict[str, Any]) -> dict[str, Any] | None:
+def _active_app_publication_receipt(role: dict[str, Any]) -> dict[str, Any] | None:
+    """Return only the exact current app-owned publication authorization."""
     policy_id = str(role.get("current_policy_version_id") or "")
     policy_hash = str(role.get("current_policy_hash") or "")
     receipts = [
@@ -68,6 +71,8 @@ def _active_manual_receipt(role: dict[str, Any]) -> dict[str, Any] | None:
         if item.get("policy_version_id") == policy_id
         and item.get("policy_hash") == policy_hash
         and item.get("automated_publication") is False
+        and item.get("destination") == "COFOUNDER_PUBLIC_ROLE_PAGE"
+        and item.get("verification_status") == "VERIFIED_APP_OWNED"
     ]
     return (sorted(receipts, key=lambda item: str(
         item.get("recorded_at") or ""))[-1] if receipts else None)
@@ -80,7 +85,7 @@ def _form_is_eligible(role: dict[str, Any]) -> bool:
         and role.get("publication_allowed") is not False
         and role.get("candidate_processing_allowed") is True
         and role.get("public_application_form_enabled") is True
-        and _active_manual_receipt(role)
+        and _active_app_publication_receipt(role)
     )
 
 
@@ -113,8 +118,8 @@ def _token(key: bytes, *, role_id: str, policy_hash: str,
 
 def build_public_intake_projection(role: dict[str, Any]) -> dict[str, Any]:
     """Return candidate-safe intake availability for an already public role."""
-    key = _configured_local_key()
-    receipt = _active_manual_receipt(role)
+    key = _configured_intake_key()
+    receipt = _active_app_publication_receipt(role)
     form_available = bool(key and _form_is_eligible(role) and receipt)
     projection: dict[str, Any] = {
         "form_available": form_available,
@@ -140,7 +145,7 @@ class HiringPublicIntakeService:
                  local_key: bytes | None = None,
                  local_enabled: bool | None = None):
         self.store = store or production_store()
-        self._key = local_key if local_key is not None else _configured_local_key()
+        self._key = local_key if local_key is not None else _configured_intake_key()
         self._enabled = bool(self._key) if local_enabled is None else local_enabled
         if self._key is not None and len(self._key) != 32:
             raise ValueError("public intake local key must be 256 bits")
@@ -174,11 +179,11 @@ class HiringPublicIntakeService:
             client_request_id: str, applicant_name: str, email: str,
             cover_note: str, consent_accepted: bool, filename: str,
             content_type: str, resume_bytes: bytes) -> dict[str, Any]:
-        if not self._enabled or not self._key or os.environ.get("K_SERVICE"):
+        if not self._enabled or not self._key:
             return _error("public_intake_not_enabled",
                           "Online applications are not enabled for this role.", 503)
         role = await self.store.get("hiring_roles", role_id)
-        receipt = _active_manual_receipt(role or {})
+        receipt = _active_app_publication_receipt(role or {})
         if not role or not receipt or not _form_is_eligible(role):
             return _error("public_intake_not_open",
                           "Online applications are not open for this role.", 404)
@@ -285,7 +290,7 @@ class HiringPublicIntakeService:
             "automatic_assessment_allowed": False, "external_actions": [],
             "request_fingerprint": request_fingerprint,
             "consent_receipt_id": consent_receipt_id,
-            "intake_mode": "LOCAL_STAGED", "synthetic": False,
+            "intake_mode": "PUBLIC_FORM", "synthetic": False,
             "created_at": now, "updated_at": now,
         }
         identity = {
@@ -305,7 +310,7 @@ class HiringPublicIntakeService:
                 "accepted_at": now,
             }],
             "retention_status": "ACTIVE", "legal_hold": False,
-            "intake_mode": "LOCAL_STAGED", "synthetic": False,
+            "intake_mode": "PUBLIC_FORM", "synthetic": False,
             "created_at": now, "updated_at": now,
         }
         artifact = {
@@ -322,7 +327,7 @@ class HiringPublicIntakeService:
             "session_resource_registered": resource_policy["session_resource"],
             "profile_eligible": resource_policy["founder_profile"],
             "company_knowledge_eligible": resource_policy["company_knowledge"],
-            "intake_mode": "LOCAL_STAGED", "synthetic": False,
+            "intake_mode": "PUBLIC_FORM", "synthetic": False,
             "created_at": now,
         }
         audit_id = stable_id("audit", application_id, "public-intake")
@@ -357,6 +362,58 @@ class HiringPublicIntakeService:
         return {"status": "success", "duplicate": False,
                 "application_reference": candidate_code,
                 "application_status": CandidateState.RECEIVED.value}
+
+    async def read_restricted_resume(
+            self, *, application: dict[str, Any]) -> dict[str, Any]:
+        """Decrypt one exact role-scoped resume for a Founder-triggered review.
+
+        Identity fields are not returned. The caller receives only validated
+        resume bytes and format metadata; a missing key/artifact fails closed.
+        """
+        if not self._enabled or not self._key:
+            return _error("public_intake_not_enabled",
+                          "Application evidence processing is unavailable.", 503)
+        application_id = str(application.get("candidate_application_id") or "")
+        role_id = str(application.get("role_id") or "")
+        workspace_id = str(application.get("workspace_id") or "")
+        candidate_id = str(application.get("candidate_id") or "")
+        artifact_ids = list(application.get("artifact_ids") or [])
+        if (application.get("source_kind") != "PUBLIC_FORM"
+                or application.get("synthetic") is not False
+                or len(artifact_ids) != 1):
+            return _error("application_evidence_unavailable",
+                          "This application has no eligible public-form resume.", 409)
+        identity = await self.store.get("candidate_identities", candidate_id)
+        artifact = await self.store.get(
+            "hiring_candidate_artifacts", str(artifact_ids[0]))
+        if (not identity or not artifact
+                or identity.get("candidate_application_id") != application_id
+                or artifact.get("candidate_application_id") != application_id
+                or identity.get("workspace_id") != workspace_id
+                or artifact.get("workspace_id") != workspace_id
+                or artifact.get("role_id") != role_id):
+            return _error("application_evidence_unavailable",
+                          "The restricted resume binding is incomplete.", 409)
+        try:
+            wrapped_key = base64.b64decode(str(identity["wrapped_key"]))
+            wrap_nonce = base64.b64decode(str(identity["wrap_nonce"]))
+            dek = AESGCM(self._key).decrypt(
+                wrap_nonce, wrapped_key, candidate_id.encode())
+            encrypted_resume = storage.read_bytes(str(artifact["storage_name"]))
+            resume_nonce = base64.b64decode(str(artifact["resume_nonce"]))
+            aad_prefix = f"v1\x1f{workspace_id}\x1f{role_id}\x1f{application_id}"
+            resume_bytes = AESGCM(dek).decrypt(
+                resume_nonce, encrypted_resume,
+                (aad_prefix + "\x1f" + str(artifact["artifact_id"])).encode())
+        except Exception:
+            return _error("application_evidence_unavailable",
+                          "The restricted resume could not be opened safely.", 503)
+        if hashlib.sha256(resume_bytes).hexdigest() != artifact.get("source_sha256"):
+            return _error("application_evidence_integrity_failed",
+                          "The restricted resume failed its integrity check.", 409)
+        extension = ".pdf" if artifact.get("content_type") == "application/pdf" else ".docx"
+        return {"status": "success", "resume_bytes": resume_bytes,
+                "extension": extension, "artifact": artifact}
 
 
 def _error(code: str, message: str, http_status: int) -> dict[str, Any]:

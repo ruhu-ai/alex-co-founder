@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import re
-from datetime import date
+from datetime import date, timedelta
 from typing import Any
 
 from services.hiring_contracts import RoleContract
@@ -24,7 +24,6 @@ _REQUIRED_DESCRIPTION_FIELDS = {
     "purpose": "role purpose",
     "responsibilities": "responsibilities",
     "required_qualifications": "required qualifications",
-    "preferred_qualifications": "preferred qualifications",
     "relevant_experience": "relevant experience",
     "location": "location",
     "work_arrangement": "work arrangement",
@@ -203,8 +202,6 @@ def build_contract(
     process_lines = _clean_list(hiring_process) or list(_DEFAULT_HIRING_PROCESS)
     if not criteria:
         missing.append("job-related evidence criteria")
-    if not preferred_lines:
-        missing.append("preferred qualifications")
     if not responsibility_lines:
         missing.append("candidate-facing responsibilities")
     if not outcome_lines:
@@ -342,7 +339,7 @@ def build_contract(
 
 
 def ruhu_fde_package() -> dict[str, Any]:
-    """Reviewed default used only by the explicit `/hiring`/UI action."""
+    """Optional reviewed synthetic demo fixture; never normal `/hiring` input."""
     result = build_contract(
         company_name="Ruhu",
         role_title="Forward Deployment Engineer",
@@ -402,6 +399,81 @@ def ruhu_fde_package() -> dict[str, Any]:
     )
     if result.get("error") or result.get("status") != "success":
         raise RuntimeError(str(result.get("message") or "invalid FDE draft"))
+    return result
+
+
+def founder_description_package(
+        description: str, *, company_name: str, location: str,
+        work_arrangement: str, employment_type: str,
+        headcount_target: int = 1) -> dict[str, Any]:
+    """Compile one Founder-authored role description into an editable draft.
+
+    The compiler is deliberately deterministic and conservative. It turns only
+    text the Founder supplied into job-related criteria and responsibilities;
+    workspace defaults fill the working model and are returned as explicit
+    assumptions for review. The result is still a DRAFT and grants no
+    publication, intake, assessment, communication, or hiring authority.
+    """
+    normalized = re.sub(r"\s+", " ", str(description or "")).strip()
+    if len(normalized) < 12:
+        return {"status": "needs_information", "error": True,
+                "error_code": "role_description_too_short",
+                "message": "Describe the role title and the job-related experience needed."}
+    title_fragment = re.split(r"[,.;:]", normalized, maxsplit=1)[0].strip()
+    title_fragment = re.sub(
+        r"^(?:hire|hiring|we need|we are hiring|looking for|a|an)\s+",
+        "", title_fragment, flags=re.I).strip()
+    title_fragment = re.sub(
+        rf"\s+for\s+{re.escape(company_name)}(?:\s*,?\s*inc\.?)?$",
+        "", title_fragment, flags=re.I).strip()
+    if not title_fragment or len(title_fragment) > 160:
+        return {"status": "needs_information", "error": True,
+                "error_code": "role_title_missing",
+                "message": "Start the description with the exact role title."}
+
+    clauses = [item.strip(" .") for item in re.split(
+        r"[,;]|\b(?:and|who)\b", normalized, flags=re.I) if item.strip(" .")]
+    required: list[str] = []
+    responsibilities: list[str] = []
+    for clause in clauses[1:]:
+        lowered = clause.casefold()
+        if any(marker in lowered for marker in (
+                "experience", "strong in", "proficient", "expert", "skilled")):
+            required.append(clause[0].upper() + clause[1:])
+        if any(marker in lowered for marker in (
+                "own ", "work directly", "deliver", "build ", "make ",
+                "lead ", "manage ", "design ", "operate ")):
+            responsibilities.append(clause[0].upper() + clause[1:])
+    required = _clean_list(required) or [
+        f"Demonstrated job-related experience for the {title_fragment} role"]
+    responsibilities = _clean_list(responsibilities) or [
+        f"Own the core responsibilities of the {title_fragment} role from plan to delivery"]
+    outcomes = _clean_list([
+        ("Deliver " + item[0].lower() + item[1:]).rstrip(".")
+        for item in responsibilities[:6]
+    ])
+    relevant = _clean_list(required)
+    target_date = (date.today() + timedelta(days=120)).isoformat()
+    result = build_contract(
+        company_name=company_name, role_title=title_fragment,
+        role_summary=normalized, headcount_target=headcount_target,
+        target_date=target_date, location=location,
+        work_arrangement=work_arrangement,
+        employment_type=employment_type, compensation_envelope="",
+        required_criteria=required, preferred_criteria=[],
+        relevant_experience=relevant, responsibilities=responsibilities,
+        success_outcomes=outcomes,
+        application_instructions=(
+            "Apply through this role page with a current PDF or DOCX resume."),
+        public_job_description=normalized,
+    )
+    if result.get("status") == "success":
+        result["assumptions"] = {
+            "company_name": company_name, "location": location,
+            "work_arrangement": work_arrangement,
+            "employment_type": employment_type,
+            "headcount_target": headcount_target, "target_date": target_date,
+        }
     return result
 
 

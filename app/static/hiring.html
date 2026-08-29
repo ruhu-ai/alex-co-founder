@@ -1907,7 +1907,11 @@
           status.textContent = "Refreshing roles…";
         }
         try {
-          roles = (await api("/api/hiring/roles", { timeoutMs: 12000 })).roles || [];
+          const includeDemo = new URLSearchParams(location.search).get("demo") === "1";
+          roles = (await api(
+            `/api/hiring/roles${includeDemo ? "?include_demo=true" : ""}`,
+            { timeoutMs: 12000 },
+          )).roles || [];
           rolesLoaded = true;
           renderRoles();
           restoreHiringScroll(scrollState);
@@ -1981,6 +1985,32 @@
               },
             );
           out.textContent = `Publication receipt ${j.receipt_id} committed. The role is now dormant awaiting a trusted application email.`;
+          await load();
+          await openRole(selected);
+        } catch (e) {
+          out.textContent = e.message;
+        }
+      }
+      async function publishApprovedRole() {
+        const out = document.querySelector("#publicationStatus");
+        if (!selected) {
+          out.textContent = "Select an approved role first.";
+          return;
+        }
+        try {
+          const projection = await api(
+              `/api/hiring/roles/${encodeURIComponent(selected)}`),
+            role = projection.role,
+            result = await api(
+              `/api/hiring/roles/${encodeURIComponent(selected)}/publish`, {
+                method: "POST",
+                headers: {"Content-Type": "application/json", "X-CSRF-Token": await csrf()},
+                body: JSON.stringify({
+                  expected_role_version: role.version,
+                  client_request_id: `publish_${crypto.randomUUID().replaceAll("-", "_")}`,
+                }),
+              });
+          out.textContent = `Published. Receipt ${result.receipt_id} is committed and applications are open on this role page.`;
           await load();
           await openRole(selected);
         } catch (e) {
@@ -2156,7 +2186,6 @@
             description.purpose,
             description.responsibilities?.length,
             qualifications.length,
-            description.preferred_qualifications?.length,
             description.relevant_experience?.length,
             description.location,
             description.employment_type,
@@ -2170,7 +2199,7 @@
         const preview = policy && complete
           ? `/hiring-notice.html?role_id=${encodeURIComponent(role.role_id)}&preview_policy=${encodeURIComponent(policy.policy_version_id)}`
           : "";
-        return `<section class="job-description" aria-labelledby="jobDescriptionTitle" data-complete="${complete}"><h4 id="jobDescriptionTitle">Job description draft</h4><p class="micro">All required fields must be complete. Saving creates a new proposed version; it does not approve or publish anything.</p><form class="job-description-editor" id="roleDraftEditor" data-role-id="${esc(role.role_id)}" data-role-version="${esc(role.version)}" onsubmit="saveRoleDescriptionDraft(event)"><div class="editor-grid"><label data-wide="true">Role purpose / overview<textarea name="purpose" required maxlength="3000">${esc(description.purpose || "")}</textarea></label><label data-wide="true">Responsibilities <span class="micro">One per line</span><textarea name="responsibilities" required>${esc(draftLines(description.responsibilities))}</textarea></label><label data-wide="true">Success outcomes <span class="micro">One per line</span><textarea name="success_outcomes" required>${esc(draftLines(description.success_outcomes))}</textarea></label><label data-wide="true">Required qualifications <span class="micro">One per line</span><textarea name="required_qualifications" required>${esc(draftLines(qualifications))}</textarea></label><label data-wide="true">Preferred qualifications <span class="micro">One per line</span><textarea name="preferred_qualifications" required>${esc(draftLines(description.preferred_qualifications))}</textarea></label><label data-wide="true">Relevant experience <span class="micro">One per line</span><textarea name="relevant_experience" required>${esc(draftLines(description.relevant_experience))}</textarea></label><label>Location<input name="location" required maxlength="120" value="${esc(description.location || contract?.location_envelope?.[0] || "")}" /></label><label>Work arrangement<input name="work_arrangement" required maxlength="120" value="${esc(description.work_arrangement || contract?.location_envelope?.[1] || "")}" /></label><label>Employment type<input name="employment_type" required maxlength="120" value="${esc(description.employment_type || "")}" /></label><label>Compensation <span class="micro">Optional; omit rather than invent</span><input name="compensation" maxlength="500" value="${esc(description.compensation || "")}" /></label><label data-wide="true">Benefits <span class="micro">Optional, one per line</span><textarea name="benefits">${esc(draftLines(description.benefits))}</textarea></label><label data-wide="true">Hiring process <span class="micro">One step per line</span><textarea name="hiring_process" required>${esc(draftLines(description.hiring_process))}</textarea></label><label data-wide="true">Application instructions<textarea name="application_instructions" required maxlength="2000">${esc(description.application_instructions || "")}</textarea></label><label data-wide="true">Equal-opportunity statement <span class="micro">Optional</span><textarea name="equal_opportunity_statement" maxlength="2000">${esc(description.equal_opportunity_statement || "")}</textarea></label><label data-wide="true">Accessibility statement <span class="micro">Optional</span><textarea name="accessibility_statement" maxlength="2000">${esc(description.accessibility_statement || "")}</textarea></label></div><div class="job-description-actions"><button class="btn" data-variant="secondary" type="submit">Save edits as draft</button>${preview ? `<a class="btn" data-variant="secondary" href="${esc(preview)}">Review public job page</a>` : ""}</div><p id="draftSaveStatus" class="micro" aria-live="polite">${complete ? "This version is complete and can be previewed before approval." : "Complete every required field, then save a new draft before approval."}</p></form></section>`;
+        return `<section class="job-description" aria-labelledby="jobDescriptionTitle" data-complete="${complete}"><h4 id="jobDescriptionTitle">Job description draft</h4><p class="micro">All required fields must be complete. Saving creates a new proposed version; it does not approve or publish anything.</p><form class="job-description-editor" id="roleDraftEditor" data-role-id="${esc(role.role_id)}" data-role-version="${esc(role.version)}" onsubmit="saveRoleDescriptionDraft(event)"><div class="editor-grid"><label data-wide="true">Role purpose / overview<textarea name="purpose" required maxlength="3000">${esc(description.purpose || "")}</textarea></label><label data-wide="true">Responsibilities <span class="micro">One per line</span><textarea name="responsibilities" required>${esc(draftLines(description.responsibilities))}</textarea></label><label data-wide="true">Success outcomes <span class="micro">One per line</span><textarea name="success_outcomes" required>${esc(draftLines(description.success_outcomes))}</textarea></label><label data-wide="true">Required qualifications <span class="micro">One per line</span><textarea name="required_qualifications" required>${esc(draftLines(qualifications))}</textarea></label><label data-wide="true">Preferred qualifications <span class="micro">Optional, one per line</span><textarea name="preferred_qualifications">${esc(draftLines(description.preferred_qualifications))}</textarea></label><label data-wide="true">Relevant experience <span class="micro">One per line</span><textarea name="relevant_experience" required>${esc(draftLines(description.relevant_experience))}</textarea></label><label>Location<input name="location" required maxlength="120" value="${esc(description.location || contract?.location_envelope?.[0] || "")}" /></label><label>Work arrangement<input name="work_arrangement" required maxlength="120" value="${esc(description.work_arrangement || contract?.location_envelope?.[1] || "")}" /></label><label>Employment type<input name="employment_type" required maxlength="120" value="${esc(description.employment_type || "")}" /></label><label>Compensation <span class="micro">Optional; omit rather than invent</span><input name="compensation" maxlength="500" value="${esc(description.compensation || "")}" /></label><label data-wide="true">Benefits <span class="micro">Optional, one per line</span><textarea name="benefits">${esc(draftLines(description.benefits))}</textarea></label><label data-wide="true">Hiring process <span class="micro">One step per line</span><textarea name="hiring_process" required>${esc(draftLines(description.hiring_process))}</textarea></label><label data-wide="true">Application instructions<textarea name="application_instructions" required maxlength="2000">${esc(description.application_instructions || "")}</textarea></label><label data-wide="true">Equal-opportunity statement <span class="micro">Optional</span><textarea name="equal_opportunity_statement" maxlength="2000">${esc(description.equal_opportunity_statement || "")}</textarea></label><label data-wide="true">Accessibility statement <span class="micro">Optional</span><textarea name="accessibility_statement" maxlength="2000">${esc(description.accessibility_statement || "")}</textarea></label></div><div class="job-description-actions"><button class="btn" data-variant="secondary" type="submit">Save edits as draft</button>${preview ? `<a class="btn" data-variant="secondary" href="${esc(preview)}">Review public job page</a>` : ""}</div><p id="draftSaveStatus" class="micro" aria-live="polite">${complete ? "This version is complete and can be previewed before approval." : "Complete every required field, then save a new draft before approval."}</p></form></section>`;
       }
 
       function draftList(form, name) {
@@ -2313,7 +2342,6 @@
             draftComplete = Boolean(
               roleDescription.purpose && roleDescription.responsibilities?.length &&
               roleDescription.required_qualifications?.length &&
-              roleDescription.preferred_qualifications?.length &&
               roleDescription.relevant_experience?.length && roleDescription.location &&
               roleDescription.work_arrangement && roleDescription.employment_type &&
               roleDescription.hiring_process?.length &&
@@ -2327,7 +2355,7 @@
                 ? '<p class="micro" id="policyActionStatus">Complete and save every required job-description field before approval.</p>'
                 : "",
             publicationControl = !role.synthetic && role.publication_allowed === true && !(role.publication_receipts || []).length
-              ? '<div class="manual-publication"><label>Manually published HTTPS URL<input id="publicationUrl" type="url" placeholder="https://…" /></label><button class="btn" data-variant="secondary" onclick="recordManualPublication()">Record publication receipt</button><p class="micro">This records a page the Founder already published. It does not publish, email, or contact anyone.</p><p id="publicationStatus" class="micro" aria-live="polite"></p></div>'
+              ? '<div class="manual-publication"><button class="btn" data-variant="primary" onclick="publishApprovedRole()">Publish approved role</button><p class="micro">Publishes the exact approved job description on this app’s public role page and opens its role-scoped application form. It does not post to third-party sites, contact candidates, rank, or decide.</p><details><summary>Record an existing external publication instead</summary><label>Published HTTPS URL<input id="publicationUrl" type="url" placeholder="https://…" /></label><button class="btn" data-variant="secondary" onclick="recordManualPublication()">Record external receipt</button></details><p id="publicationStatus" class="micro" aria-live="polite"></p></div>'
               : "";
           root.innerHTML = `<section class="card role-summary"><div class="role-summary-head"><div><p class="micro">${esc(roleKind)} · ${esc(role.company_name || contract?.company_name || "Company")} · ${esc(role.role_code)}</p><h2>${esc(role.role_title)}</h2></div><a class="btn" data-variant="secondary" href="${esc(discussLink)}"><svg class="ico" aria-hidden="true"><use href="#i-chat"/></svg>Discuss with Alex</a></div><p class="micro">Role-level context only. Candidate identities and restricted evidence stay in Hiring; external actions still require their exact controls.</p><div class="grid"><div class="stat"><span class="muted">Role state</span><strong>${esc(role.role_state)}</strong></div><div class="stat"><span class="muted">Candidates</span><strong>${candidates.length}</strong></div><div class="stat"><span class="muted">${esc(applicationsLabel)}</span><strong>${esc(applicationsStatus)}</strong><span class="micro">${esc(applicationsHelp)}</span>${applicationLink}</div></div><p class="micro next-wake">Next wake: ${esc(role.role_state === "PUBLISHED" ? "trusted application intake" : "founder approval")}</p></section><section class="card role-materials" tabindex="-1"><h3>${needsApproval ? "Proposed" : displayPolicy ? "Approved" : "Saved"} role package</h3>${contract ? `<section><h4>Role brief</h4><p>${esc(contract.role_summary)}</p><p class="micro">${esc(contract.company_name)} · Target ${esc(contract.target_date)} · ${esc((contract.location_envelope || []).join(", "))}</p></section>${roleDescriptionMarkup(role, contract, displayPolicy)}<section><h4>Hiring scorecard</h4><ol>${(contract.criteria || []).map((c) => `<li><strong>${esc(c.label)}</strong> — ${esc(c.description)}</li>`).join("")}</ol></section><section><h4>Interview plan</h4><ol>${(contract.interview_plan || []).map((q) => `<li><strong>${esc(q.criterion_id)}</strong> — ${esc(q.text)}<br><span class="micro">Rubric: ${(q.rubric || []).map(esc).join("; ")}</span></li>`).join("")}</ol></section><p class="micro">${policyMeta}</p>${approveMarkup}` : '<p class="muted">No role contract is available yet.</p>'}</section><section class="card"><h3>Publication receipt</h3>${(role.publication_receipts || []).map((x) => `<p><button data-public-url="${esc(encodeURIComponent(x.public_url))}" onclick="openInAppBrowser(decodeURIComponent(this.dataset.publicUrl))">Open ${esc(x.destination)} receipt in Browser panel</button> · ${esc(x.verification_status)}<br><span class="micro">Recorded by ${esc(x.actor_id)} at ${esc(x.recorded_at)}</span></p>`).join("") || `<p class="muted">${esc(publicationText)}</p>`}${publicationControl}</section><section class="card"><h3>Candidate intake inbox</h3><p class="micro">Role-scoped applications and restricted CV evidence only. Alex does not score, rank, recommend, advance, or reject candidates.</p>${candidateInboxMarkup(groups, candidateEmpty)}</section>`;
           loadedRoleId = id;
@@ -2442,12 +2470,15 @@
                   (c.citations || []).map((x) => x.evidence_id),
                 ),
               ),
-            ];
+            ],
+            mapControl = !p && a.source_kind === "PUBLIC_FORM"
+              ? `<button class="btn" data-variant="primary" onclick='mapCandidateEvidence(${JSON.stringify(id)},${a.version})'>Map application evidence</button><p id="mappingStatus" class="micro" aria-live="polite">Founder-triggered only. This maps job-related evidence; it does not score, rank, recommend, advance, decline, or contact the candidate.</p>`
+              : "";
           document.querySelector("#candidateTitle").textContent =
             `Candidate ${a.candidate_code}`;
           document.querySelector("#hiringContextTitle").textContent =
             `Candidate ${a.candidate_code} · identity hidden`;
-          body.innerHTML = `<p class="micro">${esc(a.candidate_code)} · ${esc(a.candidate_state)} · identity hidden by default</p><button onclick='revealIdentity(${JSON.stringify(id)})'>Reveal identity with recent sign-in</button><p id="revealedIdentity" class="micro"></p><h2>Candidate application</h2><p class="micro">${artifacts.length} restricted document${artifacts.length === 1 ? "" : "s"}. CVs and application material stay in this role and are excluded from general search, profile memory, and company knowledge.</p><ul>${artifacts.map((item) => `<li>${esc(item.source_kind || "CV or resume")} · ${esc(item.content_type || "restricted document")} · ${esc(item.scope || "HIRING_RESTRICTED")}</li>`).join("") || "<li>No candidate document record is available yet.</li>"}</ul><h2>Evidence by approved criterion</h2><p class="micro">Policy ${esc(p?.policy_version_id || a.current_policy_version_id || "pending")} · labels report candidate-provided information as present, missing, or unclear. They are not scores or hiring advice.</p><div class="passport">${coverage.map((c) => `<section class="criterion"><strong>${esc(c.criterion_label || c.criterion_id)}</strong> <span class="${c.coverage === "MISSING" ? "unknown" : "supported"}">${esc(c.coverage)}</span><p>${esc(c.summary)}</p><p class="micro">Citations: ${(c.citations || []).map((x) => esc(x.evidence_id)).join(", ") || "none"}<br>Missing or unclear: ${(c.unknowns || []).map(esc).join("; ") || "none"}<br>Contradictions: ${(c.contradictions || []).map(esc).join("; ") || "none"}</p></section>`).join("") || '<p class="muted">Evidence mapping has not run. This is not negative evidence.</p>'}</div><h3>Causal timeline</h3><ol>${(j.timeline || []).map((e) => `<li><strong>${esc(e.event_kind)}</strong> <span class="micro">sequence ${esc(e.sequence)} · ${esc(e.occurred_at)}</span></li>`).join("") || "<li>Application received; no later workflow event is committed.</li>"}</ol><section class="card"><h3>Record a Founder decision</h3><label>Decision<select id="decisionKind"><option>HOLD</option><option>REQUEST_EVIDENCE</option><option>ADVANCE</option><option>DECLINE</option></select></label><label>Job-related reason<select id="decisionReason">${(j.approved_reason_codes || []).map((x) => `<option value="${esc(x)}">${esc(x)}</option>`).join("")}</select></label><label>Optional note<textarea id="decisionNote" maxlength="1000"></textarea></label><button id="decisionSubmit" onclick='submitDecision(${JSON.stringify(id)},${JSON.stringify(p?.assessment_id)},${a.version},${JSON.stringify(cited)})' ${p?.assessment_id ? "" : "disabled"}>Commit Founder decision</button><p class="micro">Only the Founder can explicitly change a phase or decline. This writes an append-only attributed decision; communication remains a separate exact approval obligation.</p></section><section class="card"><h3>Candidate data rights</h3><button onclick='exportCandidate(${JSON.stringify(id)})'>Export candidate data</button> <button onclick='deleteCandidate(${JSON.stringify(id)})'>Review deletion plan</button><p id="dataRightsStatus" class="micro">Recent sign-in is required. Provider email remains subject to the stated provider limitations.</p></section><p class="micro">Silence, confidence and elapsed time never create a decision.</p>`;
+          body.innerHTML = `<p class="micro">${esc(a.candidate_code)} · ${esc(a.candidate_state)} · identity hidden by default</p><button onclick='revealIdentity(${JSON.stringify(id)})'>Reveal identity with recent sign-in</button><p id="revealedIdentity" class="micro"></p><h2>Candidate application</h2><p class="micro">${artifacts.length} restricted document${artifacts.length === 1 ? "" : "s"}. CVs and application material stay in this role and are excluded from general search, profile memory, and company knowledge.</p><ul>${artifacts.map((item) => `<li>${esc(item.source_kind || "CV or resume")} · ${esc(item.content_type || "restricted document")} · ${esc(item.scope || "HIRING_RESTRICTED")}</li>`).join("") || "<li>No candidate document record is available yet.</li>"}</ul>${mapControl}<h2>Evidence by approved criterion</h2><p class="micro">Policy ${esc(p?.policy_version_id || a.current_policy_version_id || "pending")} · labels report candidate-provided information as present, missing, or unclear. They are not scores or hiring advice.</p><div class="passport">${coverage.map((c) => `<section class="criterion"><strong>${esc(c.criterion_label || c.criterion_id)}</strong> <span class="${c.coverage === "MISSING" ? "unknown" : "supported"}">${esc(c.coverage)}</span><p>${esc(c.summary)}</p><p class="micro">Citations: ${(c.citations || []).map((x) => esc(x.evidence_id)).join(", ") || "none"}<br>Missing or unclear: ${(c.unknowns || []).map(esc).join("; ") || "none"}<br>Contradictions: ${(c.contradictions || []).map(esc).join("; ") || "none"}</p></section>`).join("") || '<p class="muted">Evidence mapping has not run. This is not negative evidence.</p>'}</div><h3>Causal timeline</h3><ol>${(j.timeline || []).map((e) => `<li><strong>${esc(e.event_kind)}</strong> <span class="micro">sequence ${esc(e.sequence)} · ${esc(e.occurred_at)}</span></li>`).join("") || "<li>Application received; no later workflow event is committed.</li>"}</ol><section class="card"><h3>Record a Founder decision</h3><label>Decision<select id="decisionKind"><option>HOLD</option><option>REQUEST_EVIDENCE</option><option>ADVANCE</option><option>DECLINE</option></select></label><label>Job-related reason<select id="decisionReason">${(j.approved_reason_codes || []).map((x) => `<option value="${esc(x)}">${esc(x)}</option>`).join("")}</select></label><label>Optional note<textarea id="decisionNote" maxlength="1000"></textarea></label><button id="decisionSubmit" onclick='submitDecision(${JSON.stringify(id)},${JSON.stringify(p?.assessment_id)},${a.version},${JSON.stringify(cited)})' ${p?.assessment_id ? "" : "disabled"}>Commit Founder decision</button><p class="micro">Only the Founder can explicitly change a phase or decline. This writes an append-only attributed decision; communication remains a separate exact approval obligation.</p></section><section class="card"><h3>Candidate data rights</h3><button onclick='exportCandidate(${JSON.stringify(id)})'>Export candidate data</button> <button onclick='deleteCandidate(${JSON.stringify(id)})'>Review deletion plan</button><p id="dataRightsStatus" class="micro">Recent sign-in is required. Provider email remains subject to the stated provider limitations.</p></section><p class="micro">Silence, confidence and elapsed time never create a decision.</p>`;
         } catch (e) {
           body.innerHTML = `<p class="error">${esc(e.message)}</p>`;
         }
@@ -2499,6 +2530,23 @@
           }, 30000);
         } catch (e) {
           out.textContent = e.message;
+        }
+      }
+      async function mapCandidateEvidence(id, version) {
+        const status = document.querySelector("#mappingStatus");
+        try {
+          status.textContent = "Mapping job-related evidence…";
+          await api(`/api/hiring/applications/${encodeURIComponent(id)}/assess`, {
+            method: "POST",
+            headers: {"Content-Type": "application/json", "X-CSRF-Token": await csrf()},
+            body: JSON.stringify({
+              expected_application_version: version,
+              client_request_id: `assessment_${crypto.randomUUID().replaceAll("-", "_")}`,
+            }),
+          });
+          await openCandidate(id);
+        } catch (e) {
+          status.textContent = e.message;
         }
       }
       async function submitDecision(id, assessmentId, version, evidenceIds) {

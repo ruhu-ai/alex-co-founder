@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import hashlib
+import os
+import re
+import tempfile
 from typing import Any
 
 from services import hiring_activation, hiring_evidence
@@ -32,6 +35,7 @@ from services.hiring_identity_vault import CandidateIdentityVault
 from services.hiring_role_draft import validate_role_description
 from services.hiring_workflow_adapter import (
     HiringWorkflowAdapter,
+    founder_application_provenance,
     founder_draft_provenance,
     hiring_provenance,
 )
@@ -45,8 +49,8 @@ def _error(code: str, message: str, http_status: int = 409) -> dict[str, Any]:
             "message": message}
 
 
-def _is_https_url(value: str) -> bool:
-    """Accept only an absolute https:// URL with a hostname and no credentials."""
+def _is_public_url(value: str) -> bool:
+    """Accept HTTPS, plus exact loopback HTTP only outside Cloud Run."""
     from urllib.parse import urlsplit
 
     if len(value) > 2000:
@@ -55,8 +59,12 @@ def _is_https_url(value: str) -> bool:
         parts = urlsplit(value.strip())
     except ValueError:
         return False
-    return bool(parts.scheme == "https" and parts.hostname
-                and "@" not in parts.netloc)
+    if parts.scheme == "https" and parts.hostname and "@" not in parts.netloc:
+        return True
+    return bool(
+        not os.environ.get("K_SERVICE") and parts.scheme == "http"
+        and parts.hostname in {"127.0.0.1", "localhost"}
+        and "@" not in parts.netloc)
 
 
 def _candidate_facing_projection(
@@ -291,7 +299,7 @@ class HiringService:
         # later handed to the embedded Browser launcher, so a non-HTTPS scheme
         # (javascript:, data:, http:) must be refused at the server boundary
         # rather than relying on the client-side guard alone.
-        if not _is_https_url(public_url):
+        if not _is_public_url(public_url):
             return _error("invalid_contract",
                           "Publication URL must be an absolute HTTPS URL.", 400)
         role = await self.store.get("hiring_roles", role_id)
@@ -334,11 +342,15 @@ class HiringService:
                 return {**wait, "recoverable": True}
             return {"status": "success", "duplicate": True,
                     "receipt_id": receipt_id, "role_version": role["version"]}
+        app_owned_publication = (
+            destination.upper() == "COFOUNDER_PUBLIC_ROLE_PAGE")
         receipt = {
             "receipt_id": receipt_id, "destination": destination.upper(),
             "public_url": public_url[:2000], "attestation": attestation[:1000],
             "actor_id": principal.actor_id, "recorded_at": utc_now(),
-            "verification_status": "DISABLED_PENDING_TERMS_REVIEW",
+            "verification_status": (
+                "VERIFIED_APP_OWNED" if app_owned_publication else
+                "DISABLED_PENDING_TERMS_REVIEW"),
             "automated_publication": False,
             "policy_version_id": policy_id,
             "policy_hash": role["current_policy_hash"],
@@ -346,7 +358,12 @@ class HiringService:
         committed = await self.store.compare_and_set(
             "hiring_roles", role_id, expected_version, {
                 "publication_receipts": [*role.get("publication_receipts", []), receipt],
-                "role_state": RoleState.PUBLISHED.value, "updated_at": utc_now(),
+                "role_state": RoleState.PUBLISHED.value,
+                "candidate_processing_allowed": (
+                    role.get("synthetic") is False and app_owned_publication),
+                "public_application_form_enabled": (
+                    role.get("synthetic") is False and app_owned_publication),
+                "updated_at": utc_now(),
             })
         if not committed:
             return _error("version_conflict", "Role changed; reload before recording.")
@@ -380,6 +397,8 @@ class HiringService:
             if item.get("policy_version_id") == policy_id
             and item.get("policy_hash") == policy_hash
             and item.get("automated_publication") is False
+            and item.get("destination") == "COFOUNDER_PUBLIC_ROLE_PAGE"
+            and item.get("verification_status") == "VERIFIED_APP_OWNED"
         ]
         if (not policy_id or not policy_hash or not receipts
                 or role.get("role_state") != RoleState.PUBLISHED.value
@@ -402,11 +421,9 @@ class HiringService:
         description_gate = validate_role_description(description, contract)
         if description_gate.get("error"):
             return _error("open_role_not_live", "This open role is not live.", 404)
-        package = dict(role.get("publication_package") or {})
-        application_address = str(package.get("application_address") or "").strip()
         latest_receipt = sorted(
             receipts, key=lambda item: str(item.get("recorded_at") or ""))[-1]
-        if not _is_https_url(str(latest_receipt.get("public_url") or "")):
+        if not _is_public_url(str(latest_receipt.get("public_url") or "")):
             return _error("open_role_not_live", "This open role is not live.", 404)
         from services.hiring_public_intake import build_public_intake_projection
         intake = build_public_intake_projection(role)
@@ -665,6 +682,180 @@ class HiringService:
                 "assessment_id": assessment_id,
                 "withheld_inbox_item_ids": inbox_items}
 
+    async def assess_public_application(
+            self, *, principal: ActorPrincipal, application_id: str,
+            expected_application_version: int,
+            client_request_id: str) -> dict[str, Any]:
+        """Map a public-form resume to criteria after an explicit Founder click.
+
+        The result is identity-free evidence coverage. It contains no score,
+        ranking, recommendation, automatic state decision, communication, or
+        external action.
+        """
+        gate = authorize(principal, "read_candidate")
+        if gate.get("error"):
+            return gate
+        application = await self.store.get("candidate_applications", application_id)
+        if (not application
+                or application.get("workspace_id") != principal.workspace_id):
+            return _error("application_not_found", "Application does not exist.", 404)
+        if (application.get("source_kind") != "PUBLIC_FORM"
+                or application.get("synthetic") is not False):
+            return _error("application_not_eligible",
+                          "Only a public-form application can use this review path.")
+        if application.get("current_assessment_id"):
+            return {"status": "success", "duplicate": True,
+                    "assessment_id": application["current_assessment_id"],
+                    "candidate_state": application["candidate_state"]}
+        if int(application.get("version", 0)) != expected_application_version:
+            return _error("version_conflict", "Application changed; reload before mapping.")
+        role = await self.store.get("hiring_roles", str(application.get("role_id") or ""))
+        policy = await self.store.get(
+            "hiring_policy_versions", str((role or {}).get(
+                "current_policy_version_id") or ""))
+        if (not role or role.get("workspace_id") != principal.workspace_id
+                or role.get("role_state") != RoleState.PUBLISHED.value
+                or role.get("candidate_processing_allowed") is not True
+                or not policy or policy.get("status") != "APPROVED"
+                or policy.get("canonical_hash") != role.get("current_policy_hash")
+                or application.get("current_policy_version_id") !=
+                policy.get("policy_version_id")):
+            return _error("policy_not_active",
+                          "The application is not bound to the current published role.")
+
+        from services import document_ingestion
+        from services.hiring_public_intake import HiringPublicIntakeService
+
+        restricted = await HiringPublicIntakeService(
+            store=self.store).read_restricted_resume(application=application)
+        if restricted.get("error"):
+            return restricted
+        suffix = str(restricted["extension"])
+        try:
+            with tempfile.NamedTemporaryFile(suffix=suffix) as handle:
+                handle.write(restricted["resume_bytes"])
+                handle.flush()
+                extracted = document_ingestion.extract_chunks(handle.name, suffix)
+        finally:
+            restricted.pop("resume_bytes", None)
+        if extracted.get("status") != "success":
+            return _error("resume_extraction_failed",
+                          "The resume could not be read as searchable text.")
+
+        criteria = [Criterion.model_validate(item)
+                    for item in policy["contract"]["criteria"]]
+        ignored = {"and", "the", "for", "with", "from", "job", "evidence"}
+        criterion_terms = {
+            item.criterion_id: {
+                token for token in re.findall(
+                    r"[a-z0-9+#.]{2,}",
+                    f"{item.label} {item.description}".casefold())
+                if token not in ignored
+            } for item in criteria
+        }
+        artifact = restricted["artifact"]
+        source_hash = str(artifact.get("source_sha256") or "")
+        evidence_items: list[EvidenceItem] = []
+        withheld_ids: list[str] = []
+        for index, chunk in enumerate(list(extracted.get("chunks") or [])[:100]):
+            text = str(chunk.get("content") or "")[:4000]
+            terms = set(re.findall(r"[a-z0-9+#.]{2,}", text.casefold()))
+            matched = [criterion_id for criterion_id, expected in criterion_terms.items()
+                       if expected & terms]
+            if not matched:
+                continue
+            block_id = str(chunk.get("id") or f"resume-{index + 1}")[:160]
+            redacted = hiring_evidence.redact_block(
+                text, block_id=block_id,
+                classification_confidence=1.0, classifier_disagreed=False)
+            evidence_id = stable_id("ce", application_id, block_id, source_hash)
+            risk = ContentRisk(redacted["content_risk"])
+            locator = dict(chunk.get("locator") or {})
+            page = locator.get("page")
+            item = EvidenceItem(
+                evidence_id=evidence_id, workspace_id=principal.workspace_id,
+                role_id=role["role_id"], candidate_application_id=application_id,
+                source_artifact_id=str(artifact["artifact_id"]), source_kind="RESUME",
+                criterion_ids=matched, locator=EvidenceLocator(
+                    page=int(page) if isinstance(page, int) and page > 0 else None,
+                    block=block_id),
+                quote=redacted["safe_text"][:800] if risk is ContentRisk.CLEAR else "",
+                normalized_fact="", authority=EvidenceAuthority.CANDIDATE_CLAIM,
+                verification=Verification.UNVERIFIED, content_risk=risk,
+                source_sha256=f"sha256:{source_hash}",
+                redaction_policy_version=hiring_evidence.REDACTION_POLICY_VERSION,
+                created_at=datetime_from_iso(utc_now()))
+            evidence_items.append(item)
+            await self.store.create("candidate_evidence", evidence_id, {
+                **item.model_dump(mode="json"), "evidence_hash": canonical_hash(item),
+                "synthetic": False, "version": 1,
+            })
+            if risk is not ContentRisk.CLEAR:
+                withheld_ids.append(evidence_id)
+
+        invocation_id = stable_id(
+            "invoke", application_id, policy["canonical_hash"], client_request_id)
+        analyst_input = hiring_evidence.build_analyst_input(
+            invocation_id=invocation_id, workspace_id=principal.workspace_id,
+            role_id=role["role_id"], candidate_application_id=application_id,
+            candidate_code=application["candidate_code"],
+            policy_version_id=policy["policy_version_id"],
+            policy_hash=policy["canonical_hash"], criteria=criteria,
+            evidence=evidence_items)
+        if isinstance(analyst_input, dict):
+            return analyst_input
+        validated = hiring_evidence.validate_analyst_output(
+            _fixture_analyst_output(analyst_input), expected=analyst_input,
+            model_id="deterministic-founder-triggered-v1",
+            prompt_version="hiring-evidence-v1")
+        if validated.get("error"):
+            return validated
+        output = validated["output"]
+        assessment_id = stable_id("assessment", application_id,
+                                  validated["assessment_hash"])
+        await self.store.create("candidate_assessments", assessment_id, {
+            **output.model_dump(mode="json"), "assessment_id": assessment_id,
+            "assessment_hash": validated["assessment_hash"],
+            "input_evidence_hashes": sorted(canonical_hash(item)
+                                             for item in evidence_items),
+            "model_id": validated["model_id"],
+            "prompt_version": validated["prompt_version"],
+            "staleness": "CURRENT", "created_at": utc_now(),
+            "synthetic": False, "version": 1,
+        })
+        run = await self.runtime.create_run(
+            workspace_id=principal.workspace_id,
+            journey_id=str(application.get("journey_id") or role["journey_id"]),
+            run_kind=RunKind.CANDIDATE,
+            idempotency_key=f"public-assessment:{application_id}",
+            domain_ref=application_id, parent_run_id=role["run_id"],
+            provenance=founder_application_provenance(),
+            originating_actor_id=principal.actor_id)
+        if run.get("error"):
+            return run
+        committed = await self.store.compare_and_set(
+            "candidate_applications", application_id,
+            expected_application_version, {
+                "run_id": run["run_id"],
+                "candidate_state": CandidateState.AWAITING_HUMAN_DECISION.value,
+                "current_assessment_id": assessment_id,
+                "processing_status": "EVIDENCE_MAPPED_FOR_FOUNDER",
+                "updated_at": utc_now(),
+            })
+        if not committed:
+            return _error("version_conflict", "Application changed; mapping was not attached.")
+        await self.runtime.append_event(
+            run["run_id"], event_kind="EVIDENCE_PASSPORT_COMMITTED",
+            idempotency_key=f"assessment:{assessment_id}",
+            safe_payload={"assessment_id": assessment_id,
+                          "withheld_blocks": len(withheld_ids)},
+            actor_id=principal.actor_id)
+        return {"status": "success", "duplicate": False,
+                "assessment_id": assessment_id,
+                "candidate_state": committed["candidate_state"],
+                "criteria_count": len(criteria),
+                "evidence_count": len(evidence_items)}
+
     async def record_human_decision(self, *, principal: ActorPrincipal,
                                     application_id: str,
                                     decision_input: HumanDecisionInput,
@@ -762,9 +953,10 @@ class HiringService:
             "supersedes_decision_id": decision_input.supersedes_decision_id,
             "communication_required": decision_input.decision is DecisionKind.DECLINE,
             "communication_action_id": None, "commit_status": "PREPARED",
-            "created_at": now, "synthetic": True,
-            "synthetic_namespace": application["synthetic_namespace"],
-            "fixture_id": application["fixture_id"], "version": 1,
+            "created_at": now,
+            "synthetic": application.get("synthetic") is True,
+            "synthetic_namespace": application.get("synthetic_namespace"),
+            "fixture_id": application.get("fixture_id"), "version": 1,
         }
         if not existing and not await self.store.create("hiring_decisions", decision_id, row):
             return await self.record_human_decision(
@@ -897,9 +1089,9 @@ class HiringService:
             "safe_note": safe_note[:500], "recorded_by_actor_id": principal.actor_id,
             "request_hash": request_hash,
             "commit_status": "PREPARED", "created_at": utc_now(),
-            "synthetic": application["synthetic"],
-            "synthetic_namespace": application["synthetic_namespace"],
-            "fixture_id": application["fixture_id"], "version": 1,
+            "synthetic": application.get("synthetic") is True,
+            "synthetic_namespace": application.get("synthetic_namespace"),
+            "fixture_id": application.get("fixture_id"), "version": 1,
         }
         created = await self.store.create("hiring_candidate_requests", request_id, row)
         existing = row if created else await self.store.get(
@@ -954,9 +1146,10 @@ class HiringService:
                 "candidate_application_id": application_id,
                 "kind": f"HIRING_{request_kind}_REQUEST", "status": "OPEN",
                 "safe_reason": request_kind, "candidate_request_id": request_id,
-                "created_at": utc_now(), "synthetic": application["synthetic"],
-                "synthetic_namespace": application["synthetic_namespace"],
-                "fixture_id": application["fixture_id"], "version": 1,
+                "created_at": utc_now(),
+                "synthetic": application.get("synthetic") is True,
+                "synthetic_namespace": application.get("synthetic_namespace"),
+                "fixture_id": application.get("fixture_id"), "version": 1,
             })
         current = await self.store.get("hiring_candidate_requests", request_id)
         if current:

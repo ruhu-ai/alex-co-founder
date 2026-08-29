@@ -2,12 +2,15 @@
 
 ## Status and decision
 
-**Status:** accepted engineering contract. H0–H3 are implemented behind a
-deployment-owned synthetic-fixture allowlist. H4–H7, production use, real
-candidate processing, provider writes, automated job posting/outreach, and any
-automated employment decision remain disabled and unauthorized. Qualified
-employment/privacy/accessibility/destination reviews remain `PENDING` in the
-code-owned H0 policy and are live-activation blockers, not implied approvals.
+**Status:** Founder-authorized bounded production implementation. Normal
+`/hiring` intake creates a real, editable Founder role draft from the supplied
+description; the former Ruhu FDE package is an optional synthetic demo fixture
+only. The app-owned role page and encrypted role-scoped application form may be
+enabled with a dedicated deployment secret. Resume evidence mapping is a
+separate Founder-clicked operation and produces only criterion-linked
+`PRESENT` / `MISSING` / `UNCLEAR` coverage. Provider writes, third-party job
+posting/outreach, automatic assessment, ranking, recommendation, advance,
+decline, offer, and onboarding effects remain disabled and unauthorized.
 
 **Decision:** build hiring as a curated, human-controlled outcome pack on the
 shared Alex runtime. A role may remain open for months. One durable parent role
@@ -15,13 +18,12 @@ run coordinates independent candidate child runs, and an accepted candidate
 creates a separately permissioned onboarding run. No model invocation, process,
 websocket, or browser remains alive while the operation waits.
 
-**Binding v1 intake and distribution decision:** candidates apply by email to a
-role-specific address on Alex's mailbox. Alex prepares the approved publication
-package, but the founder manually publishes it to LinkedIn or another unsupported
-job board and records the resulting URL. Co-Founder does not provide an owned
-candidate application portal in v1 and does not automate LinkedIn's website.
-Official provider publication/application APIs may be added only through a
-separately reviewed, authorized adapter.
+**Binding v1 intake and distribution decision:** the Founder reviews and
+approves the exact role package, then separately clicks **Publish approved
+role**. Co-Founder publishes that exact package only on its own public role page
+and opens its encrypted, role-scoped application form. External job boards
+remain a manual Founder handoff; Co-Founder does not automate LinkedIn or any
+third-party publication/application API.
 
 **Product promise:** Alex does not choose who is hired. Alex keeps the process
 moving, preserves job-related evidence and uncertainty, wakes the correct run
@@ -1748,7 +1750,7 @@ this document may not create a separate Hiring product shell.
 | policy version/diff/impact view | implemented for synthetic H2–H3 | approved role brief, scorecard, interview plan, job post, version and impact |
 | interview/reference/offer/onboarding views | missing | build |
 | application-mailbox operations | synthetic trusted-route/cursor flow implemented; no normal Founder/Alex mailbox is read automatically and no normal role binding is active | production requires one explicit role alias plus server-owned route/label binding, positive and forged-header-negative probes, scoped inbound sync, and separately exact-approved outbound effects; real Gmail, attachments, DSN handling, and H4 communication remain disabled |
-| candidate-facing application portal | a receipt-gated public job description and encrypted local-staged form contract exist; the form is default-off, always refused in Cloud Run, and synthetic fixtures are never eligible; a dedicated role email is shown only for a verified active role binding | production requires KMS-backed encryption, retention/privacy and abuse-control review, secure upload scanning, monitored deletion/export, and explicit channel rollout; no public or email channel is enabled by this implementation |
+| candidate-facing application portal | a receipt-gated public job description and encrypted role-scoped form exist; the form is default-off until a dedicated intake key is configured, exact role approval and a separate Founder publish click are committed; synthetic fixtures are never eligible | production rollout preserves bounded uploads, encrypted identity/artifact storage, explicit privacy consent, deletion/export controls, and monitoring; no third-party post, contact, ranking, recommendation, or employment decision is enabled |
 
 **Answer:** H0–H3 now have the surfaces required for an honest synthetic
 application-to-human-decision demonstration. The product still does not have

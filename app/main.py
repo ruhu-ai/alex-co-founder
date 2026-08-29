@@ -776,27 +776,27 @@ async def _launch_investor_outreach(
 
 async def _launch_hiring_command(*, principal: ActorPrincipal, context: str,
                                   request_id: str) -> dict:
-    """Create the reviewed default role package as an internal Founder DRAFT.
-
-    This explicit command is the narrow Hiring UI adapter. Natural conversation
-    uses the model tools to collect and present an exact package before creating
-    it. Both paths create the same non-executable draft shape and grant no
-    approval, publication, candidate-processing, or provider authority.
-    """
+    """Compile the Founder's description into an internal, editable role DRAFT."""
     normalized = re.sub(r"\s+", " ", context).strip()
     if len(normalized) > _HIRING_CONTEXT_MAX:
         return {"error": True, "message": "Hiring context is too long."}
-    required = ("forward deployment engineer", "ruhu", "nigeria", "remote")
-    if not all(term in normalized.casefold() for term in required):
-        return {"error": True, "message": (
-            "Include the company, role, location, and work arrangement: Ruhu, "
-            "Forward Deployment Engineer, Nigeria, and remote.")}
     services = hiring_routes._services()
     if not services:
         return {"error": True, "message": "Hiring draft storage is not configured."}
-    from services.hiring_role_draft import ruhu_fde_package
+    from services.hiring_role_draft import founder_description_package
 
-    package = ruhu_fde_package()
+    package = founder_description_package(
+        normalized,
+        company_name=os.environ.get("HIRING_DEFAULT_COMPANY_NAME", "Ruhu"),
+        location=os.environ.get("HIRING_DEFAULT_LOCATION", "Nigeria"),
+        work_arrangement=os.environ.get(
+            "HIRING_DEFAULT_WORK_ARRANGEMENT", "Remote"),
+        employment_type=os.environ.get(
+            "HIRING_DEFAULT_EMPLOYMENT_TYPE", "Full-time employee"),
+    )
+    if package.get("status") != "success":
+        return {"error": True, "message": str(package.get(
+            "message") or "The role description could not be drafted safely.")}
     contract = package["contract"]
     created = await services[0].create_founder_draft_role(
         principal=principal, contract=contract,
@@ -807,12 +807,13 @@ async def _launch_hiring_command(*, principal: ActorPrincipal, context: str,
     proposed = await hiring_policy_service.propose_policy(
         principal=principal, role_id=created["role"]["role_id"],
         contract=contract, role_description=package["role_description"],
-        change_reason=("Founder-started internal Ruhu FDE role package from "
-                       "the explicit Hiring action."),
+        change_reason=("Founder-started role package compiled from the exact "
+                       "description supplied to the explicit Hiring action."),
         client_request_id=f"{request_id}:role-package")
     if proposed.get("error"):
         return proposed
     return {"status": "success", "role": created["role"], "policy": proposed,
+            "assumptions": package.get("assumptions", {}),
             "duplicate": created.get("duplicate", False)}
 
 
@@ -1048,10 +1049,16 @@ async def wake(payload: WakePayload, request: Request) -> dict:
                     "session_id": session_id, "replies": [reply], "launched": False,
                     "client_request_id": request_id})
             role = launch["role"]
+            assumptions = launch.get("assumptions") or {}
             reply = (f"I created the durable draft hiring operation for {role['role_title']} at "
                      f"{role['company_name']} and prepared its role brief, scorecard, interview "
                      f"plan, full job description, and exact job-post draft. Open Hiring Operations "
-                     f"to review role {role['role_code']} and approve only its internal role package. "
+                     f"to review role {role['role_code']}. I used the editable working assumptions "
+                     f"{assumptions.get('location', 'the configured location')}, "
+                     f"{assumptions.get('work_arrangement', 'the configured work arrangement')}, "
+                     f"and {assumptions.get('employment_type', 'the configured employment type')}. "
+                     "Approve the exact role package there, then publish it with the separate "
+                     "Founder control. "
                      "No post or email was sent.")
             await _append_chat_exchange(
                 session_id, payload.message, reply, f"command-{request_id}",
