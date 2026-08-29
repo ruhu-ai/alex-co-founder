@@ -98,8 +98,9 @@ TOP_LEVEL_COLLECTIONS: frozenset[str] = frozenset({
     "memory_control_receipts",
     "memory_deletion_tombstones",
     "memory_deletion_jobs",
-    # The last two live in a separately configured Firestore database in M2;
-    # they are still registered so collection coverage cannot miss them.
+    "memory_export_jobs",
+    # These live in a separately configured Firestore database in M2; they are
+    # registered so collection-coverage checks cannot silently miss them.
     "memory_deletion_ledger",
     "memory_deletion_ledger_heads",
     "memory_write_receipts",
@@ -118,6 +119,15 @@ TOP_LEVEL_COLLECTIONS: frozenset[str] = frozenset({
     "recovery_drills",
     "governance_reports",
     "connector_credential_grants",
+    # docs/37 compiled-skill qualification, lifecycle, selection, and
+    # content-free invocation receipts. Registration keeps export/deletion
+    # coverage aligned with the closed DurableStore allowlist.
+    "skill_qualification_bundles",
+    "skill_lifecycle_states",
+    "skill_lifecycle_events",
+    "skill_selections",
+    "skill_invocations",
+    "skill_receipts",
     "hiring_roles",
     "hiring_policy_versions",
     "hiring_policy_impacts",
@@ -3482,8 +3492,13 @@ async def create_source_grant(
     from services import data_source_contracts as dsc
 
     connection = await get_data_connection(founder_id, connection_id)
+    drive_connector_ids = {
+        dsc.ConnectorId.DRIVE.value,
+        dsc.ConnectorId.ALEX_DRIVE.value,
+    }
+    connector_id = str((connection or {}).get("connector_id") or "")
     if (not connection
-            or connection.get("connector_id") != dsc.ConnectorId.DRIVE.value
+            or connector_id not in drive_connector_ids
             or connection.get("status") not in {
                 dsc.ConnectionStatus.CONNECTED.value,
                 dsc.ConnectionStatus.DEGRADED.value}):
@@ -3509,7 +3524,7 @@ async def create_source_grant(
             "schema_version": 1, "source_grant_id": grant_id,
             "workspace_id": founder_id, "founder_id": founder_id,
             "connection_id": connection_id,
-            "connector_id": dsc.ConnectorId.DRIVE.value,
+            "connector_id": connector_id,
             "provider_source_id": str(provider_source_id)[:512],
             "display_name": str(display_name)[:240], "source_kind": "file",
             "allowed_ingestion_scopes": scopes,

@@ -21,9 +21,8 @@ _TTL = int(os.environ.get("APPROVAL_TTL_MINUTES", "30"))
 # Gates the founder can grant. submit_application: form submission.
 # send_email: outbound mail from alex@ruhu.ai (adr/001).
 # book_meeting: calendar event + emailed invites (adr/002).
-GATES = {"submit_application", "send_email", "book_meeting",
-         "create_portal_account", "export_drive_file",
-         "export_alex_drive_file"}
+GATES = {"submit_application", "send_email", "send_founder_email", "book_meeting",
+         "create_portal_account", "export_drive_file", "export_alex_drive_file"}
 
 # Canonical-form version tag. It is mixed into every digest so a future change
 # to the canonical form can never accidentally compare equal to an old one —
@@ -122,9 +121,8 @@ async def request_approval(application_id: str, gate: str = "submit_application"
                            requested_by_actor_id: str = "") -> dict:
     if gate not in GATES:
         return {"status": "error", "error": True, "message": f"unknown gate {gate!r}"}
-    direct_click = gate in {
-        "export_drive_file", "export_alex_drive_file"
-    } and bool(requested_by_actor_id)
+    direct_click = gate in {"export_drive_file", "export_alex_drive_file"} \
+        and bool(requested_by_actor_id)
     if not founder_id or (not session_id and not direct_click):
         return {"status": "error", "error": True,
                 "message": "approval requests require a founder-bound session"}
@@ -162,6 +160,7 @@ async def request_approval(application_id: str, gate: str = "submit_application"
         "submit_application": "browser",
         "create_portal_account": "browser",
         "send_email": "alex_mail",
+        "send_founder_email": "founder_gmail",
         "book_meeting": "calendar",
         "export_drive_file": "drive",
         "export_alex_drive_file": "alex_drive",
@@ -170,6 +169,7 @@ async def request_approval(application_id: str, gate: str = "submit_application"
         "submit_application": "submit_application",
         "create_portal_account": "create_portal_account",
         "send_email": "send_email",
+        "send_founder_email": "send_founder_email",
         "book_meeting": "create_calendar_event",
         "export_drive_file": "export_drive_file",
         "export_alex_drive_file": "export_alex_drive_file",

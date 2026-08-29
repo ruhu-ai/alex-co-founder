@@ -1,5 +1,5 @@
 {
-  "__comment": "Deploy these field TTL policies before enabling docs/35 Live vision or docs/39 M2 durable memory outside internal use.",
+  "__comment": "Review and apply these field TTL policies before enabling docs/35 Live vision or docs/39 M2 durable memory outside internal use. The normal deploy does not apply this manifest.",
   "policies": [
     {
       "collectionGroup": "media_consent_grants",

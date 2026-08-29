@@ -147,7 +147,7 @@ async def delete_session(
         session_state.get(ss.K_MEMORY_MODE)
         or (catalog or {}).get("memory_mode")
         or "STANDARD")
-    if memory_principal is not None and memory_mode != "PRIVATE":
+    if memory_principal is not None and memory_mode == "STANDARD":
         from services.durable_memory import configured_service
 
         cascaded = await configured_service().delete_by_source_session(

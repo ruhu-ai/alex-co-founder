@@ -1,10 +1,10 @@
-"""Founder-scoped Google OAuth plus Alex's role-owned Google account.
+"""Founder-scoped Google OAuth (docs/12) + Alex's mailbox account (adr/001 v2).
 
 Two accounts, each with its own refresh token:
-  - "founder": read-only Drive + Gmail + Calendar (GOOGLE_OAUTH_REFRESH_TOKEN)
-  - "alex":    the alex@ruhu.ai role account (ALEX_OAUTH_REFRESH_TOKEN) —
-               full Drive plus mailbox/calendar scopes granted separately.
-               Provider scopes never replace application approval gates.
+  - "founder": bounded Drive + Gmail + Calendar (GOOGLE_OAUTH_REFRESH_TOKEN)
+  - "alex":    the alex@ruhu.ai role mailbox (ALEX_OAUTH_REFRESH_TOKEN) —
+               gmail.readonly + gmail.send; sending is approval-gated in code
+               (services/alex_mailbox.py), never by scope alone.
 
 Refresh tokens are obtained via the Connectors panel (in-browser loopback
 flow) or scripts/oauth_setup.py, and stored in Secret Manager (prod) or .env
@@ -28,11 +28,10 @@ SCOPE_MAP = {
         "https://www.googleapis.com/auth/drive.readonly",
         "https://www.googleapis.com/auth/drive.file",  # sync produced documents; per-file only
     ],
-    # Alex's role-owned Drive is operational storage, not a founder data source.
-    # The provider grant permits full read/write access inside that account;
-    # application code still owns every consequence/approval boundary.
-    "alex_drive": ["https://www.googleapis.com/auth/drive"],
-    "founder_gmail": ["https://www.googleapis.com/auth/gmail.readonly"],
+    "founder_gmail": [
+        "https://www.googleapis.com/auth/gmail.readonly",
+        "https://www.googleapis.com/auth/gmail.send",  # exact approval required
+    ],
     "calendar": [
         "https://www.googleapis.com/auth/calendar.readonly",
         "https://www.googleapis.com/auth/calendar.events",  # booking is
@@ -45,16 +44,21 @@ SCOPE_MAP = {
         "openid", "https://www.googleapis.com/auth/userinfo.email",
     ],
     "alex_calendar": [
+        "https://www.googleapis.com/auth/calendar.readonly",
         "https://www.googleapis.com/auth/calendar.events",
         "openid", "https://www.googleapis.com/auth/userinfo.email",
+    ],
+    "alex_drive": [
+        "https://www.googleapis.com/auth/drive.readonly",
+        "https://www.googleapis.com/auth/drive.file",  # app-created files only
     ],
 }
 # Which Google account each connector auths as (adr/001: Alex's mailbox is a
 # separate Workspace user). Unlisted connectors use the founder account.
 CONNECTOR_ACCOUNT = {
-    "alex_drive": "alex",
     "alex_mail": "alex",
     "alex_calendar": "alex",
+    "alex_drive": "alex",
 }
 ACCOUNT_ENV = {"founder": "GOOGLE_OAUTH_REFRESH_TOKEN",
                "alex": "ALEX_OAUTH_REFRESH_TOKEN"}
@@ -84,14 +88,14 @@ STATUS_SCOPES = {
 
 # Full founder grant (union of founder-account scopes) — used by
 # scripts/oauth_setup.py and as the callback flow's scope set. Per-connector
-# Connect buttons request only their own scopes; Google merges them into one
-# grant (incremental authorization).
+# Connect buttons request only their own scopes and reject inherited grants;
+# one connector can never silently widen another connector's stored token.
 # calendar.events (booking) ships only with approval-gated invites — docs/adr/002.
 SCOPES = [scope for connector, group in SCOPE_MAP.items()
           if CONNECTOR_ACCOUNT.get(connector, "founder") == "founder"
           for scope in group]
 # Union including Alex's scopes — used only by the OAuth callback flow so
-# oauthlib's scope check never trips on an alex_mail consent.
+# oauthlib's scope check never trips on an Alex-account consent.
 ALL_SCOPES = [s for group in SCOPE_MAP.values() for s in group]
 
 _creds: dict = {}          # per-workspace/account credential, refreshed on expiry
@@ -388,11 +392,19 @@ def verify_consent(credentials, connector: str) -> dict:
                      cache_discovery=False).tokeninfo(
                          access_token=credentials.token).execute()
         granted = sorted(set((info.get("scope") or "").split()))
-        required = set(STATUS_SCOPES.get(connector, SCOPE_MAP[connector]))
-        if not required.issubset(granted):
+        # A fresh consent must carry the complete feature contract. STATUS_SCOPES
+        # is only for rendering an older partial grant as connected/degraded;
+        # accepting it here would claim a requested write upgrade succeeded.
+        required = set(SCOPE_MAP[connector])
+        granted_set = set(granted)
+        if not required.issubset(granted_set):
             return {"status": "error", "error": True,
                     "error_code": "scope_missing",
                     "message": "required Google scope was not granted"}
+        if granted_set - required:
+            return {"status": "error", "error": True,
+                    "error_code": "scope_excess",
+                    "message": "Google returned access outside this connector's scope contract"}
         if connector in {"calendar", "alex_calendar"}:
             # These grants intentionally include userinfo.email so account
             # identity can be verified without broad Calendar metadata access.

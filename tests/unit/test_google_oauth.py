@@ -31,18 +31,6 @@ class _OAuth2Service:
         return _Request({"email": self.email, "id": "provider-subject"})
 
 
-class _DriveAboutService:
-    def __init__(self, email: str):
-        self.email = email
-
-    def about(self):
-        return self
-
-    def get(self, *, fields: str):
-        assert fields == "user"
-        return _Request({"user": {"emailAddress": self.email}})
-
-
 def test_alex_calendar_verifies_identity_without_calendar_list_scope(monkeypatch):
     scopes = google_oauth.SCOPE_MAP["alex_calendar"]
     oauth2 = _OAuth2Service(scopes, "alex@ruhu.ai")
@@ -80,22 +68,27 @@ def test_alex_calendar_rejects_founder_account_in_role_slot(monkeypatch):
     assert "founder@ruhu.ai" not in result["message"]
 
 
-def test_alex_drive_uses_full_scope_and_verifies_role_identity(monkeypatch):
-    scopes = google_oauth.SCOPE_MAP["alex_drive"]
-    assert scopes == ["https://www.googleapis.com/auth/drive"]
+def test_alex_drive_rejects_inherited_scope_before_token_persistence(monkeypatch):
+    scopes = [
+        *google_oauth.SCOPE_MAP["alex_drive"],
+        "https://www.googleapis.com/auth/drive",
+        "https://www.googleapis.com/auth/gmail.send",
+    ]
     oauth2 = _OAuth2Service(scopes, "alex@ruhu.ai")
-    drive = _DriveAboutService("alex@ruhu.ai")
+    monkeypatch.setattr(
+        "googleapiclient.discovery.build",
+        lambda *_args, **_kwargs: oauth2,
+    )
 
-    def build(api, version, **_kwargs):
-        return oauth2 if (api, version) == ("oauth2", "v2") else drive
-
-    monkeypatch.setattr("googleapiclient.discovery.build", build)
     result = google_oauth.verify_consent(
         SimpleNamespace(token="access-token"), "alex_drive")
 
-    assert result["status"] == "success"
-    assert result["account_hint"] == "a***@ruhu.ai"
-    assert google_oauth.CONNECTOR_ACCOUNT["alex_drive"] == "alex"
+    assert result == {
+        "status": "error",
+        "error": True,
+        "error_code": "scope_excess",
+        "message": "Google returned access outside this connector's scope contract",
+    }
 
 
 def test_calendar_verification_fails_closed_when_userinfo_has_no_email(monkeypatch):

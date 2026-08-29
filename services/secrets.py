@@ -43,7 +43,10 @@ def get(name: str) -> str:
 def put(name: str, value: str) -> None:
     """Persist a secret value by name to Secret Manager (prod token storage).
 
-    Creates the secret on first write. No-op when no project is configured.
+    Adds a version to a pre-provisioned secret first.  This lets a runtime
+    identity hold narrowly scoped ``secretVersionManager`` on an exact
+    connector slot without project-wide secret-creation authority.  Local
+    setup callers that do have create authority still get first-write setup.
     Never logs the value; registers it with the scrubber."""
     project = os.environ.get("GOOGLE_CLOUD_PROJECT")
     if not project:
@@ -55,25 +58,33 @@ def put(name: str, value: str) -> None:
 
     client = secretmanager.SecretManagerServiceClient()
     parent = f"projects/{project}"
+    secret_path = f"{parent}/secrets/{name}"
+    request = {
+        "parent": secret_path,
+        "payload": {"data": value.encode("utf-8")},
+    }
     try:
-        client.create_secret(request={
-            "parent": parent, "secret_id": name,
-            "secret": {"replication": {"automatic": {}}}})
-    except gexc.AlreadyExists:
-        pass
-    client.add_secret_version(request={
-        "parent": f"{parent}/secrets/{name}",
-        "payload": {"data": value.encode("utf-8")}})
+        client.add_secret_version(request=request)
+    except gexc.NotFound:
+        try:
+            client.create_secret(request={
+                "parent": parent, "secret_id": name,
+                "secret": {"replication": {"automatic": {}}}})
+        except gexc.AlreadyExists:
+            # Another setup request may have won the create race.
+            pass
+        client.add_secret_version(request=request)
     _cache[name] = (time.time(), value)
     _register(value)
 
 
 def delete(name: str) -> None:
-    """Delete a runtime-managed secret and evict its cached value.
+    """Destroy every enabled version and evict the cached value.
 
-    Connector tokens are intentionally not Cloud Run environment bindings; the
-    application fetches them by name at execution time.  Removing the Secret
-    Manager resource therefore makes a disconnect survive every cold start.
+    Connector token containers are pre-provisioned with exact secret-level IAM.
+    Keeping that empty container preserves least-privilege reconnect support;
+    destroying every enabled version still makes reads fail closed after every
+    cold start and leaves no usable refresh token behind.
     """
     project = os.environ.get("GOOGLE_CLOUD_PROJECT")
     if not project:
@@ -84,7 +95,12 @@ def delete(name: str) -> None:
     client = secretmanager.SecretManagerServiceClient()
     path = f"projects/{project}/secrets/{name}"
     try:
-        client.delete_secret(request={"name": path})
+        versions = client.list_secret_versions(request={
+            "parent": path,
+            "filter": "state:ENABLED",
+        })
+        for version in versions:
+            client.destroy_secret_version(request={"name": version.name})
     except gexc.NotFound:
         pass
     _cache.pop(name, None)

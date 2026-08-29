@@ -132,8 +132,11 @@ TOP_LEVEL_LIFECYCLE: dict[str, CollectionLifecycle] = {
         "memory_deletion_tombstones", _FIELD, "workspace_id"),
     "memory_deletion_jobs": CollectionLifecycle(
         "memory_deletion_jobs", _FIELD, "workspace_id"),
-    # Independent deny records are intentionally excluded from ordinary
-    # workspace deletion/restore; deleting them could resurrect forgotten data.
+    "memory_export_jobs": CollectionLifecycle(
+        "memory_export_jobs", _FIELD, "workspace_id"),
+    # The deny ledger lives in an independently administered, non-restored
+    # database. Ordinary workspace export/deletion must never roll it back or
+    # erase its non-content safety fence.
     "memory_deletion_ledger": CollectionLifecycle(
         "memory_deletion_ledger", _SHARED),
     "memory_deletion_ledger_heads": CollectionLifecycle(
@@ -166,6 +169,20 @@ TOP_LEVEL_LIFECYCLE: dict[str, CollectionLifecycle] = {
     "run_events": CollectionLifecycle("run_events", _FIELD, "workspace_id"),
     "connector_credential_grants": CollectionLifecycle(
         "connector_credential_grants", _FIELD, "workspace_id"),
+    # Compiled qualification and lifecycle decisions are shared governance
+    # records; selection/invocation receipts belong to the exact workspace.
+    "skill_qualification_bundles": CollectionLifecycle(
+        "skill_qualification_bundles", _SHARED),
+    "skill_lifecycle_states": CollectionLifecycle(
+        "skill_lifecycle_states", _SHARED),
+    "skill_lifecycle_events": CollectionLifecycle(
+        "skill_lifecycle_events", _SHARED),
+    "skill_selections": CollectionLifecycle(
+        "skill_selections", _FIELD, "workspace_id"),
+    "skill_invocations": CollectionLifecycle(
+        "skill_invocations", _FIELD, "workspace_id"),
+    "skill_receipts": CollectionLifecycle(
+        "skill_receipts", _FIELD, "workspace_id"),
     "hiring_roles": CollectionLifecycle("hiring_roles", _FIELD, "workspace_id"),
     "hiring_policy_versions": CollectionLifecycle(
         "hiring_policy_versions", _FIELD, "workspace_id"),

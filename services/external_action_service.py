@@ -174,13 +174,13 @@ def duplicate_result(receipt: dict[str, Any]) -> dict[str, Any]:
             "create_portal_account": ("This portal-account action already "
                                       "completed; no second account was created."),
             "send_email": "This email was already sent; nothing was sent twice.",
+            "send_founder_email": "This email was already sent; nothing was sent twice.",
             "create_calendar_event": ("This meeting was already booked; no invites "
                                       "were sent twice."),
             "export_drive_file": ("This document was already copied to Drive; no "
                                   "duplicate file was created."),
-            "export_alex_drive_file": (
-                "This document was already copied to Alex's Drive; no "
-                "duplicate file was created."),
+            "export_alex_drive_file": ("This document was already copied to Alex's "
+                                        "Drive; no duplicate file was created."),
         }.get(kind, "This external action already completed successfully.")
         return {"status": "success", "duplicate": True,
                 "action_id": receipt.get("action_id"),

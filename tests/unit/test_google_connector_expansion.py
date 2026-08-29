@@ -7,10 +7,10 @@ from services import (
     capability_registry,
     connection_registry,
     connectors,
-    data_source_contracts as dsc,
     drive_adapter,
     google_oauth,
 )
+from services import data_source_contracts as dsc
 
 
 def test_requested_connector_scopes_are_feature_complete_but_not_destructive():
@@ -24,6 +24,7 @@ def test_requested_connector_scopes_are_feature_complete_but_not_destructive():
         "https://www.googleapis.com/auth/drive.readonly",
         "https://www.googleapis.com/auth/drive.file",
     ]
+    assert google_oauth.SCOPE_MAP["alex_drive"] == google_oauth.SCOPE_MAP["drive"]
     every_scope = {scope for scopes in google_oauth.SCOPE_MAP.values() for scope in scopes}
     assert "https://mail.google.com/" not in every_scope
     assert "https://www.googleapis.com/auth/drive" not in every_scope
@@ -37,6 +38,7 @@ def test_alex_drive_is_a_separate_account_bound_closed_connector():
     assert dsc.DataSourceRole.ACTION_DESTINATION in contract.roles
     descriptor = next(row for row in connectors.DESCRIPTORS if row["name"] == "alex_drive")
     assert descriptor["title"] == "Alex's Google Drive"
+    assert "Alex's own Drive" in descriptor["blurb"]
     capability_registry.require_external_action(
         "export_alex_drive_file", "alex_drive")
 
@@ -75,4 +77,3 @@ async def test_founder_gmail_send_creates_exact_separate_approval(fake_store, mo
     assert approval["gate"] == "send_founder_email"
     assert approval["application_id"] == "founder_email:general"
     alex_mailbox.set_service_factory(None)
-

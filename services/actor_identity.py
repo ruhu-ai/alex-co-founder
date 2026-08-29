@@ -28,6 +28,12 @@ class ActorPrincipal:
     role: WorkspaceRole
     session_auth_time: int
     membership_version: int
+    # Legacy assignment-shaped fields remain empty compatibility metadata.
+    # They are not product roles or a second authority system: every active
+    # authenticated application user is the Founder.
+    role_grants: frozenset[str] = frozenset()
+    candidate_assignments: frozenset[str] = frozenset()
+    interview_assignments: frozenset[str] = frozenset()
     principal_kind: str = "INTERACTIVE"
     membership_id: str = ""
 
@@ -55,12 +61,14 @@ async def resolve_actor_from_claims(
 
     The cookie proves authentication only. The Founder role is always read from
     the current membership record so revocation is immediate.
-    Legacy founder-token/FOUNDER_ID requests have no subject/auth_time and are
-    intentionally incompatible with hiring.
+    A verified subject is required for every interactive principal. Some OIDC
+    providers omit ``auth_time`` unless step-up was explicitly requested; that
+    session may use ordinary Founder controls, but receives an epoch freshness
+    value so every ``require_fresh`` operation still fails closed.
     """
     subject = str((claims or {}).get("sub") or "")
     auth_time = (claims or {}).get("auth_time")
-    if not subject or not isinstance(auth_time, int):
+    if not subject:
         return _error("hiring_auth_required",
                       "Sign in with a verified account to use this workspace.", 401)
     durable = store or production_store()
@@ -82,8 +90,13 @@ async def resolve_actor_from_claims(
             actor_id=str(member["actor_id"]),
             workspace_id=str(member["workspace_id"]),
             role=role,
-            session_auth_time=auth_time,
+            session_auth_time=(auth_time if isinstance(auth_time, int) else 0),
             membership_version=int(member.get("version", 1)),
+            role_grants=frozenset(str(item) for item in member.get("role_grants", [])),
+            candidate_assignments=frozenset(
+                str(item) for item in member.get("candidate_assignments", [])),
+            interview_assignments=frozenset(
+                str(item) for item in member.get("interview_assignments", [])),
             principal_kind="INTERACTIVE",
             membership_id=str(member.get("membership_id") or member.get("id") or ""),
         )
@@ -123,6 +136,11 @@ async def resolve_seeded_principal(
             role=role,
             session_auth_time=int(time.time()),
             membership_version=int(member.get("version", 1)),
+            role_grants=frozenset(str(item) for item in member.get("role_grants", [])),
+            candidate_assignments=frozenset(
+                str(item) for item in member.get("candidate_assignments", [])),
+            interview_assignments=frozenset(
+                str(item) for item in member.get("interview_assignments", [])),
             principal_kind="SEEDED",
             membership_id=str(member.get("membership_id") or member.get("id") or ""),
         )
@@ -176,6 +194,7 @@ async def create_membership(*, actor_id: str, workspace_id: str,
         "schema_version": 2, "membership_id": membership_id,
         "actor_id": actor_id, "workspace_id": workspace_id,
         "auth_subject": auth_subject, "role": role.value, "status": "ACTIVE",
+        "role_grants": [], "candidate_assignments": [], "interview_assignments": [],
         "created_by": created_by, "version": 1, "synthetic": synthetic,
         "local_only": bool(local_only),
     }

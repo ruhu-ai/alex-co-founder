@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Apply the reviewed Firestore TTL manifest before a Cloud Run rollout."""
+"""Validate or explicitly apply reviewed Firestore TTL policies.
+
+This script is inert unless an operator supplies a project and omits
+``--dry-run``. It is not called by the normal deployment path; Document 39 M2
+remains default-off until its independent release gates are attested.
+"""
 
 from __future__ import annotations
 
@@ -14,21 +19,21 @@ DEFAULT_MANIFEST = ROOT / "infra" / "firestore.ttl.json"
 
 
 def load_policies(path: Path) -> list[dict[str, Any]]:
-    payload = json.loads(path.read_text())
+    payload = json.loads(path.read_text(encoding="utf-8"))
     policies = payload.get("policies")
     if not isinstance(policies, list) or not policies:
         raise ValueError("Firestore TTL manifest has no policies")
-    seen: set[str] = set()
     clean: list[dict[str, Any]] = []
+    seen: set[tuple[str, str]] = set()
     for row in policies:
         if not isinstance(row, dict):
             raise ValueError("Firestore TTL policy must be an object")
         collection = str(row.get("collectionGroup") or "")
         field = str(row.get("fieldPath") or "")
-        if (not collection or not field or row.get("ttl") is not True
-                or collection in seen):
+        key = (collection, field)
+        if not collection or not field or row.get("ttl") is not True or key in seen:
             raise ValueError("Firestore TTL policy is invalid or duplicated")
-        seen.add(collection)
+        seen.add(key)
         clean.append({"collectionGroup": collection, "fieldPath": field,
                       "ttl": True})
     return clean
@@ -52,11 +57,12 @@ def apply_policies(*, project: str, database: str, manifest: Path,
                 for row in policies]
     if not dry_run:
         for command in commands:
-            # No --async: a zero exit status means the control-plane operation
-            # completed rather than merely being submitted.
             subprocess.run(command, check=True)
-    return {"status": "success", "applied": 0 if dry_run else len(commands),
-            "declared": len(commands), "commands": commands if dry_run else []}
+    return {
+        "status": "success", "declared": len(commands),
+        "applied": 0 if dry_run else len(commands),
+        "commands": commands if dry_run else [],
+    }
 
 
 def main() -> None:

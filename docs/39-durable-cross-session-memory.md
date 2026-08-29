@@ -1979,9 +1979,16 @@ Any zero-tolerance failure blocks promotion regardless of aggregate usefulness.
 
 ---
 
-## 18. User review checklist before implementation
+## 18. Founder approval and retained technical acceptance checks
 
-Reviewers should explicitly accept, modify, or reject each item:
+The Founder has approved the complete bounded M1/M2 design in this document
+and authorized automatic implementation and rollout after the executable
+technical gates pass. The former five discipline-specific release review rows
+are consolidated into this one Founder product decision; they are not runtime
+roles, allowlists, deployment pauses, or additional sign-off records. The
+items below remain design traceability and automated acceptance criteria, not
+separate human promotion gates. Per-external-effect exact approval remains a
+different control and is not waived by this release authorization.
 
 ### Product
 
@@ -2032,11 +2039,12 @@ Reviewers should explicitly accept, modify, or reject each item:
 - [ ] Decide whether Agent Runtime is worth a separate deployment evaluation;
       it is not required for memory or for this design.
 
-### Rollout
+### Rollout traceability
 
 - [x] Approve the bounded M0–M2 gates and zero-tolerance thresholds; M3–M6
       remain later gated proposals.
-- [ ] Name product, security/privacy, platform, Hiring, and operations reviewers.
+- [x] The authenticated Founder is the single product authority for M1/M2
+      release review; no OWNER/OPERATOR or five-reviewer release gate exists.
 - [ ] Approve the actor-qualified ADK session migration before multi-member use.
 - [ ] Security approves the timing attacker/load profile, common release
       envelope, statistical threshold, and latency-budget fallback.
@@ -2109,11 +2117,525 @@ Additional gate-review decisions have explicit owners:
 | Within-role Hiring count granularity and small-cohort rule | Hiring + Privacy | Before any Hiring contributor beyond synthetic tests |
 | Assurance-specific TTL for automatically extracted decision rationales | Product + Evaluation | Before automatic rationale recall is enabled |
 
-Review sign-off must name the exact document content hash (or later integration
-commit) it assessed. A review of a live-changing file does not promote a newer
-revision; material edits require a new hash and targeted re-review.
+The one Founder authorization is recorded by product policy. Every technical
+test and evidence pack still names the exact candidate hash it assessed; a
+passing result for an older revision cannot promote a newer revision.
 
 M1 and M2 are implementation-eligible only within the top-of-document boundary.
 Optional memory remains disabled until M2 gates pass. All later-tier decisions
 and M3–M6 remain unauthorized; the product continues safely from durable
 profiles, runs, evidence, sessions, and receipts.
+
+---
+
+## 20. Bounded M1/M2 implementation record — 2026-08-28
+
+This record covers the implementation-eligible M1/M2 foundation only. It is
+not a rollout, production-readiness claim, or authorization for a later tier.
+No commit, deployment, environment enablement, managed-memory configuration,
+or data migration was performed as part of this work.
+
+### 20.1 Implemented boundary
+
+- M1 now builds “Since you were away” only from registered durable approval,
+  run-event, wait, safe-inbox, and terminal-run projections. It makes zero model,
+  optional-memory, transcript, session-event, and `pending_signals` reads;
+  contributor failure is rendered as an honest partial result. Hiring run kinds,
+  candidate references, and restricted inbox items are excluded.
+- M1 requires both `DURABLE_BRIEF_M1_ENABLED=true` and an exact workspace
+  allowlist match. Private and temporary sessions stop before brief assembly.
+- M2 adds the explicit “What Alex knows” surface with separate current confirmed
+  facts and optional memory, plus source, trust, freshness, scope, retention,
+  state, and use-reason visibility. Founder controls cover explicit remember,
+  correction by supersession, pin by attributed confirmed version, forget, and
+  disable.
+- The only M2 write sources are an exact founder remember command, an exact
+  founder memory-control command, and founder confirmation of a source-linked
+  synthetic terminal non-Hiring workflow outcome. The portable controlled
+  `DurableStore` is the only backend. The generic ADK memory hook is disconnected
+  from both text and voice runners.
+- Tenant, principal, authenticated Founder role, exact synthetic single-member workspace,
+  source visibility, session mode, and scope are derived and checked server-side.
+  All optional items are `INTERNAL`, `WORKSPACE` scoped, and source manifested.
+  Private and temporary sessions perform zero optional-memory store or deletion-
+  ledger calls.
+- Credentials, approval tokens, Hiring/candidate material, raw transcript/email
+  shapes, authority claims, and instruction/tool-shaped input are rejected.
+  Stored text is rescanned on every recall, integrity checked, source reauthorized,
+  and admitted only for bounded conversational purposes. Tool callbacks reject
+  every tool call while advisory memory is present, and review, approval, draft,
+  document, artifact, attachment, and effect-shaped turns receive no memory.
+- Current confirmed profile facts suppress overlapping optional memory; current
+  source run version and terminal state outrank outcome summaries. Memory remains
+  advisory, is disclosed as “Informed by saved context,” and cannot authorize or
+  evidence an action, transition, approval, provider effect, or artifact.
+- Recall is bounded to 2,000 query characters, three ten-row candidate pages,
+  25 live source reauthorizations, five returned hits, three prompt entries,
+  and 100 authority pointers. Search receipts record safe page/candidate/source-
+  check/context/latency counts and report a full final page as partial rather
+  than silently claiming complete recall.
+- Retention is capped at 365 days for preferences and 90 days for reusable
+  context/outcomes. Recall synchronously rejects expiry; `expires_at_ts` supports
+  the separately applied Firestore TTL policy.
+- Forget and source-session deletion are deny-first. An independently configured
+  non-restored ledger fences ids, logical lineages, source refs, and source
+  sessions before content is blanked and marked `DELETION_PENDING`. Tombstones,
+  jobs, negative active-store probes, bounded backup-residual status, replay
+  denial, and pre-forget restore tests prevent resurrection. Ordinary lifecycle
+  deletion cannot erase the independent deny ledger.
+- The legacy migration is dry-run by default and can only suppress pre-v2 rows;
+  it reads no transcript and creates no memory or managed-backend call.
+
+### 20.2 Verification evidence
+
+Evidence captured in this worktree on 2026-08-28:
+
+- `pytest -q tests/unit` — **1,146 passed, 2 skipped**.
+- Focused M1/M2 privacy, tenancy, correction, deletion, restore, private-session,
+  disclosure, injection, and release-boundary suite — **36 passed**.
+- `python scripts/check_contrast.py` — all dark, light, and mock-portal pairs
+  passed the Document 16 contrast contract.
+- `python -m py_compile` over the changed application, agent, service, migration,
+  and TTL deployment modules — passed.
+- `python -m json.tool` over both Firestore index and TTL manifests — passed.
+- `python scripts/deploy_firestore_ttl.py --project example-project --dry-run`
+  — declared exactly the `memory_items.expires_at_ts` TTL command and applied
+  zero changes.
+- `git diff --check` — passed.
+
+### 20.3 Exact residual gates and disabled tiers
+
+M1 and M2 remain default-off in `.env.example`; the normal deployment script
+does not set either release flag and does not apply TTL. Before even the bounded
+synthetic M2 pilot is enabled, the release process must:
+
+1. provision and verify a separately administered Firestore deletion-ledger
+   database excluded from ordinary application restore;
+2. apply and verify the reviewed `memory_items.expires_at_ts` TTL policy;
+3. attest a named backup policy and bounded residual window;
+4. verify the allowlisted workspace has exactly one active authenticated
+   synthetic Founder and no other member;
+5. run staging usefulness, paging/reauthorization, latency/cost, deletion probe,
+   and restore-fence evidence and keep recall off if the threshold is not met;
+6. pass every executable technical entry check against the exact candidate.
+   No separate release-review approval record is required: the Founder has
+   supplied standing authorization for automatic entry and promotion after the
+   technical gate passes. This does not waive per-effect approvals or authorize
+   M3+.
+
+M3–M6 remain disabled and unauthorized. There is no automatic extraction,
+accepted-feedback write, generic milestone write, transcript/session ingestion,
+backfill, managed Memory Bank adapter, vector index, actor-private memory,
+multi-person sharing, `CONFIDENTIAL` memory egress, approval/review-artifact
+influence, connector activation, or external effect. Enabling any of those
+requires the separately owned decisions and gates in §§15–19.
+
+---
+
+## 21. Controlled M2 staging-pilot release runbook
+
+This section advances the completed, default-off M2 implementation through its
+technical staging and promotion gates. Standing Founder authorization permits
+release automation to deploy and enable the exact candidate immediately after
+those gates pass. The release checker itself remains read-only and returns
+`BLOCKED` until every required live technical evidence item exists.
+
+### 21.1 Evidence files and immutable candidate
+
+Use
+`infra/durable-memory-m2-release-attestation.example.json` as the schema and
+store the filled copy in the controlled release-evidence system, not in a
+public repository when its references are sensitive. It contains references
+and aggregate counts only—never memory text, query text, profile values,
+workspace source bodies, candidate data, approval details, credentials, or
+tokens.
+
+Bind every review and test pack to the exact candidate:
+
+```bash
+python scripts/check_durable_memory_m2_release.py --print-candidate-hash
+```
+
+Any change to a hashed file produces a new candidate hash and invalidates prior
+technical evidence. Entry and promotion remain separate technical gates.
+
+### 21.2 Read-only entry preflight
+
+Before requesting authorization to change staging, prepare all of the following
+while `DURABLE_MEMORY_M2_ENABLED=false`:
+
+1. Set `DURABLE_MEMORY_M2_WORKSPACE_ALLOWLIST` to exactly one intended synthetic
+   staging workspace id. No comma-separated second id, wildcard, production id,
+   or request-supplied id is accepted.
+2. Name the exact synthetic Founder actor. A live read must find exactly one
+   `ACTIVE` membership for the workspace and it must have that actor id,
+   `role=FOUNDER`, a bound authentication subject, and `synthetic=true`. Zero,
+   duplicate, non-Founder, unauthenticated, non-synthetic, or additional active
+   membership blocks entry. M2 has no OWNER or OPERATOR product role or role
+   allowlist.
+   Bind `DURABLE_MEMORY_M2_MEMBERSHIP_CLASS=SYNTHETIC` for entry. Promotion to
+   the normal Founder instead requires `DURABLE_MEMORY_M2_MEMBERSHIP_CLASS=FOUNDER`;
+   a missing or mismatched class fails both the checker and runtime closed.
+3. Name `FIRESTORE_DATABASE` and a different non-default
+   `MEMORY_DELETION_LEDGER_DATABASE`. A second collection in the application
+   database is not independent. Record the ledger's administrative owner,
+   replication evidence, current high-water read, and the control proving it is
+   excluded from ordinary application point-in-time restore.
+4. Validate the exact TTL declaration without applying it:
+
+   ```bash
+   python scripts/deploy_firestore_ttl.py \
+     --project "$GOOGLE_CLOUD_PROJECT" \
+     --database "$FIRESTORE_DATABASE" --dry-run
+   ```
+
+   The output must declare one command for
+   `memory_items.expires_at_ts` and report `applied: 0`. Entry remains blocked
+   until a separately authorized operator has applied the policy and the
+   release checker observes exactly one matching `ACTIVE` TTL field.
+5. Name the application backup policy, policy/change reference, accountable
+   owner, evidence reference, and residual window of 1–365 days. The values
+   must exactly match `DURABLE_MEMORY_BACKUP_POLICY_REF` and
+   `DURABLE_MEMORY_BACKUP_RESIDUAL_DAYS`, with
+   `DURABLE_MEMORY_BACKUP_POLICY_ATTESTED=true`. The evidence must cover the
+   application database and every derived store used by M2, distinguish online
+   deletion from backup expiry, and confirm that `COMPLETE` waits for residual
+   expiry. Shared encryption keys do not create a cryptographic-erasure
+   shortcut.
+6. Qualify the memory-specific export delivery: asynchronous generation,
+   encryption at rest, an artifact lifetime no longer than 24 hours, current
+   source-authorization filtering, actor attribution, exclusion from generic
+   search, and zero metadata or omission count for inaccessible items. A direct
+   synchronous JSON response or unencrypted local file does not satisfy this
+   gate.
+7. Confirm the checker is running against the exact authenticated synthetic
+   Founder named by the canary membership gate. Passing the technical gate is
+   sufficient for the already-authorized release automation; there is no
+   separate review-row prerequisite.
+
+Run the live, read-only gate from the intended staging revision and service
+configuration:
+
+```bash
+python scripts/check_durable_memory_m2_release.py \
+  --attestation /controlled/path/m2-attestation.json \
+  --gate entry \
+  --workspace-id "$SYNTHETIC_MEMORY_WORKSPACE_ID" \
+  --founder-actor-id "$SYNTHETIC_MEMORY_FOUNDER_ACTOR_ID" \
+  --project "$GOOGLE_CLOUD_PROJECT" \
+  --database "$FIRESTORE_DATABASE" \
+  --live
+```
+
+The checker performs no mutations. Offline membership snapshots can exercise
+the schema but remain `PROVISIONAL` and can never produce a ready decision.
+Its local safety probe uses separate in-memory application and deny-ledger
+stores, forgets an item, restores the application snapshot from before forget,
+and proves the unchanged ledger still returns zero hits. This is useful
+provisional evidence, not a substitute for the live ledger or staging restore
+drill.
+
+A ready entry result also prints a content-free `runtime_binding` containing
+the exact candidate hash, evidence-record hash, workspace, and Founder actor.
+The normal application requires those values through
+`DURABLE_MEMORY_M2_RELEASE_CANDIDATE_SHA256`,
+`DURABLE_MEMORY_M2_ENTRY_ATTESTATION_SHA256`, and the explicitly asserted
+`DURABLE_MEMORY_M2_ENTRY_GATE_ATTESTED=true`. It recalculates the candidate
+hash at runtime and stays UI-hidden/API-inert on any mismatch, missing backup
+attestation, non-independent ledger database, multi-workspace allowlist, or
+enabled generic memory backend. `DURABLE_MEMORY_M2_ENABLED=true` alone is never
+sufficient and the checker never authorizes that later flag change.
+
+### 21.3 Independent ledger and restore-fence drill
+
+After a separately authorized pilot-entry change and before promotion:
+
+1. Record application and ledger high-water values and take an isolated
+   recovery snapshot from before a controlled synthetic forget.
+2. Forget the synthetic item. Require the independent ledger append receipt
+   before acknowledging the command. Confirm ordinary, alternate-client, and
+   direct portable-adapter probes return zero and the job reports
+   `ONLINE_COMPLETE_BACKUP_RESIDUAL`, not `COMPLETE`.
+3. Restore only the application/retrieval stores into a closed recovery target.
+   Do not restore or roll back the deny ledger.
+4. Before any product traffic, read the ledger's current high-water, replay all
+   missing denies, rebuild derived projections behind that fence, and require
+   local projection high-water equality.
+5. Run negative probes over product, worker, alternate client, portable adapter,
+   and rebuilt index surfaces. One forgotten/private-source hit, one write
+   accepted behind the fence, unavailable/unverifiable ledger state, high-water
+   mismatch, or traffic opened before probes is an immediate abort.
+6. Record the drill reference, snapshot time, ledger/local high-waters, probe
+   surfaces, zero-hit result, operators, and UTC completion time. Do not record
+   memory text.
+
+### 21.4 Pilot sequence and thresholds
+
+Only after the entry checker returns `READY_FOR_AUTHORIZED_STAGING_PILOT` may
+release automation apply the already-authorized configuration and enable M2
+for the exact allowlisted synthetic workspace. No additional release approval
+is required and no other workspace or tier participates.
+Run the labelled pack with at least 20 eligible cases and capture content-free
+receipts/aggregates.
+
+| Area | Success threshold | Immediate abort |
+|---|---|---|
+| Usefulness | useful eligible cases >= 80%; irrelevant admitted hits <= 5% | either bound missed |
+| Recall paging | <= 3 pages, <= 30 candidates examined, <= 25 source reauthorizations, <= 5 admitted hits; any exhausted full final page says `partial=true` | silent under-return, unbounded fan-out, preauthorization drop/count leak |
+| Latency/cost | recall p95 <= 500 ms and max <= 1,200 ms; <= 1,500 tokens/6,000 chars; <= 100 writes/workspace/day; measured spend <= pre-approved cap; explicit backend errors = 100% | hard deadline, token/write/cost cap, or disguised error exceeded |
+| Deletion | zero reads/writes after deny; zero active/index/adapter probe hits; backup residual shown honestly | any resurrection, late write, or early `COMPLETE` |
+| Source revocation | zero recall, write, and existence signal after access is revoked | any id/count/status/timing/content signal or admitted hit |
+| Private session | zero optional backend reads/writes; zero later standard recall; zero descendant memory writes | any optional I/O or private-origin recall/write |
+| Correction/supersession | old-version hits = 0; exactly one active descendant; atomic supersession and visible idempotency-collision rates = 100% | old version admitted, split active lineage, or silent collision |
+| Restore fence | ledger replayed before traffic; local high-water equals ledger; forgotten hits = 0 across every probe; traffic-before-probes = 0 | any mismatch, missing surface, hit, or early traffic |
+| M2 boundary | managed calls, automatic writes, transcript/import candidates, backfill, multi-member operations, approval-artifact hits, connector/effect actions = 0 | any non-zero counter |
+| Delete all | fresh content-free plan; settings disabled before deletion; zero active lineages, recall hits, or writes committed behind the disable fence; receipt and backup residual shown | stale plan accepted, late write, remaining lineage/hit, missing receipt, or early `COMPLETE` |
+
+All Document 39 zero-tolerance thresholds remain blockers even if aggregate
+usefulness passes. Membership is rechecked during the pilot; a second active
+member stops recall/write and aborts the pilot.
+
+### 21.5 Monitoring and founder-facing degradation
+
+The staging dashboard uses content-free search/control/deletion receipts and
+must show eligible/skipped counts, explicit error/degraded rates, recall
+latency, pages/candidates/source checks/admitted hits, context size, write count,
+cost, deletion state/age, and kill-switch state. It must not show memory/query
+text or preauthorization candidate identities/counts.
+
+Alert policies are required for cross-scope hit, admitted missing-source hit,
+deleted-item retrieval, private-session backend call, deletion deadline breach,
+backend error spike, cost-budget exhaustion, and Hiring boundary violation.
+Every safety alert requires a verified notification channel that pages the
+pilot owner and invokes the kill switch; console-only policy objects do not
+satisfy promotion and the alert is not left for a daily review.
+
+Founder copy is deliberately plain and does not imply current work is stale:
+
+- backend/ledger degradation: “Optional recall is unavailable. Current
+  workspace facts and work are still up to date.”
+- bounded-query exhaustion: “Optional saved context was skipped because this
+  request exceeded the bounded recall budget. Current workspace facts and work
+  are still up to date.”
+- membership change: “Optional saved context is unavailable because pilot
+  eligibility changed. Current workspace facts and work are still up to date.”
+- deletion online complete: “Deleted from active systems; encrypted backups
+  expire by <date> under <named policy>.”
+
+Default-off, founder-disabled, and private-session states are policy choices,
+not outage banners. Saved-context failure never blocks current confirmed facts,
+run truth, evidence, or ordinary conversation.
+
+### 21.6 Kill switch and rollback rehearsal
+
+The kill order is:
+
+1. disable workspace writes through the founder-controlled setting when that
+   path is healthy;
+2. set the deployment M2 gate false to stop all recall/write admission for the
+   pilot workspace;
+3. confirm no new memory search/write receipt is admitted after the barrier;
+4. keep deletion jobs, local tombstones, and the independent ledger active;
+5. keep profiles, runs, evidence, sessions, approvals, and receipts available;
+6. leave `PERSISTENT_MEMORY_BACKEND=disabled` and do not fall back to process
+   memory, transcript scan, managed memory, or unfiltered listing; and
+7. show What Alex knows as memory disabled while retaining permitted founder
+   deletion controls and honest residual status.
+
+Rollback restores the prior application revision only after confirming that
+it preserves the current ledger/tombstone deletion fence. A datastore restore
+is unnecessary for an ordinary code/config rollback and must not be performed.
+If a recovery restore is required, §21.3 is mandatory before traffic. Rehearsal
+evidence must prove memory is off, durable work remains available, deletion
+work remains active, and no M3+ path becomes configured.
+
+### 21.7 Promotion decision and final sign-off
+
+After the pilot, return M2 to disabled before holding the release decision.
+Complete every measured result and monitoring/rehearsal reference in the
+attestation, then run the same checker with `--gate promotion`. Promotion is
+automatic only when that exact candidate passes every measured technical gate;
+no separate promotion-review row is required.
+
+Remaining external blockers are reported as named `blocked_checks`; they are
+never replaced with local placeholders. `READY_FOR_AUTHORIZED_M2_ROLLOUT`
+means the evidence pack is complete and standing Founder authorization permits
+the release automation to proceed. The checker itself remains read-only and
+does not authorize M3–M6.
+
+### 21.8 Local release-readiness evidence — 2026-08-28
+
+Evidence captured in this isolated worktree without cloud mutation:
+
+- `pytest -q tests/unit` — **1,168 passed, 2 skipped**;
+- focused M1/M2/release-readiness/safe-path suite — **50 passed**;
+- `python scripts/check_contrast.py` — all Document 16 dark, light, and
+  mock-portal contrast pairs passed;
+- changed Python modules compiled and both the TTL and attestation JSON files
+  parsed successfully;
+- TTL helper dry-run declared exactly one
+  `memory_items.expires_at_ts` command and reported `applied: 0`;
+- the independent-ledger provisional probe advanced the separate ledger,
+  returned zero hits after online forget, returned zero hits after restoring
+  the application snapshot from before forget, and performed zero private-
+  session memory writes; and
+- `git diff --check` passed.
+
+The example attestation intentionally returns `BLOCKED`; it contains no live
+workspace, ledger, TTL, backup, monitoring, pilot, restore-drill, or reviewer
+evidence. No claim is made that those external gates passed. No flag was
+enabled, TTL applied, migration run, deployment performed, or M3+ tier
+configured while producing this evidence.
+
+## 22. Authorized local single-Founder M2 pilot
+
+The founder may run a non-live M2 behavior pilot in the existing local app
+without creating or reading a cloud staging project. This lane is an explicit
+local exception to the staging topology above, not pre-production evidence and
+not authority to promote or deploy M2.
+
+Both the local lane and the future normal-app canary have exactly one product
+role: `FOUNDER`. Any request must first
+pass the app's existing authentication middleware and then resolves to the one
+synthetic local Founder record. The record uses `product_role=FOUNDER`; it does
+not create or display an OWNER/OPERATOR role or allowlist. Older non-memory
+platform workflows still contain legacy role labels; those labels do not grant
+M2 admission and require a separately scoped cleanup.
+
+`python scripts/local_m2_pilot.py prepare` creates two distinct SQLite files
+under ignored `tmp/spec39-m2-local-pilot/`: the pilot application store and its
+non-restored deletion deny ledger. The local ADK session database is also bound
+inside that ignored directory. It never imports ordinary local data. The
+command exercises authenticated-Founder entry, remember, correct, pin, forget,
+Delete all, private-session isolation, expiry simulation, disable, safe
+degradation, encrypted asynchronous export, export expiry, and a pre-forget
+application-store restore against the unchanged ledger. Only after all checks
+pass does it write `pilot.env` and enable the explicit local Founder setting.
+The export artifact and AES-256-GCM key stay in this ignored namespace with
+owner-only permissions; plaintext exists only in the authenticated download
+response. `PERSISTENT_MEMORY_BACKEND` remains disabled.
+
+While local pilot mode is active, server code blocks attachments, explicit
+workflow launches, every model-selected tool, cloud session-catalog writes, and
+all HTTP mutations except authentication, local session/chat, and the reviewed
+memory controls. No automatic extraction, transcript ingestion, outcome
+confirmation, managed memory, multi-user sharing, connector effect, or M3+
+surface is admitted.
+
+The kill switch is `python scripts/local_m2_pilot.py disable` followed by a
+local app restart. It turns off both the workspace setting and environment gate
+without deleting data or the ledger. After stopping the app,
+`python scripts/local_m2_pilot.py clear --confirm-clear LOCAL_M2_PILOT` removes
+only the exact pilot databases and environment file; content-free entry evidence
+is retained. A datastore restore must never include the ledger.
+
+The pilot binds dedicated local port `8093`. Port `8090` remains the canonical
+normal Co-Founder app and must never be occupied by a pilot process.
+
+This local proof does not satisfy cloud TTL, backup-policy/residual-window,
+monitoring, or the executable live entry gate in §21. Those remain honest,
+pending pre-production blockers.
+
+## 23. Founder-only normal-app M2 canary preparation
+
+The bounded implementation wires a one-Founder normal-app canary to the
+executable §21 promotion gate. Attestation schema version 4 uses
+`founder_actor_id`. Entry requires exactly one active synthetic Founder;
+promotion requires exactly one active authenticated non-synthetic Founder in
+the normal workspace. Both require `role=FOUNDER` and a bound authentication
+subject. OWNER and OPERATOR are neither M2 product roles nor M2 allowlists.
+
+Normal-app M2 now has two independent fail-closed layers:
+
+1. `DURABLE_MEMORY_M2_ENABLED` remains false by default and is absent from the
+   ordinary deployment path.
+2. Even if that flag is accidentally set, UI visibility and API admission stay
+   off until one exact workspace is allowlisted, the generic memory backend is
+   disabled, a separate non-default deletion-ledger database and named backup
+   policy are configured, the live entry gate is explicitly attested, and the
+   runtime's recomputed candidate hash plus evidence-record hash match the
+   content-free bindings emitted by the checker. The dedicated export bucket,
+   KMS key, and export-delivery attestation must also match the reviewed entry
+   pack.
+
+The checker continues to require the release flag to be false while evaluating
+entry or promotion. A ready result emits an enablement-eligible
+`runtime_binding`; standing Founder authorization permits release automation to
+apply that exact binding without another review pause. Candidate drift, a malformed evidence hash,
+membership growth, legacy role values, a second workspace, a shared/default
+ledger database, missing backup evidence, or a non-disabled generic memory
+backend makes the normal surface absent and commands return fail-closed errors.
+
+The bounded local implementation also enforces the 100 item-version writes per
+workspace/UTC-day limit with a budget mutation committed atomically alongside
+each item and receipt. Every item write atomically checks the current memory
+settings version, so Disable or Delete all fences a writer already admitted by
+an earlier request. Delete all requires a fresh content-free impact hash,
+disables memory before enumeration, deny-first deletes every current lineage,
+and reports active-system deletion separately from backup residual expiry.
+The export control plane is implemented as an attributed durable job and
+request-bound worker. It re-derives the current authenticated Founder and every
+included source authorization, omits inaccessible items without counts or
+markers, caps items and bytes, excludes artifacts from generic search,
+invalidates an artifact when any included lineage is forgotten or revoked, and
+expires it within 24 hours. The local pilot uses AES-256-GCM files in its
+isolated namespace. A normal canary remains unavailable unless a dedicated GCS
+bucket with the configured Cloud KMS key and lifecycle policy is externally
+qualified and candidate-bound; local encryption evidence does not satisfy that
+cloud gate.
+
+Local verification on 2026-08-28 completed with normal-app M2 unchanged:
+
+- `pytest -q tests/unit` — **1,168 passed, 2 skipped**;
+- **50 focused M1/M2, release-boundary/readiness, local-pilot, and terminal
+  safe-path checks passed**;
+- the release example returned `BLOCKED` and the independent-ledger restore
+  probe remained only `PROVISIONAL`;
+- the TTL helper dry-run declared one command and applied zero changes;
+- the Document 16 contrast checker passed all dark, light, and mock-portal
+  pairs;
+- the normal listener remained untouched on port 8090; only the isolated 8093
+  pilot may be restarted to load and validate the exact candidate; and
+- no deployment, migration, TTL application, cloud write, external effect, or
+  normal-app flag change occurred.
+
+The single material next action is external: complete the live §21 entry pack
+for the exact candidate—active TTL observation, independent-ledger high-water
+and restore exclusion, named backup/residual evidence, qualified encrypted
+asynchronous export delivery, and exact authenticated normal Founder
+membership. Until the promotion pack
+returns `READY_FOR_AUTHORIZED_M2_ROLLOUT`, normal-app M2 remains off and
+invisible.
+
+## 24. M1/M2 implementation completion and remaining release boundary
+
+The safe implementation path for the only implementation-authorized Spec 39
+tiers is complete. M1 provides the deterministic cross-session brief. M2
+provides explicit Founder-only remember, correct, pin, forget, Disable, Delete
+all, private-session exclusion, bounded recall, source reauthorization,
+independent deletion-ledger restore fencing, expiry support, and encrypted
+short-lived export. Firestore collection registration, lifecycle ownership,
+indexes/TTL manifest, dry-run migration, candidate binding, task identity, UI
+routes, and executable entry/promotion checks are included. The normal surface
+is absent unless the exact release binding passes and `.env.example` keeps all
+M2 and export attestations false.
+
+The isolated port-8093 validation uses one authenticated synthetic `FOUNDER`
+and no OWNER/OPERATOR product role. Its 20 labelled cases produced 100%
+intended hits, 0 irrelevant hits, and stayed within the fixed paging,
+reauthorization, latency, and context bounds. It passed
+remember/correct/pin/forget, private exclusion, expiry, deletion and restore
+fences, Disable, encrypted export, post-forget export invalidation, and
+synthetic cleanup. It made zero cloud, connector, managed-memory, normal-port,
+or external-effect calls and left optional memory disabled after measurement.
+
+“Implementation complete” is not “released.” The normal one-Founder canary
+continues to fail closed until the exact candidate has all of the following
+live evidence: active `memory_items.expires_at_ts` TTL, independently
+administered ledger high-water and restore exclusion, named backup policy and
+residual window, qualified GCS/KMS export delivery and lifecycle, exact active
+authenticated normal Founder membership, and monitoring/rollback proof.
+Once those technical gates pass, standing Founder authorization permits the
+normal one-Founder M2 rollout. No automatic memory write, transcript ingestion,
+memory-authorized connector action, external effect, or M3–M6
+activation is part of this completion.

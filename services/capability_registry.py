@@ -17,6 +17,7 @@ class CapabilityDescriptor:
     allowed_agent_roles: frozenset[str]
     required_permissions: frozenset[str]
     side_effect_class: str
+    authority_impact: str
     approval_policy_id: str
     idempotency_contract: str
     retry_contract: str
@@ -68,7 +69,7 @@ MODEL_TOOL_BINDINGS: dict[str, VisualToolBinding] = {
     }},
     **{name: _vb(f"model.{name}", "IRREVERSIBLE_EXTERNAL",
                  "EXACT_CONFIRMATION_ALWAYS") for name in {
-        "book_meeting", "send_alex_email", "submit_form", "register_account",
+        "book_meeting", "send_alex_email", "send_founder_email", "submit_form", "register_account",
         "sign_in",
     }},
     **{name: _vb(f"model.{name}", "NO_EFFECT", "CONTROL_PRESERVE_CONTEXT")
@@ -99,7 +100,8 @@ def _effect(action_kind: str, connector_id: str, *, approval: str,
         error_schema_id="model.error.v1",
         allowed_agent_roles=frozenset({"deterministic_worker"}),
         required_permissions=frozenset({f"connector.{connector_id}.execute"}),
-        side_effect_class="IRREVERSIBLE_EXTERNAL",
+        side_effect_class="EXTERNAL_CONSEQUENTIAL",
+        authority_impact="EXTERNAL_CONSEQUENCE",
         approval_policy_id=approval,
         idempotency_contract="stable_key_and_prepared_receipt.v1",
         retry_contract="no_retry_after_provider_start.v1",
@@ -116,15 +118,19 @@ def _effect(action_kind: str, connector_id: str, *, approval: str,
     )
 
 
-def _internal(capability_id: str, role: str, side_effect_class: str,
-              *, output: str, implementation: str) -> CapabilityDescriptor:
+def _internal(
+        capability_id: str, role: str | frozenset[str], side_effect_class: str,
+        *, output: str, implementation: str,
+        authority_impact: str = "ADVISORY") -> CapabilityDescriptor:
+    roles = frozenset({role}) if isinstance(role, str) else role
     return CapabilityDescriptor(
         capability_id=capability_id, semantic_version="1.0.0",
         implementation_binding=implementation,
         input_schema_id=f"{capability_id}.input.v1",
         output_schema_id=output, error_schema_id="model.error.v1",
-        allowed_agent_roles=frozenset({role}), required_permissions=frozenset(),
-        side_effect_class=side_effect_class, approval_policy_id="none.v1",
+        allowed_agent_roles=roles, required_permissions=frozenset(),
+        side_effect_class=side_effect_class, authority_impact=authority_impact,
+        approval_policy_id="none.v1",
         idempotency_contract="stable_input_hash.v1",
         retry_contract="bounded_transient_3.v1",
         timeout_contract="bounded_step_timeout.v1",
@@ -141,7 +147,8 @@ def _internal(capability_id: str, role: str, side_effect_class: str,
 
 def _gate_f_internal(
         capability_id: str, *, side_effect_class: str, output: str,
-        implementation: str, permission: str) -> CapabilityDescriptor:
+        implementation: str, permission: str,
+        authority_impact: str = "ADVISORY") -> CapabilityDescriptor:
     """Closed Gate F service descriptor; registration creates no callable route."""
 
     return CapabilityDescriptor(
@@ -151,7 +158,8 @@ def _gate_f_internal(
         output_schema_id=output, error_schema_id="model.error.v1",
         allowed_agent_roles=frozenset({"deterministic_worker"}),
         required_permissions=frozenset({permission}),
-        side_effect_class=side_effect_class, approval_policy_id="none.v1",
+        side_effect_class=side_effect_class, authority_impact=authority_impact,
+        approval_policy_id="none.v1",
         idempotency_contract="idempotency.skill-invocation.v1",
         retry_contract="retry.gate-f-offline.v1",
         timeout_contract="bounded_step_timeout.v1",
@@ -186,7 +194,7 @@ STATIC_CAPABILITIES: dict[str, CapabilityDescriptor] = {
         side_effect_class="INTERNAL_REVERSIBLE",
         output="skill.documents.grounded-artifact.output.v1",
         implementation="service:background_skill_runtime.persist_internal_draft",
-        permission="artifact.write_private_draft"),
+        permission="artifact.write_private_draft", authority_impact="DRAFT"),
     "investor.search": _internal(
         "investor.search", "researcher", "READ_ONLY",
         output="investor.candidate_set.v1",
@@ -198,15 +206,17 @@ STATIC_CAPABILITIES: dict[str, CapabilityDescriptor] = {
     "outreach.draft": _internal(
         "outreach.draft", "writer", "INTERNAL_REVERSIBLE",
         output="outreach.recipient_bound_drafts.v1",
-        implementation="service:investor_outreach.draft"),
+        implementation="service:investor_outreach.draft", authority_impact="DRAFT"),
     "reply.correlate": _internal(
         "reply.correlate", "deterministic_worker", "NO_EFFECT",
         output="outreach.correlated_reply.v1",
-        implementation="service:investor_outreach.reply"),
+        implementation="service:investor_outreach.reply",
+        authority_impact="CANONICAL_MUTATION"),
     "meeting_brief.compose": _internal(
         "meeting_brief.compose", "writer", "INTERNAL_REVERSIBLE",
         output="outreach.meeting_brief.v1",
-        implementation="service:investor_outreach.meeting_brief"),
+        implementation="service:investor_outreach.meeting_brief",
+        authority_impact="DRAFT"),
     "opportunity.search": _internal(
         "opportunity.search", "researcher", "READ_ONLY",
         output="opportunity.candidates.v1", implementation="service:discovery.search"),
@@ -215,25 +225,51 @@ STATIC_CAPABILITIES: dict[str, CapabilityDescriptor] = {
         output="opportunity.ranking.v1", implementation="service:discovery.score"),
     "grant.interview": _internal(
         "grant.interview", "interviewer", "INTERNAL_REVERSIBLE",
-        output="grant.confirmed_answers.v1", implementation="service:profile.answers"),
+        output="grant.confirmed_answers.v1", implementation="service:profile.answers",
+        authority_impact="CANONICAL_MUTATION"),
     "grant.draft": _internal(
         "grant.draft", "writer", "INTERNAL_REVERSIBLE",
-        output="grant.draft.v1", implementation="service:drafting.grant"),
+        output="grant.draft.v1", implementation="service:drafting.grant",
+        authority_impact="DRAFT"),
     "browser.fill": _internal(
         "browser.fill", "deterministic_worker", "INTERNAL_REVERSIBLE",
-        output="browser.fill_receipt.v1", implementation="service:browser.fill"),
+        output="browser.fill_receipt.v1", implementation="service:browser.fill",
+        authority_impact="DRAFT"),
     "workflow.wait": _internal(
         "workflow.wait", "deterministic_worker", "NO_EFFECT",
-        output="workflow.wait.v1", implementation="service:runtime.wait"),
+        output="workflow.wait.v1", implementation="service:runtime.wait",
+        authority_impact="CANONICAL_MUTATION"),
     "workflow.approval": _internal(
         "workflow.approval", "deterministic_worker", "NO_EFFECT",
-        output="approval.decision.v2", implementation="service:approval.request"),
+        output="approval.decision.v2", implementation="service:approval.request",
+        authority_impact="CANONICAL_PROPOSAL"),
     "workflow.receipt": _internal(
         "workflow.receipt", "deterministic_worker", "NO_EFFECT",
-        output="workflow.receipt.v1", implementation="service:runtime.receipt"),
+        output="workflow.receipt.v1", implementation="service:runtime.receipt",
+        authority_impact="CANONICAL_MUTATION"),
     "hiring.synthetic_step": _internal(
         "hiring.synthetic_step", "deterministic_worker", "INTERNAL_REVERSIBLE",
-        output="hiring.synthetic_output.v1", implementation="service:hiring.synthetic"),
+        output="hiring.synthetic_output.v1", implementation="service:hiring.synthetic",
+        authority_impact="CANONICAL_PROPOSAL"),
+    "evidence.attachment_read": _internal(
+        "evidence.attachment_read", frozenset({"coordinator", "researcher"}),
+        "READ_ONLY", output="evidence.attachment_projection.v1",
+        implementation="service:attachments.scoped_projection"),
+    "documents.grounded_artifact": _internal(
+        "documents.grounded_artifact", frozenset({"writer", "drafter"}),
+        "INTERNAL_REVERSIBLE", output="document.grounded_artifact.v1",
+        implementation="service:documents.build", authority_impact="DRAFT"),
+    "hiring.prepare_role_package": _internal(
+        "hiring.prepare_role_package",
+        frozenset({"hiring_operator", "deterministic_worker"}), "NO_EFFECT",
+        output="hiring.role_package_proposal.v1",
+        implementation="service:hiring.policy",
+        authority_impact="CANONICAL_PROPOSAL"),
+    "hiring.assess_candidate_evidence": _internal(
+        "hiring.assess_candidate_evidence",
+        frozenset({"hiring_evidence_analyst", "deterministic_worker"}), "NO_EFFECT",
+        output="hiring.evidence_passport.v1",
+        implementation="service:hiring.assessment"),
 }
 
 
@@ -247,6 +283,9 @@ EXTERNAL_ACTION_CAPABILITIES: dict[str, CapabilityDescriptor] = {
     "send_email": _effect(
         "send_email", "alex_mail", approval="exact_human_approval.v1",
         reconciliation="gmail_rfc822_message_id.v1"),
+    "send_founder_email": _effect(
+        "send_founder_email", "founder_gmail", approval="exact_human_approval.v1",
+        reconciliation="gmail_rfc822_message_id.v1"),
     "create_calendar_event": _effect(
         "create_calendar_event", "calendar", approval="exact_human_approval.v1",
         reconciliation="calendar_event_id.v1"),
@@ -254,8 +293,7 @@ EXTERNAL_ACTION_CAPABILITIES: dict[str, CapabilityDescriptor] = {
         "export_drive_file", "drive", approval="signed_in_human_click.v1",
         reconciliation="drive_source_checksum.v1"),
     "export_alex_drive_file": _effect(
-        "export_alex_drive_file", "alex_drive",
-        approval="signed_in_human_click.v1",
+        "export_alex_drive_file", "alex_drive", approval="signed_in_human_click.v1",
         reconciliation="drive_source_checksum.v1"),
 }
 

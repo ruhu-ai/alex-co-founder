@@ -101,6 +101,7 @@ def _collection_ref(name: str):
         "memory_deletion_ledger_heads": client.collection("memory_deletion_ledger_heads"),
         "memory_write_receipts": client.collection("memory_write_receipts"),
         "memory_search_receipts": client.collection("memory_search_receipts"),
+        "memory_export_jobs": client.collection("memory_export_jobs"),
         "deletion_jobs": client.collection("deletion_jobs"),
         "deletion_work_items": client.collection("deletion_work_items"),
         "deletion_receipts": client.collection("deletion_receipts"),
@@ -116,6 +117,12 @@ def _collection_ref(name: str):
         "recovery_drills": client.collection("recovery_drills"),
         "governance_reports": client.collection("governance_reports"),
         "connector_credential_grants": client.collection("connector_credential_grants"),
+        "skill_qualification_bundles": client.collection("skill_qualification_bundles"),
+        "skill_lifecycle_states": client.collection("skill_lifecycle_states"),
+        "skill_lifecycle_events": client.collection("skill_lifecycle_events"),
+        "skill_selections": client.collection("skill_selections"),
+        "skill_invocations": client.collection("skill_invocations"),
+        "skill_receipts": client.collection("skill_receipts"),
         "hiring_roles": client.collection("hiring_roles"),
         "hiring_policy_versions": client.collection("hiring_policy_versions"),
         "hiring_policy_impacts": client.collection("hiring_policy_impacts"),
@@ -302,7 +309,10 @@ class FirestoreDurableStore:
             field_name, value = start_after
             if field_name == "id":
                 from google.cloud.firestore_v1.field_path import FieldPath
-                query = query.where(FieldPath.document_id(), ">", value)
+                # Firestore's __name__ comparison accepts a document Key, not
+                # the plain id string used by the portable store contract.
+                cursor_ref = _collection_ref(collection).document(str(value))
+                query = query.where(FieldPath.document_id(), ">", cursor_ref)
                 document_id_order = True
             else:
                 query = query.where(field_name, ">", value)

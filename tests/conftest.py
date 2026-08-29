@@ -1217,7 +1217,8 @@ def fake_store(monkeypatch):
         from services import data_source_contracts as dsc
 
         connection = await _get_data_connection(founder_id, connection_id)
-        if (not connection or connection.get("connector_id") != "drive"
+        connector_id = str((connection or {}).get("connector_id") or "")
+        if (not connection or connector_id not in {"drive", "alex_drive"}
                 or connection.get("status") not in {"CONNECTED", "DEGRADED"}):
             return {"status": "error", "error": True,
                     "error_code": "source_not_selected",
@@ -1238,7 +1239,7 @@ def fake_store(monkeypatch):
         row = {
             "schema_version": 1, "source_grant_id": gid,
             "founder_id": founder_id, "connection_id": connection_id,
-            "connector_id": "drive", "provider_source_id": provider_source_id,
+            "connector_id": connector_id, "provider_source_id": provider_source_id,
             "display_name": display_name, "source_kind": "file",
             "allowed_ingestion_scopes": scopes,
             "selected_session_id": selected_session_id,
@@ -2162,4 +2163,13 @@ def fake_store(monkeypatch):
                 if a["founder_id"] == fid and a["state"] != "CLOSED"]
 
     monkeypatch.setattr("services.firestore.list_inflight_applications", _list_inflight)
+
+    async def _reconcile_empty_browser(_session_key):
+        return {"active": False, "browse": None, "fill": None}
+
+    # Callback tests using this in-memory durable store must not fall through
+    # the browser gateway into an unpatched production Firestore query.
+    monkeypatch.setattr(
+        "services.browser_gateway.reconcile_session", _reconcile_empty_browser
+    )
     return store

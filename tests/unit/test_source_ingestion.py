@@ -79,6 +79,44 @@ async def test_upload_and_drive_share_metadata_and_provenance_contract(
     assert drive_row["authority"] == "profile_candidate"
 
 
+async def test_alex_drive_grant_reads_only_through_alex_connector(
+        fake_store, monkeypatch, tmp_path):
+    monkeypatch.setattr(storage, "_ROOT", str(tmp_path))
+    monkeypatch.setattr(storage, "_gcs", lambda: None)
+    monkeypatch.setattr(session_resources, "register_session_resource", _registered)
+    monkeypatch.setattr("services.document_ingestion.process_ingestion", _queued)
+    connection = await firestore.upsert_data_connection(
+        "founder", "alex_drive", account_ref="alex-role-mailbox",
+        auth_kind="google_oauth", status="CONNECTED")
+    grant = await firestore.create_source_grant(
+        "founder", connection["connection_id"], "alex-file-1",
+        display_name="Synthetic.txt",
+        allowed_ingestion_scopes=["reference_only"])
+    calls = []
+
+    def _fetch(source, limit, workspace_id, connector_id):
+        calls.append((source, limit, workspace_id, connector_id))
+        return {
+            "status": "success", "data": b"synthetic Alex Drive fixture",
+            "detected_name": "Synthetic.txt", "declared_content_type": "text/plain",
+            "provider_content_type": "text/plain", "provider_version": "1",
+            "provider_modified_at": "2026-08-29T00:00:00Z",
+        }
+
+    monkeypatch.setattr(drive_adapter, "fetch_file_bytes", _fetch)
+    result = await source_ingestion.register_source_ingestion(
+        founder_id="founder", session_id="session-1",
+        source_type="google_drive", source_grant_id=grant["source_grant_id"],
+        source_ref=grant["source_grant_id"], display_name="ignored", data=None,
+        declared_content_type="application/octet-stream", scope="reference_only",
+        occurrence_key="alex-drive:1", session_verified=True)
+
+    assert result["status"] == "success"
+    assert len(calls) == 1
+    assert calls[0][0] == "alex-file-1"
+    assert calls[0][2:] == ("founder", "alex_drive")
+
+
 async def test_revoked_foreign_and_unselected_grants_never_fetch(
         fake_store, monkeypatch):
     _connection, grant = await _ready_drive_grant()

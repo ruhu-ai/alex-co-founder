@@ -24,7 +24,6 @@ class ConnectorId(ClosedValue):
     FOUNDER_GMAIL = "founder_gmail"
     ALEX_MAIL = "alex_mail"
     ALEX_CALENDAR = "alex_calendar"
-    ALEX_DRIVE = "alex_drive"
     CALENDAR = "calendar"
     BROWSER = "browser"
 

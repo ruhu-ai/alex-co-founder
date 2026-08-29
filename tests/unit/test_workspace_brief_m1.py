@@ -15,7 +15,9 @@ def principal() -> ActorPrincipal:
     return ActorPrincipal(
         actor_id="actor-a", workspace_id="workspace-a",
         role=WorkspaceRole.FOUNDER, session_auth_time=1_800_000_000,
-        membership_version=1, membership_id="member-a")
+        role_grants=frozenset(), candidate_assignments=frozenset(),
+        interview_assignments=frozenset(), membership_version=1,
+        membership_id="member-a")
 
 
 async def test_brief_reads_registered_durable_projections_and_excludes_hiring():

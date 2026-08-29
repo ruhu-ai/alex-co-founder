@@ -25,8 +25,17 @@ def _root() -> str:
     global _ROOT
     if _ROOT is None:
         uri = os.environ.get("ARTIFACT_SERVICE_URI", f"file://{os.path.abspath('artifacts')}")
-        _ROOT = (uri.removeprefix("file://") if uri.startswith("file://")
-                 else os.path.abspath("artifacts"))
+        if uri.startswith("file://"):
+            _ROOT = uri.removeprefix("file://")
+        elif uri.startswith("gs://"):
+            # Cloud Run's application directory is read-only. GCS remains the
+            # durable store; this directory is only the instance-local
+            # write-through cache used before mirroring.
+            _ROOT = os.environ.get(
+                "ARTIFACT_CACHE_DIR", "/tmp/cofounder-artifacts"
+            )
+        else:
+            _ROOT = os.path.abspath("artifacts")
         os.makedirs(_ROOT, exist_ok=True)
     return _ROOT
 

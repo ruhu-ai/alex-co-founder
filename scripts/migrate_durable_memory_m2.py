@@ -43,7 +43,7 @@ async def migrate(*, store: DurableStore, execute: bool = False) -> dict[str, An
                 "summary": "", "search_terms": [], "normalized_tags": [],
                 "purpose_allowlist": [], "content_hash": "",
                 "migration_disposition": "LEGACY_UNREVIEWED_NO_BACKFILL",
-                    "migration_at": utc_now(),
+                "migration_at": utc_now(),
                 })
             changed += bool(committed)
             conflicts += not bool(committed)

@@ -35,8 +35,6 @@ def test_connector_registry_is_exact_and_role_scoped():
     assert not dsc.validate_connector_role("founder_gmail", "knowledge")
     assert not dsc.validate_connector_role("github", "event")
     assert not dsc.validate_connector_role("drive", "made_up_role")
-    assert dsc.validate_connector_role("alex_drive", "knowledge")
-    assert dsc.validate_connector_role("alex_drive", "action_destination")
 
 
 def test_deterministic_ids_follow_the_accepted_namespaces_exactly():
@@ -96,6 +94,24 @@ async def test_source_grant_is_deterministic_reactivatable_and_owner_scoped(fake
         "founder", first["source_grant_id"])
     assert revoked["status"] == "success"
     assert fake_store.source_grants[first["source_grant_id"]]["status"] == "REVOKED"
+
+
+async def test_alex_drive_source_grant_preserves_its_closed_connector(fake_store):
+    connection = await firestore.upsert_data_connection(
+        "founder", "alex_drive", account_ref="alex-role-mailbox",
+        roles=["knowledge", "action_destination"],
+        granted_scopes=["drive.readonly", "drive.file"],
+    )
+
+    grant = await firestore.create_source_grant(
+        "founder", connection["connection_id"], "synthetic-file-1",
+        display_name="Synthetic source", allowed_ingestion_scopes=["reference_only"],
+    )
+
+    assert not grant.get("error"), grant
+    assert grant["status"] == "ACTIVE"
+    assert grant["connector_id"] == "alex_drive"
+    assert fake_store.source_grants[grant["source_grant_id"]]["connector_id"] == "alex_drive"
 
 
 async def test_fifty_duplicate_event_deliveries_create_one_receipt(fake_store):
