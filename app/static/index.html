@@ -4375,6 +4375,7 @@ async function loadHiringRoleContext(roleId) {
 
  // founder-facing agent name (docs/adr/001); from /api/config
 let memorySurfaceEnabled = false;
+let workspaceBriefSurfaceEnabled = false;
 let pendingUploads = 0, readyAttachmentRefs = [];
 
 function configureMemorySurface(enabled) {
@@ -4389,14 +4390,18 @@ function configureMemorySurface(enabled) {
 
 configureMemorySurface(false);
 
-fetch("/api/config").then(r => r.json()).then(j => {
+const appConfigReady = fetch("/api/config").then(r => r.json()).then(j => {
     PERSONA = j.persona_name || PERSONA;
     WORKFLOW = j.workflow_id || "";
+    workspaceBriefSurfaceEnabled = j.workspace_brief_surface_enabled === true;
     configureMemorySurface(j.memory_surface_enabled);
     if (memorySurfaceEnabled && sessionId && $("settings").dataset.open === "true") {
         loadMemoryPanel();
     }
-}).catch(() => configureMemorySurface(false));
+}).catch(() => {
+    workspaceBriefSurfaceEnabled = false;
+    configureMemorySurface(false);
+});
 
 function agentHead() {
     return `<div class="msg-head"><span class="avatar">${esc(PERSONA[0] || "A")}</span>${esc(PERSONA)}</div>`;
@@ -4669,6 +4674,12 @@ function renderWorkspaceBrief(data) {
 }
 
 async function refreshWaiting() {
+    await appConfigReady;
+    if (!workspaceBriefSurfaceEnabled) {
+        const host = $("digestSlot");
+        if (host) host.innerHTML = "";
+        return;
+    }
     const context = contextSessionId();
     if (!context) return;
     if (sessionMemoryMode === "PRIVATE") {

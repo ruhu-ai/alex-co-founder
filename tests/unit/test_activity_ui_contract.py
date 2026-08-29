@@ -94,6 +94,14 @@ class TestDigest:
         body = _fn("refreshWaiting")
         assert "catch" in body and "return" in body
 
+    def test_unreleased_workspace_brief_is_not_requested(self):
+        body = _fn("refreshWaiting")
+        assert "await appConfigReady" in body
+        assert "if (!workspaceBriefSurfaceEnabled)" in body
+        assert body.index("if (!workspaceBriefSurfaceEnabled)") < body.index(
+            "/api/v1/workspace-brief"
+        )
+
 
 class TestReceipt:
     def test_the_finished_turn_collapses_into_a_receipt(self):

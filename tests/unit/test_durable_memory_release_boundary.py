@@ -75,9 +75,12 @@ def test_memory_ui_has_explicit_controls_and_private_entry_point():
     assert 'toggle.textContent = state.read_enabled ? "Disable" : "Enable"' in html
     assert 'id="memorySettingsGroup" aria-live="polite"' in html
     assert "configureMemorySurface(false);" in html
+    assert "workspaceBriefSurfaceEnabled = j.workspace_brief_surface_enabled === true" in html
+    assert "if (!workspaceBriefSurfaceEnabled)" in refresh
     assert 'if (memorySurfaceEnabled) loadMemoryPanel();' in html
     assert 'if (!memorySurfaceEnabled || !sessionId) return;' in html
-    assert '.catch(() => configureMemorySurface(false))' in html
+    assert ".catch(() => {" in html
+    assert "workspaceBriefSurfaceEnabled = false" in html
 
 
 def test_release_is_default_off_and_not_added_to_deployment():
