@@ -272,7 +272,7 @@ class StoredSelectedArtifactPort:
             return _error("input_stale", "Artifact evidence is missing or changed.")
         chunks = []
         total_characters = 0
-        for row in rows:
+        for ordinal, row in enumerate(rows, start=1):
             content = str(row.get("content") or "")
             content_hash = str(row.get("content_sha256") or "")
             if (str(row.get("generation") or "") != expected_version
@@ -290,7 +290,20 @@ class StoredSelectedArtifactPort:
             chunks.append(SelectedEvidenceChunk(
                 chunk_id=str(row.get("id") or ""),
                 content_sha256=content_hash,
-                locator={str(key): int(value) for key, value in locator.items()},
+                # The closed model/output schema accepts one numeric page only.
+                # Normal ingestion also emits structural locators such as
+                # {"section": "document"}; project those to the stable chunk
+                # ordinal instead of coercing untrusted strings or widening the
+                # qualified provider schema. A genuine bounded page wins.
+                locator={
+                    "page": (
+                        locator["page"]
+                        if isinstance(locator.get("page"), int)
+                        and not isinstance(locator.get("page"), bool)
+                        and 1 <= locator["page"] <= 10_000
+                        else ordinal
+                    )
+                },
                 content=content,
             ))
         return {"status": "success", "context": SelectedArtifactContext(

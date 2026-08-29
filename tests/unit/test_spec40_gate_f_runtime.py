@@ -18,6 +18,7 @@ from services.background_skill_runtime import (
     GateFSkillPilot,
     SelectedArtifactContext,
     SelectedEvidenceChunk,
+    StoredSelectedArtifactPort,
 )
 from services.background_work import BackgroundWorkService
 from services.durable_store import InMemoryDurableStore
@@ -177,6 +178,35 @@ async def _accepted(store: InMemoryDurableStore):
     accepted = await _start(store, calls)
     step = (await store.list("workflow_steps", filters={}, limit=2))[0]
     return accepted, step, calls
+
+
+async def test_stored_artifact_projects_structural_locator_to_closed_page_schema():
+    store = InMemoryDurableStore()
+    await _artifact(store)
+
+    async def chunks(_artifact_id: str, _limit: int) -> list[dict]:
+        return [{
+            "id": "chunk-001",
+            "generation": GENERATION,
+            "content": CONTENT,
+            "content_sha256": CONTENT_HASH,
+            "locator": {"section": "document"},
+        }]
+
+    result = await StoredSelectedArtifactPort(
+        store, chunk_loader=chunks,
+    ).read(
+        workspace_id=WORKSPACE,
+        session_id=SESSION,
+        artifact_id=ARTIFACT,
+        expected_version=GENERATION,
+        expected_hash="sha256:" + SHA,
+        max_bytes=4096,
+        max_chunks=4,
+    )
+
+    assert result["status"] == "success"
+    assert result["context"].chunks[0].locator == {"page": 1}
 
 
 def _executor(
