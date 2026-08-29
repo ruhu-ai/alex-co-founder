@@ -566,6 +566,7 @@ def test_hiring_routes_expose_scoped_context_and_non_live_public_page(monkeypatc
 
 def test_public_application_route_converges_on_restricted_candidate_queue(monkeypatch):
     import asyncio
+
     from app import hiring_routes
 
     store = InMemoryDurableStore()

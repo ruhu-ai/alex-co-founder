@@ -4517,7 +4517,7 @@ function renderSessionActivity() {
         data-background-brief="${esc(artifactId)}">Prepare private grounded brief</button>` : ""}
     </div>`;
   });
-  setTabState("audit", jobRows.length + resourceRows.length || null, false);
+  setTabState("activity", jobRows.length + resourceRows.length || null, false);
   $("audit").innerHTML = [...jobRows, ...resourceRows].join("") || emptyState("shield", "No linked activity yet",
     "Searches, applications, documents, browser reports and evidence created in this session appear here.");
 }
@@ -4749,6 +4749,7 @@ async function refresh() {
         <div class="meta">${o.award ? `<span>${esc(o.award)}</span>` : ""}${deadlineChip(o)}</div>
         ${fitMeter(o.fit_score)}${why}</article>`;
     }
+  }
     $("boardCols").innerHTML = html || emptyState("compass", "Nothing found yet", readThrough() ? "No opportunities were linked to this session." : "Type /discover in chat to find grants, accelerators and programmes that fit your profile.");
     const apps = board.applications || [];
     pipelineApps = apps;
