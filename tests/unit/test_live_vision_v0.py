@@ -8,6 +8,12 @@ from services import live_media
 from services import live_vision_protocol as protocol
 
 
+def test_protocol_keeps_python_310_strenum_compatibility():
+    source = (Path(protocol.__file__)).read_text()
+    assert "except ImportError" in source
+    assert "class StrEnum(str, Enum)" in source
+
+
 def _hello(**capability_overrides):
     capabilities = {
         "audio_pcm16": True,

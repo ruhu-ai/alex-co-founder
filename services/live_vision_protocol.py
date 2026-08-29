@@ -7,7 +7,13 @@ the server modules defined by docs/35.
 
 from __future__ import annotations
 
-from enum import StrEnum
+try:
+    from enum import StrEnum
+except ImportError:  # Python 3.10 in the pinned Cloud Run base image.
+    from enum import Enum
+
+    class StrEnum(str, Enum):
+        """Minimal compatibility base for string-valued protocol enums."""
 from typing import Any
 
 PROTOCOL_VERSION = 2
