@@ -17,6 +17,7 @@ def _draft_capability(
     output_schema_id: str,
     implementation_binding: str,
     required_permission: str,
+    authority_impact: str = "ADVISORY",
 ) -> CapabilityDescriptor:
     return CapabilityDescriptor(
         capability_id=capability_id,
@@ -28,6 +29,7 @@ def _draft_capability(
         allowed_agent_roles=frozenset({"deterministic_worker"}),
         required_permissions=frozenset({required_permission}),
         side_effect_class=side_effect_class,
+        authority_impact=authority_impact,
         approval_policy_id="none.v1",
         idempotency_contract="idempotency.skill-invocation.v1",
         retry_contract="retry.gate-f-offline.v1",
@@ -59,5 +61,6 @@ OFFLINE_DRAFT_CAPABILITIES: dict[str, CapabilityDescriptor] = {
         output_schema_id="skill.documents.grounded-artifact.output.v1",
         implementation_binding="offline-contract:internal-draft-persistence",
         required_permission="artifact.write_private_draft",
+        authority_impact="DRAFT",
     ),
 }

@@ -232,6 +232,7 @@ def test_offline_descriptors_match_the_unrouted_runtime_capability_closure():
         assert live.capability_id == descriptor.capability_id
         assert live.semantic_version == descriptor.semantic_version
         assert live.side_effect_class == descriptor.side_effect_class
+        assert live.authority_impact == descriptor.authority_impact
         assert live.approval_policy_id == descriptor.approval_policy_id
         assert live.required_permissions == descriptor.required_permissions
         assert live.implementation_binding.startswith(
