@@ -4,6 +4,20 @@ All implementation is specified in `docs/` — read `docs/README.md` first, then
 `docs/01-architecture.md`. Build in the order of `docs/14-build-plan.md`; each
 spec doc ends with acceptance checks that define "done" for that work item.
 
+## Canonical branch policy
+
+`main` is the only canonical integration branch. All further application code,
+tests, migrations, runtime/build configuration, and the documentation that
+governs them must start from the current `main` and finish as verified commits
+on `main` in the same task. Temporary branches, detached checkouts, and isolated
+worktrees may be used for review or testing, but accepted work must not remain
+only there and must not replace or force-update `main`. When `main` has unrelated
+in-progress changes, stage only the task-owned paths and preserve the rest.
+
+Never commit `.env`, secrets, generated outputs, or optional reference repos.
+Historical evidence may name former branches or worktrees; those names record
+past execution and do not authorize new branch-only development.
+
 Binding principles (docs/README.md):
 
 1. Durable workflow/domain/action state authorizes everything. Reconciled

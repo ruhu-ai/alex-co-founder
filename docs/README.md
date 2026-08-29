@@ -23,6 +23,24 @@ founder's voice and thinking through explicit feedback capture.
    package wins. Check with `python -c "import google.adk; print(google.adk.__version__)"`
    and adjust imports, not behavior.
 
+## Repository integration policy (binding)
+
+- `main` is the single canonical integration branch for all future code.
+- Implementation, tests, migrations, runtime/build configuration, and governing
+  documentation must be based on the current `main` and committed back to
+  `main` after their acceptance checks pass.
+- A temporary branch, detached checkout, or isolated worktree is permitted only
+  as a review/test boundary. Accepted work must be promoted to `main` during the
+  same task; a branch-only or worktree-only result is not complete.
+- Never force-update or destructively reset `main`. If unrelated work is present,
+  stage only owned paths and perform a conflict-aware integration that preserves
+  both histories.
+- Never commit `.env`, secrets, generated outputs, local artifacts, or optional
+  reference repositories.
+- Historical specifications and evidence records may retain the branch/worktree
+  names that describe what occurred. They are historical facts, not exceptions
+  to this policy for future development.
+
 ## Doc index
 
 | Doc | Contents | Build phase |
