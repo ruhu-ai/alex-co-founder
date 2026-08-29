@@ -1,0 +1,113 @@
+services/hiring_service.py
+  s_77f1bb234f38de::t_bbc69b445e19b8 68-72,79-86,90,95-97,108-109,118-119,125-129,135-136,141-160,173-176,188-189,191-193,195-204,207-227,229-230,288,292-294,296-297,301-304,354,360,411-414,435-437,442-445,477-480,492-495,509-510,528-531,558-570,851-852,862-863,867-869
+  s_77f1bb234f38de::t_116cc0705d7e0e 112-116
+  s_77f1bb234f38de::t_2d04171d227335 161-172,190,194,205-206,228
+  s_77f1bb234f38de::t_9777c76bde05c0 513-516
+  s_77f1bb234f38de::t_1389aea641b1b5 319-321
+  s_77f1bb234f38de::t_b739907896fde3 103
+  s_77f1bb234f38de::t_cd4de424996a39 1
+  s_77f1bb234f38de::t_9091062d8698b9 305-309,311-314
+  s_77f1bb234f38de::t_01c6ba07fa490b 363-397
+  s_77f1bb234f38de::t_2cba1df9bdcde5 670-673
+  s_77f1bb234f38de::t_11d67f43c11dc5 177-187
+  s_77f1bb234f38de::t_c71e0f95dc16da 571
+app/main.py
+  s_77f1bb234f38de::t_94d5be6f546ea0 936,938,945-950,960-961,964-965,976-977
+  s_77f1bb234f38de::t_72167bffb1af6d 54,56,368,379-380,707,709-714,717-746,752,755,757-758,760,766-767
+app/hiring_routes.py
+  s_77f1bb234f38de::t_d3281855c91873 1,8,10-12,15,20-21,23-28,39,103-105
+  s_77f1bb234f38de::t_ed50f9bf3816d7 42,577-583,598-600,607-608
+  s_77f1bb234f38de::t_2de3f4f26646c3 22
+  s_77f1bb234f38de::t_aa4bb9fb56310f 7,16,430-431,454-461,463-488
+  s_77f1bb234f38de::t_76c70942386681 363-396,410-411,414-429,432-433,437-439
+  s_77f1bb234f38de::t_c399902857e93c 638-642
+  s_77f1bb234f38de::t_f687762e8d3206 50-54,338-347,350-354,357-358
+  s_77f1bb234f38de::t_7a497b3b67e0ee 441-453,489-502,504-512,523-526,528-576,584-597,601-606,609-637,643-649,651-657
+  s_77f1bb234f38de::t_6c1018c7777734 503,514,517
+  s_77f1bb234f38de::t_6e0253faf6551d 650
+  s_77f1bb234f38de::t_1f2868ac994de1 513,515-516,518-522
+  s_77f1bb234f38de::t_cbfa4328aac8a1 397-409,412-413,434-436,462,527
+  s_77f1bb234f38de::t_e9afd3debd7f94 1198-1218
+  s_77f1bb234f38de::t_cfef53ab09c39b 106-107
+.env.example
+  s_77f1bb234f38de::t_7d95603a677013 66-73,75-76
+  s_77f1bb234f38de::t_2934872c184730 74
+services/hiring_identity_vault.py
+  s_77f1bb234f38de::t_3569002c109fba 26-29
+  s_77f1bb234f38de::t_ec5dbfc7bfb75a 59-65,88,101-103
+  s_77f1bb234f38de::t_a1781f1cabbb22 34-35,42,47-50,53-54,91-95
+services/gemini_backends.py
+  s_77f1bb234f38de::t_13c4c442e2d7be 14,254-299,445,458
+scripts/setup.sh
+  s_77f1bb234f38de::t_7d95603a677013 52
+tests/unit/test_hiring_live_flow.py
+  s_77f1bb234f38de::t_2934872c184730 165,180-182
+  s_77f1bb234f38de::t_ca45c816ef1e5b 199-205
+  s_77f1bb234f38de::t_e467bff7117c1f 226-228
+  s_77f1bb234f38de::t_dbe4d7d395f6b4 238-240
+  s_77f1bb234f38de::t_c9fb0800b091e8 177-179
+  s_77f1bb234f38de::t_2450356afe3856 18,241-254
+  s_77f1bb234f38de::t_0b920f1c99259a 1-17,19-164,166-176,183-198,206-225,229-237
+services/hiring_role_intake.py
+  s_77f1bb234f38de::t_13c4c442e2d7be 1-97
+app/static/hiring-apply.html
+  s_77f1bb234f38de::t_54a0c07cce906a 1-24,26-36,38-42
+  s_77f1bb234f38de::t_9c471fa2f55c34 37
+  s_77f1bb234f38de::t_2b23357062eb38 25
+services/hiring_contracts.py
+  s_77f1bb234f38de::t_3569002c109fba 1
+services/hiring_application_intake.py
+  s_77f1bb234f38de::t_b739907896fde3 1-62
+app/static/hiring.html
+  s_77f1bb234f38de::t_ca3d181a36242b 41
+  s_77f1bb234f38de::t_0691ac9630b131 43,45
+  s_77f1bb234f38de::t_1a7b7da506042b 28-29
+  s_77f1bb234f38de::t_07a54aeae822d7 27,30
+  s_77f1bb234f38de::t_5111f15aaa9ad1 14,16,19
+  s_77f1bb234f38de::t_ad3a30d125cefc 40
+  s_77f1bb234f38de::t_2b23357062eb38 44
+requirements.txt
+  s_77f1bb234f38de::t_7d95603a677013 11
+scripts/deploy.sh
+  s_77f1bb234f38de::t_178d98229d7f51 26-27
+  s_77f1bb234f38de::t_7d95603a677013 20-22,24-25,28,55,96-110
+  s_77f1bb234f38de::t_2934872c184730 23
+app/auth.py
+  s_77f1bb234f38de::t_a076b534f77944 43-47,402-404
+tests/unit/test_app_server.py
+  s_77f1bb234f38de::t_5e8e5a7f108fb9 582,586,589-596
+  s_77f1bb234f38de::t_27ac6f185ac08f 805,807-808,814-816,821-822,830-832
+  s_77f1bb234f38de::t_450ec30b659450 11
+  s_77f1bb234f38de::t_2082b0ea608a25 753-804
+  s_77f1bb234f38de::t_2b23357062eb38 583-585,587-588
+services/hiring_policy_service.py
+  s_77f1bb234f38de::t_a0859fa6fe8153 160
+  s_77f1bb234f38de::t_4b7aaa2e85be49 61,77-78
+services/hiring_workflow_adapter.py
+  s_77f1bb234f38de::t_a1781f1cabbb22 12-13,16-22,31,40,44
+services/hiring_data_rights.py
+  s_77f1bb234f38de::t_c39f395329ccea 5,8,67,93,202-206
+services/hiring_activation.py
+  s_77f1bb234f38de::t_a1781f1cabbb22 6,36-73
+  s_77f1bb234f38de::t_a01544cb21f5a8 74-76
+services/workflow_contracts.py
+  s_77f1bb234f38de::t_bbc69b445e19b8 148
+app/static/hiring-notice.html
+  s_77f1bb234f38de::t_2b655463921cbf 3
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "b8f24c233e96e8e873810c152dd0aba81d2b078f",
+  "prompts": {},
+  "sessions": {
+    "s_77f1bb234f38de": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a046ae-fe02-7782-82b7-4676370ad1b6",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Ijidai Lassa <ijidai@cued.app>"
+    }
+  }
+}
