@@ -58,6 +58,7 @@ async def propose_policy(*, principal: ActorPrincipal, role_id: str,
         "synthetic": role.get("synthetic") is True,
         "synthetic_namespace": role.get("synthetic_namespace"),
         "fixture_id": role.get("fixture_id"),
+        "data_mode": role.get("data_mode", "SYNTHETIC"),
     }
     impact_id = stable_id("impact", policy_id, policy_hash)
     impact = {
@@ -73,7 +74,8 @@ async def propose_policy(*, principal: ActorPrincipal, role_id: str,
         "decisions_triggered": 0, "created_at": now,
         "synthetic": row["synthetic"],
         "synthetic_namespace": row["synthetic_namespace"],
-        "fixture_id": row["fixture_id"], "version": 1,
+        "fixture_id": row["fixture_id"], "data_mode": row["data_mode"],
+        "version": 1,
     }
     row["impact_manifest_id"] = impact_id
     # Reserve the idempotency key with a non-activatable policy first. This
@@ -155,6 +157,7 @@ async def approve_policy(*, principal: ActorPrincipal, role_id: str,
             "hiring_roles", role_id, expected_role_version, {
                 "current_policy_version_id": policy_version_id,
                 "current_policy_hash": policy["canonical_hash"],
+                "role_state": "APPROVED",
                 "updated_at": utc_now(),
             })
         if not committed_role:

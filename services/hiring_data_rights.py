@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
+from services import storage
 from services.actor_identity import ActorPrincipal, WorkspaceRole, authorize
 from services.durable_store import DurableStore, production_store
 from services.hiring_contracts import canonical_hash, stable_id, utc_now
@@ -62,7 +64,7 @@ class HiringDataRightsService:
             "generated_at": utc_now(),
             "audit_id": audit_id,
             "provider_limitations": [
-                "The original provider email is not deleted by an H0-H3 export.",
+                "Source data held by an external provider is not changed by this export.",
                 "A founder-published job-board post is outside this candidate record.",
                 "Append-only security audit records are exported separately under retention policy.",
             ],
@@ -88,7 +90,7 @@ class HiringDataRightsService:
                 "inventory_hash": plan_hash, "delete_count": len(paths),
                 "paths": paths,
                 "provider_limitations": [
-                    "H0-H3 does not delete the original Gmail message from Google.",
+                    "Source data held by an external provider is not changed by this deletion.",
                     "Manual job-board publications are not candidate records and remain external.",
                     "Append-only security audit records retain opaque ids/hashes under audit retention.",
                 ]}
@@ -197,6 +199,11 @@ class HiringDataRightsService:
         try:
             for path in paths[deleted:]:
                 collection, document_id = path.split("/", 1)
+                if collection == "hiring_candidate_artifacts":
+                    artifact = await self.store.get(collection, document_id)
+                    storage_name = str((artifact or {}).get("storage_name") or "")
+                    if storage_name:
+                        await asyncio.to_thread(storage.delete_artifact, storage_name)
                 await self.store.delete(collection, document_id)
                 deleted += 1
                 current = await self.store.get(

@@ -17,6 +17,15 @@ grep -q "^BROWSE_OPEN_WEB=false" .env.prod \
   || { echo ".env.prod must set BROWSE_OPEN_WEB=false (production browsing is fail-closed, docs/18)"; exit 1; }
 set -a; source .env.prod; set +a
 : "${DB_PASSWORD:?set DB_PASSWORD in .env.prod}"
+if [[ "${HIRING_ENABLE_PUBLIC_APPLICATIONS:-0}" == "1" ]]; then
+  : "${HIRING_IDENTITY_KMS_KEY_NAME:?public hiring requires a fully-qualified Cloud KMS key name}"
+  : "${HIRING_IDENTITY_DEDUP_KEY:?public hiring requires a secret identity deduplication key}"
+  : "${HIRING_PRIVACY_CONTACT:?public hiring requires a candidate privacy contact email}"
+  [[ ${#HIRING_IDENTITY_DEDUP_KEY} -ge 32 ]] \
+    || { echo "HIRING_IDENTITY_DEDUP_KEY must contain at least 32 characters"; exit 1; }
+  [[ "$HIRING_PRIVACY_CONTACT" =~ ^[^[:space:]@]+@[^[:space:]@]+\.[^[:space:]@]+$ ]] \
+    || { echo "HIRING_PRIVACY_CONTACT must be an email address"; exit 1; }
+fi
 
 "$PYTHON" scripts/check_browser_invariants.py
 
@@ -43,7 +52,7 @@ echo "==> Sensitive env → Secret Manager (never plaintext env vars, docs/12)"
 # These keys are stripped from the env-vars file below and bound with
 # --set-secrets instead. SESSION_SERVICE_URI carries the DB password inside
 # the URL, so it is secret-managed too.
-SECRET_ENV_KEYS=(DB_PASSWORD SESSION_SERVICE_URI GOOGLE_OAUTH_CLIENT_SECRET ALEX_MAIL_WEBHOOK_TOKEN APP_SESSION_SECRET HIRING_SYNTHETIC_ENCRYPTION_KEY HIRING_TEST_DISPATCH_SECRET)
+SECRET_ENV_KEYS=(DB_PASSWORD SESSION_SERVICE_URI GOOGLE_OAUTH_CLIENT_SECRET ALEX_MAIL_WEBHOOK_TOKEN APP_SESSION_SECRET HIRING_IDENTITY_DEDUP_KEY HIRING_SYNTHETIC_ENCRYPTION_KEY HIRING_TEST_DISPATCH_SECRET)
 RUNTIME_SECRET_KEYS=(GOOGLE_OAUTH_REFRESH_TOKEN ALEX_OAUTH_REFRESH_TOKEN)
 # These names are bound to existing, canonical Secret Manager secrets below.
 # They must never also appear in the generated plain env-vars file: Cloud Run
@@ -83,6 +92,21 @@ if gcloud projects get-iam-policy "$GOOGLE_CLOUD_PROJECT" \
     --member="serviceAccount:$COMPUTE_SA" \
     --role='roles/secretmanager.admin' \
     --all --quiet --format='none' >/dev/null
+fi
+if [[ -n "${HIRING_IDENTITY_KMS_KEY_NAME:-}" ]]; then
+  if [[ "$HIRING_IDENTITY_KMS_KEY_NAME" =~ ^projects/([^/]+)/locations/([^/]+)/keyRings/([^/]+)/cryptoKeys/([^/]+)$ ]]; then
+    KMS_PROJECT="${BASH_REMATCH[1]}"
+    KMS_LOCATION="${BASH_REMATCH[2]}"
+    KMS_RING="${BASH_REMATCH[3]}"
+    KMS_KEY="${BASH_REMATCH[4]}"
+    gcloud kms keys add-iam-policy-binding "$KMS_KEY" \
+      --project="$KMS_PROJECT" --location="$KMS_LOCATION" --keyring="$KMS_RING" \
+      --member="serviceAccount:$COMPUTE_SA" \
+      --role="roles/cloudkms.cryptoKeyEncrypterDecrypter" >/dev/null
+  else
+    echo "HIRING_IDENTITY_KMS_KEY_NAME must be a fully-qualified crypto key name"
+    exit 1
+  fi
 fi
 
 echo "==> Cloud Tasks queue"

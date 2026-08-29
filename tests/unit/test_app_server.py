@@ -8,6 +8,7 @@ the module-level side effects tolerated the same way the smoke scripts do.
 import asyncio
 import importlib
 import os
+import time
 import uuid
 
 import pytest
@@ -578,6 +579,21 @@ class TestFounderInboxApi:
 
         assert client.get("/favicon.ico/private").status_code == 401
 
+    def test_candidate_role_notice_and_narrow_public_api_bypass_founder_auth(
+            self, appmod, client, monkeypatch):
+        from services.durable_store import InMemoryDurableStore
+
+        monkeypatch.setenv("APP_AUTH_TOKEN", "t0ken")
+        monkeypatch.setattr(
+            appmod.hiring_routes, "production_store", InMemoryDurableStore)
+        slug = "0" * 32
+        assert client.get(f"/jobs/{slug}").status_code == 200
+        assert client.get("/hiring-notice.html").status_code == 200
+        # No role is seeded, but reaching the handler proves this narrow path
+        # is public; it must not be mistaken for a founder-auth 401.
+        assert client.get(f"/api/public/hiring/roles/{slug}").status_code == 404
+        assert client.get("/api/public/hiring/private").status_code == 401
+
     def test_prod_without_token_fails_closed(self, client, monkeypatch):
         monkeypatch.setenv("K_SERVICE", "co-founder")
         assert client.get("/api/config").status_code == 503
@@ -734,22 +750,76 @@ class TestFounderInboxApi:
 
 
 class TestDiscoverCommandAdapter:
-    def test_hiring_command_uses_its_own_deployment_gate(
+    def test_hiring_launcher_compiles_description_instead_of_loading_fixture(
+            self, appmod, monkeypatch):
+        from services import hiring_policy_service, hiring_role_intake
+        from services.actor_identity import ActorPrincipal, WorkspaceRole
+        from services.durable_store import InMemoryDurableStore
+        from services.hiring_identity_vault import (
+            CandidateIdentityVault,
+            fixture_key_wrapper,
+        )
+        from services.hiring_service import HiringService
+        from services.hiring_workflow_adapter import HiringWorkflowAdapter
+        from services.workflow_runtime import WorkflowRuntime
+        from tests.unit.test_hiring_live_flow import _contract
+
+        store = InMemoryDurableStore()
+        key = bytes(range(32))
+        wrap, unwrap = fixture_key_wrapper(key)
+        hiring = HiringService(
+            store=store,
+            identity_vault=CandidateIdentityVault(
+                wrap_key=wrap, unwrap_key=unwrap, dedup_key=key,
+                store=store, allow_live=True),
+            runtime=WorkflowRuntime(store, domain_adapter=HiringWorkflowAdapter()))
+        description = (
+            "Acme needs a Senior Product Designer, remote in Europe, to lead "
+            "the mobile customer experience.")
+        monkeypatch.setenv("HIRING_ENABLE_ROLE_INTAKE", "1")
+        monkeypatch.setattr(
+            hiring_role_intake, "_generator",
+            lambda supplied, _context: _contract(
+                title="Senior Product Designer").model_dump(mode="json")
+            if supplied == description else {})
+        monkeypatch.setattr(appmod.hiring_routes, "_services", lambda: (hiring, None))
+        original_propose = hiring_policy_service.propose_policy
+
+        async def _propose(**kwargs):
+            return await original_propose(**kwargs, store=store)
+
+        monkeypatch.setattr(appmod.hiring_policy_service, "propose_policy", _propose)
+        principal = ActorPrincipal(
+            actor_id="member_owner", workspace_id="workspace_live_command",
+            role=WorkspaceRole.OWNER, role_grants=frozenset(),
+            candidate_assignments=frozenset(), interview_assignments=frozenset(),
+            session_auth_time=int(time.time()), membership_version=1)
+        result = asyncio.run(appmod._launch_hiring_command(
+            principal=principal, context=description,
+            request_id="request_live_hiring_1"))
+
+        assert result["role"]["role_title"] == "Senior Product Designer"
+        assert result["role"]["synthetic"] is False
+        assert result["role"]["source_description_hash"].startswith("sha256:")
+
+    def test_hiring_command_accepts_a_real_founder_role_description(
             self, appmod, client, monkeypatch):
-        """A protected /hiring command must not depend on /discover being on."""
-        monkeypatch.setenv("HIRING_ENABLE_SYNTHETIC_DEMO", "1")
+        """The production /hiring command is not tied to the demo fixture."""
+        monkeypatch.setenv("HIRING_ENABLE_ROLE_INTAKE", "1")
         launches = []
 
         async def _launch(**kwargs):
             launches.append(kwargs)
             return {"status": "success", "role": {
-                "role_id": "role_hiring_command", "role_title": "Forward Deployment Engineer",
-                "company_name": "Ruhu", "role_code": "FDEDEMO",
+                "role_id": "role_hiring_command", "role_title": "Senior Product Designer",
+                "company_name": "Acme", "role_code": "DESIGN01",
+                "synthetic": False,
             }}
 
         monkeypatch.setattr(appmod, "_launch_hiring_command", _launch)
         response = client.post("/wake", json={
-            "message": "/hiring Forward Deployment Engineer for Ruhu in Nigeria, remote",
+            "message": "/hiring Senior Product Designer for Acme, remote in Europe, "
+                       "to lead the mobile customer experience",
             "session_id": f"s-hiring-{uuid.uuid4().hex}",
             "client_request_id": "req_hiringcommand",
         })
@@ -757,7 +827,9 @@ class TestDiscoverCommandAdapter:
         assert response.status_code == 200
         assert response.json()["launched"] is True
         assert response.json()["role_id"] == "role_hiring_command"
-        assert launches[0]["context"] == "Forward Deployment Engineer for Ruhu in Nigeria, remote"
+        assert launches[0]["context"] == (
+            "Senior Product Designer for Acme, remote in Europe, to lead the mobile "
+            "customer experience")
 
     def test_exact_command_launches_without_invoking_chat_runner(
             self, appmod, client, monkeypatch):

@@ -40,9 +40,11 @@ SESSION_COOKIE = "app_session"
 QUERY_PARAM = "key"
 SESSION_TTL_SECONDS = 60 * 60 * 24 * 14  # matches the token cookie
 
-# Browser chrome requests these before a person can authenticate. Keep the
-# exemption exact so a similarly prefixed application route is still gated.
-PUBLIC_PATHS = frozenset({"/favicon.ico", "/favicon.svg"})
+# Browser chrome and candidate-facing hiring notices are intentionally public.
+# Dynamic public prefixes are narrow and their route handlers expose only the
+# published contract plus a role-bound application token.
+PUBLIC_PATHS = frozenset({"/favicon.ico", "/favicon.svg", "/hiring-notice.html"})
+PUBLIC_PREFIXES = ("/jobs/", "/api/public/hiring/roles/")
 
 # Routes that verify their own callers (portal token, OIDC) or must stay
 # reachable for probes and for signing in. Everything else requires a
@@ -397,7 +399,9 @@ def install(app) -> None:
     @app.middleware("http")
     async def _founder_gate(request: Request, call_next):
         path = request.url.path
-        if path in PUBLIC_PATHS or any(path.startswith(p) for p in EXEMPT_PREFIXES):
+        if (path in PUBLIC_PATHS
+                or any(path.startswith(p) for p in PUBLIC_PREFIXES)
+                or any(path.startswith(p) for p in EXEMPT_PREFIXES)):
             return await call_next(request)
         if (not configured_token() and not firebase_config()["enabled"]
                 and _in_cloud_run()):

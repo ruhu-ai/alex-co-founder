@@ -56,7 +56,9 @@ from services import (
     distill_service,
     feedback_service,
     firestore,
+    hiring_activation,
     hiring_policy_service,
+    hiring_role_intake,
     investor_outreach_service,
     persistent_memory,
     pipeline_service,
@@ -368,7 +370,7 @@ _SLASH_COMMAND = re.compile(r"^/([a-z][a-z0-9_-]*)(?:\s+(.*))?$", re.DOTALL)
 _REQUEST_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$")
 _ATTACHMENT_REFERENCE = re.compile(r"(?:^|\s)@[A-Za-z0-9_.-]+(?:\s|$)")
 _DISCOVER_CONTEXT_MAX = 500
-_HIRING_CONTEXT_MAX = 700
+_HIRING_CONTEXT_MAX = 4000
 _INVESTOR_CONTEXT_MAX = 800
 _INGESTION_REF = re.compile(r"^[a-f0-9]{32}$")
 
@@ -379,15 +381,8 @@ def _discover_command_enabled() -> bool:
 
 
 def _hiring_command_enabled() -> bool:
-    """Whether the isolated synthetic hiring command is available at all.
-
-    The command has its own deployment guard inside `_launch_hiring_command`.
-    Keeping parser availability separate from the older discovery compatibility
-    flag prevents a safe, enabled `/hiring` operation from being silently
-    treated as ordinary chat merely because `/discover` remains off.
-    """
-    return os.environ.get("HIRING_ENABLE_SYNTHETIC_DEMO", "false").lower() \
-        in {"1", "true", "yes", "on"}
+    """Whether description-driven role drafting is enabled for this deployment."""
+    return hiring_activation.live_role_intake_enabled()
 
 
 def _parse_slash_command(message: str) -> tuple[str, str] | None:
@@ -714,42 +709,67 @@ async def _launch_investor_outreach(
 
 async def _launch_hiring_command(*, principal: ActorPrincipal, context: str,
                                   request_id: str) -> dict:
-    """Create the closed synthetic Ruhu FDE role from a founder chat command.
-
-    This is deliberately a fixture-backed command, not a prompt-to-production
-    hiring generator. It requires the same signed workspace principal and
-    deployment allowlist as the Hiring API, creates only a DRAFT role, and
-    grants no publication or provider-effect authority.
-    """
+    """Compile founder prose into a durable draft role and proposed policy."""
     normalized = re.sub(r"\s+", " ", context).strip()
+    if not _hiring_command_enabled():
+        return {"error": True, "error_code": "production_hiring_disabled",
+                "message": "Role intake is disabled by deployment policy."}
+    if len(normalized) < 12:
+        return {"error": True, "error_code": "role_description_too_short",
+                "message": "Describe the role, company, location, and main outcomes."}
     if len(normalized) > _HIRING_CONTEXT_MAX:
         return {"error": True, "message": "Hiring context is too long."}
-    required = ("forward deployment engineer", "ruhu", "nigeria", "remote")
-    if not all(term in normalized.casefold() for term in required):
-        return {"error": True, "message": (
-            "This protected demo command supports the Ruhu Forward Deployment Engineer "
-            "fixture: include Ruhu, Forward Deployment Engineer, Nigeria, and remote.")}
+    drafted = await hiring_role_intake.draft_role_contract(
+        description=normalized,
+        workspace_context={"workspace_id": principal.workspace_id})
+    if drafted.get("error"):
+        return drafted
+    services = hiring_routes._services()
+    if not services:
+        return {"error": True, "error_code": "hiring_encryption_unavailable",
+                "message": "Hiring identity encryption is not configured."}
+    contract = drafted["contract"]
+    created = await services[0].create_role(
+        principal=principal, contract=contract, client_request_id=request_id,
+        provenance={"synthetic": False, "data_mode": "LIVE_INTERNAL"},
+        source_description_hash=drafted["description_hash"])
+    if created.get("error"):
+        return created
+    proposed = await hiring_policy_service.propose_policy(
+        principal=principal, role_id=created["role"]["role_id"],
+        contract=contract,
+        change_reason="Founder-started role draft from /hiring description.",
+        client_request_id=f"{request_id}:role-brief")
+    if proposed.get("error"):
+        return proposed
+    return {"status": "success", "role": created["role"], "policy": proposed,
+            "duplicate": created.get("duplicate", False)}
+
+
+async def _launch_hiring_demo_command(*, principal: ActorPrincipal, context: str,
+                                       request_id: str) -> dict:
+    """Create the optional, explicitly enabled synthetic Ruhu FDE fixture."""
     fixture_id = "fixture_ruhu_fde_walkthrough"
     allowed = {value.strip() for value in os.environ.get(
         "HIRING_SYNTHETIC_FIXTURE_IDS", "").split(",") if value.strip()}
     if (os.environ.get("HIRING_ENABLE_SYNTHETIC_DEMO") != "1"
             or fixture_id not in allowed):
-        return {"error": True, "message": "The synthetic hiring demo is not enabled by deployment."}
+        return {"error": True, "message": "The synthetic hiring demo is not enabled."}
     services = hiring_routes._services()
     if not services:
-        return {"error": True, "message": "Synthetic hiring encryption is not configured."}
+        return {"error": True, "message": "Hiring encryption is not configured."}
     from scripts.seed_hiring_fde_demo import _contract
+
+    contract = _contract()
     created = await services[0].create_role(
-        principal=principal, contract=_contract(), client_request_id=request_id,
+        principal=principal, contract=contract, client_request_id=request_id,
         synthetic_guard={"synthetic": True, "fixture_id": fixture_id,
                          "synthetic_namespace": "synthetic_hiring_ruhu_fde"})
     if created.get("error"):
         return created
     proposed = await hiring_policy_service.propose_policy(
-        principal=principal, role_id=created["role"]["role_id"],
-        contract=_contract(),
-        change_reason=("Founder-started protected synthetic Ruhu FDE hiring "
-                       "operation from /hiring."),
+        principal=principal, role_id=created["role"]["role_id"], contract=contract,
+        change_reason="Explicit optional synthetic Ruhu FDE demo fixture.",
         client_request_id=f"{request_id}:role-brief")
     if proposed.get("error"):
         return proposed
@@ -918,17 +938,21 @@ async def wake(payload: WakePayload, request: Request) -> dict:
                 "outreach_id": (launch.get("outreach") or {}).get("outreach_id"),
                 "run_id": (launch.get("run") or {}).get("run_id"),
                 "client_request_id": request_id})
-        if name == "hiring":
+        if name in {"hiring", "hiring-demo"}:
             if payload.attachment_refs or _ATTACHMENT_REFERENCE.search(context):
-                reply = "The protected hiring command accepts role context only; no attachment was read."
+                reply = "Hiring intake accepts a role description only; no attachment was read."
                 await _append_chat_exchange(
                     session_id, payload.message, reply, f"command-{request_id}",
                     founder_id)
                 return await _respond({
                     "session_id": session_id, "replies": [reply], "launched": False,
                     "client_request_id": request_id})
-            launch = await _launch_hiring_command(
-                principal=principal, context=context, request_id=request_id)
+            launch = await (
+                _launch_hiring_demo_command(
+                    principal=principal, context=context, request_id=request_id)
+                if name == "hiring-demo" else
+                _launch_hiring_command(
+                    principal=principal, context=context, request_id=request_id))
             if launch.get("error"):
                 reply = f"I couldn't start the hiring operation safely: {launch.get('message', 'request refused')}"
                 await _append_chat_exchange(
@@ -938,10 +962,12 @@ async def wake(payload: WakePayload, request: Request) -> dict:
                     "session_id": session_id, "replies": [reply], "launched": False,
                     "client_request_id": request_id})
             role = launch["role"]
-            reply = (f"I created the durable draft hiring operation for {role['role_title']} at "
+            fixture_note = " synthetic demo" if role.get("synthetic") else ""
+            reply = (f"I created the durable{fixture_note} draft hiring operation for {role['role_title']} at "
                      f"{role['company_name']} and prepared its role brief, scorecard, interview "
                      f"plan, and exact job-post draft. Open Hiring Operations to review and approve "
-                     f"role {role['role_code']}. No post or email was sent.")
+                     f"role {role['role_code']}. Approval will publish its Co-Founder application "
+                     "page; no outreach or email was sent.")
             await _append_chat_exchange(
                 session_id, payload.message, reply, f"command-{request_id}",
                 founder_id)
@@ -952,8 +978,8 @@ async def wake(payload: WakePayload, request: Request) -> dict:
                 "role_id": role["role_id"], "client_request_id": request_id})
         if name != "discover":
             reply = (f"I don't recognize /{name}. The available workflow command "
-                     "is /investors, /discover, or the protected synthetic "
-                     "/hiring FDE command.")
+                     "is /investors, /discover, /hiring, or the optional "
+                     "/hiring-demo fixture.")
             await _append_chat_exchange(
                 session_id, payload.message, reply, f"command-{request_id}",
                 founder_id)

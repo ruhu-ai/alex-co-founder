@@ -9,10 +9,17 @@ from services.workflow_contracts import WorkflowDefinition
 
 
 def hiring_provenance(guard: Mapping[str, Any]) -> dict[str, str]:
-    """Validate the closed H0 guard and return generic provenance metadata."""
-    result = hiring_activation.require_synthetic(dict(guard))
+    """Validate fixture/live hiring mode and return generic provenance."""
+    result = hiring_activation.require_role_mode(dict(guard))
     if result.get("error"):
         raise ValueError(str(result.get("error_code") or "production_hiring_disabled"))
+    if guard.get("synthetic") is not True:
+        return {
+            "provenance_class": "PRODUCTION",
+            "namespace": "hiring_live_internal",
+            "fixture_set_id": "",
+            "data_mode": "LIVE_INTERNAL",
+        }
     return {
         "provenance_class": "SYNTHETIC",
         "namespace": str(guard["synthetic_namespace"]),
@@ -21,7 +28,7 @@ def hiring_provenance(guard: Mapping[str, Any]) -> dict[str, str]:
 
 
 class HiringWorkflowAdapter:
-    """Admit only reviewed synthetic hiring definitions and provenance."""
+    """Admit hiring definitions under their code-owned data mode."""
 
     def validate_run(self, *, definition: WorkflowDefinition,
                      workspace_id: str, domain_ref: str,
@@ -30,8 +37,9 @@ class HiringWorkflowAdapter:
             return {"status": "error", "error": True,
                     "error_code": "hiring_definition_invalid",
                     "message": "The hiring adapter accepts hiring definitions only."}
-        return hiring_activation.require_synthetic({
+        return hiring_activation.require_role_mode({
             "synthetic": provenance.get("provenance_class") == "SYNTHETIC",
             "synthetic_namespace": provenance.get("namespace"),
             "fixture_id": provenance.get("fixture_set_id"),
+            "data_mode": provenance.get("data_mode"),
         })

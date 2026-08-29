@@ -1,18 +1,31 @@
-"""Founder and workload HTTP surfaces for synthetic-only hiring H0-H3."""
+"""Founder, applicant, and workload HTTP surfaces for hiring operations."""
 
 from __future__ import annotations
 
 import asyncio
 import hashlib
+import html
+import hmac
 import os
+import re
+import tempfile
+from pathlib import Path
 from typing import Any, Literal
 
-from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
+from fastapi import FastAPI, File, Form, Request, UploadFile
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 from app import auth
-from services import hiring_policy_service, task_queue, workload_identity
+from services import (
+    document_ingestion,
+    hiring_activation,
+    hiring_application_intake,
+    hiring_policy_service,
+    storage,
+    task_queue,
+    workload_identity,
+)
 from services.actor_identity import (
     ActorPrincipal,
     WorkspaceRole,
@@ -23,8 +36,10 @@ from services.durable_store import production_store
 from services.hiring_approval_service import request_approval, resolve_approval
 from services.hiring_contracts import (
     HumanDecisionInput,
+    Criterion,
     RoleContract,
     SyntheticFixtureMessage,
+    canonical_hash,
     stable_id,
     utc_now,
 )
@@ -32,7 +47,11 @@ from services.hiring_data_rights import HiringDataRightsService
 from services.hiring_h4s_effects import H4SEffectService
 from services.hiring_h4s_google import H4SGoogleEffectAdapter
 from services.hiring_h4s_reply import H4SReplyService
-from services.hiring_identity_vault import CandidateIdentityVault, fixture_key_wrapper
+from services.hiring_identity_vault import (
+    CandidateIdentityVault,
+    fixture_key_wrapper,
+    kms_key_wrapper,
+)
 from services.hiring_mailbox import HiringMailboxService
 from services.hiring_run_answer import HiringRunAnswerService
 from services.hiring_sandbox import HiringSandboxService
@@ -79,6 +98,11 @@ class ResolveApprovalRequest(ClosedRequest):
 class ActivatePolicyRequest(ClosedRequest):
     approval_id: str
     expected_role_version: int = Field(ge=1)
+
+
+class PublishInternalRoleRequest(ClosedRequest):
+    expected_role_version: int = Field(ge=1)
+    client_request_id: str = Field(min_length=8, max_length=128)
 
 
 class PublicationRequest(ClosedRequest):
@@ -311,21 +335,326 @@ def _mutation_allowed(request: Request) -> dict[str, Any]:
 
 
 def _services() -> tuple[HiringService, HiringMailboxService] | None:
-    raw = os.environ.get("HIRING_SYNTHETIC_ENCRYPTION_KEY", "")
-    if not raw:
+    kms_key_name = os.environ.get("HIRING_IDENTITY_KMS_KEY_NAME", "")
+    dedup_secret = os.environ.get("HIRING_IDENTITY_DEDUP_KEY", "")
+    if kms_key_name:
+        if len(dedup_secret) < 32:
+            return None
+        wrap, unwrap = kms_key_wrapper(kms_key_name)
+        key = hashlib.sha256(dedup_secret.encode()).digest()
+        allow_live = True
+    else:
+        allow_live = not bool(os.environ.get("K_SERVICE"))
         if os.environ.get("K_SERVICE"):
             return None
-        raw = os.environ.get("APP_SESSION_SECRET", "local-hiring-fixture-only")
-    key = hashlib.sha256(raw.encode()).digest()
-    wrap, unwrap = fixture_key_wrapper(key)
+        raw = os.environ.get("HIRING_SYNTHETIC_ENCRYPTION_KEY", "")
+        if not raw:
+            raw = os.environ.get("APP_SESSION_SECRET", "local-hiring-fixture-only")
+        key = hashlib.sha256(raw.encode()).digest()
+        wrap, unwrap = fixture_key_wrapper(key)
     store = production_store()
     vault = CandidateIdentityVault(wrap_key=wrap, unwrap_key=unwrap,
-                                   dedup_key=key, store=store)
+                                   dedup_key=key, store=store,
+                                   allow_live=allow_live)
     hiring = HiringService(store=store, identity_vault=vault)
     return hiring, HiringMailboxService(hiring, store=store)
 
 
+_PUBLIC_SLUG = re.compile(r"^[0-9a-f]{32}$")
+_PUBLIC_REQUEST_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$")
+_EMAIL = re.compile(r"^[^\s@]{1,160}@[^\s@]{1,190}\.[^\s@]{2,63}$")
+_MAX_APPLICATION_BYTES = 10 * 1024 * 1024
+
+
+async def _public_role(public_slug: str) -> tuple[dict[str, Any], dict[str, Any]] | None:
+    """Resolve one published role and its exact frozen publication policy."""
+    if not _PUBLIC_SLUG.fullmatch(public_slug):
+        return None
+    rows = await production_store().list(
+        "hiring_roles", filters={"public_slug": public_slug}, limit=2)
+    if len(rows) != 1 or rows[0].get("role_state") != "PUBLISHED":
+        return None
+    role = rows[0]
+    policy_id = str(role.get("published_policy_version_id") or "")
+    policy = await production_store().get("hiring_policy_versions", policy_id)
+    if (not policy or policy.get("workspace_id") != role.get("workspace_id")
+            or policy.get("role_id") != role.get("role_id")
+            or policy.get("status") != "APPROVED"
+            or policy.get("canonical_hash") != role.get("published_policy_hash")):
+        return None
+    return role, policy
+
+
+def _public_application_token(role: dict[str, Any], policy: dict[str, Any]) -> str:
+    secret = os.environ.get("APP_SESSION_SECRET", "local-public-hiring-token")
+    material = "|".join([
+        str(role["public_slug"]), str(role["role_id"]),
+        str(policy["canonical_hash"]), "public-application-v1",
+    ]).encode()
+    return hmac.new(secret.encode(), material, hashlib.sha256).hexdigest()
+
+
+def _privacy_contact() -> str:
+    configured = os.environ.get("HIRING_PRIVACY_CONTACT", "").strip()[:254]
+    return configured if _EMAIL.fullmatch(configured) else ""
+
+
+def _public_applications_ready(role: dict[str, Any]) -> bool:
+    return bool(
+        role.get("synthetic") is not True
+        and hiring_activation.live_applications_enabled()
+        and _privacy_contact()
+        and _services() is not None)
+
+
+def _safe_public_contract(role: dict[str, Any], policy: dict[str, Any]) -> dict[str, Any]:
+    contract = policy["contract"]
+    privacy_contact = _privacy_contact()
+    applications_enabled = _public_applications_ready(role)
+    return {
+        "status": "success",
+        "role": {
+            "public_slug": role["public_slug"],
+            "role_code": role["role_code"],
+            "company_name": contract["company_name"],
+            "role_title": contract["role_title"],
+            "role_summary": contract["role_summary"],
+            "location_envelope": contract["location_envelope"],
+            "compensation_envelope": contract["compensation_envelope"],
+            "public_job_description": contract["public_job_description"],
+            "criteria": [{"criterion_id": item["criterion_id"],
+                          "label": item["label"],
+                          "description": item["description"]}
+                         for item in contract["criteria"]],
+            "target_date": contract["target_date"],
+            "notice_path": f"/jobs/{role['public_slug']}/notice",
+            "privacy_contact": privacy_contact,
+            "published_at": role.get("published_at"),
+        },
+        "application_token": (_public_application_token(role, policy)
+                              if applications_enabled else ""),
+        "applications_enabled": applications_enabled,
+    }
+
+
 def register(app: FastAPI) -> None:
+    @app.get("/jobs/{public_slug}", include_in_schema=False)
+    async def public_job_page(public_slug: str):
+        if not _PUBLIC_SLUG.fullmatch(public_slug):
+            return JSONResponse({"error": "not found"}, status_code=404)
+        path = Path(__file__).resolve().parent / "static" / "hiring-apply.html"
+        return FileResponse(path, headers={
+            "Cache-Control": "no-store",
+            "Content-Security-Policy": (
+                "default-src 'self'; style-src 'self' 'unsafe-inline'; "
+                "script-src 'self' 'unsafe-inline'; form-action 'self'; "
+                "frame-ancestors 'none'; base-uri 'none'"),
+            "X-Content-Type-Options": "nosniff",
+        })
+
+    @app.get("/jobs/{public_slug}/notice", include_in_schema=False)
+    async def public_job_notice(public_slug: str):
+        resolved = await _public_role(public_slug)
+        if not resolved:
+            return HTMLResponse("Not found", status_code=404)
+        role, policy = resolved
+        contract = policy["contract"]
+        contact = _privacy_contact()
+        if not contact:
+            return HTMLResponse("Privacy contact is not configured.", status_code=503)
+        company = html.escape(str(contract["company_name"]))
+        title = html.escape(str(contract["role_title"]))
+        safe_contact = html.escape(contact)
+        retention = html.escape(str(contract["retention_policy_id"]))
+        body = f"""<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\">
+<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">
+<title>Candidate privacy notice · {company}</title><style>body{{max-width:70ch;margin:48px auto;
+padding:0 20px;font:16px/1.65 system-ui,sans-serif}}h1,h2{{line-height:1.25}}</style></head>
+<body><main><h1>Candidate privacy notice</h1><p><strong>{company}</strong> is receiving
+applications for <strong>{title}</strong> through Co-Founder.</p><h2>What is processed</h2>
+<p>Your contact details, resume, optional note, role-scoped application receipt, and exact
+job-related evidence cited from your submission. Candidate identity is encrypted separately.
+Applications are not added to general founder memory or search.</p><h2>How it is used</h2>
+<p>Alex organizes evidence against the published role criteria. Alex does not rank candidates,
+recommend a hiring outcome, or make an employment decision. An authorized human reviews the
+evidence and makes every advance, hold, evidence-request, or decline decision.</p>
+<h2>Retention and your choices</h2><p>This role uses retention policy <code>{retention}</code>.
+You may ask for access, correction, export, withdrawal, accommodation, human contact, or
+deletion, subject to applicable law and a documented legal hold. Contact
+<a href=\"mailto:{safe_contact}\">{safe_contact}</a>. External job boards, if used separately,
+have their own notices and retention.</p><p><a href=\"/jobs/{html.escape(public_slug)}\">Return to the role</a></p>
+</main></body></html>"""
+        return HTMLResponse(body, headers={"Cache-Control": "no-store",
+                                           "X-Content-Type-Options": "nosniff"})
+
+    @app.get("/api/public/hiring/roles/{public_slug}")
+    async def public_role(public_slug: str):
+        resolved = await _public_role(public_slug)
+        if not resolved:
+            return JSONResponse({"error": "not found"}, status_code=404)
+        role, policy = resolved
+        return JSONResponse(
+            _safe_public_contract(role, policy),
+            headers={"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"})
+
+    @app.post("/api/public/hiring/roles/{public_slug}/applications")
+    async def public_application(
+            public_slug: str,
+            request: Request,
+            name: str = Form(..., min_length=1, max_length=160),
+            email: str = Form(..., min_length=3, max_length=254),
+            phone: str = Form("", max_length=80),
+            cover_note: str = Form("", max_length=4000),
+            application_token: str = Form(..., min_length=64, max_length=64),
+            client_request_id: str = Form(..., min_length=8, max_length=128),
+            notice_accepted: bool = Form(...),
+            website: str = Form("", max_length=200),
+            resume: UploadFile = File(...)):
+        try:
+            content_length = int(request.headers.get("content-length", "0") or 0)
+        except ValueError:
+            content_length = -1
+        if content_length < 0 or content_length > _MAX_APPLICATION_BYTES + 65_536:
+            return JSONResponse(
+                {"status": "error", "error": True,
+                 "error_code": "request_too_large",
+                 "message": "Resume files must be 10 MB or smaller."},
+                status_code=413)
+        resolved = await _public_role(public_slug)
+        if not resolved:
+            return JSONResponse({"error": "not found"}, status_code=404)
+        role, policy = resolved
+        if not _public_applications_ready(role):
+            return JSONResponse(
+                {"status": "error", "error": True,
+                 "error_code": "public_applications_disabled",
+                 "message": "This role is not accepting applications."},
+                status_code=403)
+        if website:
+            # Honeypot responses disclose no detection signal.
+            return {"status": "success", "application_received": True}
+        if (not notice_accepted or not _EMAIL.fullmatch(email.strip())
+                or not _PUBLIC_REQUEST_ID.fullmatch(client_request_id)
+                or not hmac.compare_digest(
+                    application_token, _public_application_token(role, policy))):
+            return JSONResponse(
+                {"status": "error", "error": True,
+                 "error_code": "invalid_application",
+                 "message": "Check the application fields and try again."},
+                status_code=400)
+        data = await resume.read(_MAX_APPLICATION_BYTES + 1)
+        await resume.close()
+        if len(data) > _MAX_APPLICATION_BYTES:
+            return JSONResponse(
+                {"status": "error", "error": True,
+                 "error_code": "request_too_large",
+                 "message": "Resume files must be 10 MB or smaller."},
+                status_code=413)
+        checked = document_ingestion.validate_upload(
+            data, resume.filename or "resume", resume.content_type or "application/octet-stream")
+        if checked.get("error"):
+            return _response(checked)
+        suffix = str(checked["detected_extension"])
+        temp_path = ""
+        try:
+            with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as handle:
+                handle.write(data)
+                temp_path = handle.name
+            extracted = await asyncio.to_thread(
+                document_ingestion.extract_chunks, temp_path, suffix)
+        finally:
+            if temp_path:
+                try:
+                    os.unlink(temp_path)
+                except FileNotFoundError:
+                    pass
+        if extracted.get("error"):
+            return _response(extracted)
+        criteria = [Criterion.model_validate(item) for item in policy["contract"]["criteria"]]
+        blocks = hiring_application_intake.map_application_blocks(
+            chunks=extracted["chunks"], criteria=criteria, cover_note=cover_note)
+        source_sha256 = "sha256:" + hashlib.sha256(data).hexdigest()
+        application_payload_hash = canonical_hash({
+            "schema_version": 1, "role_id": role["role_id"],
+            "name": name.strip(), "email": email.strip().lower(),
+            "phone": phone.strip(),
+            "cover_note_hash": canonical_hash({"cover_note": cover_note.strip()}),
+            "source_sha256": source_sha256, "notice_accepted": True,
+        })
+        provider_message_id = stable_id(
+            "publicapp", role["role_id"], client_request_id)
+        event_id = stable_id("hevent", role["role_id"], provider_message_id)
+        now = utc_now()
+        event = {
+            "schema_version": 2, "external_event_id": event_id,
+            "event_id": event_id, "workspace_id": role["workspace_id"],
+            "founder_id": role["workspace_id"], "role_id": role["role_id"],
+            "connection_id": "cofounder_public_application",
+            "connector_id": "cofounder_public_application",
+            "event_kind": "HIRING_PUBLIC_APPLICATION",
+            "provider_event_id": provider_message_id,
+            "provider_thread_id": provider_message_id,
+            "processing_status": "RECEIVED", "business_disposition": "RECEIVED",
+            "payload_hash": application_payload_hash,
+            "source_sha256": source_sha256,
+            "notice_policy_id": policy["contract"]["notice_policy_id"],
+            "notice_accepted": True, "received_at": now, "created_at": now,
+            "synthetic": False, "data_mode": "LIVE_INTERNAL", "version": 1,
+        }
+        created_event = await production_store().create("external_events", event_id, event)
+        if not created_event:
+            existing_event = await production_store().get("external_events", event_id)
+            if (not existing_event
+                    or existing_event.get("payload_hash") != application_payload_hash
+                    or existing_event.get("role_id") != role["role_id"]):
+                return JSONResponse(
+                    {"status": "error", "error": True,
+                     "error_code": "idempotency_conflict",
+                     "message": "That application request ID was already used."},
+                    status_code=409)
+        services = _services()
+        if not services:
+            return JSONResponse(
+                {"status": "error", "error": True,
+                 "error_code": "hiring_encryption_unavailable",
+                 "message": "Applications are temporarily unavailable."},
+                status_code=503)
+        storage_name = (
+            f"hiring/{role['workspace_id']}/{role['role_id']}/"
+            f"{provider_message_id}/resume{suffix}")
+        await asyncio.to_thread(storage.save_bytes, storage_name, data)
+        ingested = await services[0].ingest_application(
+            role_id=role["role_id"], provider_message_id=provider_message_id,
+            provider_thread_id=provider_message_id,
+            identity_fields={"name": name.strip(), "email": email.strip().lower(),
+                             "phone": phone.strip()},
+            blocks=blocks, source_sha256=source_sha256,
+            external_event_id=event_id,
+            provenance={"synthetic": False, "data_mode": "LIVE_INTERNAL"},
+            source_filename=f"resume{suffix}",
+            source_content_type=str(checked["detected_content_type"]),
+            storage_name=storage_name)
+        if ingested.get("error"):
+            application_id = stable_id(
+                "candidateapp", role["role_id"], provider_message_id)
+            if not await production_store().get(
+                    "candidate_applications", application_id):
+                await asyncio.to_thread(storage.delete_artifact, storage_name)
+            return _response(ingested)
+        current_event = await production_store().get("external_events", event_id)
+        if current_event and current_event.get("processing_status") != "APPLIED":
+            await production_store().compare_and_set(
+                "external_events", event_id, int(current_event["version"]), {
+                    "processing_status": "APPLIED",
+                    "business_disposition": "APPLIED", "applied_at": utc_now(),
+                    "candidate_application_id": ingested.get("candidate_application_id"),
+                })
+        return JSONResponse({
+            "status": "success", "application_received": True,
+            "duplicate": bool(ingested.get("duplicate")),
+            "application_reference": ingested.get("candidate_code"),
+        }, headers={"Cache-Control": "no-store"})
+
     @app.get("/api/hiring/csrf")
     async def hiring_csrf(request: Request):
         principal = await _actor(request)
@@ -865,6 +1194,27 @@ def register(app: FastAPI) -> None:
             principal=principal, role_id=role_id, policy_version_id=policy_id,
             expected_role_version=payload.expected_role_version,
             approval_id=payload.approval_id))
+
+    @app.post("/api/hiring/roles/{role_id}/publish")
+    async def publish_internal_role(request: Request, role_id: str,
+                                    payload: PublishInternalRoleRequest):
+        denied = _mutation_allowed(request)
+        if denied.get("error"):
+            return _response(denied)
+        principal = await _actor(request)
+        services = _services()
+        if isinstance(principal, dict):
+            return _response(principal)
+        if not services:
+            return JSONResponse(
+                {"status": "error", "error": True,
+                 "error_code": "hiring_encryption_unavailable",
+                 "message": "Hiring identity encryption is not configured."},
+                status_code=503)
+        return _response(await services[0].publish_internal_role(
+            principal=principal, role_id=role_id,
+            expected_version=payload.expected_role_version,
+            client_request_id=payload.client_request_id))
 
     @app.post("/api/hiring/roles/{role_id}/publication-receipts")
     async def record_publication(request: Request, role_id: str,
