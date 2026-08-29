@@ -9,6 +9,7 @@ from services.actor_identity import (
     ActorPrincipal,
     WorkspaceRole,
     authorize,
+    change_membership,
     create_membership,
     resolve_actor_from_claims,
 )
@@ -23,7 +24,7 @@ async def test_multi_workspace_subject_requires_explicit_selection():
     for workspace in ("workspace_a", "workspace_b"):
         created = await create_membership(
             actor_id="actor_shared", workspace_id=workspace,
-            auth_subject="subject_shared", role=WorkspaceRole.OWNER,
+            auth_subject="subject_shared", role=WorkspaceRole.FOUNDER,
             created_by="test", store=store)
         assert created["status"] == "success"
 
@@ -42,7 +43,7 @@ async def test_current_membership_revocation_is_effective_next_resolution():
     store = InMemoryDurableStore()
     await create_membership(
         actor_id="actor_a", workspace_id="workspace_a",
-        auth_subject="subject_a", role=WorkspaceRole.OWNER,
+        auth_subject="subject_a", role=WorkspaceRole.FOUNDER,
         created_by="test", store=store)
     principal = await resolve_actor_from_claims(
         {"sub": "subject_a", "auth_time": 1}, store=store,
@@ -60,11 +61,28 @@ async def test_current_membership_revocation_is_effective_next_resolution():
     assert revoked["error_code"] == "membership_missing"
 
 
+async def test_founder_is_the_only_workspace_authority_without_operator_marker():
+    store = InMemoryDurableStore()
+    created = await create_membership(
+        actor_id="actor_founder", workspace_id="workspace_a",
+        auth_subject="subject_founder", role=WorkspaceRole.FOUNDER,
+        created_by="test", store=store, synthetic=False)
+    assert "operator_authority" not in created
+    principal = await resolve_actor_from_claims(
+        {"sub": "subject_founder", "auth_time": int(time.time())},
+        store=store, workspace_id="workspace_a")
+    assert isinstance(principal, ActorPrincipal)
+    assert "operator_authority" not in principal.audit_fields()
+    changed = await change_membership(
+        principal=principal, actor_id="actor_founder",
+        expected_version=created["version"], status="ACTIVE",
+        client_request_id="founder-membership-change-001", store=store)
+    assert changed["status"] == "success"
+
+
 async def test_seed_or_workload_kind_cannot_become_fresh_human_by_label():
     seeded = ActorPrincipal(
-        actor_id="seeded_user", workspace_id="user", role=WorkspaceRole.OWNER,
-        role_grants=frozenset(), candidate_assignments=frozenset(),
-        interview_assignments=frozenset(), session_auth_time=10**12,
+        actor_id="seeded_user", workspace_id="user", role=WorkspaceRole.FOUNDER, session_auth_time=10**12,
         membership_version=1, principal_kind="SEEDED")
 
     # Local principals can exercise deterministic local/eval flows, but a
@@ -76,8 +94,7 @@ async def test_seed_or_workload_kind_cannot_become_fresh_human_by_label():
 async def test_signed_in_initiator_may_decide_their_own_approval(monkeypatch):
     principal = ActorPrincipal(
         actor_id="actor_founder", workspace_id="workspace_a",
-        role=WorkspaceRole.OWNER, role_grants=frozenset(),
-        candidate_assignments=frozenset(), interview_assignments=frozenset(),
+        role=WorkspaceRole.FOUNDER,
         session_auth_time=int(time.time()), membership_version=3,
         principal_kind="INTERACTIVE")
     captured = {}
@@ -108,8 +125,7 @@ async def test_signed_in_initiator_may_decide_their_own_approval(monkeypatch):
 async def test_approval_state_lookup_failure_fails_closed(monkeypatch):
     principal = ActorPrincipal(
         actor_id="actor_founder", workspace_id="workspace_a",
-        role=WorkspaceRole.OWNER, role_grants=frozenset(),
-        candidate_assignments=frozenset(), interview_assignments=frozenset(),
+        role=WorkspaceRole.FOUNDER,
         session_auth_time=int(time.time()), membership_version=3,
         principal_kind="INTERACTIVE")
 

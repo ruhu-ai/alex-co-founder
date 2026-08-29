@@ -1,2 +1,5 @@
 # Generated documents are binary artifacts, not source text.
 *.pdf binary
+
+# Brand rasters are generated (scripts/build_brand.py), not hand-edited source.
+*.png binary

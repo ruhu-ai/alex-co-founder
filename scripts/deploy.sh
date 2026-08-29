@@ -25,6 +25,7 @@ echo "==> Firestore (native mode, idempotent)"
 gcloud firestore databases describe --database="(default)" >/dev/null 2>&1 \
   || gcloud firestore databases create --location="$REGION"
 "$PYTHON" scripts/deploy_firestore_indexes.py --project "$GOOGLE_CLOUD_PROJECT"
+"$PYTHON" scripts/deploy_firestore_ttl.py --project "$GOOGLE_CLOUD_PROJECT"
 "$PYTHON" scripts/migrate_browser_runs.py
 
 echo "==> Secrets (idempotent)"
@@ -88,41 +89,48 @@ fi
 echo "==> Cloud Tasks queue"
 gcloud tasks queues describe co-founder-events --location="$REGION" >/dev/null 2>&1 \
   || gcloud tasks queues create co-founder-events --location="$REGION" \
-       --max-concurrent-dispatches=1 --max-attempts=8
+       --max-concurrent-dispatches=1 --max-attempts=5
 gcloud tasks queues describe co-founder-browser-expiry --location="$REGION" >/dev/null 2>&1 \
   || gcloud tasks queues create co-founder-browser-expiry --location="$REGION" \
-       --max-concurrent-dispatches=4 --max-attempts=8
+       --max-concurrent-dispatches=4 --max-attempts=3
 gcloud tasks queues describe co-founder-timers --location="$REGION" >/dev/null 2>&1 \
   || gcloud tasks queues create co-founder-timers --location="$REGION" \
-       --max-concurrent-dispatches=8 --max-attempts=8
+       --max-concurrent-dispatches=8 --max-attempts=5
 gcloud tasks queues describe co-founder-provider-events --location="$REGION" >/dev/null 2>&1 \
   || gcloud tasks queues create co-founder-provider-events --location="$REGION" \
-       --max-concurrent-dispatches=8 --max-attempts=8
+       --max-concurrent-dispatches=8 --max-attempts=5
 gcloud tasks queues describe co-founder-discovery-ingestion --location="$REGION" >/dev/null 2>&1 \
   || gcloud tasks queues create co-founder-discovery-ingestion --location="$REGION" \
-       --max-concurrent-dispatches=4 --max-attempts=8
+       --max-concurrent-dispatches=4 --max-attempts=3
 gcloud tasks queues describe co-founder-reconciliation --location="$REGION" >/dev/null 2>&1 \
   || gcloud tasks queues create co-founder-reconciliation --location="$REGION" \
-       --max-concurrent-dispatches=4 --max-attempts=8
+       --max-concurrent-dispatches=4 --max-attempts=3
 gcloud tasks queues describe co-founder-interactive --location="$REGION" >/dev/null 2>&1 \
   || gcloud tasks queues create co-founder-interactive --location="$REGION" \
-       --max-concurrent-dispatches=4 --max-attempts=8
+       --max-concurrent-dispatches=4 --max-attempts=3
 # `describe || create` cannot correct drift on an existing queue, so pin the
 # reviewed limits on every deploy (idempotent, and cheap).
 gcloud tasks queues update co-founder-events --location="$REGION" \
-  --max-concurrent-dispatches=1 --max-attempts=8 >/dev/null
+  --max-concurrent-dispatches=1 --max-attempts=5 \
+  --min-backoff=5s --max-backoff=60s --max-doublings=4 --max-retry-duration=1800s >/dev/null
 gcloud tasks queues update co-founder-browser-expiry --location="$REGION" \
-  --max-concurrent-dispatches=4 --max-attempts=8 >/dev/null
+  --max-concurrent-dispatches=4 --max-attempts=3 \
+  --min-backoff=5s --max-backoff=60s --max-doublings=4 --max-retry-duration=1800s >/dev/null
 gcloud tasks queues update co-founder-timers --location="$REGION" \
-  --max-concurrent-dispatches=8 --max-attempts=8 >/dev/null
+  --max-concurrent-dispatches=8 --max-attempts=5 \
+  --min-backoff=5s --max-backoff=60s --max-doublings=4 --max-retry-duration=1800s >/dev/null
 gcloud tasks queues update co-founder-provider-events --location="$REGION" \
-  --max-concurrent-dispatches=8 --max-attempts=8 >/dev/null
+  --max-concurrent-dispatches=8 --max-attempts=5 \
+  --min-backoff=5s --max-backoff=60s --max-doublings=4 --max-retry-duration=1800s >/dev/null
 gcloud tasks queues update co-founder-discovery-ingestion --location="$REGION" \
-  --max-concurrent-dispatches=4 --max-attempts=8 >/dev/null
+  --max-concurrent-dispatches=4 --max-attempts=3 \
+  --min-backoff=90s --max-backoff=300s --max-doublings=2 --max-retry-duration=1800s >/dev/null
 gcloud tasks queues update co-founder-reconciliation --location="$REGION" \
-  --max-concurrent-dispatches=4 --max-attempts=8 >/dev/null
+  --max-concurrent-dispatches=4 --max-attempts=3 \
+  --min-backoff=5s --max-backoff=60s --max-doublings=4 --max-retry-duration=1800s >/dev/null
 gcloud tasks queues update co-founder-interactive --location="$REGION" \
-  --max-concurrent-dispatches=4 --max-attempts=8 >/dev/null
+  --max-concurrent-dispatches=4 --max-attempts=3 \
+  --min-backoff=5s --max-backoff=60s --max-doublings=4 --max-retry-duration=1800s >/dev/null
 
 echo "==> Cloud SQL (sessions) — create is slow; runs once"
 gcloud sql instances describe co-founder-sessions >/dev/null 2>&1 \
@@ -303,16 +311,16 @@ gcloud iam service-accounts add-iam-policy-binding "$SA" \
 gcloud iam service-accounts add-iam-policy-binding "$TIMERS_SA" \
   --member="serviceAccount:service-${PROJECT_NUMBER}@gcp-sa-cloudscheduler.iam.gserviceaccount.com" \
   --role=roles/iam.serviceAccountTokenCreator --format=none >/dev/null
-echo "==> Command outbox recovery scheduler (idempotent)"
+echo "==> Command outbox recovery scheduler (idempotent, low-frequency safety net)"
 if gcloud scheduler jobs describe command-outbox-recovery-1m --location="$REGION" >/dev/null 2>&1; then
   gcloud scheduler jobs update http command-outbox-recovery-1m --location="$REGION" \
-    --schedule="* * * * *" --uri="$APP_URL/tasks/dispatch_command_outbox" \
+    --schedule="*/15 * * * *" --uri="$APP_URL/tasks/dispatch_command_outbox" \
     --http-method=POST --oidc-service-account-email="$TIMERS_SA" \
     --oidc-token-audience="$APP_URL" --headers="Content-Type=application/json" \
     --message-body='{}'
 else
   gcloud scheduler jobs create http command-outbox-recovery-1m --location="$REGION" \
-    --schedule="* * * * *" --uri="$APP_URL/tasks/dispatch_command_outbox" \
+    --schedule="*/15 * * * *" --uri="$APP_URL/tasks/dispatch_command_outbox" \
     --http-method=POST --oidc-service-account-email="$TIMERS_SA" \
     --oidc-token-audience="$APP_URL" --headers="Content-Type=application/json" \
     --message-body='{}'

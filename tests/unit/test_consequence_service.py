@@ -21,12 +21,11 @@ pytestmark = pytest.mark.asyncio
 async def _authority(store: InMemoryDurableStore, suffix: str = "a"):
     member = await create_membership(
         actor_id=f"actor_{suffix}", workspace_id="workspace_a",
-        auth_subject=f"subject_{suffix}", role=WorkspaceRole.OWNER,
+        auth_subject=f"subject_{suffix}", role=WorkspaceRole.FOUNDER,
         created_by="test", store=store)
     principal = ActorPrincipal(
         actor_id=f"actor_{suffix}", workspace_id="workspace_a",
-        role=WorkspaceRole.OWNER, role_grants=frozenset(),
-        candidate_assignments=frozenset(), interview_assignments=frozenset(),
+        role=WorkspaceRole.FOUNDER,
         session_auth_time=int(time.time()),
         membership_version=member["version"],
         membership_id=member["membership_id"])
@@ -272,12 +271,11 @@ async def test_same_signed_in_human_may_initiate_and_approve_with_atomic_wake():
     store = InMemoryDurableStore()
     member = await create_membership(
         actor_id="actor_owner", workspace_id="workspace_a",
-        auth_subject="subject_owner", role=WorkspaceRole.OWNER,
+        auth_subject="subject_owner", role=WorkspaceRole.FOUNDER,
         created_by="test", store=store)
     principal = ActorPrincipal(
         actor_id="actor_owner", workspace_id="workspace_a",
-        role=WorkspaceRole.OWNER, role_grants=frozenset(),
-        candidate_assignments=frozenset(), interview_assignments=frozenset(),
+        role=WorkspaceRole.FOUNDER,
         session_auth_time=int(time.time()), membership_version=member["version"],
         membership_id=member["membership_id"])
     runtime = WorkflowRuntime(store)

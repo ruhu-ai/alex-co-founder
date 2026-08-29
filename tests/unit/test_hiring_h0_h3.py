@@ -57,11 +57,18 @@ def _guard() -> dict:
             "fixture_id": "fixture_h3_acceptance"}
 
 
-def _owner() -> ActorPrincipal:
+def _operator() -> ActorPrincipal:
     return ActorPrincipal(
-        actor_id="member_owner", workspace_id="workspace_test",
-        role=WorkspaceRole.OWNER, role_grants=frozenset(),
-        candidate_assignments=frozenset(), interview_assignments=frozenset(),
+        actor_id="member_operator", workspace_id="workspace_test",
+        role=WorkspaceRole.FOUNDER,
+        session_auth_time=int(time.time()), membership_version=1)
+
+
+def _founder() -> ActorPrincipal:
+    """The sole normal product membership; no internal admin authority."""
+    return ActorPrincipal(
+        actor_id="member_founder", workspace_id="workspace_test",
+        role=WorkspaceRole.FOUNDER,
         session_auth_time=int(time.time()), membership_version=1)
 
 
@@ -196,13 +203,13 @@ def test_redaction_withholds_protected_conflict_and_injection_without_echo():
 async def test_actor_is_current_membership_and_freshness_not_client_identity():
     store = InMemoryDurableStore()
     await create_membership(
-        actor_id="member_owner", workspace_id="workspace_test",
-        auth_subject="firebase_subject", role=WorkspaceRole.OWNER,
+        actor_id="member_operator", workspace_id="workspace_test",
+        auth_subject="firebase_subject", role=WorkspaceRole.FOUNDER,
         created_by="bootstrap", store=store)
     principal = await resolve_actor_from_claims(
         {"sub": "firebase_subject", "auth_time": int(time.time())}, store=store)
     assert isinstance(principal, ActorPrincipal)
-    assert principal.actor_id == "member_owner"
+    assert principal.actor_id == "member_operator"
     assert (await resolve_actor_from_claims(
         {"actor_id": "forged", "auth_time": int(time.time())}, store=store)
             )["error_code"] == "hiring_auth_required"
@@ -212,12 +219,75 @@ async def test_actor_is_current_membership_and_freshness_not_client_identity():
 
 
 @pytest.mark.asyncio
+async def test_scoped_founder_can_create_draft_without_admin_authority():
+    store = InMemoryDurableStore()
+    _, hiring, _, _ = _services(store)
+
+    created = await hiring.create_role(
+        principal=_founder(), contract=_contract(),
+        client_request_id="founder_create_role_1", synthetic_guard=_guard())
+
+    assert created["status"] == "success"
+    assert created["role"]["role_state"] == "DRAFT"
+    assert created["role"]["created_by_actor_id"] == "member_founder"
+    assert created["role"]["current_policy_version_id"] is None
+
+
+@pytest.mark.asyncio
+async def test_scoped_founder_policy_activation_still_requires_exact_approval():
+    store = InMemoryDurableStore()
+    _, hiring, _, _ = _services(store)
+    founder = _founder()
+    contract = _contract()
+    created = await hiring.create_role(
+        principal=founder, contract=contract,
+        client_request_id="founder_role_for_policy", synthetic_guard=_guard())
+    role = created["role"]
+    proposed = await hiring_policy_service.propose_policy(
+        principal=founder, role_id=role["role_id"], contract=contract,
+        change_reason="Founder prepared the role brief.",
+        client_request_id="founder_policy_1", store=store)
+
+    refused = await hiring_policy_service.approve_policy(
+        principal=founder, role_id=role["role_id"],
+        policy_version_id=proposed["policy_version_id"],
+        expected_role_version=role["version"], approval_id="missing",
+        store=store)
+    assert refused["error_code"] == "approval_binding_mismatch"
+
+    exact_action = {
+        "policy_version_id": proposed["policy_version_id"],
+        "policy_hash": proposed["canonical_hash"],
+    }
+    approval = await request_approval(
+        principal=founder, run_id=role["run_id"], role_id=role["role_id"],
+        policy_version_id=proposed["policy_version_id"],
+        action_kind="ACTIVATE_ROLE_POLICY", exact_action=exact_action,
+        client_request_id="founder_policy_approval_1", store=store)
+    granted = await resolve_approval(
+        principal=founder, approval_id=approval["approval_id"],
+        decision="GRANT", store=store)
+    assert granted["approval_status"] == "GRANTED"
+
+    activated = await hiring_policy_service.approve_policy(
+        principal=founder, role_id=role["role_id"],
+        policy_version_id=proposed["policy_version_id"],
+        expected_role_version=role["version"],
+        approval_id=approval["approval_id"], store=store)
+    assert activated["status"] == "success"
+    assert activated["policy_version_id"] == proposed["policy_version_id"]
+    committed_role = await store.get("hiring_roles", role["role_id"])
+    assert committed_role["current_policy_version_id"] == proposed[
+        "policy_version_id"]
+
+
+@pytest.mark.asyncio
 async def test_multi_workspace_actor_requires_explicit_selection():
     store = InMemoryDurableStore()
     for suffix in ("one", "two"):
         await create_membership(
             actor_id=f"member_{suffix}", workspace_id=f"workspace_{suffix}",
-            auth_subject="shared_subject", role=WorkspaceRole.OWNER,
+            auth_subject="shared_subject", role=WorkspaceRole.FOUNDER,
             created_by="bootstrap", store=store)
     claims = {"sub": "shared_subject", "auth_time": int(time.time())}
     ambiguous = await resolve_actor_from_claims(claims, store=store)
@@ -233,7 +303,7 @@ async def test_seeded_principal_is_local_only(monkeypatch):
     store = InMemoryDurableStore()
     await create_membership(
         actor_id="seeded_user", workspace_id="user",
-        auth_subject="seeded:user", role=WorkspaceRole.OWNER,
+        auth_subject="seeded:user", role=WorkspaceRole.FOUNDER,
         created_by="seed", store=store, local_only=True)
     monkeypatch.delenv("K_SERVICE", raising=False)
     local = await resolve_seeded_principal(
@@ -296,8 +366,8 @@ def test_hiring_http_requires_signed_actor_session_and_csrf(monkeypatch):
     store = InMemoryDurableStore()
     import asyncio
     asyncio.run(create_membership(
-        actor_id="member_owner", workspace_id="workspace_test",
-        auth_subject="firebase_subject", role=WorkspaceRole.OWNER,
+        actor_id="member_founder", workspace_id="workspace_test",
+        auth_subject="firebase_subject", role=WorkspaceRole.FOUNDER,
         created_by="test", store=store))
     monkeypatch.setattr(hiring_routes, "production_store", lambda: store)
     monkeypatch.setattr(actor_identity, "production_store", lambda: store)
@@ -312,12 +382,13 @@ def test_hiring_http_requires_signed_actor_session_and_csrf(monkeypatch):
     client = TestClient(app)
     body = {**_guard(), "client_request_id": "api_create_role_1",
             "contract": _contract().model_dump(mode="json")}
+    assert client.post("/api/hiring/roles", json=body).status_code == 401
     legacy = client.post("/api/hiring/roles", json=body,
                          headers={"X-App-Key": "legacy-token"})
     assert legacy.status_code == 403
     assert legacy.json()["error_code"] == "csrf_failed"
     client.cookies.set(auth.SESSION_COOKIE, auth.mint_session(
-        "owner@example.test", subject="firebase_subject",
+        "operator@example.test", subject="firebase_subject",
         auth_time=int(time.time())))
     assert client.post("/api/hiring/roles", json=body).status_code == 403
     csrf = client.get("/api/hiring/csrf").json()["csrf_token"]
@@ -326,6 +397,7 @@ def test_hiring_http_requires_signed_actor_session_and_csrf(monkeypatch):
         headers={"X-CSRF-Token": csrf})
     assert created.status_code == 200
     assert created.json()["role"]["synthetic"] is True
+    assert created.json()["role"]["created_by_actor_id"] == "member_founder"
     # Internal caller identity is checked before a malformed body is parsed.
     internal = client.post(
         "/tasks/hiring/process_mailbox_batch", content=b"not-json",
@@ -387,7 +459,7 @@ async def test_runtime_duplicate_wake_lease_restart_and_cancel_are_durable():
         workspace_id="workspace_test", journey_id="journey_test",
         run_kind=RunKind.ROLE, idempotency_key="role_run",
         domain_ref="role_test", provenance=hiring_provenance(_guard()),
-        originating_actor_id="member_owner")
+        originating_actor_id="member_operator")
     candidate = await runtime.create_run(
         workspace_id="workspace_test", journey_id="journey_test",
         run_kind=RunKind.CANDIDATE, idempotency_key="candidate_run",
@@ -412,10 +484,10 @@ async def test_runtime_duplicate_wake_lease_restart_and_cancel_are_durable():
         candidate["run_id"], wait_kind="LONG_DELAY",
         correlation_key="month_scale_wait", wake_after="2027-02-01T00:00:00+00:00")
     paused = await runtime.pause_run(
-        candidate["run_id"], actor_id="member_owner", reason="Founder pause")
+        candidate["run_id"], actor_id="member_operator", reason="Founder pause")
     assert paused["runtime_status"] == "PAUSED"
     resumed = await WorkflowRuntime(store).resume_run(
-        candidate["run_id"], actor_id="member_owner")
+        candidate["run_id"], actor_id="member_operator")
     assert resumed["runtime_status"] == "WAITING"
     await runtime.resolve_wait(long_wait["wait_id"], event_id="event_months_later")
     onboarding = await runtime.create_run(
@@ -424,7 +496,7 @@ async def test_runtime_duplicate_wake_lease_restart_and_cancel_are_durable():
         domain_ref="onboarding_test", parent_run_id=candidate["run_id"],
         provenance=hiring_provenance(_guard()))
     cancelled = await WorkflowRuntime(store).cancel_run(
-        role["run_id"], actor_id="member_owner", reason="role closed")
+        role["run_id"], actor_id="member_operator", reason="role closed")
     assert cancelled["runtime_status"] == "CANCELLED"
     assert (await store.get("workflow_runs", candidate["run_id"]))[
         "runtime_status"] == "CANCELLED"
@@ -436,46 +508,46 @@ async def test_runtime_duplicate_wake_lease_restart_and_cancel_are_durable():
 async def test_synthetic_email_to_evidence_to_human_decision_with_crash_recovery():
     store = InMemoryDurableStore()
     runtime, hiring, mailbox, vault = _services(store)
-    owner, contract = _owner(), _contract()
+    operator, contract = _operator(), _contract()
     created = await hiring.create_role(
-        principal=owner, contract=contract, client_request_id="create_role_1",
+        principal=operator, contract=contract, client_request_id="create_role_1",
         synthetic_guard=_guard())
     role = created["role"]
     proposal_crash = await hiring_policy_service.propose_policy(
-        principal=owner, role_id=role["role_id"], contract=contract,
+        principal=operator, role_id=role["role_id"], contract=contract,
         change_reason="Initial synthetic policy", client_request_id="policy_1",
         store=store, crash_point="AFTER_POLICY_RESERVATION")
     assert proposal_crash["error_code"] == "injected_crash"
     proposed = await hiring_policy_service.propose_policy(
-        principal=owner, role_id=role["role_id"], contract=contract,
+        principal=operator, role_id=role["role_id"], contract=contract,
         change_reason="Initial synthetic policy", client_request_id="policy_1",
         store=store)
     assert proposed["duplicate"] is True
     exact_policy = {"policy_version_id": proposed["policy_version_id"],
                     "policy_hash": proposed["canonical_hash"]}
     approval = await request_approval(
-        principal=owner, run_id=role["run_id"], role_id=role["role_id"],
+        principal=operator, run_id=role["run_id"], role_id=role["role_id"],
         policy_version_id=proposed["policy_version_id"],
         action_kind="ACTIVATE_ROLE_POLICY", exact_action=exact_policy,
         client_request_id="approve_policy_1", store=store)
     assert (await resolve_approval(
-        principal=owner, approval_id=approval["approval_id"], decision="GRANT",
+        principal=operator, approval_id=approval["approval_id"], decision="GRANT",
         store=store))["approval_status"] == "GRANTED"
     activation_crash = await hiring_policy_service.approve_policy(
-        principal=owner, role_id=role["role_id"],
+        principal=operator, role_id=role["role_id"],
         policy_version_id=proposed["policy_version_id"],
         expected_role_version=1, approval_id=approval["approval_id"], store=store,
         crash_point="AFTER_ROLE_POINTER")
     assert activation_crash["error_code"] == "injected_crash"
     activated = await hiring_policy_service.approve_policy(
-        principal=owner, role_id=role["role_id"],
+        principal=operator, role_id=role["role_id"],
         policy_version_id=proposed["policy_version_id"],
         expected_role_version=1, approval_id=approval["approval_id"], store=store)
     assert activated["status"] == "success"
     assert activated["duplicate"] is True
 
     publication = await hiring.record_publication(
-        principal=owner, role_id=role["role_id"], destination="LINKEDIN",
+        principal=operator, role_id=role["role_id"], destination="LINKEDIN",
         public_url="https://www.linkedin.com/jobs/view/synthetic",
         expected_version=2, client_request_id="publication_1",
         attestation="Founder manually published the approved package.")
@@ -525,7 +597,7 @@ async def test_synthetic_email_to_evidence_to_human_decision_with_crash_recovery
     source_event_id = stable_id("hevent", "mail_connection_1", "a_application")
     await store.create("external_events", source_event_id, {
         "schema_version": 2, "event_id": source_event_id,
-        "workspace_id": owner.workspace_id, "founder_id": owner.workspace_id,
+        "workspace_id": operator.workspace_id, "founder_id": operator.workspace_id,
         "role_id": role["role_id"], "connection_id": "mail_connection_1",
         "connector_id": "alex_mail", "provider_event_id": "a_application",
         "provider_thread_id": "thread_a_application",
@@ -603,16 +675,16 @@ async def test_synthetic_email_to_evidence_to_human_decision_with_crash_recovery
 
     applications = await store.list(
         "candidate_applications", filters={"role_id": role["role_id"],
-                                            "workspace_id": owner.workspace_id})
+                                            "workspace_id": operator.workspace_id})
     assert len(applications) == 1
     application = applications[0]
     assert application["candidate_state"] == "AWAITING_HUMAN_DECISION"
     assessment = await store.get("candidate_assessments",
                                  application["current_assessment_id"])
     assert [item["status"] for item in assessment["criteria"]] == ["SUPPORTED", "UNKNOWN"]
-    assert not await store.list("resource_index", filters={"workspace_id": owner.workspace_id})
+    assert not await store.list("resource_index", filters={"workspace_id": operator.workspace_id})
     assert not await store.list("session_resource_links",
-                                filters={"workspace_id": owner.workspace_id})
+                                filters={"workspace_id": operator.workspace_id})
     artifacts = await store.list(
         "hiring_candidate_artifacts",
         filters={"candidate_application_id": application["candidate_application_id"]})
@@ -624,25 +696,25 @@ async def test_synthetic_email_to_evidence_to_human_decision_with_crash_recovery
     serialized_identity = json.dumps(identities[0])
     assert "Synthetic Candidate" not in serialized_identity
     assert "candidate@example.test" not in serialized_identity
-    stale_owner = ActorPrincipal(**{
-        **owner.__dict__, "session_auth_time": int(time.time()) - 901})
+    stale_operator = ActorPrincipal(**{
+        **operator.__dict__, "session_auth_time": int(time.time()) - 901})
     assert (await vault.reveal_identity(
-        identity_id=application["candidate_id"], workspace_id=owner.workspace_id,
+        identity_id=application["candidate_id"], workspace_id=operator.workspace_id,
         role_id=role["role_id"],
         candidate_application_id=application["candidate_application_id"],
-        principal=stale_owner))["error_code"] == "identity_access_forbidden"
+        principal=stale_operator))["error_code"] == "identity_access_forbidden"
     revealed = await vault.reveal_identity(
-        identity_id=application["candidate_id"], workspace_id=owner.workspace_id,
+        identity_id=application["candidate_id"], workspace_id=operator.workspace_id,
         role_id=role["role_id"],
         candidate_application_id=application["candidate_application_id"],
-        principal=owner)
+        principal=operator)
     assert revealed["identity"]["email"] == "candidate@example.test"
 
     evidence = await store.list(
         "candidate_evidence",
         filters={"candidate_application_id": application["candidate_application_id"]})
     accommodation = await hiring.record_candidate_request(
-        principal=owner, application_id=application["candidate_application_id"],
+        principal=operator, application_id=application["candidate_application_id"],
         request_kind="ACCOMMODATION",
         safe_note="Candidate asked for a named human contact.",
         client_request_id="candidate_accommodation_1",
@@ -660,18 +732,18 @@ async def test_synthetic_email_to_evidence_to_human_decision_with_crash_recovery
         client_request_id="human_decision_1",
         note="Need a concrete incident-response example.")
     decision_crash = await hiring.record_human_decision(
-        principal=owner, application_id=application["candidate_application_id"],
+        principal=operator, application_id=application["candidate_application_id"],
         decision_input=decision_input,
         crash_point="AFTER_APPLICATION_PROJECTION")
     assert decision_crash["error_code"] == "injected_crash"
     decision = await hiring.record_human_decision(
-        principal=owner, application_id=application["candidate_application_id"],
+        principal=operator, application_id=application["candidate_application_id"],
         decision_input=decision_input)
     assert decision["duplicate"] is True
     assert decision["candidate_state"] == "HELD"
     committed = await store.get("hiring_decisions", decision["decision_id"])
     assert committed["commit_status"] == "COMMITTED"
-    assert committed["actor_id"] == owner.actor_id
+    assert committed["actor_id"] == operator.actor_id
     assert hiring_activation.require_effect_disabled("email")["error"] is True
     # A timeout is represented only as an event/wait signal; no service method
     # can synthesize an employment decision from silence.
@@ -683,33 +755,33 @@ async def test_synthetic_email_to_evidence_to_human_decision_with_crash_recovery
     revised_contract = contract.model_copy(update={
         "role_summary": "Lead secure customer deployments with reviewed, job-related evidence."})
     revised = await hiring_policy_service.propose_policy(
-        principal=owner, role_id=role["role_id"], contract=revised_contract,
+        principal=operator, role_id=role["role_id"], contract=revised_contract,
         change_reason="Clarify the role summary uniformly.",
         client_request_id="policy_2", store=store)
     revised_exact = {"policy_version_id": revised["policy_version_id"],
                      "policy_hash": revised["canonical_hash"]}
     revised_approval = await request_approval(
-        principal=owner, run_id=role["run_id"], role_id=role["role_id"],
+        principal=operator, run_id=role["run_id"], role_id=role["role_id"],
         policy_version_id=revised["policy_version_id"],
         action_kind="ACTIVATE_ROLE_POLICY", exact_action=revised_exact,
         client_request_id="approve_policy_2", store=store)
     await resolve_approval(
-        principal=owner, approval_id=revised_approval["approval_id"],
+        principal=operator, approval_id=revised_approval["approval_id"],
         decision="GRANT", store=store)
     current_role = await store.get("hiring_roles", role["role_id"])
     assert (await hiring_policy_service.approve_policy(
-        principal=owner, role_id=role["role_id"],
+        principal=operator, role_id=role["role_id"],
         policy_version_id=revised["policy_version_id"],
         expected_role_version=current_role["version"],
         approval_id=revised_approval["approval_id"], store=store))["status"] == "success"
     stale_detail = await hiring.candidate_detail(
-        principal=owner,
+        principal=operator,
         application_id=application["candidate_application_id"])
     assert stale_detail["assessment"]["staleness"] == "STALE_POLICY"
     latest_application = await store.get(
         "candidate_applications", application["candidate_application_id"])
     refused_stale = await hiring.record_human_decision(
-        principal=owner, application_id=application["candidate_application_id"],
+        principal=operator, application_id=application["candidate_application_id"],
         decision_input=HumanDecisionInput(
             decision=DecisionKind.HOLD,
             reason_codes=["MORE_JOB_EVIDENCE_REQUIRED"],
@@ -723,14 +795,14 @@ async def test_synthetic_email_to_evidence_to_human_decision_with_crash_recovery
     withdrawal_application = await store.get(
         "candidate_applications", application["candidate_application_id"])
     withdrawal_crash = await hiring.record_candidate_request(
-        principal=owner, application_id=application["candidate_application_id"],
+        principal=operator, application_id=application["candidate_application_id"],
         request_kind="WITHDRAWAL", safe_note="Candidate withdrew by email.",
         client_request_id="candidate_withdrawal_1",
         expected_application_version=withdrawal_application["version"],
         crash_point="AFTER_WITHDRAWAL_PROJECTION")
     assert withdrawal_crash["error_code"] == "injected_crash"
     withdrawal = await hiring.record_candidate_request(
-        principal=owner, application_id=application["candidate_application_id"],
+        principal=operator, application_id=application["candidate_application_id"],
         request_kind="WITHDRAWAL", safe_note="Candidate withdrew by email.",
         client_request_id="candidate_withdrawal_1",
         expected_application_version=withdrawal_application["version"])
@@ -742,42 +814,42 @@ async def test_synthetic_email_to_evidence_to_human_decision_with_crash_recovery
 
     rights = HiringDataRightsService(identity_vault=vault, store=store)
     assert (await rights.export_candidate(
-        principal=stale_owner,
+        principal=stale_operator,
         application_id=application["candidate_application_id"],
         client_request_id="candidate_export_stale"))[
             "error_code"] == "step_up_required"
     exported = await rights.export_candidate(
-        principal=owner, application_id=application["candidate_application_id"],
+        principal=operator, application_id=application["candidate_application_id"],
         client_request_id="candidate_export_1")
     assert exported["identity"]["email"] == "candidate@example.test"
     assert exported["audit_id"]
     identity_before_hold = await store.get(
         "candidate_identities", application["candidate_id"])
     held = await rights.set_legal_hold(
-        principal=owner, application_id=application["candidate_application_id"],
+        principal=operator, application_id=application["candidate_application_id"],
         active=True, reason_code="QUALIFIED_REVIEW",
         expected_identity_version=identity_before_hold["version"],
         client_request_id="legal_hold_on")
     assert held["legal_hold"] is True
     assert (await rights.deletion_plan(
-        principal=owner, application_id=application["candidate_application_id"]))[
+        principal=operator, application_id=application["candidate_application_id"]))[
             "error_code"] == "legal_hold"
     released = await rights.set_legal_hold(
-        principal=owner, application_id=application["candidate_application_id"],
+        principal=operator, application_id=application["candidate_application_id"],
         active=False, reason_code="QUALIFIED_REVIEW",
         expected_identity_version=held["identity_version"],
         client_request_id="legal_hold_off")
     assert released["legal_hold"] is False
     plan = await rights.deletion_plan(
-        principal=owner, application_id=application["candidate_application_id"])
+        principal=operator, application_id=application["candidate_application_id"])
     assert plan["dry_run"] is True and plan["delete_count"] > 5
     wrong = await rights.execute_deletion(
-        principal=owner, application_id=application["candidate_application_id"],
+        principal=operator, application_id=application["candidate_application_id"],
         expected_inventory_hash="sha256:" + "0" * 64,
         client_request_id="candidate_delete_wrong")
     assert wrong["error_code"] == "version_conflict"
     deleted = await rights.execute_deletion(
-        principal=owner, application_id=application["candidate_application_id"],
+        principal=operator, application_id=application["candidate_application_id"],
         expected_inventory_hash=plan["inventory_hash"],
         client_request_id="candidate_delete_1")
     assert deleted["status"] == "success"

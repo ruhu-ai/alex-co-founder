@@ -1,0 +1,10 @@
+{
+  "schema_version": "cofounder.skill-qualification.v1",
+  "evidence_version": "1.0.0",
+  "status": "NOT_RUN",
+  "skill_id": "funding.discover-opportunities",
+  "skill_version": "1.0.0",
+  "model_policy_version": "unqualified",
+  "suite_result_refs": [],
+  "capability_set_hash": "sha256:6834f63aaa65c2e8f7c85f11c187550ebea01b94ae1b3af9124abffb5dbbee69"
+}

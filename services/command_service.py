@@ -37,7 +37,9 @@ class CommandService:
                      client_request_id: str, command_type: str,
                      request: dict[str, Any], origin_session_id: str = "",
                      run_id: str = "", dispatch_ref: str = "",
-                     authority_mutations: Sequence[AtomicMutation] = ()
+                     authority_mutations: Sequence[AtomicMutation] = (),
+                     visibility_scope: str = "WORKSPACE",
+                     subject_id: str = ""
                      ) -> dict[str, Any]:
         """Atomically persist command acceptance and its dispatch intent.
 
@@ -50,14 +52,26 @@ class CommandService:
         if (not client_request_id or len(client_request_id) > 160
                 or not command_type or len(command_type) > 120):
             return _error("command_contract_invalid", "Command identity is invalid.")
+        if (visibility_scope not in {"WORKSPACE", "ACTOR_PRIVATE"}
+                or (visibility_scope == "ACTOR_PRIVATE"
+                    and subject_id != principal.actor_id)
+                or (visibility_scope == "WORKSPACE" and subject_id)):
+            return _error(
+                "command_visibility_invalid",
+                "Command visibility is not authorized for this actor.")
         request_hash = canonical_hash(
             request, domain=f"command:{command_type[:80]}")
-        command_id = stable_id(
-            "command", principal.workspace_id, client_request_id)
+        command_id = (stable_id(
+            "command", principal.workspace_id, subject_id, client_request_id)
+            if visibility_scope == "ACTOR_PRIVATE" else stable_id(
+                "command", principal.workspace_id, client_request_id))
         outbox_id = stable_id("cmdoutbox", command_id, "dispatch")
         existing = await self.store.get("command_receipts", command_id)
         if existing:
-            return self._duplicate(existing, request_hash)
+            return self._duplicate(
+                existing, request_hash, visibility_scope=visibility_scope,
+                subject_id=(subject_id if visibility_scope == "ACTOR_PRIVATE"
+                            else principal.workspace_id))
         mutations = tuple(authority_mutations)
         if (len(mutations) > 90
                 or any(item.expected_version is not None or item.check_only
@@ -74,6 +88,11 @@ class CommandService:
             "command_type": command_type,
             "workspace_id": principal.workspace_id,
             "actor_id": principal.actor_id,
+            "subject_kind": ("ACTOR" if visibility_scope == "ACTOR_PRIVATE"
+                             else "WORKSPACE"),
+            "subject_id": (subject_id if visibility_scope == "ACTOR_PRIVATE"
+                           else principal.workspace_id),
+            "visibility_scope": visibility_scope,
             "origin_session_id": origin_session_id or None,
             "normalized_request_hash": request_hash,
             "status": "ACCEPTED", "run_id": run_id or None,
@@ -87,6 +106,9 @@ class CommandService:
             "workspace_id": principal.workspace_id,
             "command_id": command_id, "kind": "COMMAND_DISPATCH",
             "command_type": command_type,
+            "subject_kind": receipt["subject_kind"],
+            "subject_id": receipt["subject_id"],
+            "visibility_scope": visibility_scope,
             "run_id": run_id or None, "dispatch_ref": dispatch_ref or None,
             "status": "PENDING", "attempt": 0,
             "created_at": now, "updated_at": now, "version": 1,
@@ -98,22 +120,32 @@ class CommandService:
         ))
         if not committed:
             existing = await self.store.get("command_receipts", command_id)
-            return (self._duplicate(existing, request_hash) if existing else
+            return (self._duplicate(
+                existing, request_hash, visibility_scope=visibility_scope,
+                subject_id=(subject_id if visibility_scope == "ACTOR_PRIVATE"
+                            else principal.workspace_id)) if existing else
                     _error("concurrency_conflict", "Command acceptance raced; retry."))
         receipt = committed[("command_receipts", command_id)]
-        from services.projection_stream import publish_best_effort
+        if visibility_scope == "WORKSPACE":
+            from services.projection_stream import publish_best_effort
 
-        await publish_best_effort(
-            store=self.store, workspace_id=principal.workspace_id,
-            projection_type="command", aggregate_id=command_id,
-            aggregate_version=int(receipt["version"]),
-            safe_payload={"status": receipt["status"],
-                          "command_type": command_type},
-            idempotency_key=f"accept:{command_id}:{receipt['version']}")
+            await publish_best_effort(
+                store=self.store, workspace_id=principal.workspace_id,
+                projection_type="command", aggregate_id=command_id,
+                aggregate_version=int(receipt["version"]),
+                safe_payload={"status": receipt["status"],
+                              "command_type": command_type},
+                idempotency_key=f"accept:{command_id}:{receipt['version']}")
         return {**receipt, "duplicate": False}
 
     @staticmethod
-    def _duplicate(receipt: dict[str, Any], request_hash: str) -> dict[str, Any]:
+    def _duplicate(receipt: dict[str, Any], request_hash: str, *,
+                   visibility_scope: str, subject_id: str) -> dict[str, Any]:
+        if (receipt.get("visibility_scope", "WORKSPACE") != visibility_scope
+                or receipt.get("subject_id", receipt.get("workspace_id"))
+                != subject_id):
+            return _error(
+                "command_not_found", "Command does not exist.")
         if receipt.get("normalized_request_hash") != request_hash:
             return _error(
                 "idempotency_conflict",
@@ -165,21 +197,26 @@ class CommandService:
         if not committed_batch:
             return _error("concurrency_conflict", "Command changed concurrently.")
         receipt = committed_batch[("command_receipts", command_id)]
-        from services.projection_stream import publish_best_effort
+        if (receipt.get("visibility_scope") or "WORKSPACE") == "WORKSPACE":
+            from services.projection_stream import publish_best_effort
 
-        await publish_best_effort(
-            store=self.store, workspace_id=workspace_id,
-            projection_type="command", aggregate_id=command_id,
-            aggregate_version=int(receipt["version"]),
-            run_id=str(receipt.get("run_id") or ""),
-            safe_payload={"status": receipt["status"],
-                          "error_code": receipt.get("error_code")},
-            idempotency_key=f"transition:{command_id}:{receipt['version']}")
+            await publish_best_effort(
+                store=self.store, workspace_id=workspace_id,
+                projection_type="command", aggregate_id=command_id,
+                aggregate_version=int(receipt["version"]),
+                run_id=str(receipt.get("run_id") or ""),
+                safe_payload={"status": receipt["status"],
+                              "error_code": receipt.get("error_code")},
+                idempotency_key=f"transition:{command_id}:{receipt['version']}")
         return {**receipt, "duplicate": False}
 
     async def get(self, *, workspace_id: str,
-                  command_id: str) -> dict[str, Any]:
+                  command_id: str, actor_id: str = "") -> dict[str, Any]:
         row = await self.store.get("command_receipts", command_id)
-        if not row or row.get("workspace_id") != workspace_id:
+        visibility = (row or {}).get("visibility_scope") or "WORKSPACE"
+        if (not row or row.get("workspace_id") != workspace_id
+                or visibility not in {"WORKSPACE", "ACTOR_PRIVATE"}
+                or (visibility == "ACTOR_PRIVATE"
+                    and row.get("subject_id") != actor_id)):
             return _error("command_not_found", "Command does not exist.")
         return dict(row)

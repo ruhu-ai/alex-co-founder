@@ -33,6 +33,62 @@ class CapabilityDescriptor:
     provenance_contract_id: str
 
 
+@dataclass(frozen=True)
+class VisualToolBinding:
+    """Reviewed model-tool policy while Gemini retains visual context."""
+
+    capability_id: str
+    side_effect_class: str
+    visual_policy: str
+
+
+def _vb(capability_id: str, effect: str, policy: str) -> VisualToolBinding:
+    return VisualToolBinding(capability_id, effect, policy)
+
+
+# Exact ADK function names exposed by the current root and five sub-agents. Missing
+# entries fail closed in visual context and the graph-coverage test catches drift.
+MODEL_TOOL_BINDINGS: dict[str, VisualToolBinding] = {
+    **{name: _vb(f"model.{name}", "READ_ONLY", "SCOPE_BOUND_READ") for name in {
+        "get_pipeline", "get_checklist", "search_attachment",
+        "get_upcoming_meetings", "check_availability", "check_alex_inbox",
+        "search_alex_mail", "read_alex_message", "read_page",
+        "get_unscored_opportunities", "get_profile", "propose_profile_updates",
+        "get_section_feedback", "get_form_questions", "get_opportunity",
+        "get_relevant_answers", "get_voice_rules", "inspect_form",
+        "verify_page_state", "get_approved_sections", "capture_screenshot",
+        "dedupe_check", "extract_records", "search_programs", "fetch_source",
+        "ask_portal_agent",
+        "prepare_hiring_role_brief",
+    }},
+    **{name: _vb(f"model.{name}", "INTERNAL_REVERSIBLE",
+                 "DURABLE_TARGET_PREPARATION") for name in {
+        "save_draft_section", "produce_document", "fill_fields",
+        "map_form_requirements", "open_portal",
+    }},
+    **{name: _vb(f"model.{name}", "IRREVERSIBLE_EXTERNAL",
+                 "EXACT_CONFIRMATION_ALWAYS") for name in {
+        "book_meeting", "send_alex_email", "submit_form", "register_account",
+        "sign_in",
+    }},
+    **{name: _vb(f"model.{name}", "NO_EFFECT", "CONTROL_PRESERVE_CONTEXT")
+       for name in {"request_approval", "close_browser", "transfer_to_agent"}},
+    **{name: _vb(f"model.{name}", "INTERNAL_REVERSIBLE",
+                 "EXACT_CONFIRMATION_WHEN_VISUAL") for name in {
+        "choose_opportunity", "record_feedback", "submit_voice_note",
+        "schedule_followup", "record_status", "save_opportunity",
+        "shortlist", "archive_with_reason", "record_answer", "complete_interview",
+        "ingest_document", "auto_apply_profile_updates", "confirm_profile_updates",
+        "complete_drafting", "vision_step",
+        "create_hiring_draft",
+    }},
+    **{name: _vb(f"model.{name}", "READ_ONLY",
+                 "EXPLICIT_SCOPE_WHEN_VISUAL") for name in {
+        "open_page", "browser_action",
+    }},
+}
+
+
 def _effect(action_kind: str, connector_id: str, *, approval: str,
             reconciliation: str) -> CapabilityDescriptor:
     return CapabilityDescriptor(
@@ -84,6 +140,10 @@ def _internal(capability_id: str, role: str, side_effect_class: str,
 
 
 STATIC_CAPABILITIES: dict[str, CapabilityDescriptor] = {
+    "background.contract.validate": _internal(
+        "background.contract.validate", "deterministic_worker", "NO_EFFECT",
+        output="background.contract_receipt.v1",
+        implementation="service:background_work.foundation_validate"),
     "investor.search": _internal(
         "investor.search", "researcher", "READ_ONLY",
         output="investor.candidate_set.v1",

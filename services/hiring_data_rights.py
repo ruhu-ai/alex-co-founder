@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from services.actor_identity import ActorPrincipal, WorkspaceRole, authorize
+from services.actor_identity import ActorPrincipal, authorize
 from services.durable_store import DurableStore, production_store
 from services.hiring_contracts import canonical_hash, stable_id, utc_now
 from services.hiring_identity_vault import CandidateIdentityVault
@@ -97,10 +97,7 @@ class HiringDataRightsService:
                              application_id: str, active: bool,
                              reason_code: str, expected_identity_version: int,
                              client_request_id: str) -> dict[str, Any]:
-        """Apply/release a synthetic legal hold with fresh owner authority."""
-        if principal.role is not WorkspaceRole.OWNER:
-            return _error("operation_forbidden",
-                          "Only the workspace owner may change a legal hold.", 403)
+        """Apply or release a synthetic legal hold with founder authority."""
         if reason_code not in {"LITIGATION", "REGULATORY", "QUALIFIED_REVIEW"}:
             return _error("invalid_contract", "Unknown legal-hold reason.", 400)
         application = await self.store.get("candidate_applications", application_id)
@@ -237,15 +234,11 @@ class HiringDataRightsService:
                          application: dict[str, Any] | None) -> dict[str, Any]:
         if not application or application.get("workspace_id") != principal.workspace_id:
             return _error("application_not_found", "Application does not exist.", 404)
-        gate = authorize(principal, "read_candidate", role_id=application["role_id"],
-                         candidate_application_id=application["candidate_application_id"],
+        gate = authorize(principal, "read_candidate",
                          require_fresh=True)
         if gate.get("error"):
             return _error("step_up_required",
                           "Recent authorized sign-in is required.", 401)
-        if principal.role not in {WorkspaceRole.OWNER, WorkspaceRole.HIRING_MANAGER}:
-            return _error("operation_forbidden",
-                          "Only the hiring owner or manager may perform data-rights work.", 403)
         return {"status": "success"}
 
     async def _inventory(self, application: dict[str, Any]) -> list[tuple[str, str]]:

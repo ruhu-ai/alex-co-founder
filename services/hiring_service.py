@@ -6,7 +6,7 @@ import hashlib
 from typing import Any
 
 from services import hiring_activation, hiring_evidence
-from services.actor_identity import ActorPrincipal, WorkspaceRole, authorize
+from services.actor_identity import ActorPrincipal, authorize
 from services.durable_store import DurableStore, production_store
 from services.hiring_contracts import (
     AnalystInput,
@@ -29,7 +29,11 @@ from services.hiring_contracts import (
     utc_now,
 )
 from services.hiring_identity_vault import CandidateIdentityVault
-from services.hiring_workflow_adapter import HiringWorkflowAdapter, hiring_provenance
+from services.hiring_workflow_adapter import (
+    HiringWorkflowAdapter,
+    founder_draft_provenance,
+    hiring_provenance,
+)
 from services.resource_sensitivity import registration_policy
 from services.workflow_runtime import WorkflowRuntime
 
@@ -69,8 +73,12 @@ class HiringService:
         gate = hiring_activation.require_synthetic(synthetic_guard)
         if gate.get("error"):
             return gate
-        if principal.role is not WorkspaceRole.OWNER:
-            return _error("operation_forbidden", "Only an owner may create a role.", 403)
+        # Creating the DRAFT role is ordinary work for the one scoped human
+        # membership role. It grants no activation, publication, contact,
+        # decision, or external-effect authority; those remain separate gates.
+        gate = authorize(principal, "prepare_role")
+        if gate.get("error"):
+            return gate
         role_id = stable_id("role", principal.workspace_id, client_request_id)
         journey_id = stable_id("journey", principal.workspace_id, role_id)
         run = await self.runtime.create_run(
@@ -112,11 +120,130 @@ class HiringService:
         return {"status": "success", "duplicate": not created,
                 "role": existing, "role_contract": contract}
 
+    async def get_role_conversation_context(
+            self, *, principal: ActorPrincipal, role_id: str) -> dict[str, Any]:
+        """Project role-level discussion facts without candidate evidence."""
+        gate = authorize(principal, "read_role")
+        if gate.get("error"):
+            return gate
+        role = await self.store.get("hiring_roles", role_id)
+        if not role or role.get("workspace_id") != principal.workspace_id:
+            return _error("role_not_found", "Role does not exist.", 404)
+        description = dict(role.get("role_description") or {})
+        contract = dict(role.get("draft_contract") or {})
+        return {
+            "status": "success",
+            "role_context": {
+                "role_id": role_id,
+                "company_name": str(role.get("company_name") or ""),
+                "role_title": str(role.get("role_title") or ""),
+                "role_state": str(role.get("role_state") or ""),
+                "purpose": str(description.get("purpose") or "")
+                or str(contract.get("role_summary") or ""),
+                "responsibilities": list(
+                    description.get("responsibilities") or []),
+                "success_outcomes": list(
+                    description.get("success_outcomes") or []),
+                "must_have_qualifications": list(
+                    description.get("required_qualifications") or []),
+                "preferred_qualifications": list(
+                    description.get("preferred_qualifications") or []),
+                "relevant_experience": list(
+                    description.get("relevant_experience") or []),
+                "location": str(description.get("location") or ""),
+                "work_arrangement": str(
+                    description.get("work_arrangement") or ""),
+                "employment_type": str(
+                    description.get("employment_type") or ""),
+                "candidate_facing_job_post": str(
+                    description.get("candidate_facing_job_post")
+                    or contract.get("public_job_description") or ""),
+                "scope_notice": (
+                    "Role-level draft context only. Candidate identities, evidence, "
+                    "assessments, decisions, approvals and provider data are excluded."),
+            },
+        }
+
+    async def create_founder_draft_role(
+            self, *, principal: ActorPrincipal, contract: RoleContract,
+            role_description: dict[str, Any],
+            client_request_id: str) -> dict[str, Any]:
+        """Create a non-executable internal role/run for exact Founder review.
+
+        This does not enable candidate processing or any publication/provider
+        path. Those remain disabled until their independently reviewed gates.
+        """
+        gate = authorize(principal, "prepare_role")
+        if gate.get("error"):
+            return gate
+        role_id = stable_id("role", principal.workspace_id, client_request_id)
+        journey_id = stable_id("journey", principal.workspace_id, role_id)
+        run = await self.runtime.create_run(
+            workspace_id=principal.workspace_id,
+            journey_id=journey_id,
+            run_kind=RunKind.ROLE,
+            idempotency_key=f"founder-draft:{role_id}",
+            domain_ref=role_id,
+            provenance=founder_draft_provenance(),
+            originating_actor_id=principal.actor_id,
+        )
+        if run.get("error"):
+            return run
+        now = utc_now()
+        row = {
+            "schema_version": 1,
+            "role_id": role_id,
+            "workspace_id": principal.workspace_id,
+            "journey_id": journey_id,
+            "run_id": run["run_id"],
+            "role_code": role_id[-8:].upper(),
+            "company_name": contract.company_name,
+            "role_title": contract.role_title,
+            "role_state": RoleState.DRAFT.value,
+            "current_policy_version_id": None,
+            "current_policy_hash": None,
+            "headcount_target": contract.headcount_target,
+            # Keep the founder-visible package readable even if policy
+            # proposal persistence fails after the role/run commit.
+            "draft_contract": contract.model_dump(mode="json"),
+            "role_description": dict(role_description),
+            "accepted_count": 0,
+            "publication_package": {
+                "public_job_description": contract.public_job_description,
+                "application_address": None,
+                "static_notice_path": None,
+                "linkedin_automation": False,
+            },
+            "publication_receipts": [],
+            "mailbox_binding": None,
+            "runtime_projection": {"status": run["runtime_status"],
+                                   "run_id": run["run_id"]},
+            "creation_mode": "FOUNDER_DRAFT",
+            "execution_mode": "INTERNAL_REVIEW_ONLY",
+            "publication_allowed": False,
+            "candidate_processing_allowed": False,
+            "synthetic": False,
+            "synthetic_namespace": None,
+            "fixture_id": None,
+            "created_by_actor_id": principal.actor_id,
+            "created_at": now,
+            "updated_at": now,
+            "version": 1,
+        }
+        created = await self.store.create("hiring_roles", role_id, row)
+        existing = row if created else await self.store.get("hiring_roles", role_id)
+        if (not existing
+                or existing.get("creation_mode") != "FOUNDER_DRAFT"
+                or existing.get("workspace_id") != principal.workspace_id):
+            return _error("idempotency_conflict", "Role request id names other work.")
+        return {"status": "success", "duplicate": not created,
+                "role": existing, "role_contract": contract}
+
     async def record_publication(self, *, principal: ActorPrincipal, role_id: str,
                                  destination: str, public_url: str,
                                  expected_version: int, client_request_id: str,
                                  attestation: str) -> dict[str, Any]:
-        gate = authorize(principal, "record_publication", role_id=role_id)
+        gate = authorize(principal, "record_publication")
         if gate.get("error"):
             return gate
         # Every destination, not just LINKEDIN. This value is persisted and
@@ -129,6 +256,10 @@ class HiringService:
         role = await self.store.get("hiring_roles", role_id)
         if not role or role.get("workspace_id") != principal.workspace_id:
             return _error("role_not_found", "Role does not exist.", 404)
+        if role.get("publication_allowed") is False:
+            return _error(
+                "publication_disabled",
+                "This founder draft is internal-only; publication is not enabled.")
         if not role.get("current_policy_version_id"):
             return _error("policy_not_active", "Approve the Role Contract first.")
         receipt_id = stable_id("pubreceipt", role_id, client_request_id)
@@ -168,6 +299,102 @@ class HiringService:
         return {"status": "success", "duplicate": False,
                 "receipt_id": receipt_id, "role_version": committed["version"],
                 "verification_status": receipt["verification_status"]}
+
+    async def get_public_role(self, role_id: str) -> dict[str, Any]:
+        """Return only receipt-backed candidate-facing fields for one open role.
+
+        This unauthenticated projection is deliberately closed. A draft,
+        approved-but-unpublished role, stale-policy receipt, or malformed role
+        returns the same non-live response and leaks no workspace metadata.
+        """
+        role = await self.store.get("hiring_roles", role_id)
+        # Synthetic fixtures are never public intake surfaces, even when a
+        # fixture happens to contain publication-shaped receipts.
+        if not role or role.get("synthetic") is not False:
+            return _error("open_role_not_live", "This open role is not live.", 404)
+        policy_id = str(role.get("current_policy_version_id") or "")
+        policy_hash = str(role.get("current_policy_hash") or "")
+        receipts = [
+            item for item in role.get("publication_receipts", [])
+            if item.get("policy_version_id") == policy_id
+            and item.get("policy_hash") == policy_hash
+            and item.get("automated_publication") is False
+        ]
+        if (not policy_id or not policy_hash or not receipts
+                or role.get("role_state") != RoleState.PUBLISHED.value
+                or role.get("publication_allowed") is False):
+            return _error("open_role_not_live", "This open role is not live.", 404)
+        policy = await self.store.get("hiring_policy_versions", policy_id)
+        if (not policy or policy.get("status") != "APPROVED"
+                or policy.get("canonical_hash") != policy_hash
+                or policy.get("role_id") != role_id):
+            return _error("open_role_not_live", "This open role is not live.", 404)
+        try:
+            contract = RoleContract.model_validate(policy.get("contract") or {})
+        except ValueError:
+            return _error("open_role_not_live", "This open role is not live.", 404)
+        description = dict(role.get("role_description") or {})
+        if description.get("candidate_facing_job_post") != \
+                contract.public_job_description:
+            description = {}
+        package = dict(role.get("publication_package") or {})
+        application_address = str(package.get("application_address") or "").strip()
+        latest_receipt = sorted(
+            receipts, key=lambda item: str(item.get("recorded_at") or ""))[-1]
+        if not _is_https_url(str(latest_receipt.get("public_url") or "")):
+            return _error("open_role_not_live", "This open role is not live.", 404)
+        application_instructions = str(
+            description.get("application_instructions") or "").strip()
+        if not application_instructions:
+            application_instructions = (
+                f"Apply by email to {application_address}." if application_address
+                else "Use the application instructions on the manually published role page.")
+        from services.hiring_public_intake import build_public_intake_projection
+
+        return {
+            "status": "success",
+            "live": True,
+            "open_role": {
+                "title": contract.role_title,
+                "company_name": contract.company_name,
+                "overview": str(description.get("purpose") or "").strip()
+                or contract.role_summary,
+                "success_outcomes": list(
+                    description.get("success_outcomes") or []),
+                "responsibilities": list(
+                    description.get("responsibilities") or []),
+                "must_have_qualifications": list(
+                    description.get("required_qualifications") or [
+                        item.label for item in contract.criteria]),
+                "preferred_qualifications": list(
+                    description.get("preferred_qualifications") or []),
+                "relevant_experience": list(
+                    description.get("relevant_experience") or []),
+                "location": str(description.get("location") or "").strip()
+                or contract.location_envelope[0],
+                "work_arrangement": str(
+                    description.get("work_arrangement") or "").strip()
+                or (contract.location_envelope[1]
+                    if len(contract.location_envelope) > 1 else ""),
+                "employment_type": str(
+                    description.get("employment_type") or "").strip(),
+                "compensation": str(
+                    description.get("compensation") or "").strip(),
+                "benefits": list(description.get("benefits") or []),
+                "hiring_process": list(
+                    description.get("hiring_process") or []),
+                "equal_opportunity_statement": str(description.get(
+                    "equal_opportunity_statement") or "").strip(),
+                "accessibility_statement": str(description.get(
+                    "accessibility_statement") or "").strip(),
+                "application_instructions": application_instructions,
+                "candidate_facing_job_post": contract.public_job_description,
+                "published_source_url": str(
+                    latest_receipt.get("public_url") or "").strip(),
+                "synthetic_demo": False,
+                "intake": build_public_intake_projection(role),
+            },
+        }
 
     async def ingest_synthetic_application(
             self, *, role_id: str, provider_message_id: str,
@@ -385,8 +612,7 @@ class HiringService:
         application = await self.store.get("candidate_applications", application_id)
         if not application or application.get("workspace_id") != principal.workspace_id:
             return _error("application_not_found", "Application does not exist.", 404)
-        gate = authorize(principal, "human_decision", role_id=application["role_id"],
-                         candidate_application_id=application_id)
+        gate = authorize(principal, "human_decision")
         if gate.get("error"):
             return gate
         decision_id = stable_id("decision", principal.workspace_id,
@@ -521,8 +747,7 @@ class HiringService:
         application = await self.store.get("candidate_applications", application_id)
         if not application or application.get("workspace_id") != principal.workspace_id:
             return _error("application_not_found", "Application does not exist.", 404)
-        gate = authorize(principal, "read_candidate", role_id=application["role_id"],
-                         candidate_application_id=application_id)
+        gate = authorize(principal, "read_candidate")
         if gate.get("error"):
             return gate
         assessment = await self.store.get(
@@ -537,11 +762,47 @@ class HiringService:
                     or assessment.get("policy_hash") != (role or {}).get(
                         "current_policy_hash")):
                 assessment["staleness"] = "STALE_POLICY"
-        events = await self.store.list(
-            "run_events", filters={"run_id": application["run_id"]},
-            order_by="sequence", limit=1000)
+        run_id = str(application.get("run_id") or "")
+        events = (await self.store.list(
+            "run_events", filters={"run_id": run_id},
+            order_by="sequence", limit=1000) if run_id else [])
+        artifacts = await self.store.list(
+            "hiring_candidate_artifacts",
+            filters={"workspace_id": principal.workspace_id,
+                     "candidate_application_id": application_id}, limit=100)
+        criteria_by_id = {
+            str(item.get("criterion_id")): str(item.get("label") or item.get(
+                "criterion_id") or "Criterion")
+            for item in ((policy or {}).get("contract") or {}).get("criteria", [])
+        }
+        status_labels = {"SUPPORTED": "PRESENT", "UNKNOWN": "MISSING",
+                         "PARTIAL": "UNCLEAR", "CONTRADICTED": "UNCLEAR"}
+        evidence_coverage = []
+        for item in list((assessment or {}).get("criteria") or []):
+            criterion_id = str(item.get("criterion_id") or "")
+            evidence_coverage.append({
+                "criterion_id": criterion_id,
+                "criterion_label": criteria_by_id.get(criterion_id, criterion_id),
+                "coverage": status_labels.get(str(item.get("status")), "UNCLEAR"),
+                "citations": list(item.get("citations") or []),
+                "unknowns": list(item.get("unknowns") or []),
+                "contradictions": list(item.get("contradictions") or []),
+                "summary": str(item.get("summary") or ""),
+            })
+        if not evidence_coverage:
+            evidence_coverage = [{
+                "criterion_id": criterion_id, "criterion_label": label,
+                "coverage": "UNCLEAR", "citations": [],
+                "unknowns": ["Candidate-provided information has not been mapped yet."],
+                "contradictions": [], "summary": "Evidence mapping pending.",
+            } for criterion_id, label in criteria_by_id.items()]
         return {"status": "success", "application": application,
                 "assessment": assessment, "timeline": events,
+                "evidence_coverage": evidence_coverage,
+                "artifacts": [{key: item.get(key) for key in (
+                    "artifact_id", "scope", "sensitivity", "content_type",
+                    "source_kind", "created_at", "intake_mode")}
+                    for item in artifacts],
                 "approved_reason_codes": ((policy or {}).get("contract") or {}).get(
                     "approved_reason_codes", []),
                 "identity_revealed": False}
@@ -557,12 +818,10 @@ class HiringService:
         application = await self.store.get("candidate_applications", application_id)
         if not application or application.get("workspace_id") != principal.workspace_id:
             return _error("application_not_found", "Application does not exist.", 404)
-        gate = authorize(principal, "read_candidate", role_id=application["role_id"],
-                         candidate_application_id=application_id)
-        if gate.get("error") or principal.role not in {
-                WorkspaceRole.OWNER, WorkspaceRole.HIRING_MANAGER}:
+        gate = authorize(principal, "read_candidate")
+        if gate.get("error"):
             return _error("operation_forbidden",
-                          "Only the assigned hiring owner/manager may record this request.", 403)
+                          "The founder cannot record this request.", 403)
         request_id = stable_id("candidate_request", principal.workspace_id,
                                client_request_id)
         request_hash = canonical_hash({

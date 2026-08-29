@@ -20,33 +20,31 @@ from services.workflow_runtime import WorkflowRuntime
 
 
 @pytest.fixture
-def owner() -> ActorPrincipal:
+def operator() -> ActorPrincipal:
     # A genuinely fresh sign-in: H4S effect approvals require step-up, so a
     # fixed far-future timestamp would not represent a real session.
     return ActorPrincipal(
-        actor_id="actor_h4s_owner", workspace_id="workspace_h4s",
-        role=WorkspaceRole.OWNER, role_grants=frozenset(),
-        candidate_assignments=frozenset(), interview_assignments=frozenset(),
+        actor_id="actor_h4s_operator", workspace_id="workspace_h4s",
+        role=WorkspaceRole.FOUNDER,
         session_auth_time=int(time.time()), membership_version=1)
 
 
 @pytest.fixture
-def stale_owner() -> ActorPrincipal:
+def stale_operator() -> ActorPrincipal:
     """Same authority, but signed in too long ago to authorize an effect."""
     return ActorPrincipal(
-        actor_id="actor_h4s_owner", workspace_id="workspace_h4s",
-        role=WorkspaceRole.OWNER, role_grants=frozenset(),
-        candidate_assignments=frozenset(), interview_assignments=frozenset(),
+        actor_id="actor_h4s_operator", workspace_id="workspace_h4s",
+        role=WorkspaceRole.FOUNDER,
         session_auth_time=int(time.time()) - 4000, membership_version=1)
 
 
-async def _seed_h4s_candidate(store, owner, *, role_id="role_h4s",
+async def _seed_h4s_candidate(store, operator, *, role_id="role_h4s",
                                fixture_id="fixture_h4s"):
     """Create the role/candidate run hierarchy an H4S effect must name."""
     namespace = "synthetic_hiring_h4s"
     runtime = WorkflowRuntime(store, domain_adapter=HiringWorkflowAdapter())
     role_run = await runtime.create_run(
-        workspace_id=owner.workspace_id, journey_id="journey_h4s",
+        workspace_id=operator.workspace_id, journey_id="journey_h4s",
         run_kind=RunKind.ROLE, idempotency_key=f"role:{role_id}", domain_ref=role_id,
         provenance=hiring_provenance({
             "synthetic": True, "fixture_id": fixture_id,
@@ -54,7 +52,7 @@ async def _seed_h4s_candidate(store, owner, *, role_id="role_h4s",
     role = await store.get("hiring_roles", role_id)
     if not role:
         await store.create("hiring_roles", role_id, {
-            "role_id": role_id, "workspace_id": owner.workspace_id,
+            "role_id": role_id, "workspace_id": operator.workspace_id,
             "run_id": role_run["run_id"], "journey_id": "journey_h4s",
             "current_policy_version_id": "hpv_test", "synthetic": True,
             "fixture_id": fixture_id, "synthetic_namespace": namespace, "version": 1})
@@ -63,32 +61,32 @@ async def _seed_h4s_candidate(store, owner, *, role_id="role_h4s",
             "run_id": role_run["run_id"], "journey_id": "journey_h4s"})
     candidate_id = "candidateapp_h4s"
     candidate_run = await runtime.create_run(
-        workspace_id=owner.workspace_id, journey_id="journey_h4s",
+        workspace_id=operator.workspace_id, journey_id="journey_h4s",
         run_kind=RunKind.CANDIDATE, idempotency_key=candidate_id,
         domain_ref=candidate_id, parent_run_id=role_run["run_id"],
         provenance=hiring_provenance({
             "synthetic": True, "fixture_id": fixture_id,
             "synthetic_namespace": namespace}))
     await store.create("candidate_applications", candidate_id, {
-        "candidate_application_id": candidate_id, "workspace_id": owner.workspace_id,
+        "candidate_application_id": candidate_id, "workspace_id": operator.workspace_id,
         "role_id": role_id, "run_id": candidate_run["run_id"], "synthetic": True,
         "fixture_id": fixture_id, "synthetic_namespace": namespace, "version": 1})
     return candidate_id
 
 
 @pytest.mark.asyncio
-async def test_sandbox_destination_is_server_owned_and_revoked_on_close(owner):
+async def test_sandbox_destination_is_server_owned_and_revoked_on_close(operator):
     store = InMemoryDurableStore()
     service = HiringSandboxService(store)
     created = await service.create(
-        principal=owner, role_id="role_h4s", fixture_id="fixture_h4s",
+        principal=operator, role_id="role_h4s", fixture_id="fixture_h4s",
         synthetic_namespace="synthetic_hiring_h4s", connector_binding_ids=["scb_test_mail"],
         client_request_id="create_h4s")
     assert created["status"] == "success"
     sandbox_id = created["sandbox_run_id"]
 
     destination = await service.add_destination(
-        principal=owner, sandbox_run_id=sandbox_id,
+        principal=operator, sandbox_run_id=sandbox_id,
         destination_kind="TEST_CANDIDATE", normalized_address="Candidate@Test.Example",
         verification_receipt_id="probe_candidate", client_request_id="candidate_destination")
     assert destination["status"] == "success"
@@ -99,7 +97,7 @@ async def test_sandbox_destination_is_server_owned_and_revoked_on_close(owner):
         "status": "success", "destination_id": destination["destination_id"],
         "normalized_address": "candidate@test.example"}
 
-    assert (await service.close(principal=owner, sandbox_run_id=sandbox_id))["status"] == "success"
+    assert (await service.close(principal=operator, sandbox_run_id=sandbox_id))["status"] == "success"
     denied = await service.resolve_destination(
         sandbox_run_id=sandbox_id, destination_id=destination["destination_id"],
         allowed_kinds={"TEST_CANDIDATE"})
@@ -120,31 +118,31 @@ def test_effect_enablement_is_separate_from_synthetic_validity(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_destination_rejects_free_text_and_wrong_kind(owner):
+async def test_destination_rejects_free_text_and_wrong_kind(operator):
     store = InMemoryDurableStore()
     service = HiringSandboxService(store)
     sandbox = await service.create(
-        principal=owner, role_id="role_h4s", fixture_id="fixture_h4s",
+        principal=operator, role_id="role_h4s", fixture_id="fixture_h4s",
         synthetic_namespace="synthetic_hiring_h4s", connector_binding_ids=["scb_test_mail"],
         client_request_id="create_h4s_2")
     bad = await service.add_destination(
-        principal=owner, sandbox_run_id=sandbox["sandbox_run_id"],
+        principal=operator, sandbox_run_id=sandbox["sandbox_run_id"],
         destination_kind="TEST_CANDIDATE", normalized_address="not-an-address",
         verification_receipt_id="probe", client_request_id="bad_destination")
     assert bad["error_code"] == "sandbox_destination_invalid"
 
 
 @pytest.mark.asyncio
-async def test_connector_binding_is_test_only_and_requires_effect_flag(owner, monkeypatch):
+async def test_connector_binding_is_test_only_and_requires_effect_flag(operator, monkeypatch):
     store = InMemoryDurableStore()
     service = HiringSandboxService(store)
-    candidate_id = await _seed_h4s_candidate(store, owner)
+    candidate_id = await _seed_h4s_candidate(store, operator)
     sandbox = await service.create(
-        principal=owner, role_id="role_h4s", fixture_id="fixture_h4s",
+        principal=operator, role_id="role_h4s", fixture_id="fixture_h4s",
         synthetic_namespace="synthetic_hiring_h4s", connector_binding_ids=["declared"],
         client_request_id="connector_sandbox")
     bound = await service.add_connector_binding(
-        principal=owner, sandbox_run_id=sandbox["sandbox_run_id"],
+        principal=operator, sandbox_run_id=sandbox["sandbox_run_id"],
         connector_grant_id="grant_test_mail",
         provider_account_subject_hash="sha256:" + "a" * 64,
         provider_kind="GMAIL_TEST", client_request_id="mail_binding")
@@ -158,7 +156,7 @@ async def test_connector_binding_is_test_only_and_requires_effect_flag(owner, mo
         sandbox_run_id=sandbox["sandbox_run_id"], binding_id=bound["binding_id"],
         provider_kind="GMAIL_TEST"))["status"] == "success"
     destination = await service.add_destination(
-        principal=owner, sandbox_run_id=sandbox["sandbox_run_id"],
+        principal=operator, sandbox_run_id=sandbox["sandbox_run_id"],
         destination_kind="TEST_CANDIDATE", normalized_address="test@example.com",
         verification_receipt_id="probe", client_request_id="test_destination")
     exact = await service.build_exact_action(
@@ -171,20 +169,20 @@ async def test_connector_binding_is_test_only_and_requires_effect_flag(owner, mo
 
 
 @pytest.mark.asyncio
-async def test_configured_binding_cannot_select_normal_connector(owner, monkeypatch):
+async def test_configured_binding_cannot_select_normal_connector(operator, monkeypatch):
     """Only deployment config can select the H4S test credential."""
     monkeypatch.setenv("HIRING_H4S_GMAIL_TEST_REFRESH_TOKEN_SECRET", "h4s-gmail-test")
     monkeypatch.setenv("HIRING_H4S_GMAIL_TEST_ACCOUNT_SUBJECT_SHA256", "sha256:" + "c" * 64)
     store = InMemoryDurableStore()
     service = HiringSandboxService(store)
     sandbox = await service.create(
-        principal=owner, role_id="role_h4s", fixture_id="fixture_h4s",
+        principal=operator, role_id="role_h4s", fixture_id="fixture_h4s",
         synthetic_namespace="synthetic_hiring_h4s", connector_binding_ids=["declared"],
         client_request_id="configured_binding_sandbox")
     configured = configured_test_connector("GMAIL_TEST")
     assert configured and configured.connector_grant_id != "alex-role-mailbox"
     bound = await service.provision_configured_connector_binding(
-        principal=owner, sandbox_run_id=sandbox["sandbox_run_id"],
+        principal=operator, sandbox_run_id=sandbox["sandbox_run_id"],
         provider_kind="GMAIL_TEST", client_request_id="configured_binding")
     assert bound["status"] == "success"
     assert bound["binding"]["connector_grant_id"] == configured.connector_grant_id
@@ -192,39 +190,39 @@ async def test_configured_binding_cannot_select_normal_connector(owner, monkeypa
 
 
 @pytest.mark.asyncio
-async def test_configured_destination_cannot_select_founder_address(owner, monkeypatch):
+async def test_configured_destination_cannot_select_founder_address(operator, monkeypatch):
     monkeypatch.setenv("HIRING_H4S_TEST_CANDIDATE_ADDRESS", "candidate-test@example.com")
     store = InMemoryDurableStore()
     service = HiringSandboxService(store)
     sandbox = await service.create(
-        principal=owner, role_id="role_h4s", fixture_id="fixture_h4s",
+        principal=operator, role_id="role_h4s", fixture_id="fixture_h4s",
         synthetic_namespace="synthetic_hiring_h4s", connector_binding_ids=["declared"],
         client_request_id="configured_destination_sandbox")
     destination = await service.provision_configured_destination(
-        principal=owner, sandbox_run_id=sandbox["sandbox_run_id"],
+        principal=operator, sandbox_run_id=sandbox["sandbox_run_id"],
         destination_kind="TEST_CANDIDATE", client_request_id="configured_destination")
     assert destination["status"] == "success"
     assert destination["destination"]["normalized_address"] == "candidate-test@example.com"
 
 
 @pytest.mark.asyncio
-async def test_h4s_approval_is_hiring_run_bound(owner, monkeypatch):
+async def test_h4s_approval_is_hiring_run_bound(operator, monkeypatch):
     monkeypatch.setenv("HIRING_ENABLE_H4_SANDBOX", "1")
     store = InMemoryDurableStore()
     service = HiringSandboxService(store)
-    candidate_id = await _seed_h4s_candidate(store, owner)
-    sandbox = await service.create(principal=owner, role_id="role_h4s",
+    candidate_id = await _seed_h4s_candidate(store, operator)
+    sandbox = await service.create(principal=operator, role_id="role_h4s",
         fixture_id="fixture_h4s", synthetic_namespace="synthetic_hiring_h4s",
         connector_binding_ids=["declared"], client_request_id="approval_sandbox")
-    binding = await service.add_connector_binding(principal=owner,
+    binding = await service.add_connector_binding(principal=operator,
         sandbox_run_id=sandbox["sandbox_run_id"], connector_grant_id="grant_test",
         provider_account_subject_hash="sha256:" + "b" * 64,
         provider_kind="GMAIL_TEST", client_request_id="approval_binding")
-    destination = await service.add_destination(principal=owner,
+    destination = await service.add_destination(principal=operator,
         sandbox_run_id=sandbox["sandbox_run_id"], destination_kind="TEST_CANDIDATE",
         normalized_address="candidate@example.com", verification_receipt_id="probe",
         client_request_id="approval_destination")
-    result = await service.request_effect_approval(principal=owner,
+    result = await service.request_effect_approval(principal=operator,
         sandbox_run_id=sandbox["sandbox_run_id"], binding_id=binding["binding_id"],
         candidate_application_id=candidate_id,
         destination_ids=[destination["destination_id"]], action_kind="H4S_SEND_EMAIL",
@@ -233,16 +231,16 @@ async def test_h4s_approval_is_hiring_run_bound(owner, monkeypatch):
     assert result["status"] == "success"
     assert result["approval_id"].startswith("happroval_")
     assert result["exact_action"]["sandbox_run_id"] == sandbox["sandbox_run_id"]
-    claimed = await service.claim_effect_approval(principal=owner,
+    claimed = await service.claim_effect_approval(principal=operator,
         approval_id=result["approval_id"], sandbox_run_id=sandbox["sandbox_run_id"],
         binding_id=binding["binding_id"], destination_ids=[destination["destination_id"]],
         candidate_application_id=candidate_id,
         action_kind="H4S_SEND_EMAIL",
         rendered_payload={"subject": "Interview", "body": "Hello"})
     assert claimed["error_code"] == "claim_requires_action_prepare"
-    assert (await resolve_approval(principal=owner, approval_id=result["approval_id"],
+    assert (await resolve_approval(principal=operator, approval_id=result["approval_id"],
                                    decision="GRANT", store=store))["status"] == "success"
-    granted = await service.claim_effect_approval(principal=owner,
+    granted = await service.claim_effect_approval(principal=operator,
         approval_id=result["approval_id"], sandbox_run_id=sandbox["sandbox_run_id"],
         binding_id=binding["binding_id"], destination_ids=[destination["destination_id"]],
         candidate_application_id=candidate_id,
@@ -252,38 +250,37 @@ async def test_h4s_approval_is_hiring_run_bound(owner, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_only_owner_can_provision(owner):
+async def test_founder_can_provision_the_separately_gated_sandbox(operator):
     store = InMemoryDurableStore()
     service = HiringSandboxService(store)
     manager = ActorPrincipal(
-        actor_id="actor_manager", workspace_id=owner.workspace_id,
-        role=WorkspaceRole.HIRING_MANAGER, role_grants=frozenset({"role_h4s"}),
-        candidate_assignments=frozenset(), interview_assignments=frozenset(),
+        actor_id="actor_manager", workspace_id=operator.workspace_id,
+        role=WorkspaceRole.FOUNDER,
         session_auth_time=2_000_000_000, membership_version=1)
     result = await service.create(
         principal=manager, role_id="role_h4s", fixture_id="fixture_h4s",
         synthetic_namespace="synthetic_hiring_h4s", connector_binding_ids=["scb_test_mail"],
         client_request_id="manager_create")
-    assert result["error_code"] == "operation_forbidden"
+    assert result["status"] == "success"
 
 
 @pytest.mark.asyncio
-async def test_conversation_is_signed_run_scoped_and_not_generic_session(owner, monkeypatch):
+async def test_conversation_is_signed_run_scoped_and_not_generic_session(operator, monkeypatch):
     monkeypatch.setenv("APP_SESSION_SECRET", "h4s-test-secret")
     store = InMemoryDurableStore()
     sandbox_service = HiringSandboxService(store)
     sandbox = await sandbox_service.create(
-        principal=owner, role_id="role_h4s", fixture_id="fixture_h4s",
+        principal=operator, role_id="role_h4s", fixture_id="fixture_h4s",
         synthetic_namespace="synthetic_hiring_h4s", connector_binding_ids=["scb_test_mail"],
         client_request_id="conversation_sandbox")
     await store.create("hiring_roles", "role_h4s", {
-        "role_id": "role_h4s", "workspace_id": owner.workspace_id,
+        "role_id": "role_h4s", "workspace_id": operator.workspace_id,
         "synthetic": True, "fixture_id": "fixture_h4s",
         "synthetic_namespace": "synthetic_hiring_h4s", "version": 1})
     answers = HiringRunAnswerService(store)
-    begun = await answers.begin(principal=owner, sandbox_run_id=sandbox["sandbox_run_id"])
+    begun = await answers.begin(principal=operator, sandbox_run_id=sandbox["sandbox_run_id"])
     response = await answers.answer(
-        principal=owner, conversation_token=begun["conversation_token"],
+        principal=operator, conversation_token=begun["conversation_token"],
         question="What can you do for this hiring process?")
     assert response["status"] == "success"
     assert response["intent"] == "EXPLAIN"
@@ -337,44 +334,44 @@ class _CausalReplyProvider:
         return {"status": "uncertain", "uncertainty_reason": "not_called"}
 
 
-async def _effect_fixture(owner, store, service):
+async def _effect_fixture(operator, store, service):
     await store.create("hiring_roles", "role_h4s", {
-        "role_id": "role_h4s", "workspace_id": owner.workspace_id,
+        "role_id": "role_h4s", "workspace_id": operator.workspace_id,
         "current_policy_version_id": "hpv_test", "synthetic": True,
         "fixture_id": "fixture_h4s", "synthetic_namespace": "synthetic_hiring_h4s", "version": 1})
-    candidate_id = await _seed_h4s_candidate(store, owner)
-    sandbox = await service.create(principal=owner, role_id="role_h4s",
+    candidate_id = await _seed_h4s_candidate(store, operator)
+    sandbox = await service.create(principal=operator, role_id="role_h4s",
         fixture_id="fixture_h4s", synthetic_namespace="synthetic_hiring_h4s",
         connector_binding_ids=["declared"], client_request_id="effect_sandbox")
-    binding = await service.add_connector_binding(principal=owner,
+    binding = await service.add_connector_binding(principal=operator,
         sandbox_run_id=sandbox["sandbox_run_id"], connector_grant_id="grant_test",
         provider_account_subject_hash="sha256:" + "d" * 64,
         provider_kind="GMAIL_TEST", client_request_id="effect_binding")
-    destination = await service.add_destination(principal=owner,
+    destination = await service.add_destination(principal=operator,
         sandbox_run_id=sandbox["sandbox_run_id"], destination_kind="TEST_CANDIDATE",
         normalized_address="candidate@example.com", verification_receipt_id="probe",
         client_request_id="effect_destination")
-    approval = await service.request_effect_approval(principal=owner,
+    approval = await service.request_effect_approval(principal=operator,
         sandbox_run_id=sandbox["sandbox_run_id"], binding_id=binding["binding_id"],
         candidate_application_id=candidate_id,
         destination_ids=[destination["destination_id"]], action_kind="H4S_SEND_EMAIL",
         rendered_payload={"subject": "Interview", "body": "Hello"},
         client_request_id="effect_approval")
-    assert (await resolve_approval(principal=owner, approval_id=approval["approval_id"],
+    assert (await resolve_approval(principal=operator, approval_id=approval["approval_id"],
                                    decision="GRANT", store=store))["status"] == "success"
     return sandbox, binding, destination, approval, candidate_id
 
 
 @pytest.mark.asyncio
-async def test_h4s_effect_executes_once_with_exact_approval(owner, monkeypatch):
+async def test_h4s_effect_executes_once_with_exact_approval(operator, monkeypatch):
     monkeypatch.setenv("HIRING_ENABLE_H4_SANDBOX", "1")
     store = InMemoryDurableStore()
     sandbox_service = HiringSandboxService(store)
-    sandbox, binding, destination, approval, candidate_id = await _effect_fixture(owner, store, sandbox_service)
+    sandbox, binding, destination, approval, candidate_id = await _effect_fixture(operator, store, sandbox_service)
     provider = _FakeH4SProvider({"status": "success", "provider_effect_id": "gmail_1",
                                  "result_ref": {"thread_id": "thread_1"}})
     effects = H4SEffectService(sandbox=sandbox_service, adapter=provider, store=store)
-    args = dict(principal=owner, approval_id=approval["approval_id"],
+    args = dict(principal=operator, approval_id=approval["approval_id"],
                 sandbox_run_id=sandbox["sandbox_run_id"], binding_id=binding["binding_id"],
                 candidate_application_id=candidate_id,
                 destination_ids=[destination["destination_id"]], action_kind="H4S_SEND_EMAIL",
@@ -387,14 +384,14 @@ async def test_h4s_effect_executes_once_with_exact_approval(owner, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_h4s_uncertain_effect_never_retries_without_reconciliation(owner, monkeypatch):
+async def test_h4s_uncertain_effect_never_retries_without_reconciliation(operator, monkeypatch):
     monkeypatch.setenv("HIRING_ENABLE_H4_SANDBOX", "1")
     store = InMemoryDurableStore()
     sandbox_service = HiringSandboxService(store)
-    sandbox, binding, destination, approval, candidate_id = await _effect_fixture(owner, store, sandbox_service)
+    sandbox, binding, destination, approval, candidate_id = await _effect_fixture(operator, store, sandbox_service)
     provider = _FakeH4SProvider({"status": "uncertain", "uncertainty_reason": "timeout"})
     effects = H4SEffectService(sandbox=sandbox_service, adapter=provider, store=store)
-    args = dict(principal=owner, approval_id=approval["approval_id"],
+    args = dict(principal=operator, approval_id=approval["approval_id"],
                 sandbox_run_id=sandbox["sandbox_run_id"], binding_id=binding["binding_id"],
                 candidate_application_id=candidate_id,
                 destination_ids=[destination["destination_id"]], action_kind="H4S_SEND_EMAIL",
@@ -407,16 +404,16 @@ async def test_h4s_uncertain_effect_never_retries_without_reconciliation(owner, 
 
 
 @pytest.mark.asyncio
-async def test_h4s_provider_preflight_does_not_consume_approval(owner, monkeypatch):
+async def test_h4s_provider_preflight_does_not_consume_approval(operator, monkeypatch):
     """Missing deployment configuration is refused before the approval CAS."""
     monkeypatch.setenv("HIRING_ENABLE_H4_SANDBOX", "1")
     store = InMemoryDurableStore()
     sandbox_service = HiringSandboxService(store)
-    sandbox, binding, destination, approval, candidate_id = await _effect_fixture(owner, store, sandbox_service)
+    sandbox, binding, destination, approval, candidate_id = await _effect_fixture(operator, store, sandbox_service)
     provider = _NotReadyH4SProvider({"status": "success"})
     effects = H4SEffectService(sandbox=sandbox_service, adapter=provider, store=store)
     result = await effects.execute(
-        principal=owner, approval_id=approval["approval_id"],
+        principal=operator, approval_id=approval["approval_id"],
         sandbox_run_id=sandbox["sandbox_run_id"], binding_id=binding["binding_id"],
         candidate_application_id=candidate_id,
         destination_ids=[destination["destination_id"]], action_kind="H4S_SEND_EMAIL",
@@ -428,19 +425,19 @@ async def test_h4s_provider_preflight_does_not_consume_approval(owner, monkeypat
 
 
 @pytest.mark.asyncio
-async def test_h4s_recovers_after_approval_claim_crash_without_resend(owner, monkeypatch):
+async def test_h4s_recovers_after_approval_claim_crash_without_resend(operator, monkeypatch):
     """A T1 CLAIMED+PREPARED crash safely resumes the same action at T2."""
     monkeypatch.setenv("HIRING_ENABLE_H4_SANDBOX", "1")
     store = InMemoryDurableStore()
     sandbox_service = HiringSandboxService(store)
-    sandbox, binding, destination, approval, candidate_id = await _effect_fixture(owner, store, sandbox_service)
+    sandbox, binding, destination, approval, candidate_id = await _effect_fixture(operator, store, sandbox_service)
     payload = {"subject": "Interview", "body": "Hello"}
     built = await sandbox_service.build_exact_action(
         sandbox_run_id=sandbox["sandbox_run_id"], binding_id=binding["binding_id"],
         candidate_application_id=candidate_id,
         destination_ids=[destination["destination_id"]], action_kind="H4S_SEND_EMAIL",
         rendered_payload=payload)
-    action_id = H4SEffectService._action_id(owner.workspace_id, built["exact_action"])
+    action_id = H4SEffectService._action_id(operator.workspace_id, built["exact_action"])
     approval_row = await store.get("approvals", approval["approval_id"])
     claim_id = stable_id("claim", approval["approval_id"], action_id)
     claimed = await store.compare_and_set(
@@ -451,7 +448,7 @@ async def test_h4s_recovers_after_approval_claim_crash_without_resend(owner, mon
     # This is the precise durable state left by a crash after T1 and before T2.
     await store.create("external_actions", action_id, {
         "schema_version": 2, "action_id": action_id,
-        "workspace_id": owner.workspace_id,
+        "workspace_id": operator.workspace_id,
         "approval_id": approval["approval_id"], "request_hash": built["subject_hash"],
         "exact_action": built["exact_action"], "status": "PREPARED",
         "claim_id": claim_id, "approval_consumed": False,
@@ -460,7 +457,7 @@ async def test_h4s_recovers_after_approval_claim_crash_without_resend(owner, mon
     provider = _FakeH4SProvider({"status": "success", "provider_effect_id": "gmail_crash"})
     effects = H4SEffectService(sandbox=sandbox_service, adapter=provider, store=store)
     result = await effects.execute(
-        principal=owner, approval_id=approval["approval_id"],
+        principal=operator, approval_id=approval["approval_id"],
         sandbox_run_id=sandbox["sandbox_run_id"], binding_id=binding["binding_id"],
         candidate_application_id=candidate_id,
         destination_ids=[destination["destination_id"]], action_kind="H4S_SEND_EMAIL",
@@ -470,16 +467,16 @@ async def test_h4s_recovers_after_approval_claim_crash_without_resend(owner, mon
 
 
 @pytest.mark.asyncio
-async def test_h4s_verified_reply_resumes_only_the_causal_candidate_run(owner, monkeypatch):
+async def test_h4s_verified_reply_resumes_only_the_causal_candidate_run(operator, monkeypatch):
     monkeypatch.setenv("HIRING_ENABLE_H4_SANDBOX", "1")
     store = InMemoryDurableStore()
     sandbox_service = HiringSandboxService(store)
     sandbox, binding, destination, approval, candidate_id = await _effect_fixture(
-        owner, store, sandbox_service)
+        operator, store, sandbox_service)
     provider = _CausalReplyProvider()
     effects = H4SEffectService(sandbox=sandbox_service, adapter=provider, store=store)
     sent = await effects.execute(
-        principal=owner, approval_id=approval["approval_id"],
+        principal=operator, approval_id=approval["approval_id"],
         sandbox_run_id=sandbox["sandbox_run_id"], binding_id=binding["binding_id"],
         candidate_application_id=candidate_id,
         destination_ids=[destination["destination_id"]], action_kind="H4S_SEND_EMAIL",
@@ -507,19 +504,19 @@ async def test_h4s_verified_reply_resumes_only_the_causal_candidate_run(owner, m
 
 
 @pytest.mark.asyncio
-async def test_h4s_calendar_change_is_bound_to_prior_sandbox_event(owner, monkeypatch):
+async def test_h4s_calendar_change_is_bound_to_prior_sandbox_event(operator, monkeypatch):
     monkeypatch.setenv("HIRING_ENABLE_H4_SANDBOX", "1")
     store = InMemoryDurableStore()
     sandbox_service = HiringSandboxService(store)
     sandbox, _mail, destination, _approval, candidate_id = await _effect_fixture(
-        owner, store, sandbox_service)
+        operator, store, sandbox_service)
     calendar = await sandbox_service.add_connector_binding(
-        principal=owner, sandbox_run_id=sandbox["sandbox_run_id"],
+        principal=operator, sandbox_run_id=sandbox["sandbox_run_id"],
         connector_grant_id="grant_calendar", provider_account_subject_hash="sha256:" + "e" * 64,
         provider_kind="CALENDAR_TEST", client_request_id="calendar_binding")
     target_id = "h4saction_prior_calendar"
     await store.create("external_actions", target_id, {
-        "action_id": target_id, "workspace_id": owner.workspace_id,
+        "action_id": target_id, "workspace_id": operator.workspace_id,
         "action_kind": "H4S_CREATE_CALENDAR_EVENT", "status": "SUCCEEDED",
         "provider_effect_id": "calendar_event_1",
         "sandbox_context": {"sandbox_run_id": sandbox["sandbox_run_id"],

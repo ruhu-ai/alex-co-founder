@@ -102,10 +102,11 @@ reason those implementations exist and are not authorization for H4–H7:
    remain H4–H7 work and are intentionally absent.
 8. A passing current test suite demonstrates current primitives, not hiring
    correctness, fairness, privacy, event correlation, or months-long recovery.
-9. Current authentication answers only “is this an allowed founder?” and then
-   collapses authorized humans into one process-wide `FOUNDER_ID`. Hiring needs
-   a server-derived actor principal and role/assignment authorization before a
-   human decision, interview scorecard, approval, or audit row can be trusted.
+9. The former authentication path answered only “is this an allowed founder?”
+   and collapsed authenticated humans into one process-wide `FOUNDER_ID`.
+   Hiring now requires a server-derived actor principal with an active
+   `FOUNDER` membership before a human decision, interview scorecard, approval,
+   or audit row can be trusted.
 10. Current upload registration makes general artifacts searchable before
     extraction. Hiring therefore needs a closed restricted-ingestion scope and
     sensitivity-aware search boundary before any résumé or candidate document
@@ -906,29 +907,24 @@ founder-facing request resolves a signed, server-derived `ActorPrincipal`:
 {
   "actor_id": "member_...",
   "workspace_id": "workspace_...",
-  "role": "OWNER|HIRING_MANAGER|INTERVIEWER|OBSERVER",
-  "role_grants": ["role_..."],
-  "candidate_assignments": ["ca_..."],
+  "role": "FOUNDER",
   "session_auth_time": "..."
 }
 ```
 
 Email/display name may be shown in an authorized member surface but is not the
 audit identity and cannot be supplied by the client. `workspace_members` is the
-generic authority collection; membership/role/assignment changes are
-append-only audited and take effect at execution time.
-
-- `OWNER` controls the role and membership, subject to qualified-policy gates;
-- `HIRING_MANAGER` may make assigned hiring decisions and resolve assigned
-  approvals under role policy;
-- `INTERVIEWER` may see only assigned candidate/interview context and submit an
-  independent scorecard; it cannot see other candidates or final decisions;
-- `OBSERVER` is read-only and cannot decide, approve, reveal identity, or export.
+generic authority collection. `FOUNDER` is the only accepted human membership
+role and receives the workspace's product and administrative access.
+Membership status changes are append-only audited and take effect at execution
+time. Retired role values are invalid and require the explicit pre-production
+reset described in doc 13.
 
 Every hiring decision, scorecard, manual publication receipt, approval
 resolution, waiver, correction, data export, identity reveal, and audit row
-stores `actor_id`. Server authorization checks workspace, role grant, candidate
-assignment, and operation. The current boolean `request_is_founder()` and
+stores `actor_id`. Server authorization checks workspace, current membership,
+operation, freshness, and any exact durable approval or consequence gate. The
+current boolean `request_is_founder()` and
 constant `FOUNDER_ID` may remain for the funding compatibility path, but they
 are explicitly incompatible with hiring and must not cross the H1 exit gate.
 
@@ -939,7 +935,7 @@ operations require a server-verified authentication age of at most 15 minutes:
 - reveal candidate identity or restricted contact data;
 - export candidate data or resolve a deletion/legal-hold request;
 - approve or execute an offer/signature send;
-- add, remove, or change a workspace member, role, grant, or assignment;
+- activate or revoke a workspace membership;
 - cancel or close a role with active candidates.
 
 The reviewed `AuthFreshnessPolicy` is versioned and may shorten this limit;
@@ -1091,11 +1087,13 @@ Preparing copy or showing a browser frame is not completion.
 
 ### 8.2 Application monitoring and ingestion
 
-V1 applications arrive at a role-specific address on Alex's mailbox, for
-example `apply+7f3d92@ruhu.ai`. The public token is opaque, bounded, maps to one
-open role, and exposes no internal role/run id. The generic `jobs@` address,
-subject text, role name, candidate name/email, or model similarity is never
-correlation authority.
+Applications may arrive through the exact role's gated public form or a
+role-specific address, for example `apply+7f3d92@ruhu.ai`. The public token is
+opaque, bounded, maps to one open role, and exposes no internal role/run id.
+The generic `jobs@` address, subject text, role name, candidate name/email, or
+model similarity is never correlation authority. The ordinary Founder inbox
+and Alex's general-purpose mailbox are not Hiring sources and are never scanned
+to discover applications.
 
 Each role has a code-owned `ApplicationMailboxBinding`: workspace/role,
 connection id, public alias, provider label id, trusted routing mechanism/id,
@@ -1126,7 +1124,9 @@ applied label, or model interpretation cannot establish exact correlation. If
 the provider connector cannot expose a trustworthy route identity, this email
 intake design fails closed rather than silently downgrading to header matching.
 
-The connection owns one unfiltered Gmail watch. `users.watch` omits `labelIds`
+The dedicated Hiring-mailbox connection owns one unfiltered Gmail watch within
+that Hiring-only account. It does not share credentials or history with the
+ordinary Founder inbox or Alex's general-purpose mailbox. `users.watch` omits `labelIds`
 and label filtering, and `users.history.list` omits `labelId`; `INBOX` and a
 dynamic list of role labels must never scope the watch or cursor. This preserves
 events for messages that a rule archives, marks read, categorizes, or routes to
@@ -1135,12 +1135,15 @@ hash. Binding health is derived from watch expiration/renewal, cursor lag,
 complete-sync checkpoints, and controlled probe results. Zero applications for
 an interval is not a health failure.
 
-The approved job description tells candidates to email the role address with
-their résumé and the approved application questions. It links a static public
-privacy/AI-assistance notice and accommodation/human-contact instructions. That
-static page accepts no application, login, upload, slot choice, consent,
-withdrawal, or data-rights request; those interactions occur through email or a
-human contact in v1.
+The approved job description offers both the dedicated role address and, only
+after its independent channel gate passes, a role-bound application form. The
+form requires applicant name, an explicitly entered email address, cover note,
+PDF/DOCX résumé, and affirmative privacy consent; it never infers email from
+document contents. Its encrypted application and CV records converge on the
+same restricted candidate queue as role-addressed mail, while neither channel
+starts assessment, ranking, a decision, contact, or any external effect.
+Accommodation, withdrawal, and data-rights paths remain separate human or
+authenticated flows. Synthetic fixtures are never eligible for public intake.
 
 Processing order:
 
@@ -1451,13 +1454,13 @@ Employment **decisions** and external-action **approvals** are different:
 
 | Operation | Required authority |
 |---|---|
-| read role/candidate status | current ActorPrincipal role grant and candidate assignment where applicable |
+| read role/candidate status | current `FOUNDER` membership in the workspace |
 | extract/redact/map evidence | approved Role Contract + valid notice/consent policy |
-| approve publication package | `OWNER|HIRING_MANAGER` with role grant + exact package/destination approval |
-| manually publish to LinkedIn/unsupported board | `OWNER|HIRING_MANAGER` action outside agent execution; attributed receipt required |
+| approve publication package | authenticated `FOUNDER` + exact package/destination approval |
+| manually publish to LinkedIn/unsupported board | authenticated `FOUNDER` action outside agent execution; attributed receipt required |
 | publish through future official provider API | exact approval + external-action receipt; disabled in v1 |
-| advance/hold/request evidence/decline | assigned `OWNER|HIRING_MANAGER` authenticated human decision |
-| submit interview scorecard | assigned `INTERVIEWER|HIRING_MANAGER`; own scorecard only |
+| advance/hold/request evidence/decline | authenticated `FOUNDER` human decision |
+| submit interview scorecard | authenticated `FOUNDER`; own attributed scorecard only |
 | send any candidate/reference message | exact single-use approval in v1 |
 | create/change/cancel interview invitation | exact single-use approval in v1 |
 | begin reference check | human advance + candidate permission + exact outreach approval |
@@ -1465,8 +1468,8 @@ Employment **decisions** and external-action **approvals** are different:
 | send/signature request for offer | exact terms/document/recipient approval + fresh authentication at approval and execution |
 | create onboarding run | authoritative accepted-offer event |
 | provision account/access/payroll | separate authoritative adapter and exact approval; disabled in initial build |
-| reveal restricted identity/export candidate data | assigned authorized actor + fresh authentication + audit |
-| change membership/role/assignment | `OWNER` + fresh authentication + append-only authority audit |
+| reveal restricted identity/export candidate data | authenticated `FOUNDER` + fresh authentication + audit |
+| change membership status | Founder role + fresh authentication + append-only authority audit |
 | close role/cancel active candidates | authenticated human control plus impact confirmation + fresh authentication |
 
 ### 10.2 Approval binding
@@ -1479,7 +1482,7 @@ single-use rules. Any material drift invalidates approval.
 Hiring approvals are workspace/run scoped, not chat-session scoped. The session
 where a request originated is retained as provenance only. The pending inbox is
 visible and resolvable from any later session by an authorized ActorPrincipal;
-the server rechecks current role/assignment authority at resolution and records
+the server rechecks current active Founder membership and freshness gates at resolution and records
 the resolver's `actor_id`. The current funding approval service's requirement
 that `approval.session_id == current_session_id` is incompatible with hiring.
 An operation covered by §7.6 also binds the active `AuthFreshnessPolicy` version
@@ -1712,27 +1715,35 @@ remain indexed and resumable.
 
 ## 12. Founder-facing surfaces
 
+**Composition companion:** [36 — Unified Alex product experience](36-unified-alex-product-experience.md)
+owns the shared product rail/header, semantic visual system, contextual
+Work/Evidence/Decisions/Activity workspace, Scoped Alex placement, transcript
+chronology, responsive behavior, and voice-only cloud. This document owns
+Hiring's role/candidate data, evidence, decision, authority, and workflow
+boundaries. A visual composition may not weaken this document's domain gates;
+this document may not create a separate Hiring product shell.
+
 ### 12.1 Current readiness matrix
 
 | Surface | Repository status | Hiring decision |
 |---|---|---|
-| chat and voice | exists | reuse for objectives, status, questions; never decision/approval authority |
+| chat and voice | role discussion links into normal Alex with a role-only projection; the candidate workspace has a deterministic candidate/evidence-scoped discussion that re-authorizes every turn and cannot change state or advise a hiring outcome; live voice remains the shared voice-only surface | converge the remaining page-local composition on doc 36's shared scoped conversation component; never decision/approval authority and never show a static assistant object outside active voice |
 | Pipeline board | exists, funding-specific | reuse shell/tokens only; build Hiring cockpit |
 | Review pane | exists, application-draft-specific | reuse component patterns; new evidence/decision contract |
 | approval modal/inbox | exists | generalize binding/display for hiring run/policy/action refs |
 | Activity/audit pane | exists | extend with run/event/wait/action/decision timeline |
 | Connections panel | exists | reuse; add role-address/mailbox health and reviewed signature/HRIS adapters only when they exist |
-| embedded Browser panel | exists and hardened | founder visual review stays in-app; automated public verification is destination-policy-gated and disabled for LinkedIn pending qualified terms review; never automate writes or applicant access |
+| embedded Browser panel | exists and hardened in the main app; current Hiring handoff navigates to that surface rather than composing it in place | use doc 36's explicit Browser Takeover: compact inactive launcher, no permanent tab/nested Work section, entire right workspace while open, exact prior-workspace restoration; automated public verification remains destination-policy-gated and disabled for LinkedIn pending qualified terms review; never automate writes or applicant access |
 | document preview/download | exists | reuse with candidate authorization and search isolation |
 | session resources/global search | exists | role/run only; candidate data excluded in v1 |
 | founder ambiguity inbox | generic event/inbox primitives exist | extend with hiring schemas, actor authorization, and cockpit projections |
 | role/candidate run hierarchy | implemented for synthetic H1–H3 | durable state, pause/resume, waits, recursive cancellation; H4–H7 transitions remain gated |
-| hiring role cockpit | implemented for synthetic H3 | renders committed role/runtime/mailbox/publication state |
-| candidate board and evidence passport | implemented for synthetic H3 | unranked, cited, identity-separated, backend-authoritative |
+| hiring role cockpit | synthetic H3 now uses the shared token/type/icon/navigation source, a role-index home, focused cockpit, Quiet contextual workspace, and grouped mobile candidate rows; committed role/runtime/mailbox/publication truth remains backend-authoritative | complete the remaining shared component extraction and add the still-missing production workflow fields only behind their reviewed stage gates |
+| candidate intake inbox and evidence passport | synthetic H3 and local staged records render as a role-scoped inbox; candidate detail keeps identity hidden by default, lists restricted CV/application artifacts, maps candidate-provided information to approved criteria as `PRESENT` / `MISSING` / `UNCLEAR`, exposes causal activity, and keeps phase/decline controls Founder-only | qualify extraction and retention with synthetic data, then converge the remaining page-local candidate section composition on the shared contextual-workspace renderer; keep it unranked, identity-separated, and backend-authoritative |
 | policy version/diff/impact view | implemented for synthetic H2–H3 | approved role brief, scorecard, interview plan, job post, version and impact |
 | interview/reference/offer/onboarding views | missing | build |
-| application-mailbox operations | synthetic trusted-route/cursor flow implemented | real Gmail, attachments, DSN handling, and H4 communication remain disabled |
-| candidate-facing application portal | intentionally absent | not required in v1; static notice page + email/human contact only |
+| application-mailbox operations | synthetic trusted-route/cursor flow implemented; no normal Founder/Alex mailbox is read automatically and no normal role binding is active | production requires one explicit role alias plus server-owned route/label binding, positive and forged-header-negative probes, scoped inbound sync, and separately exact-approved outbound effects; real Gmail, attachments, DSN handling, and H4 communication remain disabled |
+| candidate-facing application portal | a receipt-gated public job description and encrypted local-staged form contract exist; the form is default-off, always refused in Cloud Run, and synthetic fixtures are never eligible; a dedicated role email is shown only for a verified active role binding | production requires KMS-backed encryption, retention/privacy and abuse-control review, secure upload scanning, monitored deletion/export, and explicit channel rollout; no public or email channel is enabled by this implementation |
 
 **Answer:** H0–H3 now have the surfaces required for an honest synthetic
 application-to-human-decision demonstration. The product still does not have
@@ -1764,6 +1775,37 @@ bounded authenticated activity stream while the surface is open. It MUST NOT
 poll a connector, worker, model, or workflow wait to manufacture progress, and
 UI disconnection never changes runtime state.
 
+### 12.2.1 Shared product composition boundary
+
+The target Hiring experience uses the actual shared Alex/Runs shell and design
+tokens/components, not a parallel palette, font stack, rail, top bar, static
+assistant medallion, or page-local approximation. The role index is the Hiring
+home; a selected role uses the shared header/breadcrumb and compact role
+switcher rather than retaining a permanent second sidebar.
+
+No selected role/run means no contextual Alex dock, voice affordance, or empty
+chat card. **Start a hiring run with Alex** is a bounded setup entry that creates
+no role/candidate authority before the durable run exists. After selection, an
+authorized founder may invoke Scoped Alex from the role, one candidate, or one
+Work/Evidence item. The right contextual region switches between that same
+scoped transcript and Work/Evidence/Decisions/Activity as doc 36 specifies; it
+does not render an unrelated mini-chat. Scope switches retire the old binding
+and clear its evidence before the new view is displayed.
+
+Role/candidate conversation receives only the minimum projection in doc 36
+§12.6 and the server restrictions in §§4.1–4.3. Generated-document references
+may appear only in their exact chronological assistant turn and must resolve to
+the same canonical Work item; projection refreshes cannot detach, pin,
+duplicate, or reorder them. Ordinary text has no cloud. The shared cloud and
+captions appear only during an explicit, valid scoped voice lifecycle.
+
+Candidate detail is a routable full record, not a modal. Loading, empty,
+dormant, stale, unauthorized/deleted, UNKNOWN/withheld evidence, pending
+decision, and uncertain-effect states use the shared patterns while preserving
+the last permitted committed projection or clearing sensitive data as policy
+requires. The persistent Synthetic marker remains truthful context metadata,
+not a second visual identity.
+
 ### 12.3 Hiring home
 
 Show each role as a run card with role title/code, age, target/headcount,
@@ -1788,21 +1830,31 @@ The main screen has:
 - role-specific application mailbox health from watch/cursor/reconciliation/
   probe evidence—not candidate volume—and latest durable email event;
 - action/effect status including `UNCERTAIN`;
-- Browser toggle using the existing left-cell Browser surface.
+- Browser entry using doc 36's explicit Browser Takeover. Inactive is a compact
+  truthful launcher outside the main tab strip; explicit open/start replaces
+  the whole right contextual workspace and hides its tabs. The readable named
+  page/source includes Stop and one Back to workspace / Close control, then
+  restores exact prior tab/subfocus/scroll/normal width and preserves cockpit/
+  conversation context. It never implies a live run or grants browser authority
+  by being visible.
 
 ### 12.5 Candidate detail
 
-Tabs or sections:
+Candidate domain material maps into doc 36's four top-level contextual tabs;
+the UI must not add a second competing tab system:
 
-1. **Evidence Passport** — fixed criterion order, citations, unknowns,
-   contradictions, stale-policy flags;
-2. **Timeline** — application, waits, communications, interviews, references,
-   decisions, offer, receipts;
-3. **Interviews** — questions, consent, independent scorecards, source evidence;
-4. **References** — permission, outreach, wait, cited report;
-5. **Offer** — terms/version/approval/signature status with sensitive display
-   controls;
-6. **Data controls** — notice, consent, retention, export/delete/withdrawal.
+1. **Work** — current founder-review task plus interview, reference, offer, or
+   data-control work only when that separately gated stage exists;
+2. **Evidence** — the Evidence Passport in fixed criterion order with citations,
+   unknowns, contradictions, stale-policy flags, and permitted interview/
+   reference source evidence;
+3. **Decisions** — append-only human decision controls/history and separate exact
+   approvals for communication, invitations, references, offers, or data actions;
+4. **Activity** — application, waits, communications, interviews, references,
+   decisions, offer, data-rights events, and receipts in causal order.
+
+Domain subsections may use progressive disclosure within the relevant tab, but
+they do not become page-level navigation or a stacked wall of cards.
 
 Identity is collapsed/redacted by default in assessment mode and revealed only
 through an authorized UI action. The evidence and decision panels do not expose
@@ -1894,7 +1946,7 @@ GET    /api/hiring/runs/{run_id}/timeline
 ```
 
 All workspace and actor identity is server-derived from `ActorPrincipal` and
-role/assignment-qualified. Mutating requests require
+requires a current active `FOUNDER` membership. Mutating requests require
 content type, CSRF protection where applicable, optimistic version, and a
 client request id. Duplicate requests return the original receipt.
 
@@ -2131,7 +2183,7 @@ Required behavior:
 | withdrawal races with accepted offer | provider receipts/order decide only when unambiguous; otherwise inbox; never orphan onboarding |
 | onboarding start date changes | supersede wait/plan version and invalidate affected approvals; stale timer fenced |
 | founder changes chat sessions | run-scoped pending approvals remain visible/resolvable to an authorized actor; session is provenance only |
-| allowed human lacks role/assignment | refuse without existence leak; audit actor id and safe reason |
+| authenticated human has a missing, inactive, or invalid membership | refuse without existence leak; audit actor id and safe reason |
 | stale authentication on high-authority operation | step-up required; no protected read, approval resolution, effect, or state mutation |
 | credential expires after months | connection `REAUTH_REQUIRED`; affected branches wait; no silent fallback account |
 | forged/direct internal worker call | reject before task/run lookup using signed-token issuer, exact audience, expiry, and route service-account allowlist |
@@ -2201,8 +2253,8 @@ No metric label contains candidate identity or source text.
   adverse/positive decision transition;
 - role cancellation cannot reach `CLOSED` with an unresolved candidate
   communication obligation;
-- two signed-in workspace members produce distinct server-derived actor ids;
-  an observer and an unassigned interviewer are refused;
+- two signed-in founders produce distinct server-derived actor ids while
+  missing, revoked, invalid, and retired-role memberships are refused;
 - an approval requested in session A is resolvable in session B by the same
   authorized actor and not by an unauthorized actor;
 - stale `session_auth_time` forces server-side step-up for identity reveal,
@@ -2645,6 +2697,25 @@ exact approval; duplicates and uncertain effects converge.
 
 ### Data, UI, and operations
 
+- [ ] Hiring consumes the same shared product rail/header, semantic token/type/
+      spacing/icon/component source, Context behavior, and responsive modes as
+      Alex/Runs; no parallel page identity, duplicate chrome, permanent role
+      sidebar, or modal candidate record remains.
+- [ ] No role selected renders no mini-Alex/chat/cloud. Scoped Alex starts only
+      from an authorized role, candidate, or work item; switching scope retires
+      the prior binding and cannot leak evidence, draft, or transcript state.
+- [ ] Scoped Alex and Work/Evidence/Decisions/Activity yield through one
+      contextual region, preserve permitted state/Back behavior, and never form
+      disconnected transcripts. Ordinary text has no cloud; active scoped voice
+      follows docs 36/38.
+- [ ] Hiring document references remain in strict transcript chronology and
+      resolve to one canonical Work item without detached, pinned, duplicated,
+      or projection-reordered cards.
+- [ ] Inactive Browser is only a compact truthful launcher outside the tab bar;
+      explicit open/start uses the whole right Browser Takeover with hidden
+      tabs, named source, Stop, one close/back control, exact prior workspace
+      restoration, responsive/remembered width, and unchanged
+      isolation/URL/approval/provenance gates.
 - [ ] Every hiring surface renders a versioned server projection with its last
       committed run-event sequence; pending requests never advance domain
       state, claim effects/decisions, or reveal derived artifacts optimistically.

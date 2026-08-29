@@ -83,11 +83,18 @@ def audit(project: str, region: str) -> dict[str, Any]:
         "co-founder-discovery-ingestion": 4,
         "co-founder-reconciliation": 4, "co-founder-interactive": 4,
     }
+    queue_attempts = {
+        "co-founder-events": 5, "co-founder-browser-expiry": 3,
+        "co-founder-timers": 5, "co-founder-provider-events": 5,
+        "co-founder-discovery-ingestion": 3,
+        "co-founder-reconciliation": 3, "co-founder-interactive": 3,
+    }
     queues_correct = all(
         not value.get("error")
         and int(_path(value, "rateLimits", "maxConcurrentDispatches") or -1)
         == queue_concurrency[name]
-        and int(_path(value, "retryConfig", "maxAttempts") or -1) == 8
+        and int(_path(value, "retryConfig", "maxAttempts") or -1)
+        == queue_attempts[name]
         for name, value in queues.items())
     checks = {
         "firestore_pitr": _path(

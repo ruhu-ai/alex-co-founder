@@ -88,7 +88,7 @@ async def main() -> None:
             print(f"profile exists for '{user_id}' (v{existing['version']}) — left as-is")
         membership = await create_membership(
             actor_id=f"seeded_{user_id}", workspace_id=user_id,
-            auth_subject=f"seeded:{user_id}", role=WorkspaceRole.OWNER,
+            auth_subject=f"seeded:{user_id}", role=WorkspaceRole.FOUNDER,
             created_by="seed_demo", synthetic=True, local_only=True)
         if membership.get("status") == "success":
             print(f"local membership seeded for '{user_id}'")

@@ -148,10 +148,12 @@ def test_background_work_and_voice_lifecycle_are_request_bound():
     assert 'task_queue.enqueue, "/tasks/wake_delivery"' in main_source
     assert live_source.index("runner = Runner(") < live_source.index(
         '@app.websocket("/live/{session_id}")')
-    assert "pending_model_transcript or pending_model_raw" in live_source
+    assert "CanonicalLiveSessionService" in live_source
+    assert "LiveTranscriptCommitter" in live_source
+    assert "turns_to_append" not in live_source
 
 
-def test_cloud_build_and_required_eval_gate_are_reproducible():
+def test_cloud_build_and_explicit_eval_gate_are_reproducible():
     docker = (ROOT / "Dockerfile").read_text()
     requirements = (ROOT / "requirements.txt").read_text()
     ci = (ROOT / ".github/workflows/ci.yml").read_text()
@@ -159,6 +161,9 @@ def test_cloud_build_and_required_eval_gate_are_reproducible():
     assert "v1.62.0-jammy" in docker
     assert "playwright install chromium" not in docker
     assert "pytest==" not in requirements and "ruff==" not in requirements
+    assert "run_model_evals" in ci
+    assert "github.event_name == 'workflow_dispatch'" in ci
+    assert "cancel-in-progress: true" in ci
     assert "ADK eval gate blocked" in ci and "exit 1" in ci
     assert "co-founder-browser-worker" in deploy
     assert "--no-allow-unauthenticated --min-instances 0 --max-instances 1" in deploy

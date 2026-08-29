@@ -60,8 +60,14 @@ def test_cloud_audit_requires_recovery_and_isolation_controls(monkeypatch):
                 "co-founder-discovery-ingestion": 4,
                 "co-founder-reconciliation": 4, "co-founder-interactive": 4,
             }
+            attempts = {
+                "co-founder-events": 5, "co-founder-browser-expiry": 3,
+                "co-founder-timers": 5, "co-founder-provider-events": 5,
+                "co-founder-discovery-ingestion": 3,
+                "co-founder-reconciliation": 3, "co-founder-interactive": 3,
+            }
             return {"rateLimits": {"maxConcurrentDispatches": expected[queue]},
-                    "retryConfig": {"maxAttempts": 8}}
+                    "retryConfig": {"maxAttempts": attempts[queue]}}
         if command.startswith("monitoring policies list"):
             return [{"displayName": "Co-Founder dead-letter wake"}]
         raise AssertionError(command)

@@ -11,7 +11,14 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any
 
-from services import data_source_metrics, document_ingestion, firestore, session_resources, storage
+from services import (
+    data_source_metrics,
+    document_ingestion,
+    firestore,
+    image_ingestion,
+    session_resources,
+    storage,
+)
 
 MAX_SOURCE_BYTES = 20 * 1024 * 1024
 _ORPHAN_PREFIX = ".ingestion_orphan_"
@@ -20,6 +27,14 @@ _ORPHAN_PREFIX = ".ingestion_orphan_"
 def _error(code: str, message: str, http_status: int) -> dict[str, Any]:
     return {"status": "error", "error": True, "error_code": code,
             "message": message, "http_status": http_status}
+
+
+def is_image_candidate(data: bytes, declared_content_type: str) -> bool:
+    """Return whether bytes/declaration select the explicit-still validator."""
+    declared = str(declared_content_type or "").lower()
+    return (declared.startswith("image/") or data.startswith(b"\xff\xd8\xff")
+            or data.startswith(b"\x89PNG\r\n\x1a\n")
+            or (len(data) >= 12 and data[:4] == b"RIFF" and data[8:12] == b"WEBP"))
 
 
 def _safe_name(value: str, fallback: str = "document") -> str:
@@ -45,6 +60,8 @@ def _duplicate(existing: dict[str, Any], ingestion_id: str) -> dict[str, Any]:
         "ingestion_status": existing.get("status", "QUEUED"),
         "auto_applied": int(existing.get("auto_applied") or 0),
         "needs_founder": int(existing.get("needs_founder_count") or 0),
+        "kind": existing.get("kind", "document"),
+        "width": existing.get("width"), "height": existing.get("height"),
         "sha256": existing.get("sha256", ""),
     }
 
@@ -177,13 +194,25 @@ async def register_source_ingestion(
     data = bytes(data or b"")
     if not data or len(data) > MAX_SOURCE_BYTES:
         return _error("source_too_large", "Document is empty or exceeds 20 MB.", 413)
-    checked = document_ingestion.validate_upload(
-        data, display_name, declared_content_type)
+    kind = "image" if is_image_candidate(data, declared_content_type) else "document"
+    if kind == "image" and source_type != "upload":
+        return _error(
+            "unsupported_image_source",
+            "Add images explicitly from this device or Capture still.", 415)
+    if kind == "image" and scope != "reference_only":
+        return _error(
+            "image_scope_forbidden",
+            "Images can only be used in this conversation.", 400)
+    checked = (image_ingestion.validate_image(
+        data, display_name, declared_content_type) if kind == "image" else
+        document_ingestion.validate_upload(data, display_name, declared_content_type))
     if checked.get("status") != "success":
         return {**checked, "http_status": (
             415 if checked.get("ingestion_status") == "UNSUPPORTED" else 400)}
 
     storage_name = (
+        f"explicitstill_{founder_id}_{uuid.uuid4().hex}_{_safe_name(display_name)}"
+        if kind == "image" else
         f"companydoc_{founder_id}_{uuid.uuid4().hex}_{_safe_name(display_name)}")
     try:
         await asyncio.to_thread(storage.save_bytes, storage_name, data)
@@ -208,6 +237,13 @@ async def register_source_ingestion(
             provider_content_type=provider_content_type,
             authority=("profile_candidate" if scope == "profile"
                        else "reference_only"),
+            kind=kind,
+            image_metadata=({
+                "width": checked["width"], "height": checked["height"],
+                "pixel_count": checked["pixel_count"],
+                "source_sha256": hashlib.sha256(data).hexdigest(),
+                "metadata_policy": "PENDING_NORMALIZATION",
+            } if kind == "image" else None),
             document_id=registration_id, occurrence_key=occurrence_key)
         stored_artifact = await firestore.get_artifact(ingestion_id)
         if stored_artifact and stored_artifact.get("storage_name") != storage_name:
@@ -229,8 +265,9 @@ async def register_source_ingestion(
             producer_kind="api" if not session_verified else "tool",
             producer_id="source_ingestion", producer_output_key="artifact",
             title=display_name[:200],
-            summary=("Drive import" if source_type == "google_drive"
-                     else "Uploaded document") + f" · {scope}",
+            summary=(("Explicit still" if kind == "image" else
+                      "Drive import" if source_type == "google_drive"
+                      else "Uploaded document") + f" · {scope}"),
             status="QUEUED", session_verified=True)
         if registered.get("error"):
             raise RuntimeError("provenance_failed")
@@ -254,6 +291,28 @@ async def register_source_ingestion(
             status="FAILED", error_code=code)
         return _error(code, message, 503)
 
+    # Session-only imports are never optional-memory sources and must not live
+    # indefinitely after the founder leaves. Schedule byte-first deletion at
+    # the server-authored 24-hour ceiling. If durable scheduling is unavailable
+    # in production, delete immediately and refuse the import rather than keep
+    # an unbounded sensitive copy.
+    stored_artifact = await firestore.get_artifact(ingestion_id)
+    if scope == "reference_only" and os.environ.get("K_SERVICE"):
+        from services import session_ingestion_retention, task_queue
+
+        expiry = str((stored_artifact or {}).get("retention_expires_at") or "")
+        expiry_task = await asyncio.to_thread(
+            task_queue.enqueue, "/tasks/expire_session_ingestion",
+            {"ingestion_id": ingestion_id}, f"expire-ingestion:{ingestion_id}",
+            queue_name="co-founder-timers", schedule_at=expiry)
+        if expiry_task.get("error"):
+            await session_ingestion_retention.expire_reference_only(
+                ingestion_id, force=True)
+            return _error(
+                "retention_schedule_failed",
+                "The session-only import could not be retained safely; it was deleted.",
+                503)
+
     worker_result: dict[str, Any] = {
         "status": "success", "ingestion_status": "QUEUED"}
     if os.environ.get("K_SERVICE"):
@@ -268,7 +327,9 @@ async def register_source_ingestion(
             await _mark_failed(ingestion_id, "dispatch_failed", message)
             return _error("dispatch_failed", message, 503)
     else:
-        worker_result = await document_ingestion.process_ingestion(ingestion_id)
+        worker_result = await (image_ingestion.process_ingestion(ingestion_id)
+                               if kind == "image" else
+                               document_ingestion.process_ingestion(ingestion_id))
 
     data_source_metrics.record(
         "ingestion_registration", operation=source_type,
@@ -281,6 +342,8 @@ async def register_source_ingestion(
         "ingestion_status": worker_result.get("ingestion_status", "QUEUED"),
         "auto_applied": int(worker_result.get("auto_applied") or 0),
         "needs_founder": int(worker_result.get("needs_founder") or 0),
+        "kind": kind,
+        "width": checked.get("width"), "height": checked.get("height"),
         "sha256": hashlib.sha256(data).hexdigest(),
         "resource_id": registered.get("resource_id", ""),
     }

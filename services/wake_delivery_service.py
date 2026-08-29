@@ -31,6 +31,7 @@ async def deliver(founder_id: str, delivery_id: str,
                     "message": "wake delivery exhausted its retry budget"}
         return {"status": "error", "error": True,
                 "error_code": "dispatch_failed",
+                "retryable": True,
                 "delivery_id": delivery_id,
                 "message": "wake delivery failed and remains queued for retry"}
     return await firestore.finish_wake_delivery(

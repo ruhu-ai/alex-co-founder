@@ -66,6 +66,11 @@ founder's voice and thinking through explicit feedback capture.
 | `33-founder-first-hiring-demo.md` | Founder-first synthetic Ruhu FDE demo: durable command, controlled mailbox event, candidate Evidence Passport, and internal receipt runbook | Implementation/demo runbook; provider proof requires the listed local configuration |
 | `34-platform-architecture-and-convergence.md` | Production platform authority model, generic runtime, state/session/memory boundaries, approval/action protocol, delivery, security, observability, and phased convergence plan | Proposed for architecture review; phases require explicit gates |
 | `35-platform-operations-and-recovery.md` | Phase 7 SLOs, capacity/backpressure, budgets, operator recovery, change rollback, backup/restore, chaos/load, privacy, and governance evidence | Phase 7 binding runbook; production completion requires recorded staging evidence |
+| `36-unified-alex-product-experience.md` | One Alex product shell: navigation, responsive workspace, activity/evidence/decision surfaces, Hiring composition, Live placement, and accessibility | Proposed design specification; review only |
+| `37-production-skills-system.md` | First-party, versioned, bounded skills: manifests, compilation, assignment, capability intersection, governance, evaluation, and rollout | Proposed architecture/product specification; review only |
+| `38-user-facing-vision.md` | Founder-controlled still images, camera/display sharing, Live transport, consent, visual provenance, privacy, orb/captions, effects guards, and rollout | Approved for gated incremental V1 implementation; flags remain off until executable gates pass |
+| `39-durable-cross-session-memory.md` | Optional scoped recall, deterministic return brief, source/tenancy/privacy controls, deletion, evaluation, backend qualification, and rollout | Proposed design specification; external review only |
+| `40-durable-background-work.md` | Alex-led, durable detached specialist preparation: eligibility, job/step dispatch, session serialization, milestones, skills, SSE/inbox delivery, safety, and rollout gates | Review-complete; staged implementation requires recorded gates; no new effect authority |
 
 ## Design principles (binding on all implementation)
 

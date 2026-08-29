@@ -126,15 +126,29 @@ async def test_deletion_job_preserves_manifest_and_reports_partial_failure(monke
 
 
 async def test_memory_release_gate_requires_usefulness_and_zero_leak_conflict_deletion():
-    passing = evaluate([{
-        "useful": True, "cross_workspace_hit": False,
-        "accepted_conflict": False, "deleted_source_hit": False,
-        "backend_failure_explicit": True,
-    } for _ in range(10)])
+    rows = []
+    for scenario in (
+            "useful_recall", "cross_workspace_probe",
+            "authority_conflict_probe", "deleted_source_probe",
+            "backend_failure_probe", "hiring_probe",
+            "restore_after_forget_probe", "automatic_write_probe",
+            "transcript_import_probe", "managed_backend_probe",
+            "private_session_probe", "membership_growth_probe",
+            "memory_hit_disclosure", "no_hit_disclosure"):
+        rows.append({
+            "scenario": scenario,
+            "useful": scenario == "useful_recall",
+            "backend_failure_explicit": scenario == "backend_failure_probe",
+            "disclosure_shown": scenario == "memory_hit_disclosure",
+        })
+    passing = evaluate(rows)
     assert passing["passed"] is True
-    leaking = evaluate([{
-        "useful": True, "cross_workspace_hit": index == 0,
-        "accepted_conflict": False, "deleted_source_hit": False,
-        "backend_failure_explicit": True,
-    } for index in range(10)])
+    leaking_rows = [dict(row) for row in rows]
+    next(row for row in leaking_rows
+         if row["scenario"] == "cross_workspace_probe")[
+             "cross_workspace_hit"] = True
+    leaking = evaluate(leaking_rows)
     assert leaking["passed"] is False
+
+    incomplete = evaluate([{"scenario": "useful_recall", "useful": True}])
+    assert incomplete["error_code"] == "memory_eval_coverage_incomplete"

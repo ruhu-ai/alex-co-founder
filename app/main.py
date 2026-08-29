@@ -49,11 +49,11 @@ from services import (
     approval_service,
     discovery_service,
     distill_service,
+    durable_memory,
     feedback_service,
     firestore,
     hiring_policy_service,
     investor_outreach_service,
-    persistent_memory,
     pipeline_service,
     session_deletion,
     session_resources,
@@ -62,6 +62,7 @@ from services import (
     waiting,
     wake_delivery_service,
     workflow_timer_service,
+    workspace_brief,
 )
 from services import browser_gateway as browser_service
 from services.actor_identity import (
@@ -74,7 +75,7 @@ from services.actor_identity import (
 from services.command_service import CommandService
 from services.command_service import transport_status as command_http_status
 from services.durable_store import AtomicMutation, production_store
-from services.workflow_contracts import RunKind, stable_id
+from services.workflow_contracts import RunKind, run_visible_to_actor, stable_id
 from services.workflow_projection_service import (
     WorkflowProjectionService,
 )
@@ -145,7 +146,10 @@ hiring_routes.register(app)
 db_session_service = DatabaseSessionService(db_url=SESSION_SERVICE_URI)
 webhook_runner = Runner(
     app=agent_app, session_service=db_session_service,
-    memory_service=persistent_memory.configured_adk_service())
+    # Document 39 M2 uses an explicit server-owned context assembler. The
+    # generic ADK memory hook can ingest/search whole sessions and therefore
+    # remains disabled even when the bounded M2 product routes are enabled.
+    memory_service=None)
 resume_handler = ResumeHandler(runner=webhook_runner)
 
 # Surface 3: the distiller (inline, synchronous)
@@ -181,9 +185,7 @@ def _local_compat_principal(workspace_id: str = "") -> ActorPrincipal:
     """
     selected = workspace_id or FOUNDER_ID
     return ActorPrincipal(
-        actor_id=FOUNDER_ID, workspace_id=selected, role=WorkspaceRole.OWNER,
-        role_grants=frozenset({"workspace.*"}),
-        candidate_assignments=frozenset(), interview_assignments=frozenset(),
+        actor_id=FOUNDER_ID, workspace_id=selected, role=WorkspaceRole.FOUNDER,
         session_auth_time=int(datetime.now(timezone.utc).timestamp()),
         membership_version=1, principal_kind="SEEDED_COMPAT",
         membership_id=f"local-compat:{selected}:{FOUNDER_ID}")
@@ -194,6 +196,20 @@ async def _route_principal(request: Request, *, legacy: bool = False) \
     if legacy and not os.environ.get("K_SERVICE"):
         return _local_compat_principal()
     return await _platform_human(request)
+
+
+async def _owned_session_memory_mode(
+        principal: ActorPrincipal, session_id: str) -> str | None:
+    """Resolve mode from the owned ADK session, never a browser flag."""
+    session = await db_session_service.get_session(
+        app_name=agent_app.name, user_id=principal.workspace_id,
+        session_id=session_id)
+    if session is None:
+        return None
+    mode = str((session.state or {}).get(ss.K_MEMORY_MODE) or
+               durable_memory.MemoryMode.STANDARD.value)
+    return (mode if mode in {item.value for item in durable_memory.MemoryMode}
+            else durable_memory.MemoryMode.PRIVATE.value)
 
 # Surface 4: real-time voice (Gemini Live bidi) — same orchestrator, same sessions
 from app.live import register_hiring_live, register_live  # noqa: E402
@@ -304,10 +320,52 @@ class WakePayload(BaseModel):
     # retry. Message text is deliberately not an idempotency key: a founder may
     # intentionally repeat the same request later.
     client_request_id: str | None = None
+    # Optional role-level discussion scope selected in Hiring Operations. The
+    # server re-reads it in the authenticated workspace and projects no
+    # candidate identities, evidence, assessments, approvals, or provider data.
+    hiring_role_id: str | None = Field(default=None, max_length=128)
 
 
 class SessionCreateRequest(BaseModel):
     client_request_id: str = Field(default="", max_length=128)
+    memory_mode: Literal["STANDARD", "PRIVATE"] = "STANDARD"
+
+
+class MemoryRememberRequest(BaseModel):
+    session_id: str = Field(min_length=3, max_length=128)
+    client_request_id: str = Field(min_length=8, max_length=128)
+    memory_kind: Literal["PREFERENCE", "REUSABLE_CONTEXT"]
+    summary: str = Field(min_length=1, max_length=1000)
+    tags: list[str] = Field(default_factory=list, max_length=16)
+
+
+class MemoryCorrectRequest(BaseModel):
+    session_id: str = Field(min_length=3, max_length=128)
+    client_request_id: str = Field(min_length=8, max_length=128)
+    expected_version: int = Field(ge=1)
+    summary: str = Field(min_length=1, max_length=1000)
+
+
+class MemoryPinRequest(BaseModel):
+    session_id: str = Field(min_length=3, max_length=128)
+    client_request_id: str = Field(min_length=8, max_length=128)
+    expected_version: int = Field(ge=1)
+
+
+class MemoryForgetRequest(MemoryPinRequest):
+    pass
+
+
+class MemorySettingsRequest(BaseModel):
+    session_id: str = Field(min_length=3, max_length=128)
+    client_request_id: str = Field(min_length=8, max_length=128)
+    enabled: bool
+
+
+class MemoryOutcomeConfirmationRequest(BaseModel):
+    session_id: str = Field(min_length=3, max_length=128)
+    client_request_id: str = Field(min_length=8, max_length=128)
+    run_id: str = Field(min_length=3, max_length=128)
 
 
 class WakeDeliveryRetryV1(BaseModel):
@@ -359,6 +417,10 @@ class IngestTaskPayload(BaseModel):
     ingestion_id: str
 
 
+class ExpireSessionIngestionPayload(BaseModel):
+    ingestion_id: str = Field(pattern=r"^[a-f0-9]{32}$")
+
+
 _SLASH_COMMAND = re.compile(r"^/([a-z][a-z0-9_-]*)(?:\s+(.*))?$", re.DOTALL)
 _REQUEST_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$")
 _ATTACHMENT_REFERENCE = re.compile(r"(?:^|\s)@[A-Za-z0-9_.-]+(?:\s|$)")
@@ -374,15 +436,8 @@ def _discover_command_enabled() -> bool:
 
 
 def _hiring_command_enabled() -> bool:
-    """Whether the isolated synthetic hiring command is available at all.
-
-    The command has its own deployment guard inside `_launch_hiring_command`.
-    Keeping parser availability separate from the older discovery compatibility
-    flag prevents a safe, enabled `/hiring` operation from being silently
-    treated as ordinary chat merely because `/discover` remains off.
-    """
-    return os.environ.get("HIRING_ENABLE_SYNTHETIC_DEMO", "false").lower() \
-        in {"1", "true", "yes", "on"}
+    """The internal-only Founder draft command is part of the normal product."""
+    return True
 
 
 def _parse_slash_command(message: str) -> tuple[str, str] | None:
@@ -476,6 +531,7 @@ async def _resolve_attachment_refs(
         resolved.append({
             "attachment_ref": ref,
             "filename": str(ingestion.get("source_ref") or "document")[:160],
+            "kind": str(ingestion.get("kind") or "document"),
             "artifact": str(ingestion.get("artifact") or "")[:240],
             "scope": str(ingestion.get("scope") or "reference_only"),
             "status": str(ingestion.get("status") or "QUEUED"),
@@ -709,12 +765,12 @@ async def _launch_investor_outreach(
 
 async def _launch_hiring_command(*, principal: ActorPrincipal, context: str,
                                   request_id: str) -> dict:
-    """Create the closed synthetic Ruhu FDE role from a founder chat command.
+    """Create the reviewed default role package as an internal Founder DRAFT.
 
-    This is deliberately a fixture-backed command, not a prompt-to-production
-    hiring generator. It requires the same signed workspace principal and
-    deployment allowlist as the Hiring API, creates only a DRAFT role, and
-    grants no publication or provider-effect authority.
+    This explicit command is the narrow Hiring UI adapter. Natural conversation
+    uses the model tools to collect and present an exact package before creating
+    it. Both paths create the same non-executable draft shape and grant no
+    approval, publication, candidate-processing, or provider authority.
     """
     normalized = re.sub(r"\s+", " ", context).strip()
     if len(normalized) > _HIRING_CONTEXT_MAX:
@@ -722,30 +778,27 @@ async def _launch_hiring_command(*, principal: ActorPrincipal, context: str,
     required = ("forward deployment engineer", "ruhu", "nigeria", "remote")
     if not all(term in normalized.casefold() for term in required):
         return {"error": True, "message": (
-            "This protected demo command supports the Ruhu Forward Deployment Engineer "
-            "fixture: include Ruhu, Forward Deployment Engineer, Nigeria, and remote.")}
-    fixture_id = "fixture_ruhu_fde_walkthrough"
-    allowed = {value.strip() for value in os.environ.get(
-        "HIRING_SYNTHETIC_FIXTURE_IDS", "").split(",") if value.strip()}
-    if (os.environ.get("HIRING_ENABLE_SYNTHETIC_DEMO") != "1"
-            or fixture_id not in allowed):
-        return {"error": True, "message": "The synthetic hiring demo is not enabled by deployment."}
+            "Include the company, role, location, and work arrangement: Ruhu, "
+            "Forward Deployment Engineer, Nigeria, and remote.")}
     services = hiring_routes._services()
     if not services:
-        return {"error": True, "message": "Synthetic hiring encryption is not configured."}
-    from scripts.seed_hiring_fde_demo import _contract
-    created = await services[0].create_role(
-        principal=principal, contract=_contract(), client_request_id=request_id,
-        synthetic_guard={"synthetic": True, "fixture_id": fixture_id,
-                         "synthetic_namespace": "synthetic_hiring_ruhu_fde"})
+        return {"error": True, "message": "Hiring draft storage is not configured."}
+    from services.hiring_role_draft import ruhu_fde_package
+
+    package = ruhu_fde_package()
+    contract = package["contract"]
+    created = await services[0].create_founder_draft_role(
+        principal=principal, contract=contract,
+        role_description=package["role_description"],
+        client_request_id=request_id)
     if created.get("error"):
         return created
     proposed = await hiring_policy_service.propose_policy(
         principal=principal, role_id=created["role"]["role_id"],
-        contract=_contract(),
-        change_reason=("Founder-started protected synthetic Ruhu FDE hiring "
-                       "operation from /hiring."),
-        client_request_id=f"{request_id}:role-brief")
+        contract=contract,
+        change_reason=("Founder-started internal Ruhu FDE role package from "
+                       "the explicit Hiring action."),
+        client_request_id=f"{request_id}:role-package")
     if proposed.get("error"):
         return proposed
     return {"status": "success", "role": created["role"], "policy": proposed,
@@ -771,6 +824,23 @@ async def _set_founder_session(
     except Exception as exc:  # persistence is best-effort — never fail the turn
         logging.getLogger(__name__).warning(
             "founder session persist failed: %s", exc)
+
+
+async def _catalog_session_memory_mode(
+        session_id: str, founder_id: str, memory_mode: str) -> None:
+    """Best-effort catalog projection; absence makes M2 outcome writes ineligible."""
+    try:
+        await firestore.upsert_session_catalog(session_id, {
+            "founder_id": founder_id,
+            "memory_mode": memory_mode,
+            "private_origin": memory_mode == durable_memory.MemoryMode.PRIVATE.value,
+        })
+    except Exception as exc:
+        # Chat/session availability does not depend on optional memory. The M2
+        # source gate treats a missing catalog row as unverifiable and refuses
+        # promotion, preserving private-origin safety during an outage.
+        logging.getLogger(__name__).warning(
+            "session memory-mode catalog persist failed: %s", exc)
 
 
 async def _get_founder_session(founder_id: str = FOUNDER_ID) -> str | None:
@@ -819,6 +889,24 @@ async def wake(payload: WakePayload, request: Request) -> dict:
         return JSONResponse(principal, status_code=401)
     founder_id = principal.workspace_id
     session_id = payload.session_id or f"s-{uuid.uuid4().hex}"
+    selected_hiring_context: dict | None = None
+    if payload.hiring_role_id:
+        services = hiring_routes._services()
+        if not services:
+            return JSONResponse({
+                "status": "error", "error": True,
+                "error_code": "hiring_unavailable",
+                "message": "The selected Hiring role is temporarily unavailable."
+            }, status_code=503)
+        scoped = await services[0].get_role_conversation_context(
+            principal=principal, role_id=payload.hiring_role_id)
+        if scoped.get("error"):
+            return JSONResponse({
+                "status": "error", "error": True,
+                "error_code": "hiring_role_context_unavailable",
+                "message": "The selected Hiring role is unavailable in this workspace."
+            }, status_code=404)
+        selected_hiring_context = scoped["role_context"]
     receipt: dict | None = None
     commands = CommandService(production_store())
     if request.url.path == "/api/v1/messages":
@@ -832,7 +920,8 @@ async def wake(payload: WakePayload, request: Request) -> dict:
             principal=principal, client_request_id=request_id,
             command_type="conversation.message",
             request={"session_id": session_id, "message": payload.message,
-                     "attachment_refs": list(payload.attachment_refs)},
+                     "attachment_refs": list(payload.attachment_refs),
+                     "hiring_role_id": str(payload.hiring_role_id or "")},
             origin_session_id=session_id)
         if receipt.get("error"):
             return JSONResponse(receipt, status_code=command_http_status(receipt))
@@ -860,7 +949,22 @@ async def wake(payload: WakePayload, request: Request) -> dict:
         app_name=agent_app.name, user_id=founder_id, session_id=session_id)
     if existing is None:
         existing = await db_session_service.create_session(
-            app_name=agent_app.name, user_id=founder_id, session_id=session_id)
+            app_name=agent_app.name, user_id=founder_id, session_id=session_id,
+            state={
+                ss.K_MEMORY_MODE: durable_memory.MemoryMode.STANDARD.value,
+                ss.K_PRIVATE_ORIGIN: False,
+                ss.K_ADVISORY_MEMORY: "none",
+            })
+        await session_resources.catalog_session_event(
+            founder_id=founder_id, session_id=session_id, created=True)
+        await _catalog_session_memory_mode(
+            session_id, founder_id, durable_memory.MemoryMode.STANDARD.value)
+    session_memory_mode = str(
+        (existing.state or {}).get(ss.K_MEMORY_MODE)
+        or durable_memory.MemoryMode.STANDARD.value)
+    if session_memory_mode not in {mode.value for mode in durable_memory.MemoryMode}:
+        # Unknown/legacy mode is fail-closed for optional memory.
+        session_memory_mode = durable_memory.MemoryMode.PRIVATE.value
 
     command = _compile_workflow_command(payload.message)
     if command is not None:
@@ -915,7 +1019,7 @@ async def wake(payload: WakePayload, request: Request) -> dict:
                 "client_request_id": request_id})
         if name == "hiring":
             if payload.attachment_refs or _ATTACHMENT_REFERENCE.search(context):
-                reply = "The protected hiring command accepts role context only; no attachment was read."
+                reply = "The Hiring draft action accepts role context only; no attachment was read."
                 await _append_chat_exchange(
                     session_id, payload.message, reply, f"command-{request_id}",
                     founder_id)
@@ -935,8 +1039,9 @@ async def wake(payload: WakePayload, request: Request) -> dict:
             role = launch["role"]
             reply = (f"I created the durable draft hiring operation for {role['role_title']} at "
                      f"{role['company_name']} and prepared its role brief, scorecard, interview "
-                     f"plan, and exact job-post draft. Open Hiring Operations to review and approve "
-                     f"role {role['role_code']}. No post or email was sent.")
+                     f"plan, full job description, and exact job-post draft. Open Hiring Operations "
+                     f"to review role {role['role_code']} and approve only its internal role package. "
+                     "No post or email was sent.")
             await _append_chat_exchange(
                 session_id, payload.message, reply, f"command-{request_id}",
                 founder_id)
@@ -947,8 +1052,7 @@ async def wake(payload: WakePayload, request: Request) -> dict:
                 "role_id": role["role_id"], "client_request_id": request_id})
         if name != "discover":
             reply = (f"I don't recognize /{name}. The available workflow command "
-                     "is /investors, /discover, or the protected synthetic "
-                     "/hiring FDE command.")
+                     "is /investors, /discover, or /hiring.")
             await _append_chat_exchange(
                 session_id, payload.message, reply, f"command-{request_id}",
                 founder_id)
@@ -1047,9 +1151,37 @@ async def wake(payload: WakePayload, request: Request) -> dict:
     state_delta = {
         ss.K_USER_PROFILE_ID: founder_id,
         ss.K_ACTOR_ID: principal.actor_id,
+        ss.K_MEMORY_MODE: session_memory_mode,
+        ss.K_PRIVATE_ORIGIN: session_memory_mode == durable_memory.MemoryMode.PRIVATE.value,
+        # Rewrite on every turn so a prior admitted hit cannot bleed into a
+        # later action/review turn or a newly private session.
+        ss.K_ADVISORY_MEMORY: "none",
     }
     if refs or previous:
         state_delta[ss.K_ACTIVE_ATTACHMENTS] = attachments
+    # Role scope is an explicit per-message projection, not durable memory.
+    # Rewrite it on every turn so a later general conversation cannot inherit
+    # a previously selected Hiring role after navigation or reload.
+    state_delta[ss.K_HIRING_ROLE_CONTEXT] = selected_hiring_context or "none"
+
+    memory_result: dict = {"status": "skipped", "hits": []}
+    memory_hits: list[dict] = []
+    current_step = str((existing.state or {}).get(
+        ss.K_CURRENT_STEP) or ss.ApplicationStep.IDLE)
+    # Private means zero optional-memory calls, including metadata/search
+    # probes. M2 is additionally limited to ordinary conversational turns;
+    # action/review/artifact contexts receive no optional memory.
+    if (session_memory_mode == durable_memory.MemoryMode.STANDARD.value
+            and durable_memory.DurableMemoryService.turn_allows_recall(
+                payload.message, current_step=current_step,
+                has_attachments=bool(attachments))):
+        memory_result = await durable_memory.configured_service().recall(
+            principal=principal, session_mode=session_memory_mode,
+            query=payload.message, purpose="PERSONALIZE_RESPONSE", limit=3)
+        if not memory_result.get("error"):
+            memory_hits = list(memory_result.get("hits") or [])
+            state_delta[ss.K_ADVISORY_MEMORY] = durable_memory.advisory_context(
+                memory_hits)
 
     replies: list[str] = []
     # Founder-voice narration of what this turn did (docs/24 §7.2). The loop
@@ -1073,8 +1205,29 @@ async def wake(payload: WakePayload, request: Request) -> dict:
         await session_resources.catalog_session_event(
             founder_id=founder_id, session_id=session_id,
             text=replies[-1], author="agent")
-    return await _respond({"session_id": session_id, "replies": replies,
-                           "trace": trace.as_payload()})
+    if memory_hits:
+        disclosure = (
+            f"{durable_memory.DISCLOSURE}. "
+            "Open Settings → What Alex knows to inspect or change it.")
+        await _append_chat_message(
+            session_id, author=agent_app.root_agent.name, role="model",
+            text=disclosure,
+            invocation_id=(f"memory-disclosure-"
+                           f"{memory_result['memory_search_receipt_id']}"),
+            founder_id=founder_id)
+        replies.append(disclosure)
+    return await _respond({
+        "session_id": session_id, "replies": replies,
+        "trace": trace.as_payload(),
+        "memory_influence": ({
+            "disclosure": durable_memory.DISCLOSURE,
+            "memory_ids": [hit["memory_id"] for hit in memory_hits],
+            "memory_search_receipt_id": memory_result.get(
+                "memory_search_receipt_id"),
+        } if memory_hits else None),
+        "memory_status": (memory_result.get("error_code")
+                          if memory_result.get("error") else memory_result["status"]),
+    })
 
 
 @app.post("/api/v1/sessions")
@@ -1101,13 +1254,15 @@ async def new_session(request: Request) -> dict:
                  "message": "A valid client_request_id is required."}, status_code=400)
         command = await commands.accept(
             principal=principal, client_request_id=payload.client_request_id,
-            command_type="session.create", request={})
+            command_type="session.create",
+            request={"memory_mode": payload.memory_mode})
         if command.get("error"):
             return JSONResponse(command, status_code=command_http_status(command))
         if command.get("duplicate"):
             result_ref = command.get("result_ref") or {}
             return JSONResponse(
                 {"session_id": result_ref.get("session_id"),
+                 "memory_mode": result_ref.get("memory_mode", "STANDARD"),
                  "duplicate": True, "command_receipt": command},
                 status_code=command_http_status(command))
         session_id = "s-" + hashlib.sha256(
@@ -1116,16 +1271,24 @@ async def new_session(request: Request) -> dict:
         session_id = f"s-{uuid.uuid4().hex}"
     await _set_founder_session(session_id, founder_id)
     await db_session_service.create_session(
-        app_name=agent_app.name, user_id=founder_id, session_id=session_id)
+        app_name=agent_app.name, user_id=founder_id, session_id=session_id,
+        state={
+            ss.K_MEMORY_MODE: payload.memory_mode,
+            ss.K_PRIVATE_ORIGIN: payload.memory_mode == "PRIVATE",
+            ss.K_ADVISORY_MEMORY: "none",
+        })
     await session_resources.catalog_session_event(
         founder_id=founder_id, session_id=session_id, created=True)
+    await _catalog_session_memory_mode(session_id, founder_id, payload.memory_mode)
     if command is None:
-        return {"session_id": session_id}
+        return {"session_id": session_id, "memory_mode": payload.memory_mode}
     terminal = await commands.transition(
         workspace_id=founder_id, command_id=command["command_id"],
         expected_version=command["version"], status="COMPLETED",
-        result_ref={"session_id": session_id})
-    return {"session_id": session_id, "command_receipt": terminal}
+        result_ref={"session_id": session_id,
+                    "memory_mode": payload.memory_mode})
+    return {"session_id": session_id, "memory_mode": payload.memory_mode,
+            "command_receipt": terminal}
 
 
 @app.get("/api/v1/sessions/{session_id}/messages")
@@ -1136,7 +1299,8 @@ async def chat_history(session_id: str, request: Request) -> dict:
     hidden — only the agent's replies to them surface. Notices are recognised
     by an invisible marker (resume_handler.SYSTEM_NOTICE_MARKER), never by a
     visible text prefix, so a founder message starting with 'System:' shows."""
-    if request.url.path.startswith("/api/chat/") and os.environ.get("K_SERVICE"):
+    legacy_route = request.url.path.startswith("/api/chat/")
+    if legacy_route and os.environ.get("K_SERVICE"):
         return JSONResponse({"error": True, "error_code": "legacy_route_retired",
                              "message": "Use the v1 sessions API."},
                             status_code=410)
@@ -1157,9 +1321,21 @@ async def chat_history(session_id: str, request: Request) -> dict:
         text = "".join(p.text for p in content.parts if getattr(p, "text", None)).strip()
         if not text or text.startswith(SYSTEM_NOTICE_MARKER):
             continue
-        messages.append({"role": "you" if event.author == "user" else "agent",
-                         "text": text})
-    return {"status": "success", "messages": messages}
+        message = {"role": "you" if event.author == "user" else "agent",
+                   "text": text}
+        # V1 carries stable projection metadata so a canonical work reference
+        # can render inside the exact assistant event that produced it. The
+        # legacy route deliberately keeps its original two-field response.
+        if not legacy_route:
+            message["event_id"] = str(
+                getattr(event, "id", "") or getattr(event, "event_id", ""))
+            message["invocation_id"] = str(
+                getattr(event, "invocation_id", "") or "")
+        messages.append(message)
+    memory_mode = str((session.state or {}).get(ss.K_MEMORY_MODE)
+                      or durable_memory.MemoryMode.STANDARD.value)
+    return {"status": "success", "messages": messages,
+            "memory_mode": memory_mode}
 
 
 @app.get("/api/v1/waits")
@@ -1200,6 +1376,203 @@ async def api_waiting(request: Request, session_id: str = "", since: str = ""):
         "partial": result["partial"],
         "as_of": now.isoformat(),
     }
+
+
+def _memory_response(result: dict, *, not_found: bool = False):
+    if not result.get("error"):
+        return result
+    if not_found or result.get("error_code") == "memory_not_found":
+        status = 404
+    elif result.get("error_code") in {
+            "memory_command_invalid", "memory_content_excluded",
+            "memory_kind_not_allowed", "memory_source_not_allowed",
+            "memory_source_not_synthetic", "memory_source_not_terminal"}:
+        status = 400
+    elif result.get("error_code") in {
+            "memory_pilot_disabled", "memory_disabled",
+            "memory_disabled_for_session", "memory_workspace_not_authorized",
+            "memory_membership_not_eligible", "memory_role_not_eligible"}:
+        status = 403
+    elif result.get("retryable"):
+        status = 503
+    else:
+        status = 409
+    return JSONResponse(result, status_code=status)
+
+
+@app.get("/api/v1/workspace-brief")
+async def api_workspace_brief(
+        request: Request, session_id: str, since: str = ""):
+    """M1 deterministic brief after a metadata-only owned-session gate."""
+    principal = await _platform_human(request)
+    if isinstance(principal, dict):
+        return JSONResponse(principal, status_code=401)
+    if not workspace_brief.release_enabled(principal.workspace_id):
+        return JSONResponse({
+            "status": "error", "error": True,
+            "error_code": "durable_brief_not_released",
+            "message": "The durable workspace brief is not enabled in this stage.",
+        }, status_code=503)
+    mode = await _owned_session_memory_mode(principal, session_id)
+    if mode is None:
+        return JSONResponse({"error": "not found"}, status_code=404)
+    if mode == durable_memory.MemoryMode.PRIVATE.value:
+        return JSONResponse({
+            "status": "error", "error": True,
+            "error_code": "brief_disabled_for_private_session",
+            "message": (
+                "Since you were away is hidden in private conversations. "
+                "No workspace brief was assembled."),
+        }, status_code=403)
+    result = await workspace_brief.configured_assembler().assemble(
+        principal=principal, since=since)
+    return {
+        **result,
+        "session_memory_mode": durable_memory.MemoryMode.STANDARD.value,
+        "private_session": False,
+    }
+
+
+@app.get("/api/v1/memory/status")
+async def api_memory_status(request: Request, session_id: str):
+    principal = await _platform_human(request)
+    if isinstance(principal, dict):
+        return JSONResponse(principal, status_code=401)
+    mode = await _owned_session_memory_mode(principal, session_id)
+    if mode is None:
+        return JSONResponse({"error": "not found"}, status_code=404)
+    if mode == durable_memory.MemoryMode.PRIVATE.value:
+        # Private sessions make zero optional-memory store/ledger calls.
+        return {
+            "status": "success", "session_memory_mode": mode,
+            "read_enabled": False, "write_enabled": False,
+            "private_session": True, "scope": "WORKSPACE",
+            "message": ("Alex will not use or update optional cross-session "
+                        "memory in this session."),
+        }
+    return _memory_response(await durable_memory.configured_service().status(
+        principal=principal, session_mode=mode))
+
+
+@app.get("/api/v1/memories")
+async def api_list_memories(request: Request, session_id: str):
+    principal = await _platform_human(request)
+    if isinstance(principal, dict):
+        return JSONResponse(principal, status_code=401)
+    mode = await _owned_session_memory_mode(principal, session_id)
+    if mode is None:
+        return JSONResponse({"error": "not found"}, status_code=404)
+    if mode == durable_memory.MemoryMode.PRIVATE.value:
+        return _memory_response({
+            "status": "error", "error": True,
+            "error_code": "memory_disabled_for_session",
+            "message": "Private sessions do not read optional memory.",
+        })
+    return _memory_response(await durable_memory.configured_service().list_items(
+        principal=principal))
+
+
+@app.post("/api/v1/memory/settings")
+async def api_memory_settings(request: Request, payload: MemorySettingsRequest):
+    principal = await _platform_human(request)
+    if isinstance(principal, dict):
+        return JSONResponse(principal, status_code=401)
+    mode = await _owned_session_memory_mode(principal, payload.session_id)
+    if mode is None:
+        return JSONResponse({"error": "not found"}, status_code=404)
+    if mode == durable_memory.MemoryMode.PRIVATE.value:
+        return _memory_response({
+            "status": "error", "error": True,
+            "error_code": "memory_disabled_for_session",
+            "message": "Leave the private session before changing optional memory.",
+        })
+    return _memory_response(await durable_memory.configured_service().set_enabled(
+        principal=principal, enabled=payload.enabled,
+        client_request_id=payload.client_request_id))
+
+
+@app.post("/api/v1/memories")
+async def api_remember(request: Request, payload: MemoryRememberRequest):
+    principal = await _platform_human(request)
+    if isinstance(principal, dict):
+        return JSONResponse(principal, status_code=401)
+    mode = await _owned_session_memory_mode(principal, payload.session_id)
+    if mode is None:
+        return JSONResponse({"error": "not found"}, status_code=404)
+    return _memory_response(await durable_memory.configured_service().remember(
+        principal=principal, session_id=payload.session_id,
+        session_mode=mode, kind=payload.memory_kind,
+        summary=payload.summary, tags=payload.tags,
+        client_request_id=payload.client_request_id))
+
+
+@app.post("/api/v1/memories:confirm-synthetic-outcome")
+async def api_confirm_memory_outcome(
+        request: Request, payload: MemoryOutcomeConfirmationRequest):
+    principal = await _platform_human(request)
+    if isinstance(principal, dict):
+        return JSONResponse(principal, status_code=401)
+    mode = await _owned_session_memory_mode(principal, payload.session_id)
+    if mode is None:
+        return JSONResponse({"error": "not found"}, status_code=404)
+    return _memory_response(
+        await durable_memory.configured_service().confirm_synthetic_outcome(
+            principal=principal, control_session_id=payload.session_id,
+            control_session_mode=mode, run_id=payload.run_id,
+            client_request_id=payload.client_request_id))
+
+
+@app.post("/api/v1/memories/{memory_id}:correct")
+async def api_correct_memory(
+        memory_id: str, request: Request, payload: MemoryCorrectRequest):
+    principal = await _platform_human(request)
+    if isinstance(principal, dict):
+        return JSONResponse(principal, status_code=401)
+    mode = await _owned_session_memory_mode(principal, payload.session_id)
+    if mode is None:
+        return JSONResponse({"error": "not found"}, status_code=404)
+    return _memory_response(await durable_memory.configured_service().correct(
+        principal=principal, memory_id=memory_id,
+        expected_version=payload.expected_version, summary=payload.summary,
+        control_session_id=payload.session_id, control_session_mode=mode,
+        client_request_id=payload.client_request_id))
+
+
+@app.post("/api/v1/memories/{memory_id}:pin")
+async def api_pin_memory(
+        memory_id: str, request: Request, payload: MemoryPinRequest):
+    principal = await _platform_human(request)
+    if isinstance(principal, dict):
+        return JSONResponse(principal, status_code=401)
+    mode = await _owned_session_memory_mode(principal, payload.session_id)
+    if mode is None:
+        return JSONResponse({"error": "not found"}, status_code=404)
+    return _memory_response(await durable_memory.configured_service().pin(
+        principal=principal, memory_id=memory_id,
+        expected_version=payload.expected_version,
+        control_session_id=payload.session_id, control_session_mode=mode,
+        client_request_id=payload.client_request_id))
+
+
+@app.post("/api/v1/memories/{memory_id}:forget")
+async def api_forget_memory(
+        memory_id: str, request: Request, payload: MemoryForgetRequest):
+    principal = await _platform_human(request)
+    if isinstance(principal, dict):
+        return JSONResponse(principal, status_code=401)
+    mode = await _owned_session_memory_mode(principal, payload.session_id)
+    if mode is None:
+        return JSONResponse({"error": "not found"}, status_code=404)
+    if mode == durable_memory.MemoryMode.PRIVATE.value:
+        return _memory_response({
+            "status": "error", "error": True,
+            "error_code": "memory_disabled_for_session",
+            "message": "Leave the private session before changing optional memory.",
+        })
+    return _memory_response(await durable_memory.configured_service().forget(
+        principal=principal, memory_id=memory_id,
+        expected_version=payload.expected_version,
+        client_request_id=payload.client_request_id))
 
 
 @app.get("/api/v1/search")
@@ -1367,6 +1740,9 @@ async def api_delete_session(
         session_id=session_id,
         app_name=agent_app.name,
         session_service=db_session_service,
+        memory_principal=principal,
+        client_request_id=(str(getattr(payload, "client_request_id", "") or "")
+                           or f"legacy-session-delete:{session_id}"),
     )
     if result.get("error"):
         if command is not None:
@@ -1979,10 +2355,9 @@ async def tasks_discover(request: Request,
         client_request_id=body.client_request_id,
         session_id=body.session_id,
     )
-    if result.get("status") == "error" or result.get("in_progress"):
-        # A task delivery must retry a failed/lease-held request rather than
-        # acknowledge work that did not complete. Founder-button calls receive
-        # the same honest status and can retry explicitly.
+    if result.get("retryable") or result.get("in_progress"):
+        # Only transient failures and an active durable lease ask Cloud Tasks
+        # for redelivery. Validation/authority/model-output failures are final.
         return JSONResponse(result, status_code=503)
     return result
 
@@ -2004,6 +2379,21 @@ async def tasks_ingest_document(request: Request, payload: IngestTaskPayload):
     return result
 
 
+@app.post("/tasks/expire_session_ingestion")
+async def tasks_expire_session_ingestion(
+        request: Request, payload: ExpireSessionIngestionPayload):
+    """Delete session-only import bytes at the server-authored 24h ceiling."""
+    if not await _verify_task_caller(request):
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    from services import session_ingestion_retention
+
+    result = await session_ingestion_retention.expire_reference_only(
+        payload.ingestion_id)
+    if result.get("retryable"):
+        return JSONResponse(result, status_code=503)
+    return result
+
+
 @app.post("/tasks/investor_outreach_prepare")
 async def tasks_investor_outreach_prepare(
         request: Request, payload: InvestorOutreachPrepareTask):
@@ -2013,7 +2403,7 @@ async def tasks_investor_outreach_prepare(
     result = await _prepare_investor_outreach(
         payload.workspace_id, payload.outreach_id,
         command_id=payload.command_id)
-    if result.get("error"):
+    if result.get("retryable"):
         return JSONResponse(result, status_code=503)
     return result
 
@@ -2042,12 +2432,8 @@ async def tasks_investor_outreach_send(
                 "draft_id": payload.draft_id,
                 "action_id": (result.get("action") or {}).get("action_id")}),
             error_code=str(result.get("error_code") or "send_failed"))
-    if result.get("error"):
-        # UNCERTAIN is durable and must not trigger a blind provider retry.
-        status_code = 200 if result.get("error_code") in {
-            "provider_outcome_uncertain", "reconciliation_required",
-            "action_projection_reconciliation_required"} else 503
-        return JSONResponse(result, status_code=status_code)
+    if result.get("retryable"):
+        return JSONResponse(result, status_code=503)
     return result
 
 
@@ -2156,9 +2542,9 @@ async def _discover_and_score(context: str | None = None,
             or (receipt or {}).get("workspace_id") or "")
         if (not receipt or not receipt_founder
                 or (founder_id and receipt_founder != founder_id)):
-            # Not-yet-visible or foreign receipt: 503-driven redelivery is the
-            # safe outcome; never run without durable authority.
             return {"status": "error", "error": True,
+                    "error_code": "discovery_request_not_found",
+                    "retryable": False,
                     "message": "unknown discovery request"}
         founder_id = receipt_founder
         client_request_id = receipt.get("request_id")
@@ -2264,17 +2650,23 @@ async def _discover_and_score(context: str | None = None,
                 founder_id=workspace_id)
         return result
     except Exception as exc:
+        from services.retry_policy import is_transient_exception
+
         logging.getLogger(__name__).exception("discovery request failed")
+        retryable = is_transient_exception(exc)
         if client_request_id and lease_owner:
             try:
                 await firestore.finish_discovery_request(
                     client_request_id, founder_id,
-                    lease_owner, "FAILED",
+                    lease_owner, "RETRYABLE" if retryable else "FAILED",
                     {"error": str(exc)[:200]})
             except Exception:
                 logging.getLogger(__name__).exception(
                     "failed to close discovery request receipt")
         return {"status": "error", "error": True,
+                "error_code": ("transient_discovery_failure" if retryable
+                               else "discovery_failed"),
+                "retryable": retryable,
                 "message": f"discovery failed: {exc}"[:240]}
 
 
@@ -2345,7 +2737,7 @@ async def tasks_wake_delivery(payload: WakeDeliveryRequest, request: Request):
         return JSONResponse({"error": "workspace_id required"}, status_code=400)
     result = await _run_wake_delivery(
         payload.delivery_id, payload.workspace_id)
-    if result.get("error"):
+    if result.get("retryable"):
         return JSONResponse(result, status_code=503)
     return result
 
@@ -2360,7 +2752,8 @@ async def tasks_workflow_timer_checkpoint(
         workspace_id=payload.workspace_id, wait_id=payload.wait_id,
         expected_generation=payload.expected_generation,
         checkpoint_generation=payload.checkpoint_generation)
-    if result.get("error"):
+    if result.get("retryable") or result.get("error_code") in {
+            "concurrency_conflict", "timer_enqueue_failed"}:
         return JSONResponse(result, status_code=503)
     return result
 
@@ -2373,7 +2766,8 @@ async def tasks_workflow_timer_recover(
         return JSONResponse({"error": "unauthorized"}, status_code=401)
     result = await workflow_timer_service.recover_timer(
         workspace_id=payload.workspace_id, wait_id=payload.wait_id)
-    if result.get("error"):
+    if result.get("retryable") or result.get("error_code") in {
+            "concurrency_conflict", "timer_enqueue_failed"}:
         return JSONResponse(result, status_code=503)
     return result
 
@@ -2396,8 +2790,27 @@ async def tasks_distill(payload: DistillRequest, request: Request):
 
 @app.get("/api/config")
 async def api_config():
-    """Founder-facing config for the UI (docs/adr/001): persona name, workflow."""
-    return {"persona_name": PERSONA_NAME, "workflow_id": os.environ.get("WORKFLOW_FILE", "")}
+    """Founder-facing config for the UI, including fail-closed feature surfaces."""
+    memory_surface_enabled = os.environ.get("DURABLE_MEMORY_M2_ENABLED", "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+    local_memory_pilot = (
+        memory_surface_enabled
+        and os.environ.get("DURABLE_MEMORY_M2_LOCAL_PILOT", "").strip().lower()
+        in {"1", "true", "yes", "on"}
+        and not os.environ.get("K_SERVICE")
+    )
+    return {
+        "persona_name": PERSONA_NAME,
+        "workflow_id": os.environ.get("WORKFLOW_FILE", ""),
+        "memory_surface_enabled": memory_surface_enabled,
+        "memory_surface_mode": "LOCAL_SYNTHETIC_PILOT" if local_memory_pilot else (
+            "CONTROLLED_M2" if memory_surface_enabled else "OFF"
+        ),
+    }
 
 
 @app.get("/api/v1/pipeline")
@@ -2717,11 +3130,7 @@ class RunControlV1(BaseModel):
 class MembershipChangeV1(BaseModel):
     client_request_id: str = Field(min_length=8, max_length=128)
     expected_version: int = Field(ge=1)
-    role: Literal["OWNER", "HIRING_MANAGER", "INTERVIEWER", "OBSERVER"]
     status: Literal["ACTIVE", "REVOKED"]
-    role_grants: list[str] = Field(default_factory=list, max_length=200)
-    candidate_assignments: list[str] = Field(default_factory=list, max_length=500)
-    interview_assignments: list[str] = Field(default_factory=list, max_length=500)
 
 
 class ReconcileActionV1(BaseModel):
@@ -2732,7 +3141,7 @@ class ReconcileActionV1(BaseModel):
 @app.patch("/api/v1/workspace-members/{actor_id}")
 async def api_v1_change_membership(request: Request, actor_id: str,
                                    payload: MembershipChangeV1):
-    """Fresh-owner, versioned, receipted membership administration."""
+    """Fresh-operator, versioned, receipted membership administration."""
     principal = await _platform_human(request)
     if isinstance(principal, dict):
         return JSONResponse(principal, status_code=401)
@@ -2747,9 +3156,6 @@ async def api_v1_change_membership(request: Request, actor_id: str,
     result = await change_membership(
         principal=principal, actor_id=actor_id,
         expected_version=payload.expected_version,
-        role=WorkspaceRole(payload.role), role_grants=payload.role_grants,
-        candidate_assignments=payload.candidate_assignments,
-        interview_assignments=payload.interview_assignments,
         status=payload.status, client_request_id=payload.client_request_id,
         store=production_store())
     terminal = await commands.transition(
@@ -2775,7 +3181,9 @@ async def api_v1_get_run(request: Request, run_id: str):
     if isinstance(principal, dict):
         return JSONResponse(principal, status_code=401)
     row = await production_store().get("workflow_runs", run_id)
-    if not row or row.get("workspace_id") != principal.workspace_id:
+    if not row or not run_visible_to_actor(
+            row, workspace_id=principal.workspace_id,
+            actor_id=principal.actor_id):
         return JSONResponse(
             {"status": "error", "error": True,
              "error_code": "run_not_found", "message": "Run does not exist."},
@@ -2790,7 +3198,9 @@ async def _run_control(request: Request, run_id: str, payload: RunControlV1,
         return JSONResponse(principal, status_code=401)
     store = production_store()
     row = await store.get("workflow_runs", run_id)
-    if not row or row.get("workspace_id") != principal.workspace_id:
+    if not row or not run_visible_to_actor(
+            row, workspace_id=principal.workspace_id,
+            actor_id=principal.actor_id):
         return JSONResponse(
             {"status": "error", "error": True,
              "error_code": "run_not_found", "message": "Run does not exist."},
@@ -2801,12 +3211,21 @@ async def _run_control(request: Request, run_id: str, payload: RunControlV1,
              "error_code": "version_conflict",
              "message": "Run changed; reload before issuing this command."},
             status_code=409)
+    if row.get("execution_mode") == "BACKGROUND" and operation != "cancel":
+        return JSONResponse(
+            {"status": "error", "error": True,
+             "error_code": "background_operation_unavailable",
+             "message": "This background foundation currently supports cancellation only."},
+            status_code=409)
     commands = CommandService(store)
     command = await commands.accept(
         principal=principal, client_request_id=payload.client_request_id,
         command_type=f"workflow_run.{operation}",
         request={"run_id": run_id, "expected_version": payload.expected_version,
-                 "reason": payload.reason})
+                 "reason": payload.reason},
+        visibility_scope=str(row.get("visibility_scope") or "WORKSPACE"),
+        subject_id=(str(row.get("subject_id") or "")
+                    if row.get("visibility_scope") == "ACTOR_PRIVATE" else ""))
     if command.get("error") or command.get("duplicate"):
         return JSONResponse(command, status_code=command_http_status(command))
     runtime = WorkflowRuntime(store)
@@ -2903,6 +3322,8 @@ async def api_v1_events_stream(request: Request, last_event_id: str = ""):
         ProjectionEventService,
         snapshot_required_event,
         sse_event,
+        wait_for_workspace_event,
+        workspace_revision,
     )
 
     stream = ProjectionEventService(production_store())
@@ -2921,7 +3342,7 @@ async def api_v1_events_stream(request: Request, last_event_id: str = ""):
             return
         started = asyncio.get_running_loop().time()
         next_membership_check = started
-        while asyncio.get_running_loop().time() - started < 55 * 60:
+        while asyncio.get_running_loop().time() - started < 10 * 60:
             if await request.is_disconnected():
                 return
             now = asyncio.get_running_loop().time()
@@ -2936,6 +3357,7 @@ async def api_v1_events_stream(request: Request, last_event_id: str = ""):
                     yield "event: authorization_revoked\ndata: {}\n\n"
                     return
                 next_membership_check = now + 30
+            local_revision = workspace_revision(principal.workspace_id)
             replay = await stream.replay(
                 workspace_id=principal.workspace_id,
                 after_sequence=after_sequence)
@@ -2945,9 +3367,13 @@ async def api_v1_events_stream(request: Request, last_event_id: str = ""):
             if replay["snapshot_required"]:
                 yield snapshot_required_event(after_sequence)
                 return
-            if not replay["events"]:
-                yield ": keepalive\n\n"
-            await asyncio.sleep(2)
+            if replay["events"]:
+                # Drain a bounded backlog immediately. Once empty, the local
+                # publisher wakes this reader without a datastore read.
+                continue
+            yield ": keepalive\n\n"
+            await wait_for_workspace_event(
+                principal.workspace_id, after_revision=local_revision)
 
     return StreamingResponse(
         events(), media_type="text/event-stream",
@@ -3151,7 +3577,7 @@ async def api_ingest(request: Request, file: UploadFile = File(...),
                      scope: str = Form("reference_only"),
                      client_request_id: str = Form("")):
     """Validate and register a document; extraction continues durably."""
-    from services import document_ingestion
+    from services import document_ingestion, image_ingestion, source_ingestion
 
     if request.url.path == "/api/ingest" and os.environ.get("K_SERVICE"):
         return JSONResponse({"error": True, "error_code": "legacy_route_retired",
@@ -3174,9 +3600,25 @@ async def api_ingest(request: Request, file: UploadFile = File(...),
                        "application/vnd.openxmlformats-officedocument.presentationml.presentation",
                        "application/msword", "application/vnd.ms-powerpoint",
                        "application/vnd.ms-excel", "application/zip",
-                       "text/plain", "text/csv", "application/octet-stream"})
-    checked = document_ingestion.validate_upload(
-        data, file.filename or "", file.content_type or "application/octet-stream")
+                       "text/plain", "text/csv", "application/octet-stream",
+                       "image/jpeg", "image/png", "image/webp"})
+    declared_type = file.content_type or "application/octet-stream"
+    image_candidate = source_ingestion.is_image_candidate(data, declared_type)
+    if image_candidate and not image_ingestion.enabled():
+        return JSONResponse({
+            "status": "error", "error": True,
+            "error_code": "image_understanding_not_enabled",
+            "message": "Still-image understanding is not enabled; documents still work."
+        }, status_code=404)
+    if image_candidate and scope != "reference_only":
+        return JSONResponse({
+            "status": "error", "error": True,
+            "error_code": "image_scope_forbidden",
+            "message": "Images can only be used in this conversation."
+        }, status_code=400)
+    checked = (image_ingestion.validate_image(data, file.filename or "", declared_type)
+               if image_candidate else document_ingestion.validate_upload(
+                   data, file.filename or "", declared_type))
     if checked.get("status") != "success":
         status_code = 415 if checked.get("ingestion_status") == "UNSUPPORTED" else 400
         return JSONResponse(checked, status_code=status_code)
@@ -3203,7 +3645,7 @@ async def api_ingest(request: Request, file: UploadFile = File(...),
         source_ref=file.filename or safe, storage_name="", data=data,
         checked=checked,
         declared_content_type=(
-            file.content_type or "application/octet-stream").lower(),
+            declared_type).lower(),
         title=file.filename or safe,
         occurrence_prefix=f"upload:{uuid.uuid4().hex}",
         founder_id=founder_id, command=(commands, command) if command else None)
@@ -3234,6 +3676,7 @@ async def api_ingestion_status(
     return {
         "status": "success", "attachment_ref": attachment_ref,
         "filename": ingestion.get("source_ref", "document"),
+        "kind": artifact.get("kind", "document"),
         "scope": ingestion.get("scope", "reference_only"),
         "ingestion_status": ingestion.get("status", "QUEUED"),
         "chunk_count": int(ingestion.get("chunk_count") or 0),
@@ -3242,7 +3685,111 @@ async def api_ingestion_status(
         "needs_founder": int(ingestion.get("needs_founder_count") or 0),
         "error_code": ingestion.get("error_code"),
         "message": ingestion.get("message"),
+        "width": artifact.get("width"),
+        "height": artifact.get("height"),
+        "observation_count": int(ingestion.get("observation_count") or 0),
     }
+
+
+class IngestionDeleteRequest(BaseModel):
+    """Exact founder confirmation for deleting one session attachment."""
+
+    session_id: str = Field(min_length=1, max_length=256)
+    confirm: bool = False
+    client_request_id: str = Field(min_length=1, max_length=128)
+
+
+@app.delete("/api/v1/ingestions/{attachment_ref}")
+async def api_delete_ingestion(
+        attachment_ref: str, payload: IngestionDeleteRequest, request: Request):
+    """Delete one exact session-scoped attachment and all derived indexes.
+
+    Identity and session scope are re-resolved server-side. The endpoint never
+    accepts a storage path, and it deletes bytes before hiding their registry row
+    so a partial cleanup cannot be reported as success.
+    """
+    if not _INGESTION_REF.fullmatch(attachment_ref):
+        raise HTTPException(status_code=400, detail="invalid attachment reference")
+    if not payload.confirm:
+        return JSONResponse({
+            "status": "error", "error": True,
+            "error_code": "exact_confirmation_required",
+            "message": "Confirm deletion of this exact attachment.",
+        }, status_code=400)
+    principal = await _route_principal(request)
+    if isinstance(principal, dict):
+        return JSONResponse(principal, status_code=401)
+    if not _REQUEST_ID.fullmatch(payload.client_request_id):
+        return JSONResponse({
+            "error": True, "error_code": "command_contract_invalid",
+            "message": "A valid client_request_id is required.",
+        }, status_code=400)
+    founder_id = principal.workspace_id
+    if not await _workspace_session_exists(founder_id, payload.session_id):
+        return JSONResponse({"error": "not found"}, status_code=404)
+    artifact = await firestore.get_artifact(attachment_ref)
+    ingestion = await firestore.get_ingestion(attachment_ref)
+    if (not artifact or not ingestion
+            or artifact.get("founder_id") != founder_id
+            or ingestion.get("founder_id") != founder_id
+            or artifact.get("session_id") != payload.session_id
+            or ingestion.get("session_id") != payload.session_id
+            or artifact.get("retention_policy") != "session"):
+        return JSONResponse({"error": "not found"}, status_code=404)
+
+    commands = CommandService(production_store())
+    command = await commands.accept(
+        principal=principal, client_request_id=payload.client_request_id,
+        command_type="ingestion.delete",
+        request={"attachment_ref": attachment_ref,
+                 "session_id": payload.session_id, "confirm": True},
+        origin_session_id=payload.session_id)
+    if command.get("error") or command.get("duplicate"):
+        return JSONResponse(command, status_code=command_http_status(command))
+
+    resource_id = session_resources.resource_id_for(
+        founder_id, session_resources.ResourceType.ARTIFACT,
+        "artifacts", attachment_ref)
+    if await firestore.resource_has_other_session_link(
+            founder_id, resource_id, excluding_session_id=payload.session_id):
+        rejected = await commands.transition(
+            workspace_id=founder_id, command_id=command["command_id"],
+            expected_version=command["version"], status="REJECTED",
+            error_code="attachment_shared")
+        return JSONResponse(rejected, status_code=409)
+    try:
+        names = dict.fromkeys(str(item or "") for item in (
+            artifact.get("storage_name"),
+            artifact.get("normalized_storage_name")) if item)
+        for name in names:
+            await asyncio.to_thread(storage.delete_artifact, name)
+        removed = await firestore.delete_session_artifact_records(
+            founder_id, payload.session_id, attachment_ref)
+        if not removed:
+            raise RuntimeError("attachment authority changed")
+        await firestore.tombstone_session_resource_links(
+            founder_id, payload.session_id, resource_id)
+        projection = await firestore.get_resource(resource_id)
+        if projection:
+            if not await firestore.delete_resource_projection(
+                    founder_id, resource_id):
+                raise RuntimeError("resource projection was not deleted")
+        await firestore.audit(
+            f"founder:{founder_id}", "attachment_delete",
+            f"artifacts/{attachment_ref}", "success",
+            f"session_id={payload.session_id}; kind={artifact.get('kind', 'document')}")
+    except Exception:
+        failed = await commands.transition(
+            workspace_id=founder_id, command_id=command["command_id"],
+            expected_version=command["version"], status="FAILED",
+            error_code="attachment_delete_incomplete")
+        return JSONResponse(failed, status_code=503)
+    terminal = await commands.transition(
+        workspace_id=founder_id, command_id=command["command_id"],
+        expected_version=command["version"], status="COMPLETED",
+        result_ref={"attachment_ref": attachment_ref,
+                    "session_id": payload.session_id})
+    return JSONResponse(terminal, status_code=200)
 
 
 @app.get("/api/v1/ingestions/{attachment_ref}/profile-review")
@@ -3369,10 +3916,14 @@ async def api_ingestion_source(
         return JSONResponse({"error": "source unavailable"}, status_code=404)
     filename = _safe_filename_component(
         str(artifact.get("source_ref") or "document"), fallback="document")
+    headers = {"X-Content-Type-Options": "nosniff"}
+    if str(artifact.get("kind") or "document") == "image":
+        headers["Content-Security-Policy"] = "default-src 'none'; img-src 'self' data:"
+        headers["Cache-Control"] = "private, no-store"
     return FileResponse(
         path, media_type=str(artifact.get("detected_content_type") or
                              "application/octet-stream"),
-        filename=filename, content_disposition_type="inline")
+        filename=filename, content_disposition_type="inline", headers=headers)
 
 
 async def _read_upload(file: UploadFile, max_bytes: int,

@@ -1,0 +1,20 @@
+{
+  "__comment": "Deploy these field TTL policies before enabling docs/35 Live vision or docs/39 M2 durable memory outside internal use.",
+  "policies": [
+    {
+      "collectionGroup": "media_consent_grants",
+      "fieldPath": "retention_expires_at",
+      "ttl": true
+    },
+    {
+      "collectionGroup": "live_media_shares",
+      "fieldPath": "retention_expires_at",
+      "ttl": true
+    },
+    {
+      "collectionGroup": "memory_items",
+      "fieldPath": "expires_at_ts",
+      "ttl": true
+    }
+  ]
+}

@@ -3,3 +3,7 @@ nest-asyncio==1.6.0
 pytest==9.1.1
 pytest-asyncio==1.4.0
 ruff==0.16.3
+
+# scripts/build_brand.py only — outlines the logotype and rasterises the icons.
+cairosvg==2.7.1
+fonttools==4.60.1

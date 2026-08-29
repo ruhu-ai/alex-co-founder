@@ -16,7 +16,7 @@ ENV_VARS = ("APP_AUTH_TOKEN", "APP_SESSION_SECRET", "K_SERVICE",
             "FIREBASE_AUTH_DOMAIN", "GOOGLE_CLOUD_PROJECT",
             "GOOGLE_OAUTH_CLIENT_ID", "GOOGLE_OAUTH_CLIENT_SECRET",
             "GOOGLE_LOGIN_REDIRECT_URI",
-            "ALLOWED_LOGIN_EMAILS")
+            "ALLOWED_LOGIN_EMAILS", "WORKSPACE_ID")
 
 
 @pytest.fixture
@@ -233,6 +233,24 @@ def test_auth_session_grants_and_me_reports_it(env, client, monkeypatch):
     assert me["mode"] == "session"
     assert me["email"] == "founder@ruhu.ai"
     assert me["name"] == "Ijidai"
+
+
+def test_main_ui_starts_founder_workspace_without_legacy_access_pass():
+    source = open("app/static/index.html", encoding="utf-8").read()
+    assert "await startAuthorizedApp()" in source
+    assert "checkWorkspaceAccess" not in source
+    assert "accessGate" not in source
+    assert "/auth/workspace/bootstrap" not in source
+
+
+def test_login_restores_founder_directly_and_shell_redirect_is_single_shot():
+    login = open("app/static/login.html", encoding="utf-8").read()
+    shell = open("app/static/index.html", encoding="utf-8").read()
+    assert 'fetch("/auth/access"' not in login
+    assert 'if (me?.authenticated)' in login
+    assert "let signInRedirectStarted = false;" in shell
+    assert 'location.replace("/login.html")' in shell
+    assert 'location.href = "/login.html"' not in shell
 
 
 def test_auth_me_modes(env, client):

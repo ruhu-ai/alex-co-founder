@@ -8,15 +8,23 @@ behaviours the review required proof of and that no server test can see.
 from __future__ import annotations
 
 import pathlib
+import re
 
 UI = (pathlib.Path(__file__).resolve().parents[2]
       / "app/static/index.html").read_text(encoding="utf-8")
 
 
+def squashed(value: str) -> str:
+    return re.sub(r"\s+", "", value)
+
+
+UI_SQUASHED = squashed(UI)
+
+
 class TestSurface:
     def test_button_and_dialog_are_sessions_only(self):
-        assert 'title="Sessions (⌘K)"' in UI
-        assert 'aria-label="Find a session"' in UI
+        assert 'title="Search sessions and work (⌘K)"' in UI
+        assert 'aria-label="Search sessions"' in UI
         assert '<div class="conn-title">Sessions</div>' in UI
 
     def test_dialog_explains_the_session_workbench_preview(self):
@@ -41,7 +49,7 @@ class TestBehaviour:
         assert "if (generation !== searchGeneration) return;" in UI
 
     def test_typing_is_debounced(self):
-        assert "setTimeout(() => runSearch({ reset: true }), 200)" in UI
+        assert "setTimeout(()=>runSearch({reset:true}),200)" in UI_SQUASHED
 
     def test_pagination_is_user_driven_not_polled(self):
         assert "data-search-more" in UI
@@ -164,7 +172,10 @@ class TestSessionWorkbenchContext:
         assert '/api/v1/sessions/${encodeURIComponent(context)}/resources?limit=2000' in UI
         assert '/api/v1/documents?session_id=${encodeURIComponent(context)}' in UI
         assert '/api/v1/browser/state?session_id=${encodeURIComponent(session)}' in UI
-        assert '/api/v1/waits?session_id=${encodeURIComponent(context)}' in UI
+        waiting = UI.split("async function refreshWaiting()", 1)[1].split("\n}", 1)[0]
+        assert "newURLSearchParams({session_id:context})" in squashed(waiting)
+        assert "/api/v1/workspace-brief?${params.toString()}" in waiting
+        assert "/api/v1/waits" not in waiting
 
     def test_session_outputs_are_visible_and_focusable(self):
         assert 'id="sessionWork"' in UI

@@ -40,15 +40,30 @@ SESSION_COOKIE = "app_session"
 QUERY_PARAM = "key"
 SESSION_TTL_SECONDS = 60 * 60 * 24 * 14  # matches the token cookie
 
-# Browser chrome requests these before a person can authenticate. Keep the
-# exemption exact so a similarly prefixed application route is still gated.
-PUBLIC_PATHS = frozenset({"/favicon.ico", "/favicon.svg"})
+# Browser chrome requests these before a person can authenticate, and link
+# unfurlers fetch the preview card with no session at all. Keep the exemption
+# exact so a similarly prefixed application route is still gated. Every entry
+# is generated brand artwork (scripts/build_brand.py) and carries no founder
+# data — adding anything else here needs the same to be true.
+PUBLIC_PATHS = frozenset({
+    "/favicon.ico",
+    "/favicon.svg",
+    "/apple-touch-icon.png",
+    "/icon-192.png",
+    "/icon-512.png",
+    "/icon-maskable-512.png",
+    "/site.webmanifest",
+    "/og-image.png",
+    "/brand/mark.svg",
+    "/brand/lockup.svg",
+})
 
 # Routes that verify their own callers (portal token, OIDC) or must stay
 # reachable for probes and for signing in. Everything else requires a
 # founder credential.
 EXEMPT_PREFIXES = ("/health", "/webhooks/", "/tasks/",  # "/health" covers /healthz
-                   "/auth/", "/login.html")
+                   "/auth/", "/login.html", "/hiring-notice.html",
+                   "/api/public/hiring/roles/")
 
 
 def configured_token() -> str:
@@ -120,7 +135,8 @@ def _sign(payload: str, secret: str) -> str:
 
 
 def mint_session(email: str, name: str = "", *, subject: str = "",
-                 auth_time: int | None = None) -> str:
+                 auth_time: int | None = None,
+                 auth_time_source: str = "") -> str:
     """Signed, self-contained session value: base64url(claims).hmac."""
     secret = _session_secret()
     if not secret:
@@ -136,6 +152,8 @@ def mint_session(email: str, name: str = "", *, subject: str = "",
         claims["sub"] = subject
     if isinstance(auth_time, int):
         claims["auth_time"] = auth_time
+        if auth_time_source:
+            claims["auth_time_source"] = auth_time_source
     payload = _b64url(json.dumps(claims, separators=(",", ":")).encode())
     return f"{payload}.{_sign(payload, secret)}"
 
@@ -209,8 +227,11 @@ def _token_ok(presented: str) -> bool:
 
 
 def request_is_founder(request) -> bool:
-    """True when the HTTP request carries the founder token, a valid login
-    session, or dev-open applies."""
+    """True for the founder token, a valid login session, or dev-open.
+
+    This legacy name is an authentication predicate only. Workspace role and
+    authority are always resolved separately from durable membership.
+    """
     if _session_claims(request.cookies):
         return True
     return _token_ok(_presented_token(
@@ -354,7 +375,8 @@ def install(app) -> None:
                                      subject=str(claims.get("sub") or ""),
                                      auth_time=(int(claims["auth_time"])
                                                 if isinstance(claims.get("auth_time"),
-                                                              (int, float)) else None)),
+                                                              (int, float)) else None),
+                                     auth_time_source="idp_auth_time"),
                         **_cookie_kwargs())
         return resp
 

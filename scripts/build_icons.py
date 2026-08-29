@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate the inline icon sprite in app/static/index.html from Phosphor.
+"""Generate the founder-facing inline icon sprites from Phosphor.
 
 The founder UI has no build step (docs/10), so the sprite ships inline in the
 page. This script is how it is regenerated: it reads the vendored Phosphor
@@ -20,7 +20,10 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-INDEX = ROOT / "app" / "static" / "index.html"
+TARGETS = (
+    ROOT / "app" / "static" / "index.html",
+    ROOT / "app" / "static" / "hiring.html",
+)
 VENDOR = ROOT / "app" / "static" / "vendor" / "icons" / "phosphor"
 
 BEGIN = "<!-- @sprite:begin -->"
@@ -34,6 +37,8 @@ ICONS: dict[str, str] = {
     "waveform": "waveform",
     "paperclip": "paperclip",
     "chat": "chat-circle",
+    "camera": "camera",
+    "screen-share": "monitor-arrow-up",
     # header + chrome
     "plug": "plugs",
     "refresh": "arrows-clockwise",
@@ -46,6 +51,7 @@ ICONS: dict[str, str] = {
     "chev-left": "caret-left",
     "chev-right": "caret-right",
     "board": "kanban",
+    "hiring": "users-three",
     "clipboard": "clipboard-text",
     # status
     "check": "check",
@@ -122,12 +128,13 @@ def main() -> int:
         f'{END}'
     )
 
-    html = INDEX.read_text(encoding="utf-8")
-    if BEGIN not in html or END not in html:
-        raise SystemExit(f"sprite markers not found in {INDEX}")
-    start, end = html.index(BEGIN), html.index(END) + len(END)
-    INDEX.write_text(html[:start] + sprite + html[end:], encoding="utf-8")
-    print(f"sprite rebuilt: {len(ICONS)} icons from Phosphor regular")
+    for target in TARGETS:
+        html = target.read_text(encoding="utf-8")
+        if BEGIN not in html or END not in html:
+            raise SystemExit(f"sprite markers not found in {target}")
+        start, end = html.index(BEGIN), html.index(END) + len(END)
+        target.write_text(html[:start] + sprite + html[end:], encoding="utf-8")
+    print(f"sprites rebuilt in {len(TARGETS)} pages: {len(ICONS)} icons from Phosphor regular")
     return 0
 
 

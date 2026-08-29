@@ -65,6 +65,12 @@ async def test_upload_and_drive_share_metadata_and_provenance_contract(
         assert artifact["status"] == ingestion["status"] == "QUEUED"
         assert artifact["sha256"] == ingestion["sha256"]
         assert artifact["storage_name"].startswith("companydoc_founder_")
+    assert fake_store.artifacts[upload["attachment_ref"]][
+        "retention_expires_at"] is not None
+    assert fake_store.ingestions[upload["attachment_ref"]][
+        "retention_expires_at"] is not None
+    assert fake_store.artifacts[drive["attachment_ref"]][
+        "retention_expires_at"] is None
     drive_row = fake_store.artifacts[drive["attachment_ref"]]
     assert drive_row["connection_id"] == connection["connection_id"]
     assert drive_row["source_grant_id"] == grant["source_grant_id"]

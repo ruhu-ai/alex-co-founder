@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from services.actor_identity import ActorPrincipal, WorkspaceRole, authorize
+from services.actor_identity import ActorPrincipal, authorize
 from services.durable_store import DurableStore, production_store
 from services.hiring_contracts import RoleContract, canonical_hash, stable_id, utc_now
 
@@ -20,7 +20,7 @@ async def propose_policy(*, principal: ActorPrincipal, role_id: str,
                          client_request_id: str,
                          store: DurableStore | None = None,
                          crash_point: str = "") -> dict[str, Any]:
-    gate = authorize(principal, "prepare_role", role_id=role_id)
+    gate = authorize(principal, "prepare_role")
     if gate.get("error"):
         return gate
     durable = store or production_store()
@@ -114,8 +114,12 @@ async def approve_policy(*, principal: ActorPrincipal, role_id: str,
                          policy_version_id: str, expected_role_version: int,
                          approval_id: str, store: DurableStore | None = None,
                          crash_point: str = "") -> dict[str, Any]:
-    if principal.role is not WorkspaceRole.OWNER:
-        return _error("operation_forbidden", "Only the workspace owner can activate policy.", 403)
+    # Policy activation is available to the scoped Founder only after the
+    # exact durable approval below is granted. Membership administration is a
+    # separate internal control and is not a second product role.
+    gate = authorize(principal, "prepare_role")
+    if gate.get("error"):
+        return gate
     durable = store or production_store()
     role = await durable.get("hiring_roles", role_id)
     policy = await durable.get("hiring_policy_versions", policy_version_id)

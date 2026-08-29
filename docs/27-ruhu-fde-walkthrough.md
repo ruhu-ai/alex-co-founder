@@ -6,7 +6,7 @@ browser-write, email, Calendar, or deletion path.
 
 ## Preconditions
 
-- Owner membership is provisioned with `scripts/seed_hiring_membership.py`.
+- Founder membership is provisioned with `scripts/seed_hiring_founder.py`.
 - `HIRING_ENABLE_SYNTHETIC_DEMO=1`.
 - `HIRING_SYNTHETIC_FIXTURE_IDS` includes `fixture_ruhu_fde_walkthrough`.
 - `HIRING_SYNTHETIC_ENCRYPTION_KEY` is configured.

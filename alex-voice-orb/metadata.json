@@ -1,0 +1,6 @@
+{
+  "name": "Alex Voice Orb",
+  "description": "A soft, organic cloud-like blue energy orb for Alex, an AI co-founder. Designed for voice-first interactions with fluid lobes, subtle depth, and light/dark theme legibility.",
+  "requestFramePermissions": ["microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

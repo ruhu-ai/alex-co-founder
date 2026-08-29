@@ -10,6 +10,8 @@ from services.canonical import canonical_hash
 from services.workflow_contracts import PLAN_TEMPLATES, WORKFLOW_DEFINITIONS
 
 STEP_CAPABILITIES: dict[str, dict[str, str]] = {
+    "alex_background_job:v1": {
+        "validate_contract": "background.contract.validate"},
     "opportunity_discovery:v1": {
         "discover": "opportunity.search", "score": "opportunity.score",
         "publish_receipt": "workflow.receipt"},

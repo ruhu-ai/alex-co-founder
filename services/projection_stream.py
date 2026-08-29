@@ -7,6 +7,7 @@ resource snapshots. Events contain bounded, content-free display metadata.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from typing import Any
@@ -20,6 +21,52 @@ PROJECTION_TYPES = frozenset({
 })
 MAX_PAYLOAD_BYTES = 8192
 MAX_REPLAY_BATCH = 100
+RECONCILE_SECONDS = 25.0
+
+# Projection writes and SSE readers usually share a Cloud Run instance. Wake
+# those readers directly instead of querying Firestore every two seconds. A
+# bounded reconciliation timeout remains necessary because another instance
+# may commit the event; it is a recovery path, not the primary delivery loop.
+_workspace_waiters: dict[str, set[asyncio.Event]] = {}
+_workspace_revisions: dict[str, int] = {}
+
+
+def notify_workspace(workspace_id: str) -> None:
+    """Wake local projection readers after an authoritative commit."""
+    _workspace_revisions[workspace_id] = _workspace_revisions.get(workspace_id, 0) + 1
+    for waiter in tuple(_workspace_waiters.get(workspace_id, ())):
+        waiter.set()
+
+
+def workspace_revision(workspace_id: str) -> int:
+    """Return the process-local publish generation for race-free waiting."""
+    return _workspace_revisions.get(workspace_id, 0)
+
+
+async def wait_for_workspace_event(
+        workspace_id: str, *, after_revision: int | None = None,
+        timeout: float = RECONCILE_SECONDS) -> bool:
+    """Wait for a local publish; timeout permits cross-instance reconciliation."""
+    expected = (workspace_revision(workspace_id)
+                if after_revision is None else int(after_revision))
+    if workspace_revision(workspace_id) != expected:
+        return True
+    waiter = asyncio.Event()
+    waiters = _workspace_waiters.setdefault(workspace_id, set())
+    waiters.add(waiter)
+    try:
+        # Close the replay -> subscribe race: a publish between the first check
+        # and registration changed the generation even if no future set occurs.
+        if workspace_revision(workspace_id) != expected:
+            return True
+        await asyncio.wait_for(waiter.wait(), timeout=max(0.01, float(timeout)))
+        return True
+    except asyncio.TimeoutError:
+        return False
+    finally:
+        waiters.discard(waiter)
+        if not waiters:
+            _workspace_waiters.pop(workspace_id, None)
 
 
 def _error(code: str, message: str) -> dict[str, Any]:
@@ -94,6 +141,7 @@ class ProjectionEventService:
                     "projection_events", event_id, None, record=row),
             ))
             if committed:
+                notify_workspace(workspace_id)
                 return {"status": "success", "duplicate": False,
                         **committed[("projection_events", event_id)]}
             existing = await self.store.get("projection_events", event_id)

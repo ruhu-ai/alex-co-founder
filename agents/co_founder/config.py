@@ -9,7 +9,8 @@ import os
 import google.auth
 from dotenv import load_dotenv
 from google.adk.models import Gemini
-from google.genai import types
+
+from services.retry_policy import gemini_retry_options
 
 # .env at the repo root is the local-dev configuration source (docs/13);
 # load_dotenv never overrides variables already present in the environment.
@@ -59,10 +60,10 @@ LIVE_MODEL_ID = os.environ.get("LIVE_MODEL", "gemini-live-2.5-flash")
 
 MODEL = Gemini(
     model=MODEL_ID,
-    retry_options=types.HttpRetryOptions(attempts=3),  # transient 5xx/429 resilience
+    retry_options=gemini_retry_options(),
 )
 
 REASONING_MODEL = Gemini(
     model=REASONING_MODEL_ID,
-    retry_options=types.HttpRetryOptions(attempts=3),
+    retry_options=gemini_retry_options(),
 )

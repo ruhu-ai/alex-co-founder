@@ -188,12 +188,11 @@ async def test_exact_provider_thread_wakes_and_advances_investor_vertical(
     durable = InMemoryDurableStore()
     membership = await create_membership(
         actor_id="actor_owner", workspace_id="founder",
-        auth_subject="subject_owner", role=WorkspaceRole.OWNER,
+        auth_subject="subject_owner", role=WorkspaceRole.FOUNDER,
         created_by="test", store=durable)
     principal = ActorPrincipal(
         actor_id="actor_owner", workspace_id="founder",
-        role=WorkspaceRole.OWNER, role_grants=frozenset(),
-        candidate_assignments=frozenset(), interview_assignments=frozenset(),
+        role=WorkspaceRole.FOUNDER,
         session_auth_time=int(time.time()),
         membership_version=membership["version"],
         membership_id=membership["membership_id"])

@@ -12,7 +12,7 @@ from typing import Any, Awaitable, Callable
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 from services import hiring_activation
-from services.actor_identity import ActorPrincipal, WorkspaceRole, authorize
+from services.actor_identity import ActorPrincipal, authorize
 from services.durable_store import DurableStore, production_store
 from services.hiring_contracts import canonical_hash, stable_id, utc_now
 
@@ -91,12 +91,9 @@ class CandidateIdentityVault:
     async def reveal_identity(self, *, identity_id: str, workspace_id: str,
                               role_id: str, candidate_application_id: str,
                               principal: ActorPrincipal) -> dict[str, Any]:
-        gate = authorize(principal, "read_candidate", role_id=role_id,
-                         candidate_application_id=candidate_application_id,
+        gate = authorize(principal, "read_candidate",
                          require_fresh=True)
-        if (gate.get("error") or principal.workspace_id != workspace_id
-                or principal.role not in {WorkspaceRole.OWNER,
-                                          WorkspaceRole.HIRING_MANAGER}):
+        if gate.get("error") or principal.workspace_id != workspace_id:
             return _error("identity_access_forbidden")
         row = await self.store.get("candidate_identities", identity_id)
         if (not row or row.get("workspace_id") != workspace_id

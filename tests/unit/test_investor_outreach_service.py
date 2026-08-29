@@ -16,12 +16,11 @@ pytestmark = pytest.mark.asyncio
 async def _principal(store: InMemoryDurableStore, workspace_id: str = "workspace_a"):
     membership = await create_membership(
         actor_id="actor_owner", workspace_id=workspace_id,
-        auth_subject="subject_owner", role=WorkspaceRole.OWNER,
+        auth_subject="subject_owner", role=WorkspaceRole.FOUNDER,
         created_by="test", store=store)
     return ActorPrincipal(
         actor_id="actor_owner", workspace_id=workspace_id,
-        role=WorkspaceRole.OWNER, role_grants=frozenset(),
-        candidate_assignments=frozenset(), interview_assignments=frozenset(),
+        role=WorkspaceRole.FOUNDER,
         session_auth_time=int(time.time()),
         membership_version=membership["version"],
         membership_id=membership["membership_id"])

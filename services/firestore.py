@@ -59,9 +59,13 @@ TOP_LEVEL_COLLECTIONS: frozenset[str] = frozenset({
     "founder_inbox",
     "external_actions",
     "wake_deliveries",
+    "conversation_deliveries",
     "portal_event_receipts",
     "command_receipts",
     "command_outbox",
+    # docs/35 content-free Live consent/share lifecycle records
+    "media_consent_grants",
+    "live_media_shares",
     "projection_streams",
     "projection_events",
     "tenancy_migration_receipts",
@@ -88,6 +92,15 @@ TOP_LEVEL_COLLECTIONS: frozenset[str] = frozenset({
     "profile_facts",
     "profile_fact_receipts",
     "memory_items",
+    "memory_source_manifests",
+    "memory_settings",
+    "memory_control_receipts",
+    "memory_deletion_tombstones",
+    "memory_deletion_jobs",
+    # The last two live in a separately configured Firestore database in M2;
+    # they are still registered so collection coverage cannot miss them.
+    "memory_deletion_ledger",
+    "memory_deletion_ledger_heads",
     "memory_write_receipts",
     "memory_search_receipts",
     "deletion_jobs",
@@ -142,6 +155,7 @@ SUBCOLLECTIONS: frozenset[str] = frozenset({
     "frames",              # browser_runs/{id}/frames
     "actions",             # browser_runs/{id}/actions
     "chunks",              # artifacts/{id}/chunks
+    "image_observations",  # artifacts/{id}/image_observations (docs/35)
 })
 
 REGISTERED_COLLECTIONS: frozenset[str] = TOP_LEVEL_COLLECTIONS | SUBCOLLECTIONS
@@ -174,6 +188,129 @@ def _now() -> str:
 
 def _new_id() -> str:
     return uuid.uuid4().hex
+
+
+# ---------------------------------------------------------------------------
+# User-facing Live vision metadata (docs/35). No media/content fields allowed.
+# ---------------------------------------------------------------------------
+
+async def create_media_consent_grant(row: dict[str, Any]) -> None:
+    """Create one server-authored, source/session-bound consent receipt."""
+    grant_id = str(row.get("grant_id") or "")
+    if not re.fullmatch(r"[a-f0-9]{32}", grant_id):
+        raise ValueError("invalid media consent grant id")
+    await get_client().collection("media_consent_grants").document(grant_id).create(row)
+
+
+async def get_media_consent_grant(grant_id: str) -> Optional[dict[str, Any]]:
+    if not re.fullmatch(r"[a-f0-9]{32}", str(grant_id or "")):
+        return None
+    doc = await get_client().collection("media_consent_grants").document(grant_id).get()
+    return doc.to_dict() | {"id": doc.id} if doc.exists else None
+
+
+async def find_active_media_consent_grant(
+        workspace_id: str, actor_id: str, session_id: str,
+        source: str) -> Optional[dict[str, Any]]:
+    """Find a current same-actor disclosure receipt without broadening scope."""
+    query = (get_client().collection("media_consent_grants")
+             .where("workspace_id", "==", workspace_id)
+             .where("session_id", "==", session_id)
+             .where("source", "==", source)
+             .where("status", "==", "ACTIVE").limit(10))
+    async for doc in query.stream():
+        row = doc.to_dict() or {}
+        if row.get("actor_id") == actor_id:
+            return row | {"id": doc.id}
+    return None
+
+
+async def create_live_media_share(row: dict[str, Any]) -> None:
+    """Create content-free operations metadata for one explicit share generation."""
+    share_id = str(row.get("share_id") or "")
+    if not share_id or len(share_id) > 128:
+        raise ValueError("invalid live media share id")
+    ref = get_client().collection("live_media_shares").document(
+        hashlib.sha256(
+            f"{row.get('workspace_id')}:{row.get('session_id')}:{share_id}".encode()
+        ).hexdigest()[:32])
+    existing = await ref.get()
+    if existing.exists:
+        current = existing.to_dict() or {}
+        identity = ("workspace_id", "session_id", "share_id", "generation", "source")
+        if any(current.get(key) != row.get(key) for key in identity):
+            raise ValueError("live media share conflicts")
+        return
+    await ref.create(row)
+
+
+def _live_media_share_ref(workspace_id: str, session_id: str, share_id: str):
+    """Resolve a share only through its complete server-owned tenant key."""
+    if not workspace_id or not session_id or not share_id:
+        return None
+    doc_id = hashlib.sha256(
+        f"{workspace_id}:{session_id}:{share_id}".encode()).hexdigest()[:32]
+    return get_client().collection("live_media_shares").document(doc_id)
+
+
+async def update_live_media_share_counters(
+        workspace_id: str, session_id: str, share_id: str,
+        **counters: int) -> None:
+    ref = _live_media_share_ref(workspace_id, session_id, share_id)
+    if ref is None:
+        return
+    snapshot = await ref.get()
+    if not snapshot.exists:
+        return
+    row = snapshot.to_dict() or {}
+    if (row.get("workspace_id") != workspace_id
+            or row.get("session_id") != session_id
+            or row.get("share_id") != share_id):
+        raise ValueError("live media share authority mismatch")
+    allowed = {"frames_received", "frames_forwarded", "frames_dropped",
+               "bytes_received", "throttle_count"}
+    values = {key: max(0, int(value)) for key, value in counters.items()
+              if key in allowed}
+    if values:
+        await ref.update({**values, "updated_at": _now()})
+
+
+async def stop_live_media_share(
+        workspace_id: str, session_id: str, share_id: str, *, status: str,
+        end_reason: str, **counters: int) -> None:
+    ref = _live_media_share_ref(workspace_id, session_id, share_id)
+    if ref is None:
+        return
+    snapshot = await ref.get()
+    if not snapshot.exists:
+        return
+    row = snapshot.to_dict() or {}
+    if (row.get("workspace_id") != workspace_id
+            or row.get("session_id") != session_id
+            or row.get("share_id") != share_id):
+        raise ValueError("live media share authority mismatch")
+    allowed = {"frames_received", "frames_forwarded", "frames_dropped",
+               "bytes_received", "throttle_count"}
+    values = {key: max(0, int(value)) for key, value in counters.items()
+              if key in allowed}
+    await ref.update({**values, "status": status, "end_reason": end_reason,
+                      "ended_at": _now(), "updated_at": _now()})
+
+
+async def delete_session_live_media_metadata(
+        workspace_id: str, session_id: str) -> int:
+    """Delete content-free consent/share rows when their session is deleted."""
+    if not workspace_id or not session_id:
+        return 0
+    deleted = 0
+    for collection_name in ("media_consent_grants", "live_media_shares"):
+        query = (get_client().collection(collection_name)
+                 .where("workspace_id", "==", workspace_id)
+                 .where("session_id", "==", session_id))
+        async for doc in query.stream():
+            await doc.reference.delete()
+            deleted += 1
+    return deleted
 
 
 # ---------------------------------------------------------------------------
@@ -928,7 +1065,8 @@ async def list_inflight_applications(founder_id: str) -> list[dict[str, Any]]:
 
 async def claim_discovery_request(request_id: str, founder_id: str,
                                   context_hash: str,
-                                  lease_seconds: int = 900) -> dict[str, Any]:
+                                  lease_seconds: int = 900,
+                                  max_attempts: int = 3) -> dict[str, Any]:
     """Claim one opaque founder submission for bounded discovery execution.
 
     Cloud Tasks task-name dedupe is only a dispatch optimization. This durable
@@ -953,12 +1091,22 @@ async def claim_discovery_request(request_id: str, founder_id: str,
             if current.get("context_hash") != context_hash:
                 return {"claimed": False, "conflict": True,
                         "status": current.get("status", "UNKNOWN")}
-            if current.get("status") == "COMPLETE":
-                return {"claimed": False, "duplicate": True, "status": "COMPLETE"}
+            if current.get("status") in {"COMPLETE", "FAILED"}:
+                return {"claimed": False, "duplicate": True,
+                        "status": current.get("status")}
             started = float(current.get("lease_started_epoch") or 0)
             lease = float(current.get("lease_seconds") or lease_seconds)
             if current.get("status") == "RUNNING" and _time.time() - started <= lease:
                 return {"claimed": False, "in_progress": True, "status": "RUNNING"}
+            if int(current.get("attempt") or 0) >= max_attempts:
+                txn.update(ref, {
+                    "status": "FAILED", "lease_owner": "",
+                    "lease_started_epoch": None,
+                    "last_error_code": "retry_budget_exhausted",
+                    "updated_at": _now(),
+                })
+                return {"claimed": False, "duplicate": True,
+                        "status": "FAILED", "exhausted": True}
         now = _now()
         # Merge-safe claim (docs/23 §5.5): the public boundary writes origin/
         # display/resource fields onto the ACCEPTED receipt before dispatch —
@@ -979,6 +1127,8 @@ async def claim_discovery_request(request_id: str, founder_id: str,
             "lease_owner": owner,
             "lease_started_epoch": _time.time(),
             "lease_seconds": lease_seconds,
+            "attempt": int(current.get("attempt") or 0) + 1,
+            "max_attempts": max_attempts,
             "updated_at": now,
             "created_at": current.get("created_at", now) if snap.exists else now,
         })
@@ -1019,6 +1169,8 @@ def discovery_receipt_record(
         "dispatch_status": "pending",
         "dispatch_error": "",
         "lease_owner": "",
+        "attempt": 0,
+        "max_attempts": 3,
         "workflow_run_id": workflow_run_id,
         "workflow_plan_hash": workflow_plan_hash or None,
         "workflow_plan_version": workflow_plan_version or None,
@@ -1934,6 +2086,8 @@ async def register_artifact_ingestion(
     provider_modified_at: str | None = None,
     provider_content_type: str | None = None,
     authority: str = "reference_only",
+    kind: str = "document",
+    image_metadata: dict[str, Any] | None = None,
     document_id: str | None = None,
     occurrence_key: str | None = None,
 ) -> str:
@@ -1947,11 +2101,18 @@ async def register_artifact_ingestion(
 
     if scope not in {"profile", "reference_only"}:
         raise ValueError("invalid ingestion scope")
+    if kind not in {"document", "image"}:
+        raise ValueError("invalid artifact kind")
+    if kind == "image" and scope != "reference_only":
+        raise ValueError("image artifacts are reference_only")
     authority = "profile_candidate" if scope == "profile" else "reference_only"
     doc_id = document_id or _new_id()
     if not re.fullmatch(r"[a-f0-9]{32}", doc_id):
         raise ValueError("invalid ingestion id")
     now = _now()
+    retention_expires_at = (
+        (datetime.now(timezone.utc) + timedelta(hours=24)).isoformat()
+        if scope == "reference_only" else None)
     artifact_ref = get_client().collection("artifacts").document(doc_id)
     ingestion_ref = get_client().collection("ingestions").document(doc_id)
     audit_id = hashlib.sha256(f"ingestion-audit:{doc_id}".encode()).hexdigest()[:32]
@@ -1962,6 +2123,7 @@ async def register_artifact_ingestion(
         "artifact_domain": "FOUNDER_EVIDENCE",
         "tenancy_schema_version": 1,
         "session_id": session_id,
+        "kind": kind,
         "scope": scope,
         "source_type": source_type,
         "source_ref": source_ref,
@@ -1984,11 +2146,17 @@ async def register_artifact_ingestion(
         "provenance_status": "PENDING",
         "status": "QUEUED",
         "index_generation": "",
-        "extractor_version": "alex-document-extractor:v1",
+        "extractor_version": ("alex-image-observation:v1" if kind == "image"
+                              else "alex-document-extractor:v1"),
         "model_version": os.environ.get("ADK_MODEL", "gemini-3.6-flash"),
         "retention_policy": "profile" if scope == "profile" else "session",
+        # Unsaved/session-only imports are memory-ineligible and live for at
+        # most 24 hours. The scheduled lifecycle worker deletes bytes first;
+        # this timestamp is durable evidence, not a Firestore-only deletion.
+        "retention_expires_at": retention_expires_at,
         "created_at": now,
         "updated_at": now,
+        **(image_metadata or {}),
     }
     ingestion_row = {
         "artifact_id": doc_id,
@@ -1997,6 +2165,7 @@ async def register_artifact_ingestion(
         "ingestion_domain": "FOUNDER_SOURCE",
         "tenancy_schema_version": 1,
         "session_id": session_id,
+        "kind": kind,
         "scope": scope,
         "source_type": source_type,
         "source_ref": source_ref,
@@ -2020,6 +2189,9 @@ async def register_artifact_ingestion(
         "confirmed_at": None,
         "created_at": now,
         "updated_at": now,
+        "retention_expires_at": retention_expires_at,
+        **({key: value for key, value in (image_metadata or {}).items()
+            if key in {"width", "height", "pixel_count"}}),
     }
     audit_row = {
         "actor": f"founder:{founder_id}", "action": "register_attachment",
@@ -2152,6 +2324,53 @@ async def list_artifact_chunks(artifact_id: str, limit: int = 400) -> list[dict[
         rows = [row for row in rows if row.get("generation") == generation]
     rows.sort(key=lambda row: int(row.get("ordinal") or 0))
     return rows[:max(1, min(limit, 400))]
+
+
+async def replace_image_observations(
+        artifact_id: str, observations: list[dict[str, Any]]) -> None:
+    """Replace one bounded image-observation generation before publishing it."""
+    if len(observations) > 64:
+        raise ValueError("too many image observations")
+    collection = (get_client().collection("artifacts").document(artifact_id)
+                  .collection("image_observations"))
+    existing = [doc async for doc in collection.stream()]
+    generation_material = "|".join(
+        f"{row.get('id')}:{row.get('evidence_sha256')}" for row in observations)
+    generation = hashlib.sha256(generation_material.encode()).hexdigest()[:20]
+    batch = get_client().batch()
+    new_ids: set[str] = set()
+    for row in observations:
+        observation_id = str(row.get("id") or "")
+        if not re.fullmatch(r"[a-f0-9]{32}", observation_id):
+            raise ValueError("invalid image observation id")
+        new_ids.add(observation_id)
+        batch.set(collection.document(observation_id), {
+            **row, "artifact_id": artifact_id, "generation": generation,
+            "status": "READY", "created_at": _now(),
+        })
+    await batch.commit()
+    await update_artifact(artifact_id, observation_generation=generation)
+    stale = [doc.reference for doc in existing if doc.id not in new_ids]
+    if stale:
+        cleanup = get_client().batch()
+        for ref in stale:
+            cleanup.delete(ref)
+        await cleanup.commit()
+
+
+async def list_image_observations(
+        artifact_id: str, limit: int = 64) -> list[dict[str, Any]]:
+    """Read only the published bounded observation generation."""
+    artifact = await get_artifact(artifact_id)
+    generation = str((artifact or {}).get("observation_generation") or "")
+    collection = (get_client().collection("artifacts").document(artifact_id)
+                  .collection("image_observations"))
+    rows = [doc.to_dict() | {"id": doc.id} async for doc in collection.stream()]
+    if generation:
+        rows = [row for row in rows if row.get("generation") == generation]
+    rows = [row for row in rows if row.get("status") == "READY"]
+    rows.sort(key=lambda row: int(row.get("ordinal") or 0))
+    return rows[:max(1, min(limit, 64))]
 
 
 async def claim_ingestion(ingestion_id: str, *, lease_owner: str = "",
@@ -2768,6 +2987,25 @@ async def tombstone_session_links(founder_id: str, session_id: str) -> int:
     query = (get_client().collection("session_resource_links")
              .where("founder_id", "==", founder_id)
              .where("session_id", "==", session_id))
+    count = 0
+    async for doc in query.stream():
+        row = doc.to_dict() or {}
+        if not row.get("deleted_at"):
+            await doc.reference.update({"deleted_at": _now(),
+                                        "updated_at": _now()})
+            count += 1
+    return count
+
+
+async def tombstone_session_resource_links(
+        founder_id: str, session_id: str, resource_id: str) -> int:
+    """Tombstone this session's occurrences of one explicitly deleted resource."""
+    if not founder_id or not session_id or not resource_id:
+        return 0
+    query = (get_client().collection("session_resource_links")
+             .where("founder_id", "==", founder_id)
+             .where("session_id", "==", session_id)
+             .where("resource_id", "==", resource_id))
     count = 0
     async for doc in query.stream():
         row = doc.to_dict() or {}

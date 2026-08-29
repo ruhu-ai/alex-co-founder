@@ -58,6 +58,11 @@ def enqueue(
                               "audience": audience or base_url},
             },
         }
+        # The model-backed discovery/ingestion lease is 900 seconds. Finish or
+        # cancel the delivery before that lease can be reclaimed, preventing a
+        # second worker from replaying the same expensive operation.
+        task["dispatchDeadline"] = (
+            "840s" if queue_name == "co-founder-discovery-ingestion" else "300s")
         if schedule_at:
             scheduled = datetime.fromisoformat(schedule_at.replace("Z", "+00:00"))
             if scheduled.tzinfo is None:

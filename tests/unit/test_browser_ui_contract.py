@@ -97,8 +97,11 @@ def test_browser_ui_uses_workspace_scoped_receipted_v1_apis():
 
 
 def test_session_ui_uses_workspace_scoped_v1_resources():
-    for path in ("/api/v1/sessions", "/api/v1/waits", "/api/v1/search"):
+    for path in ("/api/v1/sessions", "/api/v1/workspace-brief", "/api/v1/search"):
         assert path in HTML
+    # The released M1 brief is the only waiting-area read. The legacy waits
+    # projection can include pending signals and must not be a UI fallback.
+    assert "/api/v1/waits" not in HTML
     assert "/api/v1/sessions/${encodeURIComponent(context)}/resources" in HTML
     assert "session_delete_" in HTML
 

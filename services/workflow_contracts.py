@@ -31,6 +31,7 @@ class RuntimeStatus(str, Enum):
 
 
 class RunKind(str, Enum):
+    BACKGROUND = "BACKGROUND"
     ROLE = "ROLE"
     CANDIDATE = "CANDIDATE"
     ONBOARDING = "ONBOARDING"
@@ -38,6 +39,18 @@ class RunKind(str, Enum):
     GRANT_APPLICATION = "GRANT_APPLICATION"
     INVESTOR_OUTREACH = "INVESTOR_OUTREACH"
     EXTERNAL_CONSEQUENCE = "EXTERNAL_CONSEQUENCE"
+
+
+BACKGROUND_FOUNDATION_NEGATIVE_CONSTRAINTS: tuple[str, ...] = (
+    "ACTOR_PRIVATE_ONLY",
+    "NO_ADK_INVOCATION",
+    "NO_APPROVAL_CREATION_OR_RESOLUTION",
+    "NO_EXTERNAL_EFFECTS",
+    "NO_EXTERNAL_READS",
+    "NO_MEMORY_READ_OR_WRITE",
+    "NO_PROVIDER_CALLS",
+    "NO_SPECIALIST_EXECUTION",
+)
 
 
 LEGACY_RUNTIME_STATUS: dict[str, str] = {
@@ -62,6 +75,20 @@ def normalize_runtime_status(value: str) -> str:
         raise ValueError("unknown runtime status") from exc
 
 
+def run_visible_to_actor(run: Mapping[str, Any], *, workspace_id: str,
+                         actor_id: str) -> bool:
+    """Enforce actor-private run existence without inventing a second ACL."""
+    if run.get("workspace_id") != workspace_id:
+        return False
+    scope = run.get("visibility_scope") or "WORKSPACE"
+    if scope == "WORKSPACE":
+        return True
+    if scope == "ACTOR_PRIVATE":
+        return (run.get("subject_kind") == "ACTOR"
+                and run.get("subject_id") == actor_id)
+    return False
+
+
 @dataclass(frozen=True)
 class WorkflowDefinition:
     workflow_kind: str
@@ -75,6 +102,11 @@ class WorkflowDefinition:
 
 
 WORKFLOW_DEFINITIONS: dict[str, WorkflowDefinition] = {
+    "alex_background_job:v1": WorkflowDefinition(
+        "alex_background_job:v1", RunKind.BACKGROUND, "1", frozenset(),
+        policy_version="background-foundation-v1",
+        capability_registry_version="background-foundation-v1",
+        domain="platform"),
     "hiring_role:v1": WorkflowDefinition(
         "hiring_role:v1", RunKind.ROLE, "1", frozenset(), domain="hiring"),
     "hiring_candidate:v1": WorkflowDefinition(
@@ -153,6 +185,10 @@ WAIT_CONTRACTS: frozenset[str] = frozenset({
 # Reviewed static templates only. Model-authored/composed plan IR remains
 # disabled; Phase 5 may mature these descriptors after the second vertical.
 PLAN_TEMPLATES: dict[str, tuple[str, ...]] = {
+    # Gate A/B only: this deterministic step validates the durable contract.
+    # No specialist, model, provider, approval, memory, or effect worker is
+    # bound until a later independently approved gate.
+    "alex_background_job:v1": ("validate_contract",),
     "hiring_role:v1": ("define_role", "publish", "wait_for_applications"),
     "hiring_candidate:v1": ("ingest", "assess", "human_decision"),
     "hiring_onboarding:v1": ("prepare_onboarding", "human_decision"),

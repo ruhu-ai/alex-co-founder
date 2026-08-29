@@ -14,6 +14,7 @@ from typing import Any
 from services.canonical import canonical_hash
 from services.durable_store import AtomicMutation, DurableStore, production_store
 from services.workflow_contracts import (
+    BACKGROUND_FOUNDATION_NEGATIVE_CONSTRAINTS,
     PLAN_TEMPLATES,
     WAIT_CONTRACTS,
     DefaultWorkflowPolicy,
@@ -43,6 +44,12 @@ class WorkflowRuntime:
 
     async def _publish_run(self, run: dict[str, Any], *, event_kind: str,
                            event_sequence: int) -> None:
+        # The current SSE stream is workspace-wide. Gate A/B background jobs
+        # are actor-private, so publishing them here would leak existence to a
+        # second actor. An actor-scoped projection lane is a later gate.
+        if (run.get("visibility_scope") == "ACTOR_PRIVATE"
+                or run.get("execution_mode") == "BACKGROUND"):
+            return
         from services.projection_stream import publish_best_effort
 
         await publish_best_effort(
@@ -71,7 +78,8 @@ class WorkflowRuntime:
             originating_actor_id: str = "", workflow_kind: str = "",
             origin_session_id: str = "",
             priority: str = "NORMAL",
-            budgets: dict[str, int] | None = None) -> dict[str, Any]:
+            budgets: dict[str, int] | None = None,
+            background_profile: dict[str, Any] | None = None) -> dict[str, Any]:
         if priority not in {"LOW", "NORMAL", "HIGH"}:
             return _error("run_contract_invalid", "Run priority is invalid.", 400)
         budget_limits = {
@@ -89,6 +97,82 @@ class WorkflowRuntime:
             return _error("workflow_kind_invalid",
                           "Workflow kind is not registered.", 400)
         run_kind = definition.run_kind
+        profile = dict(background_profile or {})
+        if run_kind is RunKind.BACKGROUND:
+            profile_hash = str(profile.pop("background_profile_hash", ""))
+            constraints = profile.get("negative_constraints")
+            profile_fields = {
+                "execution_mode", "job_id", "job_template_id",
+                "job_template_version", "eligibility_policy_id",
+                "eligibility_policy_version", "eligibility_decision_hash",
+                "origin_actor_id", "origin_message_id", "delivery_session_id",
+                "subject_kind", "subject_id", "visibility_scope",
+                "visibility_policy_id", "visibility_policy_version",
+                "objective_summary", "negative_constraints",
+                "input_manifest_ref", "input_manifest_hash",
+                "completion_contract_id", "milestone_policy_id",
+                "skill_bindings", "output_manifest_ref",
+                "background_gate_ceiling", "approval_authority",
+                "effect_authority", "memory_write_authority",
+                "external_read_authority", "specialist_execution_enabled",
+            }
+            required = {
+                "execution_mode": "BACKGROUND",
+                "background_gate_ceiling": "GATE_B_FOUNDATION",
+                "job_template_id": "foundation.detached_prepare",
+                "job_template_version": "1",
+                "eligibility_policy_id": "BackgroundEligibilityPolicy",
+                "eligibility_policy_version":
+                    "background-eligibility-foundation-v1",
+                "origin_actor_id": originating_actor_id,
+                "delivery_session_id": origin_session_id,
+                "subject_kind": "ACTOR",
+                "subject_id": originating_actor_id,
+                "visibility_scope": "ACTOR_PRIVATE",
+                "visibility_policy_id": "actor-private-default",
+                "visibility_policy_version": "actor-private-foundation-v1",
+                "completion_contract_id": "background.contract_receipt.v1",
+                "milestone_policy_id": "background.closed_milestones.v1",
+                "skill_bindings": [],
+                "output_manifest_ref": None,
+                "approval_authority": "NONE",
+                "effect_authority": "NONE",
+                "memory_write_authority": "NONE",
+                "external_read_authority": "NONE",
+                "specialist_execution_enabled": False,
+            }
+            if (not originating_actor_id
+                    or set(profile) != profile_fields
+                    or any(profile.get(key) != value
+                           for key, value in required.items())
+                    or not isinstance(constraints, list) or not constraints
+                    or len(constraints) > 32
+                    or any(not isinstance(item, str) or not item or len(item) > 80
+                           for item in constraints)
+                    or len(set(constraints)) != len(constraints)
+                    or not set(BACKGROUND_FOUNDATION_NEGATIVE_CONSTRAINTS)
+                    <= set(constraints)
+                    or budget_limits != {
+                        "max_steps": 1, "max_model_calls": 0,
+                        "max_provider_calls": 0, "max_tokens": 0}
+                    or not str(profile.get("input_manifest_ref") or "").endswith(
+                        f"/{domain_ref}")
+                    or not str(profile.get("input_manifest_hash") or "").startswith(
+                        "sha256:")
+                    or not str(profile.get("eligibility_decision_hash") or "").startswith(
+                        "sha256:")
+                    or not str(profile.get("origin_message_id") or "")
+                    or not str(profile.get("objective_summary") or "")
+                    or canonical_hash(
+                        profile, domain="background-run-profile") != profile_hash):
+                return _error(
+                    "background_profile_invalid",
+                    "Background runs require an immutable Gate A/B profile.", 400)
+            profile["background_profile_hash"] = profile_hash
+        elif profile:
+            return _error(
+                "background_profile_invalid",
+                "Only background runs accept a background profile.", 400)
         provenance = dict(provenance or {"provenance_class": "PRODUCTION"})
         domain_gate = self.domain_adapter.validate_run(
             definition=definition, workspace_id=workspace_id,
@@ -102,6 +186,10 @@ class WorkflowRuntime:
             return policy_gate
         run_id = stable_id("run", workspace_id, journey_id, run_kind.value,
                            idempotency_key)
+        if run_kind is RunKind.BACKGROUND and profile.get("job_id") != run_id:
+            return _error(
+                "background_profile_invalid",
+                "Background job identity does not match its workflow run.", 400)
         if parent_run_id:
             parent = await self.store.get("workflow_runs", parent_run_id)
             if not parent or parent.get("workspace_id") != workspace_id:
@@ -167,6 +255,7 @@ class WorkflowRuntime:
             "provenance": provenance,
             "created_at": now, "updated_at": now, "version": 1,
         }
+        row.update(profile)
         event_id = stable_id("evt", run_id, f"create:{run_id}")
         event = {
             "schema_version": 2, "event_id": event_id, "run_id": run_id,
@@ -202,7 +291,8 @@ class WorkflowRuntime:
             originating_actor_id: str = "", workflow_kind: str = "",
             origin_session_id: str = "",
             priority: str = "NORMAL",
-            budgets: dict[str, int] | None = None) -> dict[str, Any]:
+            budgets: dict[str, int] | None = None,
+            background_profile: dict[str, Any] | None = None) -> dict[str, Any]:
         """Create the immutable plan, initial event, and run atomically.
 
         Public command handlers that must include command acceptance in this
@@ -218,7 +308,8 @@ class WorkflowRuntime:
             originating_actor_id=originating_actor_id,
             workflow_kind=workflow_kind,
             origin_session_id=origin_session_id,
-            priority=priority, budgets=budgets)
+            priority=priority, budgets=budgets,
+            background_profile=background_profile)
         if prepared.get("error"):
             return prepared
         run_id = str(prepared["run_id"])
@@ -451,6 +542,10 @@ class WorkflowRuntime:
         row = {
             "schema_version": 1, "step_id": step_id, "run_id": run_id,
             "workspace_id": run["workspace_id"], "step_key": step_key,
+            "originating_actor_id": run.get("originating_actor_id"),
+            "subject_kind": run.get("subject_kind"),
+            "subject_id": run.get("subject_id"),
+            "visibility_scope": run.get("visibility_scope", "WORKSPACE"),
             "capability_id": capability_id,
             "status": "READY", "attempt_generation": 0,
             "lease_owner": None, "lease_expires_at": None,
@@ -550,8 +645,11 @@ class WorkflowRuntime:
         if step.get("status") == "COMPLETE":
             return {**step, "step_status": step.get("status"),
                     "status": "success", "duplicate": True}
+        lease_expiry = _parse_time(step.get("lease_expires_at"))
         if (step.get("status") != "RUNNING" or step.get("lease_owner") != lease_owner
-                or int(step.get("attempt_generation", 0)) != generation):
+                or int(step.get("attempt_generation", 0)) != generation
+                or not lease_expiry
+                or lease_expiry <= datetime.now(timezone.utc)):
             return _error("lease_lost", "Step lease is no longer authoritative.")
         attempt_id = stable_id("attempt", step_id, str(generation))
         attempt = await self.store.get("step_attempts", attempt_id)

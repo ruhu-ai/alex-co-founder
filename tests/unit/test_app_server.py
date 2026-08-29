@@ -103,12 +103,11 @@ class TestInvestorOutreachApi:
         store = InMemoryDurableStore()
         membership = asyncio.run(create_membership(
             actor_id="actor-owner", workspace_id="workspace-a",
-            auth_subject="subject-owner", role=WorkspaceRole.OWNER,
+            auth_subject="subject-owner", role=WorkspaceRole.FOUNDER,
             created_by="test", store=store))
         principal = ActorPrincipal(
             actor_id="actor-owner", workspace_id="workspace-a",
-            role=WorkspaceRole.OWNER, role_grants=frozenset(),
-            candidate_assignments=frozenset(), interview_assignments=frozenset(),
+            role=WorkspaceRole.FOUNDER,
             session_auth_time=int(time.time()),
             membership_version=membership["version"],
             membership_id=membership["membership_id"])
@@ -578,6 +577,18 @@ class TestFounderInboxApi:
 
         assert client.get("/favicon.ico/private").status_code == 401
 
+    def test_brand_assets_are_public_and_gate_still_holds(self, client, monkeypatch):
+        """Browser chrome and link unfurlers fetch these with no session."""
+        monkeypatch.setenv("APP_AUTH_TOKEN", "t0ken")
+        for path in ("/apple-touch-icon.png", "/icon-192.png", "/icon-512.png",
+                     "/icon-maskable-512.png", "/og-image.png",
+                     "/site.webmanifest", "/brand/mark.svg", "/brand/lockup.svg"):
+            assert client.get(path).status_code == 200, path
+
+        # The exemption is exact: a neighbouring static path stays gated.
+        assert client.get("/brand/").status_code == 401
+        assert client.get("/og-image.png/private").status_code == 401
+
     def test_prod_without_token_fails_closed(self, client, monkeypatch):
         monkeypatch.setenv("K_SERVICE", "co-founder")
         assert client.get("/api/config").status_code == 503
@@ -734,10 +745,54 @@ class TestFounderInboxApi:
 
 
 class TestDiscoverCommandAdapter:
-    def test_hiring_command_uses_its_own_deployment_gate(
+    @pytest.mark.asyncio
+    async def test_hiring_command_accepts_scoped_founder_without_admin_authority(
+            self, appmod, monkeypatch):
+        from services.actor_identity import ActorPrincipal, WorkspaceRole
+
+        founder = ActorPrincipal(
+            actor_id="member_founder", workspace_id="workspace_test",
+            role=WorkspaceRole.FOUNDER, session_auth_time=2_000_000_000,
+            membership_version=1)
+        seen = {}
+
+        class Hiring:
+            async def create_founder_draft_role(self, **kwargs):
+                seen.update(kwargs)
+                return {"status": "success", "role": {
+                    "role_id": "role_founder", "role_state": "DRAFT",
+                    "role_title": "Forward Deployment Engineer",
+                    "company_name": "Ruhu", "current_policy_version_id": None,
+                }}
+
+        monkeypatch.setattr(appmod.hiring_routes, "_services",
+                            lambda: (Hiring(), object()))
+
+        async def _propose(**kwargs):
+            assert kwargs["principal"] is founder
+            return {"status": "success", "policy_status": "PROPOSED"}
+
+        monkeypatch.setattr(
+            appmod.hiring_policy_service, "propose_policy", _propose)
+
+        result = await appmod._launch_hiring_command(
+            principal=founder,
+            context=("Forward Deployment Engineer for Ruhu, Inc. Full-time "
+                     "employee, based in Nigeria and working remotely."),
+            request_id="hiring_founder_owner_1")
+
+        assert result["status"] == "success"
+        assert result["role"]["role_state"] == "DRAFT"
+        assert result["policy"]["policy_status"] == "PROPOSED"
+        assert result["role"]["current_policy_version_id"] is None
+        assert seen["principal"] is founder
+        assert seen["role_description"]["employment_type"] == "Full-time employee"
+
+    def test_hiring_command_is_normal_founder_product_path(
             self, appmod, client, monkeypatch):
-        """A protected /hiring command must not depend on /discover being on."""
-        monkeypatch.setenv("HIRING_ENABLE_SYNTHETIC_DEMO", "1")
+        """The internal draft command must not depend on demo/discovery flags."""
+        monkeypatch.delenv("HIRING_ENABLE_SYNTHETIC_DEMO", raising=False)
+        monkeypatch.delenv("HIRING_SYNTHETIC_FIXTURE_IDS", raising=False)
         launches = []
 
         async def _launch(**kwargs):

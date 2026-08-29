@@ -24,6 +24,7 @@ from .tools import browse as browse_tools
 from .tools import calendar as calendar_tools
 from .tools import feedback as feedback_tools
 from .tools import followup as followup_tools
+from .tools import hiring as hiring_tools
 from .tools import pipeline
 from .workflow import get_workflow
 
@@ -48,14 +49,15 @@ def _build_sub_agents(live: bool) -> list[Agent]:
             form_filler.build_agent(),
         ]
     from google.adk.models import Gemini
-    from google.genai import types
+
+    from services.retry_policy import gemini_retry_options
 
     from .config import LIVE_MODEL_ID
 
     def _live_model() -> Gemini:
         # Fresh instance per sub-agent (each Agent owns its model wiring).
         return Gemini(model=LIVE_MODEL_ID,
-                      retry_options=types.HttpRetryOptions(attempts=3))
+                      retry_options=gemini_retry_options())
 
     return [
         scout.build_agent(_live_model()),
@@ -82,6 +84,8 @@ def build_root_agent(model, live: bool = False) -> Agent:
             pipeline.get_pipeline,
             pipeline.choose_opportunity,
             pipeline.get_checklist,
+            hiring_tools.prepare_hiring_role_brief,
+            hiring_tools.create_hiring_draft,
             attachment_tools.search_attachment,
             feedback_tools.record_feedback,
             # SUBMITTED → FOLLOW_UP → CLOSED (orchestrator instruction step 7):

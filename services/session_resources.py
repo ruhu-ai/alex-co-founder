@@ -536,7 +536,7 @@ async def register_legacy_unlinked_resource(
 ) -> dict[str, Any]:
     """Index a legacy work product when no exact origin session is provable.
 
-    This seam is operator-only and intentionally cannot create a session link.
+    This migration seam is founder-administered and cannot create a session link.
     It exists so migration reports ambiguity truthfully while keeping retained
     work discoverable.  Live producers must use ``register_session_resource``.
     """
@@ -976,6 +976,8 @@ def _resource_result(row: dict[str, Any],
             "link_id": latest.get("link_id", ""),
             "relationship": latest.get("relationship", ""),
             "session_id": latest.get("session_id", ""),
+            "occurrence_key": latest.get("occurrence_key", ""),
+            "message_id": latest.get("message_id", ""),
             "occurred_at": latest.get("occurred_at", ""),
             "title_snapshot": latest.get("title_snapshot", ""),
         } if latest else None),

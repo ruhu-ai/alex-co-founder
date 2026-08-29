@@ -39,6 +39,8 @@ from app import auth
 
 STATE_COOKIE = "google_login_state"
 STATE_TTL_SECONDS = 10 * 60
+ID_TOKEN_ISSUED_AT_MAX_AGE_SECONDS = 5 * 60
+ID_TOKEN_CLOCK_SKEW_SECONDS = 60
 LOGIN_SCOPES = ["openid", "email", "profile"]
 _OAUTH_CALLBACK_PATHS = (
     "/auth/google/callback",
@@ -195,6 +197,30 @@ def _error_response(code: str, *, secure: bool) -> RedirectResponse:
     return response
 
 
+def _session_auth_time(claims: dict) -> tuple[int, str] | None:
+    """Resolve a recent, verified timestamp for the local application session.
+
+    Google returns ``auth_time`` only for OAuth clients with that optional
+    claim enabled. The ID token's signed ``iat`` is required by Google and is
+    issued during this one-time, nonce-bound authorization-code exchange. It
+    is therefore a safe session-establishment timestamp when the optional
+    upstream authentication timestamp is absent, provided it is fresh.
+    """
+
+    auth_time = claims.get("auth_time")
+    if isinstance(auth_time, (int, float)):
+        return int(auth_time), "idp_auth_time"
+    issued_at = claims.get("iat")
+    if not isinstance(issued_at, (int, float)):
+        return None
+    now = int(time.time())
+    issued_at = int(issued_at)
+    if (issued_at > now + ID_TOKEN_CLOCK_SKEW_SECONDS
+            or issued_at < now - ID_TOKEN_ISSUED_AT_MAX_AGE_SECONDS):
+        return None
+    return issued_at, "oidc_token_iat"
+
+
 def register(app) -> None:
     """Register the current-tab Google login start and callback routes."""
 
@@ -215,6 +241,13 @@ def register(app) -> None:
                 access_type="online",
                 include_granted_scopes="false",
                 prompt="select_account",
+                # Google only includes auth_time when it is explicitly
+                # requested. Workspace principals and recent-auth checks use
+                # that verified value; minting a session without it would
+                # authenticate the browser but fail every authority lookup.
+                claims=json.dumps({
+                    "id_token": {"auth_time": {"essential": True}},
+                }, separators=(",", ":")),
             )
             sealed = _seal_state({
                 "iat": int(time.time()),
@@ -269,6 +302,12 @@ def register(app) -> None:
             return _error_response("unverified_email", secure=secure)
         if not auth.email_may_log_in(email):
             return _error_response("not_authorized", secure=secure)
+        session_auth = _session_auth_time(claims)
+        if session_auth is None:
+            # Do not create a valid-looking session that the server's durable
+            # authority resolver must immediately reject.
+            return _error_response("authentication_time_missing", secure=secure)
+        auth_time, auth_time_source = session_auth
 
         response = RedirectResponse(
             auth.safe_local_return_path(str(pending.get("return_path") or "/")),
@@ -280,9 +319,8 @@ def register(app) -> None:
                 email,
                 str(claims.get("name") or ""),
                 subject=str(claims.get("sub") or ""),
-                auth_time=(int(claims["auth_time"])
-                           if isinstance(claims.get("auth_time"), (int, float))
-                           else None),
+                auth_time=auth_time,
+                auth_time_source=auth_time_source,
             ),
             **_cookie_kwargs(secure=secure, max_age=auth.SESSION_TTL_SECONDS),
         )

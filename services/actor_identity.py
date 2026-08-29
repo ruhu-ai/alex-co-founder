@@ -18,10 +18,7 @@ _MAX_CLOCK_SKEW_SECONDS = 120
 
 
 class WorkspaceRole(str, Enum):
-    OWNER = "OWNER"
-    HIRING_MANAGER = "HIRING_MANAGER"
-    INTERVIEWER = "INTERVIEWER"
-    OBSERVER = "OBSERVER"
+    FOUNDER = "FOUNDER"
 
 
 @dataclass(frozen=True)
@@ -29,9 +26,6 @@ class ActorPrincipal:
     actor_id: str
     workspace_id: str
     role: WorkspaceRole
-    role_grants: frozenset[str]
-    candidate_assignments: frozenset[str]
-    interview_assignments: frozenset[str]
     session_auth_time: int
     membership_version: int
     principal_kind: str = "INTERACTIVE"
@@ -59,8 +53,8 @@ async def resolve_actor_from_claims(
         workspace_id: str = "") -> ActorPrincipal | dict[str, Any]:
     """Resolve current membership from signed session claims.
 
-    The cookie proves authentication only. Role, grants and assignments are
-    always read from the current membership record so revocation is immediate.
+    The cookie proves authentication only. The Founder role is always read from
+    the current membership record so revocation is immediate.
     Legacy founder-token/FOUNDER_ID requests have no subject/auth_time and are
     intentionally incompatible with hiring.
     """
@@ -88,11 +82,6 @@ async def resolve_actor_from_claims(
             actor_id=str(member["actor_id"]),
             workspace_id=str(member["workspace_id"]),
             role=role,
-            role_grants=frozenset(str(item) for item in member.get("role_grants", [])),
-            candidate_assignments=frozenset(
-                str(item) for item in member.get("candidate_assignments", [])),
-            interview_assignments=frozenset(
-                str(item) for item in member.get("interview_assignments", [])),
             session_auth_time=auth_time,
             membership_version=int(member.get("version", 1)),
             principal_kind="INTERACTIVE",
@@ -127,15 +116,11 @@ async def resolve_seeded_principal(
                       "Seeded workspace membership is missing.")
     member = matches[0]
     try:
+        role = WorkspaceRole(str(member["role"]))
         return ActorPrincipal(
             actor_id=str(member["actor_id"]),
             workspace_id=str(member["workspace_id"]),
-            role=WorkspaceRole(str(member["role"])),
-            role_grants=frozenset(str(item) for item in member.get("role_grants", [])),
-            candidate_assignments=frozenset(
-                str(item) for item in member.get("candidate_assignments", [])),
-            interview_assignments=frozenset(
-                str(item) for item in member.get("interview_assignments", [])),
+            role=role,
             session_auth_time=int(time.time()),
             membership_version=int(member.get("version", 1)),
             principal_kind="SEEDED",
@@ -145,12 +130,10 @@ async def resolve_seeded_principal(
         return _error("invalid_membership", "Workspace membership is invalid.")
 
 
-def authorize(principal: ActorPrincipal, operation: str, *, role_id: str = "",
-              candidate_application_id: str = "", require_fresh: bool = False,
+def authorize(principal: ActorPrincipal, operation: str, *, require_fresh: bool = False,
               now: int | None = None) -> dict[str, Any]:
-    """Code-owned role/assignment/freshness authorization."""
-    if (operation in {"resolve_approval", "human_decision",
-                      "membership_change"}
+    """Code-owned founder membership and freshness authorization."""
+    if (operation in {"resolve_approval", "human_decision", "membership_change"}
             and principal.principal_kind != "INTERACTIVE"):
         return _error(
             "interactive_human_required",
@@ -163,27 +146,18 @@ def authorize(principal: ActorPrincipal, operation: str, *, role_id: str = "",
         if age < -_MAX_CLOCK_SKEW_SECONDS or age > maximum:
             return _error("step_up_required",
                           "Recent sign-in is required for this operation.", 401)
-    if principal.role is WorkspaceRole.OWNER:
-        return {"status": "success"}
-    if operation in {"read_role", "read_candidate"} and principal.role is WorkspaceRole.OBSERVER:
-        if candidate_application_id:
-            return _error("assignment_required", "Candidate assignment required.")
-        return ({"status": "success"} if role_id in principal.role_grants
-                else _error("role_grant_required", "Role grant required."))
-    if role_id and role_id not in principal.role_grants:
-        return _error("role_grant_required", "Role grant required.")
-    if candidate_application_id and principal.role is not WorkspaceRole.HIRING_MANAGER:
-        if candidate_application_id not in principal.candidate_assignments:
-            return _error("assignment_required", "Candidate assignment required.")
+    if operation == "membership_change":
+        return ({"status": "success"} if principal.role is WorkspaceRole.FOUNDER
+                else _error("operation_forbidden",
+                            "Only the workspace founder may change membership."))
+    # FOUNDER is the sole human membership role. Hiring records remain
+    # workspace-scoped, but per-user role/candidate grants are not a second
+    # sign-in authority system in this small shared application.
     allowed = {
-        WorkspaceRole.HIRING_MANAGER: {
-            "read_role", "read_candidate", "prepare_role", "record_publication",
-            "human_decision", "resolve_approval",
-        },
-        WorkspaceRole.INTERVIEWER: {"read_candidate", "submit_scorecard"},
-        WorkspaceRole.OBSERVER: {"read_role"},
+        "read_role", "read_candidate", "prepare_role", "record_publication",
+        "human_decision", "resolve_approval", "submit_scorecard",
     }
-    if operation not in allowed.get(principal.role, set()):
+    if operation not in allowed:
         return _error("operation_forbidden", "Membership role cannot perform this operation.")
     return {"status": "success"}
 
@@ -192,7 +166,9 @@ async def create_membership(*, actor_id: str, workspace_id: str,
                             auth_subject: str, role: WorkspaceRole,
                             created_by: str, store: DurableStore | None = None,
                             synthetic: bool = True,
-                            local_only: bool = False) -> dict[str, Any]:
+                            local_only: bool = False,
+                            client_request_id: str = "",
+                            ) -> dict[str, Any]:
     """Create an immutable-id membership projection for bootstrap/admin code."""
     durable = store or production_store()
     membership_id = stable_id("membership", workspace_id, actor_id)
@@ -200,10 +176,11 @@ async def create_membership(*, actor_id: str, workspace_id: str,
         "schema_version": 2, "membership_id": membership_id,
         "actor_id": actor_id, "workspace_id": workspace_id,
         "auth_subject": auth_subject, "role": role.value, "status": "ACTIVE",
-        "role_grants": [], "candidate_assignments": [], "interview_assignments": [],
         "created_by": created_by, "version": 1, "synthetic": synthetic,
         "local_only": bool(local_only),
     }
+    if client_request_id:
+        row["client_request_id"] = client_request_id
     if not await durable.create("workspace_members", membership_id, row):
         return _error("version_conflict", "Membership already exists.", 409)
     audit_id = stable_id("audit", workspace_id, "membership_create", actor_id)
@@ -214,24 +191,23 @@ async def create_membership(*, actor_id: str, workspace_id: str,
         "action": "workspace_membership.create",
         "target": f"workspace_members/{membership_id}", "result": "success",
         "detail": f"role={role.value} status=ACTIVE",
+        "client_request_id": client_request_id or None,
         "created_at": utc_now(), "version": 1,
     })
     return {**row, "membership_status": row["status"], "status": "success"}
 
 
 async def change_membership(*, principal: ActorPrincipal, actor_id: str,
-                            expected_version: int, role: WorkspaceRole,
-                            role_grants: list[str],
-                            candidate_assignments: list[str],
-                            interview_assignments: list[str], status: str,
+                            expected_version: int,
+                            status: str,
                             client_request_id: str,
                             store: DurableStore | None = None) -> dict[str, Any]:
-    """Versioned, fresh-owner-only membership mutation with append-only audit."""
+    """Versioned, fresh-founder-only membership mutation with append-only audit."""
     gate = authorize(principal, "membership_change", require_fresh=True)
     if gate.get("error"):
         return gate
-    if principal.role is not WorkspaceRole.OWNER or status not in {"ACTIVE", "REVOKED"}:
-        return _error("operation_forbidden", "Only a fresh owner may change membership.")
+    if principal.role is not WorkspaceRole.FOUNDER or status not in {"ACTIVE", "REVOKED"}:
+        return _error("operation_forbidden", "Only a fresh founder may change membership.")
     durable = store or production_store()
     matches = await durable.list(
         "workspace_members",
@@ -243,9 +219,7 @@ async def change_membership(*, principal: ActorPrincipal, actor_id: str,
     membership_id = str(member.get("membership_id") or member.get("id") or "")
     committed = await durable.compare_and_set(
         "workspace_members", membership_id, expected_version, {
-            "role": role.value, "role_grants": sorted(set(role_grants)),
-            "candidate_assignments": sorted(set(candidate_assignments)),
-            "interview_assignments": sorted(set(interview_assignments)),
+            "role": WorkspaceRole.FOUNDER.value,
             "status": status, "updated_by_actor_id": principal.actor_id,
             "updated_at": utc_now(),
         })
@@ -259,7 +233,9 @@ async def change_membership(*, principal: ActorPrincipal, actor_id: str,
         "workspace_id": principal.workspace_id, "actor": principal.actor_id,
         "actor_id": principal.actor_id, "action": "workspace_membership.change",
         "target": f"workspace_members/{actor_id}", "result": "success",
-        "detail": f"role={role.value} status={status} version={committed['version']}",
+        "detail": (
+            f"role={WorkspaceRole.FOUNDER.value} status={status} "
+            f"version={committed['version']}"),
         "idempotency_key": client_request_id,
         "created_at": utc_now(), "version": 1,
     })

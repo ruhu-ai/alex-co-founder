@@ -20,8 +20,17 @@ def hiring_provenance(guard: Mapping[str, Any]) -> dict[str, str]:
     }
 
 
+def founder_draft_provenance() -> dict[str, str]:
+    """Production-shaped provenance admitted only for a non-executable role draft."""
+    return {
+        "provenance_class": "FOUNDER_DRAFT",
+        "draft_mode": "INTERNAL_REVIEW_ONLY",
+        "policy_version": "founder-role-draft-v1",
+    }
+
+
 class HiringWorkflowAdapter:
-    """Admit only reviewed synthetic hiring definitions and provenance."""
+    """Admit synthetic runs plus the exact non-executable Founder role draft."""
 
     def validate_run(self, *, definition: WorkflowDefinition,
                      workspace_id: str, domain_ref: str,
@@ -30,6 +39,9 @@ class HiringWorkflowAdapter:
             return {"status": "error", "error": True,
                     "error_code": "hiring_definition_invalid",
                     "message": "The hiring adapter accepts hiring definitions only."}
+        if (definition.workflow_kind == "hiring_role:v1"
+                and provenance == founder_draft_provenance()):
+            return {"status": "success"}
         return hiring_activation.require_synthetic({
             "synthetic": provenance.get("provenance_class") == "SYNTHETIC",
             "synthetic_namespace": provenance.get("namespace"),

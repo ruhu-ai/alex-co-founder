@@ -7,7 +7,7 @@ import hashlib
 import os
 from typing import Any, Literal
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, File, Form, Request, UploadFile
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -15,7 +15,6 @@ from app import auth
 from services import hiring_policy_service, task_queue, workload_identity
 from services.actor_identity import (
     ActorPrincipal,
-    WorkspaceRole,
     authorize,
     resolve_actor_from_claims,
 )
@@ -34,7 +33,14 @@ from services.hiring_h4s_google import H4SGoogleEffectAdapter
 from services.hiring_h4s_reply import H4SReplyService
 from services.hiring_identity_vault import CandidateIdentityVault, fixture_key_wrapper
 from services.hiring_mailbox import HiringMailboxService
-from services.hiring_run_answer import HiringRunAnswerService
+from services.hiring_public_intake import (
+    MAX_RESUME_BYTES,
+    HiringPublicIntakeService,
+)
+from services.hiring_run_answer import (
+    HiringCandidateConversationService,
+    HiringRunAnswerService,
+)
 from services.hiring_sandbox import HiringSandboxService
 from services.hiring_service import HiringService
 from services.internal_controlled_demo import InternalControlledDemoService
@@ -276,16 +282,14 @@ async def _actor(request: Request) -> ActorPrincipal | dict[str, Any]:
 def _inbox_row_visible(principal: ActorPrincipal, row: dict[str, Any]) -> bool:
     """Defer inbox visibility to the same gate that guards the records.
 
-    A row with no role_id (an unrouted mailbox quarantine) is workspace-level
-    triage and stays owner-only.
+    A row with no role_id is workspace-level founder triage.
     """
     role_id = str(row.get("role_id") or "")
     candidate_id = str(row.get("candidate_application_id") or "")
     if not role_id:
-        return principal.role is WorkspaceRole.OWNER
+        return True
     operation = "read_candidate" if candidate_id else "read_role"
-    return not authorize(principal, operation, role_id=role_id,
-                         candidate_application_id=candidate_id).get("error")
+    return not authorize(principal, operation).get("error")
 
 
 def _mutation_allowed(request: Request) -> dict[str, Any]:
@@ -326,6 +330,68 @@ def _services() -> tuple[HiringService, HiringMailboxService] | None:
 
 
 def register(app: FastAPI) -> None:
+    @app.get("/api/public/hiring/roles/{role_id}")
+    async def public_open_role(role_id: str):
+        """Receipt-backed, candidate-safe projection; no internal policy data."""
+        services = _services()
+        if not services:
+            return JSONResponse(
+                {"status": "error", "error": True,
+                 "error_code": "open_role_unavailable",
+                 "message": "Open roles are temporarily unavailable."},
+                status_code=503)
+        result = await services[0].get_public_role(role_id)
+        if result.get("error"):
+            return JSONResponse(result, status_code=404)
+        return result
+
+    @app.post("/api/public/hiring/roles/{role_id}/applications")
+    async def submit_public_application(
+            request: Request, role_id: str,
+            applicant_name: str = Form(...), email: str = Form(...),
+            cover_note: str = Form(...), privacy_consent: str = Form(...),
+            intake_token: str = Form(...), client_request_id: str = Form(...),
+            resume: UploadFile = File(...)):
+        """Local-staged candidate intake; never enables a provider connector.
+
+        The service re-resolves the exact live role/policy/receipt and stores a
+        restricted encrypted queue item. The public caller cannot select a
+        workspace, candidate state, assessment, action, or policy.
+        """
+        try:
+            content_length = int(request.headers.get("content-length", "0") or 0)
+        except ValueError:
+            content_length = -1
+        if content_length < 0 or content_length > MAX_RESUME_BYTES + 256_000:
+            return JSONResponse({
+                "status": "error", "error": True,
+                "error_code": "intake_request_too_large",
+                "message": "The application exceeds the 5 MB resume limit."
+            }, status_code=413)
+        data = bytearray()
+        while chunk := await resume.read(1024 * 1024):
+            data.extend(chunk)
+            if len(data) > MAX_RESUME_BYTES:
+                return JSONResponse({
+                    "status": "error", "error": True,
+                    "error_code": "resume_size_invalid",
+                    "message": "Resume files must be 5 MB or smaller."
+                }, status_code=413)
+        result = await HiringPublicIntakeService(
+            store=production_store()).submit(
+                role_id=role_id, intake_token=intake_token,
+                client_request_id=client_request_id,
+                applicant_name=applicant_name, email=email,
+                cover_note=cover_note,
+                consent_accepted=privacy_consent == "accepted",
+                filename=resume.filename or "",
+                content_type=resume.content_type or "application/octet-stream",
+                resume_bytes=bytes(data))
+        if result.get("error"):
+            return JSONResponse(result, status_code=int(result.get(
+                "http_status") or 400))
+        return result
+
     @app.get("/api/hiring/csrf")
     async def hiring_csrf(request: Request):
         principal = await _actor(request)
@@ -337,6 +403,21 @@ def register(app: FastAPI) -> None:
         return {"status": "success", "csrf_token": token,
                 "actor_id": principal.actor_id,
                 "workspace_id": principal.workspace_id}
+
+    @app.get("/api/hiring/roles/{role_id}/conversation-context")
+    async def role_conversation_context(request: Request, role_id: str):
+        principal = await _actor(request)
+        if isinstance(principal, dict):
+            return _response(principal)
+        services = _services()
+        if not services:
+            return JSONResponse(
+                {"status": "error", "error": True,
+                 "error_code": "hiring_unavailable",
+                 "message": "Hiring is temporarily unavailable."},
+                status_code=503)
+        return _response(await services[0].get_role_conversation_context(
+            principal=principal, role_id=role_id))
 
     # -- Internal controlled demo ------------------------------------------
     # This has a separate policy, records and approval domain from H4S. It is
@@ -469,7 +550,7 @@ def register(app: FastAPI) -> None:
         principal = await _actor(request)
         if isinstance(principal, dict):
             return _response(principal)
-        gate = authorize(principal, "read_role", role_id=role_id)
+        gate = authorize(principal, "read_role")
         if gate.get("error"):
             return _response(gate)
         rows = await production_store().list(
@@ -488,7 +569,7 @@ def register(app: FastAPI) -> None:
         store = production_store()
         sandbox = await store.get("hiring_sandbox_runs", sandbox_run_id)
         if (not sandbox or sandbox.get("workspace_id") != principal.workspace_id
-                or authorize(principal, "read_role", role_id=str(sandbox.get("role_id") or "")).get("error")):
+                or authorize(principal, "read_role").get("error")):
             return JSONResponse({"error": "not found"}, status_code=404)
         actions = [
             row for row in await store.list(
@@ -536,7 +617,7 @@ def register(app: FastAPI) -> None:
 
     # -- H4S sandbox provisioning ------------------------------------------
     # Without these the sandbox records that every other H4S surface reads
-    # could never be created. Each one is owner-only inside the service and
+    # could never be created. Each one is founder-only inside the service and
     # additionally requires the deployment flag before any effect authority is
     # resolved.
 
@@ -753,8 +834,6 @@ def register(app: FastAPI) -> None:
         rows = await production_store().list(
             "hiring_roles", filters={"workspace_id": principal.workspace_id},
             order_by="updated_at", descending=True, limit=200)
-        if principal.role is not WorkspaceRole.OWNER:
-            rows = [row for row in rows if row["role_id"] in principal.role_grants]
         return {"status": "success", "roles": rows}
 
     @app.get("/api/hiring/roles/{role_id}")
@@ -765,7 +844,7 @@ def register(app: FastAPI) -> None:
         role = await production_store().get("hiring_roles", role_id)
         if not role or role.get("workspace_id") != principal.workspace_id:
             return JSONResponse({"error": "not found"}, status_code=404)
-        gate = authorize(principal, "read_role", role_id=role_id)
+        gate = authorize(principal, "read_role")
         if gate.get("error"):
             return _response(gate)
         candidates = await production_store().list(
@@ -777,15 +856,12 @@ def register(app: FastAPI) -> None:
         impacts = await production_store().list(
             "hiring_policy_impacts", filters={"workspace_id": principal.workspace_id,
                                                "role_id": role_id}, limit=1000)
-        # Candidate visibility is decided by the one code-owned gate, never by
-        # a role name special-cased here. An OBSERVER holding a role grant may
-        # read the role but no candidate record; an INTERVIEWER sees only
-        # assigned candidates.
+        # Candidate visibility is decided by the one code-owned workspace gate;
+        # no second human-role system is reconstructed in this route.
         candidates = [
             row for row in candidates
             if not authorize(
-                principal, "read_candidate", role_id=role_id,
-                candidate_application_id=row["candidate_application_id"],
+                principal, "read_candidate",
             ).get("error")]
         policies.sort(key=lambda item: int(item.get("sequence", 0)))
         return {"status": "success", "role": role, "candidates": candidates,
@@ -813,7 +889,7 @@ def register(app: FastAPI) -> None:
         role = await production_store().get("hiring_roles", role_id)
         if not role or role.get("workspace_id") != principal.workspace_id:
             return JSONResponse({"error": "not found"}, status_code=404)
-        gate = authorize(principal, "read_role", role_id=role_id)
+        gate = authorize(principal, "read_role")
         if gate.get("error"):
             return _response(gate)
         impacts = await production_store().list(
@@ -901,7 +977,7 @@ def register(app: FastAPI) -> None:
         if not services:
             return JSONResponse({"error": "synthetic encryption is not configured"},
                                 status_code=503)
-        gate = authorize(principal, "prepare_role", role_id=role_id)
+        gate = authorize(principal, "prepare_role")
         if gate.get("error"):
             return _response(gate)
         return _response(await services[1].configure_binding(
@@ -923,7 +999,7 @@ def register(app: FastAPI) -> None:
         if not services:
             return JSONResponse({"error": "synthetic encryption is not configured"},
                                 status_code=503)
-        gate = authorize(principal, "prepare_role", role_id=role_id)
+        gate = authorize(principal, "prepare_role")
         if gate.get("error"):
             return _response(gate)
         return _response(await services[1].record_probe(
@@ -943,7 +1019,7 @@ def register(app: FastAPI) -> None:
         fixture_gate = _synthetic_demo_allowed(payload)
         if fixture_gate.get("error"):
             return _response(fixture_gate)
-        if principal.role is not WorkspaceRole.OWNER or not services:
+        if not services:
             return JSONResponse({"error": "forbidden"}, status_code=403)
         return _response(await services[1].seed_fixture_message(
             message=payload.message.model_dump(mode="json", exclude={"schema_version"}),
@@ -961,7 +1037,7 @@ def register(app: FastAPI) -> None:
         fixture_gate = _synthetic_demo_allowed(payload)
         if fixture_gate.get("error"):
             return _response(fixture_gate)
-        if principal.role is not WorkspaceRole.OWNER or not services:
+        if not services:
             return JSONResponse({"error": "forbidden"}, status_code=403)
         result = await services[1].create_fetch_batch(
             connection_id=payload.connection_id, old_cursor=payload.old_cursor,
@@ -1032,6 +1108,37 @@ def register(app: FastAPI) -> None:
                                 status_code=503)
         return _response(await services[0].candidate_detail(
             principal=principal, application_id=application_id))
+
+    @app.post("/api/hiring/applications/{application_id}/conversations")
+    async def start_candidate_conversation(request: Request, application_id: str,
+                                           payload: ClosedRequest):
+        del payload
+        denied = _mutation_allowed(request)
+        if denied.get("error"):
+            return _response(denied)
+        principal = await _actor(request)
+        if isinstance(principal, dict):
+            return _response(principal)
+        return _response(await HiringCandidateConversationService(
+            production_store()).begin(
+                principal=principal,
+                candidate_application_id=application_id))
+
+    @app.post("/api/hiring/candidate-conversations/answer")
+    async def answer_candidate_conversation(
+            request: Request, payload: H4SConversationAnswerRequest):
+        denied = _mutation_allowed(request)
+        if denied.get("error"):
+            return _response(denied)
+        principal = await _actor(request)
+        if isinstance(principal, dict):
+            return _response(principal)
+        return _response(await HiringCandidateConversationService(
+            production_store()).answer(
+                principal=principal,
+                conversation_token=payload.conversation_token,
+                question=payload.question,
+                client_turn_id=payload.client_turn_id))
 
     @app.post("/api/hiring/applications/{application_id}/identity-reveal")
     async def reveal_candidate_identity(request: Request, application_id: str,
@@ -1192,15 +1299,14 @@ def register(app: FastAPI) -> None:
         if not run or run.get("workspace_id") != principal.workspace_id:
             return JSONResponse({"error": "not found"}, status_code=404)
         if run.get("run_kind") == "ROLE":
-            gate = authorize(principal, "read_role", role_id=run["domain_ref"])
+            gate = authorize(principal, "read_role")
         else:
             application = await production_store().get(
                 "candidate_applications", run["domain_ref"])
             if not application:
                 return JSONResponse({"error": "not found"}, status_code=404)
             gate = authorize(
-                principal, "read_candidate", role_id=application["role_id"],
-                candidate_application_id=application["candidate_application_id"])
+                principal, "read_candidate")
         if gate.get("error"):
             return _response(gate)
         events = await production_store().list(
