@@ -1,0 +1,21 @@
+tests/unit/test_spec40_gate_f_offline.py
+  s_77f1bb234f38de::t_9d7243d2686269 235
+skills/offline_capabilities.py
+  s_77f1bb234f38de::t_9d7243d2686269 20,32,64
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "2191a127d41e861a3103a11efc7917aa4dfa783e",
+  "prompts": {},
+  "sessions": {
+    "s_77f1bb234f38de": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a046ae-fe02-7782-82b7-4676370ad1b6",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Ijidai Lassa <ijidai@cued.app>"
+    }
+  }
+}
