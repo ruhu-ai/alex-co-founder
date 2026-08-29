@@ -1,0 +1,34 @@
+tests/unit/test_search_ui_contract.py
+  s_bf598a20bfcdaa::t_ea78f27bd7c0be 18-19,44-46
+tests/unit/test_app_server.py
+  s_bf598a20bfcdaa::t_57736a79629cf4 366-367,380,391-392,445
+.env.example
+  s_bf598a20bfcdaa::t_ea78f27bd7c0be 209-214,222-233
+app/main.py
+  s_bf598a20bfcdaa::t_a6d4f60b9cb36e 4133-4134,4572,4857-4859,5490-5513,5515-5525,5616,5719
+  s_bf598a20bfcdaa::t_b53db46044b199 62,2807-2809,2813,2816,5946-5955
+  s_bf598a20bfcdaa::t_3d750dafcceb70 5956-5957
+tests/unit/test_browser_ui_contract.py
+  s_bf598a20bfcdaa::t_b53db46044b199 81-82
+agents/co_founder/callbacks.py
+  s_bf598a20bfcdaa::t_ea78f27bd7c0be 12,102-116
+  s_bf598a20bfcdaa::t_769aa7a2789e73 117
+tests/unit/test_local_m2_pilot.py
+  s_bf598a20bfcdaa::t_ea78f27bd7c0be 102-106
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "bb8748045e7a9c6071b8333f24b79f83e01b68e0",
+  "prompts": {},
+  "sessions": {
+    "s_bf598a20bfcdaa": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a04860-dde3-79c3-b2bd-2987b04adc68",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Ijidai Lassa <ijidai@cued.app>"
+    }
+  }
+}
