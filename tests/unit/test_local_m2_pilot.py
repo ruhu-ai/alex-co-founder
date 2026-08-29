@@ -99,10 +99,11 @@ async def test_local_pilot_refuses_cloud_run(monkeypatch: pytest.MonkeyPatch):
 
 
 async def test_ui_uses_founder_only_local_pilot_wording():
-    html = Path("app/static/index.html").read_text(encoding="utf-8")
-    assert "Local-only pilot enabled for the authenticated Founder" in html
-    assert "isolated local Founder pilot namespace" in html
-    local_copy = html[html.index("Local-only pilot enabled") :]
+    html = Path("app/static/m2-pilot.html").read_text(encoding="utf-8")
+    assert "one authenticated Founder" in html
+    assert "Local namespace only" in html
+    assert "Separate SQLite data and deletion ledger" in html
+    local_copy = html[html.index("one authenticated Founder") :]
     assert "local pilot operator" not in local_copy.casefold()
     assert "local pilot owner" not in local_copy.casefold()
 

@@ -9,6 +9,7 @@ all about a voice-AI clinic platform. A grant reviewer can check those numbers.
 """
 
 import json
+import os
 import re
 from typing import Any, Optional
 
@@ -97,6 +98,22 @@ async def enforce_workflow_tool_contract(
 ) -> Optional[dict[str, Any]]:
     """Enforce visual provenance and invalid specialist handoffs in code."""
     from services import capability_registry, live_visual_context
+
+    # The isolated local M2 harness is memory-only. It has no model-selected
+    # tool, workflow, connector, or external-effect lane.
+    if (
+        os.environ.get("DURABLE_MEMORY_M2_LOCAL_PILOT", "0") == "1"
+        and not os.environ.get("K_SERVICE")
+    ):
+        return {
+            "status": "error",
+            "error": True,
+            "error_code": "local_m2_pilot_tool_disabled",
+            "message": (
+                "Tools and workflow effects are unavailable in the local "
+                "memory pilot. Continue conversationally without tools."
+            ),
+        }
 
     # M2 memory is conversational advisory context only. Even if a model tries
     # to turn a remembered preference into a workflow mutation, specialist

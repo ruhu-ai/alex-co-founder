@@ -15,8 +15,8 @@ UI = (pathlib.Path(__file__).resolve().parents[2]
 
 class TestSurface:
     def test_button_and_dialog_are_sessions_only(self):
-        assert 'title="Sessions (⌘K)"' in UI
-        assert 'aria-label="Find a session"' in UI
+        assert 'title="Search sessions and work (⌘K)"' in UI
+        assert 'id="sessions"' in UI and 'aria-label="Sessions"' in UI
         assert '<div class="conn-title">Sessions</div>' in UI
 
     def test_dialog_explains_the_session_workbench_preview(self):
@@ -41,7 +41,9 @@ class TestBehaviour:
         assert "if (generation !== searchGeneration) return;" in UI
 
     def test_typing_is_debounced(self):
-        assert "setTimeout(() => runSearch({ reset: true }), 200)" in UI
+        assert "searchDebounce = setTimeout(() => runSearch({" in UI
+        assert "reset: true" in UI
+        assert "}), 200);" in UI
 
     def test_pagination_is_user_driven_not_polled(self):
         assert "data-search-more" in UI

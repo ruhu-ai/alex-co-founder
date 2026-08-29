@@ -363,8 +363,8 @@ class TestDriveExportReceipts:
             status="CONNECTED"))
         listed = []
 
-        def _list(folder_id, limit, workspace_id, *, account):
-            listed.append((folder_id, limit, workspace_id, account))
+        def _list(folder_id, limit, workspace_id, *, connector_id):
+            listed.append((folder_id, limit, workspace_id, connector_id))
             return {"status": "success", "files": [{
                 "id": "alex-file-1", "name": "Working brief.docx",
                 "mime": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
@@ -377,7 +377,7 @@ class TestDriveExportReceipts:
         files = client.get("/api/v1/integrations/alex-drive/files")
         assert files.status_code == 200
         assert files.json()["files"][0]["id"] == "alex-file-1"
-        assert listed == [("", 25, appmod.FOUNDER_ID, "alex")]
+        assert listed == [("", 25, appmod.FOUNDER_ID, "alex_drive")]
 
         monkeypatch.setattr(storage, "_root", lambda: str(tmp_path))
         artifact = "docx_general_role_brief_v1.docx"
@@ -388,8 +388,8 @@ class TestDriveExportReceipts:
         uploads = []
 
         def _upload(name, path, mime, *, source_artifact_id, checksum,
-                    workspace_id="", account="founder"):
-            uploads.append((name, source_artifact_id, workspace_id, account))
+                    workspace_id="", connector_id="drive"):
+            uploads.append((name, source_artifact_id, workspace_id, connector_id))
             return {"status": "success", "file_id": "alex-drive-copy-1",
                     "url": "https://drive.google.com/file/d/alex-drive-copy-1"}
 
@@ -442,7 +442,7 @@ class TestDriveExportReceipts:
         assert second.status_code == 200, second.text
         assert len(uploads) == 1
         assert uploads[0] == (
-            artifact, document_id, appmod.FOUNDER_ID, "alex")
+            artifact, document_id, appmod.FOUNDER_ID, "alex_drive")
         assert approvals[0][1] == "export_alex_drive_file"
         assert approvals[0][2]["connector_id"] == "alex_drive"
         receipt = next(iter(actions.values()))

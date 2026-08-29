@@ -59,6 +59,7 @@ from services import (
     firestore,
     hiring_policy_service,
     investor_outreach_service,
+    local_pilot_store,
     pipeline_service,
     session_deletion,
     session_resources,
@@ -2803,24 +2804,16 @@ async def tasks_distill(payload: DistillRequest, request: Request):
 @app.get("/api/config")
 async def api_config():
     """Founder-facing config for the UI, including fail-closed feature surfaces."""
-    memory_surface_enabled = os.environ.get("DURABLE_MEMORY_M2_ENABLED", "").strip().lower() in {
-        "1",
-        "true",
-        "yes",
-        "on",
-    }
-    local_memory_pilot = (
-        memory_surface_enabled
-        and os.environ.get("DURABLE_MEMORY_M2_LOCAL_PILOT", "").strip().lower()
-        in {"1", "true", "yes", "on"}
-        and not os.environ.get("K_SERVICE")
-    )
+    policy = durable_memory.PilotPolicy.from_environment()
+    memory_surface_enabled = policy.surface_enabled
+    local_memory_pilot = memory_surface_enabled and policy.local_pilot
     return {
         "persona_name": PERSONA_NAME,
         "workflow_id": os.environ.get("WORKFLOW_FILE", ""),
+        "workspace_brief_surface_enabled": workspace_brief.release_enabled(FOUNDER_ID),
         "memory_surface_enabled": memory_surface_enabled,
         "memory_surface_mode": "LOCAL_SYNTHETIC_PILOT" if local_memory_pilot else (
-            "CONTROLLED_M2" if memory_surface_enabled else "OFF"
+            "FOUNDER_CANARY" if memory_surface_enabled else "OFF"
         ),
     }
 
@@ -4137,8 +4130,8 @@ async def api_google_connect(request: Request, connector: str = ""):
     # two in-flight consents never share a verifier slot.
     state = f"{account}:{uuid.uuid4().hex}"
     url, _ = flow.authorization_url(
-        prompt="consent", access_type="offline", include_granted_scopes="true",
-        state=state)  # NB: string "true" — Google rejects the Python bool's "True"
+        prompt="consent", access_type="offline", include_granted_scopes="false",
+        state=state)  # NB: strings are required — Google rejects Python bool casing.
     # PKCE state is durable and single-use: consent can survive a cold start,
     # while an unknown, expired, or replayed callback is rejected. The exact
     # redirect URI travels with it — the token exchange must present the same
@@ -4576,7 +4569,7 @@ async def api_v1_alex_drive_files(
         return JSONResponse(gate, status_code=409)
     result = await asyncio.to_thread(
         drive_adapter.list_files, folder_id, max(1, min(limit, 100)),
-        principal.workspace_id, account="alex")
+        principal.workspace_id, connector_id="alex_drive")
     await connection_registry.record_operation_result(
         principal.workspace_id, "alex_drive", "drive_list", result)
     return JSONResponse(result, status_code=(
@@ -4861,7 +4854,9 @@ async def _register_document_ingestion(
                                                 result.get("artifact_id") or ""),
                          "session_id": session_id}
                         if not result.get("error") else None),
-            error_code=str(result.get("error_code") or "ingestion_registration_failed"))
+            error_code=(
+                str(result.get("error_code") or "ingestion_registration_failed")
+                if result.get("error") else ""))
         result["command_receipt"] = terminal
     return JSONResponse(result, status_code=status_code)
 
@@ -5492,11 +5487,42 @@ async def api_sync_drive(
         workspace_id, connector_id)
     if connector_gate.get("error"):
         return JSONResponse(connector_gate, status_code=409)
-    path = storage.artifact_path(artifact_name)
-    if not os.path.exists(path):
-        return JSONResponse({"error": "not found"}, status_code=404)
+    # The produced-document registry is durable authority, while Cloud Run's
+    # local artifact cache is ephemeral. Hydrate from durable storage before
+    # accepting a command or crossing an approval/provider boundary.
+    try:
+        path = os.path.realpath(
+            await asyncio.to_thread(storage.download_if_missing, artifact_name))
+        artifact_root = os.path.realpath(storage._root())
+    except FileNotFoundError:
+        return JSONResponse(
+            {"error": True, "error_code": "artifact_not_found",
+             "message": "Produced artifact is unavailable."}, status_code=404)
+    except Exception:
+        return JSONResponse(
+            {"error": True, "error_code": "artifact_storage_unavailable",
+             "message": "Produced artifact storage is temporarily unavailable."},
+            status_code=503)
+    try:
+        contained = os.path.commonpath((path, artifact_root)) == artifact_root
+    except ValueError:
+        contained = False
+    if not contained or not os.path.isfile(path):
+        return JSONResponse(
+            {"error": True, "error_code": "artifact_not_found",
+             "message": "Produced artifact is unavailable."}, status_code=404)
     ext = artifact_name.rsplit(".", 1)[-1]
-    export_bytes = await asyncio.to_thread(_pathlib.Path(path).read_bytes)
+    try:
+        export_bytes = await asyncio.to_thread(_pathlib.Path(path).read_bytes)
+    except FileNotFoundError:
+        return JSONResponse(
+            {"error": True, "error_code": "artifact_not_found",
+             "message": "Produced artifact is unavailable."}, status_code=404)
+    except OSError:
+        return JSONResponse(
+            {"error": True, "error_code": "artifact_storage_unavailable",
+             "message": "Produced artifact storage is temporarily unavailable."},
+            status_code=503)
     checksum = _hashlib.sha256(export_bytes).hexdigest()
     document_id = str(document.get("id") or "")
     if request.url.path.startswith("/api/v1/"):
@@ -5587,7 +5613,7 @@ async def api_sync_drive(
                          if request.url.path.startswith("/api/v1/") else ""),
     }
     if alex_destination:
-        upload_kwargs["account"] = "alex"
+        upload_kwargs["connector_id"] = "alex_drive"
     result = await asyncio.to_thread(
         drive_adapter.upload_file, artifact_name, path,
         document_service.mime_for(ext) if ext in ("docx", "xlsx", "pptx", "pdf")
@@ -5690,7 +5716,7 @@ async def _reconcile_external_action_for(
         checked = await asyncio.to_thread(
             drive_adapter.reconcile_export,
             refs.get("document_id", ""), refs.get("checksum", ""), workspace_id,
-            account=("alex" if connector_id == "alex_drive" else "founder"))
+            connector_id=connector_id)
         if checked.get("error"):
             return checked
         status = "SUCCEEDED" if checked.get("exists") else "FAILED"
@@ -5915,6 +5941,18 @@ async def _lifespan(app_):
 
 
 app.router.lifespan_context = _lifespan
+
+
+@app.get("/", include_in_schema=False)
+@app.get("/index.html", include_in_schema=False)
+def founder_ui() -> FileResponse:
+    """Serve the isolated pilot shell only inside its fenced local runtime."""
+    filename = "m2-pilot.html" if local_pilot_store.local_pilot_mode() else "index.html"
+    return FileResponse(
+        os.path.join("app", "static", filename),
+        media_type="text/html",
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 if os.path.isdir("app/static"):
