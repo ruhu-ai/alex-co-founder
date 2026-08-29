@@ -1,0 +1,29 @@
+docs/background-work-founder-artifact-pilot-evidence.md
+  s_16e75b10efee22::t_daf343d6387ab9 3-4
+tests/eval/spec40_gate_f_qualification_plan.json
+  s_16e75b10efee22::t_daf343d6387ab9 1-85
+tests/unit/test_spec40_gate_f_qualification_plan.py
+  s_16e75b10efee22::t_daf343d6387ab9 1-91
+docs/background-work-gate-a-b-foundation-evidence.md
+  s_16e75b10efee22::t_daf343d6387ab9 3-4
+docs/background-work-gate-f-offline-qualification.md
+  s_16e75b10efee22::t_daf343d6387ab9 1-142
+docs/background-work-gate-e-exit-review.md
+  s_16e75b10efee22::t_daf343d6387ab9 1-64
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "39115fd7ee0275de12bc219c6a63f142d60cc122",
+  "prompts": {},
+  "sessions": {
+    "s_16e75b10efee22": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0484d-a6bd-7182-90ae-527ccfd2a966",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Ijidai Lassa <ijidai@cued.app>"
+    }
+  }
+}
