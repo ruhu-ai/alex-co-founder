@@ -1,0 +1,79 @@
+tests/unit/test_app_server.py
+  s_16e75b10efee22::t_fb2069bfa4a9bf 99-150
+services/actor_identity.py
+  s_16e75b10efee22::t_7ff95ccc01a86b 64-67,71,93
+tests/unit/test_google_connector_expansion.py
+  s_16e75b10efee22::t_c4a5884bbb650d 13
+services/source_ingestion.py
+  s_16e75b10efee22::t_2ba0a6ea7fc170 14-21,32-39,63-64,200-211,217-218,243-249,271-273,297-318,333-335,348-349
+app/main.py
+  s_16e75b10efee22::t_df7a58f4a4f886 4314-4315,4350,4362-4365
+  s_16e75b10efee22::t_314181abb58400 3676-3703
+  s_16e75b10efee22::t_8e8db448ce2c53 4764-4901
+agents/co_founder/callbacks.py
+  s_16e75b10efee22::t_dcf69575ec625c 41,67,99-103,107,111,113-120,122,127,129-164,231-248,291-308
+tests/unit/test_actor_identity_platform.py
+  s_16e75b10efee22::t_7ff95ccc01a86b 83-98
+services/firestore.py
+  s_16e75b10efee22::t_56a99c231bce77 67-69,160,195-317,1070-1071,1096-1098,1103-1111,1132-1133,1174-1175,2091-2092,2106-2109,2115-2117,2128,2151-2152,2155-2158,2161,2170,2194-2196,2331-2377,3002-3010,3012-3013
+  s_eaacc8e7ddcc00::t_ec06e30757cd92 3011,3014-3020
+services/session_deletion.py
+  s_16e75b10efee22::t_693fafecdafc04 77-79,141-144,210-213
+agents/co_founder/agent.py
+  s_16e75b10efee22::t_dcf69575ec625c 27,52-53,60,87-88
+app/static/index.html
+  s_16e75b10efee22::t_65dd4a9291750f 6250-6253
+  s_16e75b10efee22::t_d3161e3f4c98a8 3663-3664
+  s_16e75b10efee22::t_a962ec98e2d298 3702-3703,4318,4381,6366,6390,8257,8604
+  s_16e75b10efee22::t_4f380bbb42dd52 3737,3744-3798,3800
+  s_16e75b10efee22::t_bd0c299f718df7 6438,6495,6581,6597-6598,6612,6646-6648,6650,6659,6664-6665
+  s_16e75b10efee22::t_2f1e37fa226bdf 3738-3743,8062
+  s_16e75b10efee22::t_2aebd3483c4304 8382,8389,8396-8398,8403-8415,8419,8425-8427,8433
+  s_16e75b10efee22::t_1c1ab2a74a81df 8476-8478,8526-8529,8546-8603,8605
+  s_16e75b10efee22::t_20b9b8f0b8fc6e 3862-3869,8613-8615
+  s_16e75b10efee22::t_81c67d0187ca91 8358-8373
+  s_16e75b10efee22::t_d03d0134eedba9 8606
+agents/co_founder/state_schema.py
+  s_16e75b10efee22::t_dcf69575ec625c 75-80
+tests/unit/test_review_fixes_app.py
+  s_16e75b10efee22::t_8c5fbd1d36d409 21,23-26
+tests/unit/test_browser_ui_contract.py
+  s_16e75b10efee22::t_20b9b8f0b8fc6e 112-126
+services/local_pilot_store.py
+  s_16e75b10efee22::t_c4a5884bbb650d 15,17
+services/capability_registry.py
+  s_16e75b10efee22::t_a7719d87167dfd 36-90
+  s_eaacc8e7ddcc00::t_2266ea0f63909e 35
+services/data_lifecycle.py
+  s_16e75b10efee22::t_693fafecdafc04 82-85,236-237,374-379,381-383
+scripts/run_spec39_m2_promotion_measurement.py
+  s_16e75b10efee22::t_c4a5884bbb650d 27-30,414
+agents/co_founder/instructions.py
+  s_16e75b10efee22::t_dcf69575ec625c 10-12,22-24,39,44-48,53-88,96-98,182-189,277-279,296
+services/durable_store.py
+  s_16e75b10efee22::t_693fafecdafc04 98,100-101
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "0e16b7c3df30550269a4fde959aa8aa91ffdd369",
+  "prompts": {},
+  "sessions": {
+    "s_16e75b10efee22": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0484d-a6bd-7182-90ae-527ccfd2a966",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Ijidai Lassa <ijidai@cued.app>"
+    },
+    "s_eaacc8e7ddcc00": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a04854-668e-7062-aac7-ec1230ef5cdb",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Ijidai Lassa <ijidai@cued.app>"
+    }
+  }
+}
