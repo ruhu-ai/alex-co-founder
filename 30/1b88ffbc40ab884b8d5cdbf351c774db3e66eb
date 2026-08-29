@@ -1,0 +1,27 @@
+tests/unit/test_browser_ui_contract.py
+  s_16e75b10efee22::t_23b1bc864ec2af 90-98
+app/static/index.html
+  s_16e75b10efee22::t_4026a92cad89c6 6434-6446
+  s_16e75b10efee22::t_3440dda3953dff 6173
+  s_16e75b10efee22::t_a1d09141697d71 6315-6326
+app/main.py
+  s_16e75b10efee22::t_3d90147e55785b 6132-6136
+tests/unit/test_app_server.py
+  s_16e75b10efee22::t_23b1bc864ec2af 472-510
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "301b88ffbc40ab884b8d5cdbf351c774db3e66eb",
+  "prompts": {},
+  "sessions": {
+    "s_16e75b10efee22": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0484d-a6bd-7182-90ae-527ccfd2a966",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Ijidai Lassa <ijidai@cued.app>"
+    }
+  }
+}
