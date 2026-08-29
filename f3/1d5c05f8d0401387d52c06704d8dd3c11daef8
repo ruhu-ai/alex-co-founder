@@ -1,0 +1,24 @@
+services/task_queue.py
+  s_16e75b10efee22::t_f56a7dfc116061 27
+services/background_pilot.py
+  s_16e75b10efee22::t_f56a7dfc116061 602-603
+tests/unit/test_background_artifact_pilot.py
+  s_16e75b10efee22::t_f56a7dfc116061 200,212-222
+  s_16e75b10efee22::t_e9eb44b00e8b62 223
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "f31d5c05f8d0401387d52c06704d8dd3c11daef8",
+  "prompts": {},
+  "sessions": {
+    "s_16e75b10efee22": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0484d-a6bd-7182-90ae-527ccfd2a966",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Ijidai Lassa <ijidai@cued.app>"
+    }
+  }
+}

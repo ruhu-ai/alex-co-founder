@@ -1,0 +1,25 @@
+services/background_work.py
+  s_16e75b10efee22::t_1573f5048a8f54 397-426,481,485
+tests/unit/test_background_artifact_pilot.py
+  s_16e75b10efee22::t_1573f5048a8f54 177-179,534-539
+services/command_service.py
+  s_16e75b10efee22::t_1573f5048a8f54 36-70,104-109
+tests/unit/test_command_service.py
+  s_16e75b10efee22::t_1573f5048a8f54 43-63
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "1dda310614f0c7b16fad08f04c0c8dd11f4bcab5",
+  "prompts": {},
+  "sessions": {
+    "s_16e75b10efee22": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0484d-a6bd-7182-90ae-527ccfd2a966",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Ijidai Lassa <ijidai@cued.app>"
+    }
+  }
+}
