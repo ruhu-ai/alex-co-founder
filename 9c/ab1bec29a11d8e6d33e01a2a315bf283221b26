@@ -1,0 +1,19 @@
+docs/background-work-gate-f-cloud-canary-evidence.md
+  s_16e75b10efee22::t_a18e6c05eaa691 67-105
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "9cab1bec29a11d8e6d33e01a2a315bf283221b26",
+  "prompts": {},
+  "sessions": {
+    "s_16e75b10efee22": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0484d-a6bd-7182-90ae-527ccfd2a966",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Ijidai Lassa <ijidai@cued.app>"
+    }
+  }
+}
