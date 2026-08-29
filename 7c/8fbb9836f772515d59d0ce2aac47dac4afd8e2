@@ -1,0 +1,22 @@
+tests/unit/test_app_server.py
+  s_16e75b10efee22::t_f2f29827d459b6 294,303-311,328,333-400
+  s_16e75b10efee22::t_fe0ae2b9562ac5 401
+app/main.py
+  s_16e75b10efee22::t_f2f29827d459b6 6878-6918,6920-6939
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "7c8fbb9836f772515d59d0ce2aac47dac4afd8e2",
+  "prompts": {},
+  "sessions": {
+    "s_16e75b10efee22": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0484d-a6bd-7182-90ae-527ccfd2a966",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Ijidai Lassa <ijidai@cued.app>"
+    }
+  }
+}
