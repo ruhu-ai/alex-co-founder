@@ -1,0 +1,54 @@
+scripts/activate_skill_founder_canary.py
+  s_16e75b10efee22::t_864620f606cdc2 4-10,90-96,129,147-150,154,162-163,166,168,212,220,237
+  s_16e75b10efee22::t_ccc6057ebfa82b 76,102,111,177
+services/skill_release_gate.py
+  s_16e75b10efee22::t_4f5e2a67c829ff 36-45
+scripts/seed_hiring_membership.py
+  s_16e75b10efee22::t_15bdd37bb16183 19
+  s_16e75b10efee22::t_864620f606cdc2 29
+  s_16e75b10efee22::t_ccc6057ebfa82b 1,3-4,23,25,27,33
+  s_16e75b10efee22::t_41154e5158e103 12-13,15-17
+  s_bf598a20bfcdaa::t_99492a14a99729 18
+tests/unit/test_skill_cli_founder_role.py
+  s_16e75b10efee22::t_3b0ed590269684 14,34
+  s_16e75b10efee22::t_806fa2e51c220a 41-44
+  s_16e75b10efee22::t_41154e5158e103 16,25,33,96
+  s_16e75b10efee22::t_58ef0124999835 1,5-13,15,17-24,26-32,35-40,45-95
+scripts/seed_workspace_founder.py
+  s_16e75b10efee22::t_15bdd37bb16183 19
+  s_16e75b10efee22::t_41154e5158e103 12-13,15-17
+  s_bf598a20bfcdaa::t_96e91ddc19cc80 18
+.env.example
+  s_16e75b10efee22::t_41154e5158e103 49,51,53
+  s_16e75b10efee22::t_db2c6a09ffe19d 104-105
+scripts/activate_skill_synthetic_canary.py
+  s_16e75b10efee22::t_864620f606cdc2 109,134,142,393
+scripts/reset_legacy_workspace_memberships.py
+  s_16e75b10efee22::t_3b0ed590269684 13-14,17-19
+  s_16e75b10efee22::t_15bdd37bb16183 21-23
+  s_bf598a20bfcdaa::t_b8b5927fb0dd9e 20
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "fa3794eda3f5e9393bc3e0fa83535f011341d34f",
+  "prompts": {},
+  "sessions": {
+    "s_16e75b10efee22": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0484d-a6bd-7182-90ae-527ccfd2a966",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Ijidai Lassa <ijidai@cued.app>"
+    },
+    "s_bf598a20bfcdaa": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a04860-dde3-79c3-b2bd-2987b04adc68",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Ijidai Lassa <ijidai@cued.app>"
+    }
+  }
+}
