@@ -1,0 +1,27 @@
+services/combined_release_preflight.py
+  s_16e75b10efee22::t_cf1a6fd91a3cee 1-8,13-22,51-53,60-62,66-69,84-89,106,121-125,127-128
+  s_16e75b10efee22::t_009db89b911062 9-12,23-50,54-59,63-65,70-83,90-105,107-120,126,129-131
+scripts/check_combined_release_runtime.py
+  s_16e75b10efee22::t_cf1a6fd91a3cee 1-40
+  s_16e75b10efee22::t_e4d47d590ee578 41-42
+tests/unit/test_combined_release_preflight.py
+  s_16e75b10efee22::t_cf1a6fd91a3cee 1-2,5-9,14-23,31-32,35,38,40,43,46-52,55-60,66-68
+  s_16e75b10efee22::t_bf41173ad16d85 3-4,39,54
+  s_16e75b10efee22::t_009db89b911062 10-13,24-30,33-34,36-37,41-42,44-45,53,61-65,69-130
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "50ab85ce580579ce6650c92e4bbfd657e0c0d3bc",
+  "prompts": {},
+  "sessions": {
+    "s_16e75b10efee22": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0484d-a6bd-7182-90ae-527ccfd2a966",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Ijidai Lassa <ijidai@cued.app>"
+    }
+  }
+}
