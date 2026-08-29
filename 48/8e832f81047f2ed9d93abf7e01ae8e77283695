@@ -1,0 +1,42 @@
+tests/unit/test_hiring_role_writer.py
+  s_bf598a20bfcdaa::t_f92c3533cd3f7e 109-113
+  s_bf598a20bfcdaa::t_df618a9ac17dfc 252-256
+  s_bf598a20bfcdaa::t_94c15441e48255 1-108,114-251
+tests/unit/test_hiring_founder_draft.py
+  s_bf598a20bfcdaa::t_e60e30cc534ca2 138,148
+docs/14-build-plan.md
+  s_bf598a20bfcdaa::t_100a80f1fd405e 105-108
+services/gemini_backends.py
+  s_bf598a20bfcdaa::t_db55b9c30b4a97 416-489,503,520
+services/hiring_role_draft.py
+  s_bf598a20bfcdaa::t_0a7273d3d27ebe 17-19,240-246
+  s_bf598a20bfcdaa::t_d43daedfe935b4 61-75,231-235,301,427,429-431,438
+  s_bf598a20bfcdaa::t_5605135d71dec9 247
+services/hiring_role_writer.py
+  s_bf598a20bfcdaa::t_93c48de31aeab6 26,251,260,262
+  s_bf598a20bfcdaa::t_df618a9ac17dfc 61-88
+  s_bf598a20bfcdaa::t_f92c3533cd3f7e 181-185,189
+  s_bf598a20bfcdaa::t_39efc2e9cb4b1d 1-25,27-60,89-180,186-188,190-250,252-259,261,263-314
+app/main.py
+  s_bf598a20bfcdaa::t_43ed0918776d42 777-798,801,808,810,818,821,840,1077-1080,1090
+docs/25-hiring-operations.md
+  s_bf598a20bfcdaa::t_100a80f1fd405e 15-26
+tests/unit/test_app_server.py
+  s_bf598a20bfcdaa::t_e60e30cc534ca2 30,44,65-66,1052-1056
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "488e832f81047f2ed9d93abf7e01ae8e77283695",
+  "prompts": {},
+  "sessions": {
+    "s_bf598a20bfcdaa": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a04860-dde3-79c3-b2bd-2987b04adc68",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Ijidai Lassa <ijidai@cued.app>"
+    }
+  }
+}
