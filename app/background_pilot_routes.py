@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from typing import Awaitable, Callable
 
 from fastapi import Query, Request
@@ -13,6 +14,14 @@ from services.background_pilot import (
     BackgroundArtifactPilot,
     BackgroundPilotExecutor,
 )
+from services.background_skill_runtime import (
+    GateFSkillDispatcher,
+    GateFSkillExecutor,
+    GateFSkillFlags,
+    GateFSkillPilot,
+    StoredSelectedArtifactPort,
+    VertexGroundedDraftModelPort,
+)
 from services.command_service import CommandService, transport_status
 from services.durable_store import DurableStore, production_store
 from services.workload_identity import verify_request
@@ -22,6 +31,7 @@ SessionResolver = Callable[[str, str], Awaitable[bool]]
 ArtifactAuthorizer = Callable[[ActorPrincipal, str, str], Awaitable[bool]]
 StoreFactory = Callable[[], DurableStore]
 ExecutorFactory = Callable[[DurableStore], BackgroundPilotExecutor]
+SkillExecutorFactory = Callable[[DurableStore], GateFSkillExecutor]
 
 
 class StartArtifactPilotV1(BaseModel):
@@ -69,13 +79,18 @@ def _status(result: dict, *, accepted: bool = False) -> int:
                 "background_rate_limited", "version_conflict", "terminal_run"}:
         return 409
     if code in {"background_dispatch_failed", "retryable_dependency",
-                "transient_store_error", "concurrency_conflict"}:
+                "transient_store_error", "concurrency_conflict",
+                "background_skill_dispatch_failed",
+                "background_skill_execution_unavailable"}:
         return 503
     if result.get("error"):
         return 403 if code in {
             "interactive_founder_required", "background_pilot_workspace_denied",
             "background_pilot_disabled", "background_pilot_killed",
-            "background_pilot_execution_disabled"} else 400
+            "background_pilot_execution_disabled",
+            "background_skill_workspace_denied", "background_skill_disabled",
+            "background_skill_killed", "background_skill_execution_disabled",
+        } else 400
     return 200
 
 
@@ -94,6 +109,7 @@ def register(app, *, principal_resolver: PrincipalResolver,
              session_resolver: SessionResolver,
              store_factory: StoreFactory | None = None,
              executor_factory: ExecutorFactory | None = None,
+             skill_executor_factory: SkillExecutorFactory | None = None,
              artifact_authorizer: ArtifactAuthorizer | None = None) -> None:
     """Register one closed public command family and one private worker."""
 
@@ -128,6 +144,42 @@ def register(app, *, principal_resolver: PrincipalResolver,
             result, status_code=_status(
                 result, accepted=not result.get("error")))
 
+    @app.post("/api/v1/background-pilot/artifact-grounded-brief")
+    async def start_artifact_grounded_brief(
+            request: Request, payload: StartArtifactPilotV1):
+        principal = await principal_resolver(request)
+        if isinstance(principal, dict):
+            return JSONResponse(principal, status_code=401)
+        if denied := _founder_gate(principal):
+            return JSONResponse(denied, status_code=403)
+        if request.headers.get("Idempotency-Key", "") != payload.client_request_id:
+            return JSONResponse({
+                "status": "error", "error": True,
+                "error_code": "idempotency_key_required",
+                "message": "Idempotency-Key must match client_request_id.",
+            }, status_code=400)
+        if not await session_resolver(principal.workspace_id, payload.session_id):
+            return JSONResponse({"error": "not found"}, status_code=404)
+        if artifact_authorizer and not await artifact_authorizer(
+                principal, payload.session_id, payload.artifact_id):
+            return JSONResponse({"error": "not found"}, status_code=404)
+        store = selected_store()
+        flags = GateFSkillFlags.from_env()
+        from services import task_queue
+
+        pilot = GateFSkillPilot(
+            store, flags=flags,
+            dispatcher=GateFSkillDispatcher(
+                store, flags=flags, enqueue_fn=task_queue.enqueue),
+        )
+        result = await pilot.start(
+            principal=principal, session_id=payload.session_id,
+            artifact_id=payload.artifact_id,
+            client_request_id=payload.client_request_id,
+        )
+        return JSONResponse(
+            result, status_code=_status(result, accepted=not result.get("error")))
+
     @app.get("/api/v1/background-pilot/jobs")
     async def list_artifact_jobs(
             request: Request,
@@ -144,6 +196,10 @@ def register(app, *, principal_resolver: PrincipalResolver,
             return JSONResponse({"error": "not found"}, status_code=404)
         result = await BackgroundArtifactPilot(selected_store()).list_jobs(
             principal=principal, session_id=session_id)
+        gate_f = GateFSkillFlags.from_env()
+        result["grounded_brief_enabled"] = not gate_f.gate(
+            principal.workspace_id).get("error")
+        result["grounded_brief_kill_switch_active"] = gate_f.kill_switch_active
         return JSONResponse(result, status_code=_status(result))
 
     @app.get("/api/v1/background-pilot/jobs/{run_id}")
@@ -183,24 +239,41 @@ def register(app, *, principal_resolver: PrincipalResolver,
                 "message": "Idempotency-Key must match client_request_id.",
             }, status_code=400)
         store = selected_store()
-        pilot = BackgroundArtifactPilot(store)
-        visible = await pilot.get_job(principal=principal, run_id=run_id)
-        if visible.get("error"):
-            return JSONResponse(visible, status_code=_status(visible))
         expected = request.headers.get("If-Match", "").strip('"')
-        if expected != str(visible["job"].get("version") or ""):
+        if not expected.isdigit():
             return JSONResponse({
                 "status": "error", "error": True,
                 "error_code": "version_conflict",
                 "message": "Job changed; reload before cancelling.",
             }, status_code=409)
         commands = CommandService(store)
+        cancel_request = {
+            "run_id": run_id, "expected_version": int(expected),
+            "reason": payload.reason,
+        }
+        replay = await commands.replay(
+            principal=principal,
+            client_request_id=payload.client_request_id,
+            command_type="background_job.cancel", request=cancel_request,
+            visibility_scope="ACTOR_PRIVATE", subject_id=principal.actor_id,
+        )
+        if replay is not None:
+            return JSONResponse(replay, status_code=transport_status(replay))
+        pilot = BackgroundArtifactPilot(store)
+        visible = await pilot.get_job(principal=principal, run_id=run_id)
+        if visible.get("error"):
+            return JSONResponse(visible, status_code=_status(visible))
+        if expected != str(visible["job"].get("version") or ""):
+            return JSONResponse({
+                "status": "error", "error": True,
+                "error_code": "version_conflict",
+                "message": "Job changed; reload before cancelling.",
+            }, status_code=409)
         command = await commands.accept(
             principal=principal,
             client_request_id=payload.client_request_id,
             command_type="background_job.cancel",
-            request={"run_id": run_id, "expected_version": int(expected),
-                     "reason": payload.reason},
+            request=cancel_request,
             run_id=run_id, visibility_scope="ACTOR_PRIVATE",
             subject_id=principal.actor_id)
         if command.get("error") or command.get("duplicate"):
@@ -239,6 +312,39 @@ def register(app, *, principal_resolver: PrincipalResolver,
                 run_id=payload.run_id, step_id=payload.step_id,
                 workload=workload.audit_fields())
         # Cancellation/terminal duplicates acknowledge and stop redelivery.
+        status = (503 if result.get("retryable") else
+                  409 if result.get("error_code") == "lease_conflict" else 200)
+        return JSONResponse(result, status_code=status)
+
+    @app.post("/tasks/background-artifact-grounded-brief")
+    async def execute_artifact_grounded_brief(
+            request: Request, payload: ExecuteArtifactPilotV1):
+        route = "/tasks/background-artifact-grounded-brief"
+        workload = await verify_request(request, route)
+        if isinstance(workload, dict):
+            return JSONResponse(workload, status_code=401)
+        store = selected_store()
+        try:
+            executor = (
+                skill_executor_factory(store) if skill_executor_factory
+                else GateFSkillExecutor(
+                    store, flags=GateFSkillFlags.from_env(),
+                    evidence_port=StoredSelectedArtifactPort(store),
+                    model_port=VertexGroundedDraftModelPort(
+                        project_id=os.environ.get("GOOGLE_CLOUD_PROJECT", "")),
+                )
+            )
+        except (ImportError, ValueError):
+            return JSONResponse({
+                "status": "error", "error": True,
+                "error_code": "background_skill_execution_unavailable",
+                "message": "Artifact preparation remains queued.",
+                "retryable": True,
+            }, status_code=503)
+        result = await executor.execute(
+            workspace_id=payload.workspace_id, run_id=payload.run_id,
+            step_id=payload.step_id, workload=workload.audit_fields(),
+        )
         status = (503 if result.get("retryable") else
                   409 if result.get("error_code") == "lease_conflict" else 200)
         return JSONResponse(result, status_code=status)

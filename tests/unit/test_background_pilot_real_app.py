@@ -33,11 +33,13 @@ def test_real_pilot_exposes_no_seed_controls_docs_or_generic_routes():
     assert paths == {
         "/health",
         "/api/v1/background-pilot/artifact-analysis",
+        "/api/v1/background-pilot/artifact-grounded-brief",
         "/api/v1/background-pilot/jobs",
         "/api/v1/background-pilot/jobs/{run_id}",
         "/api/v1/background-pilot/jobs/{run_id}/timeline",
         "/api/v1/background-pilot/jobs/{run_id}:cancel",
         "/tasks/background-artifact-pilot",
+        "/tasks/background-artifact-grounded-brief",
     }
     assert not any(path.startswith("/canary") for path in paths)
     assert not {"/docs", "/redoc", "/openapi.json"} & paths

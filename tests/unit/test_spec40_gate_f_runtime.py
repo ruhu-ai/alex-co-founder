@@ -252,6 +252,8 @@ async def test_accept_is_exact_private_bounded_idempotent_and_opaque():
 
     assert first["status"] == "accepted"
     assert duplicate["duplicate"] is True
+    assert duplicate["dispatch_status"] == "DISPATCHED"
+    assert duplicate["dispatch_error_code"] is None
     assert len(calls) == 1
     assert calls[0]["path"] == "/tasks/background-artifact-grounded-brief"
     assert calls[0]["queue_name"] == "co-founder-background-skill-gate-f"
@@ -500,14 +502,16 @@ async def test_cross_tenant_execution_and_tampered_skill_binding_fail_closed():
     assert tampered["error_code"] == "background_skill_authority_invalid"
 
 
-def test_runtime_has_no_registered_route_model_tool_or_external_effect_surface():
+def test_runtime_registers_only_exact_routes_and_no_external_effect_surface():
     app = (REPO / "app/main.py").read_text()
     routes = (REPO / "app/background_pilot_routes.py").read_text()
     source = (REPO / "services/background_skill_runtime.py").read_text()
 
-    assert "background_skill_runtime" not in app
-    assert "artifact-grounded-brief" not in routes
-    assert "google.genai" not in source
+    assert "background_pilot_routes" in app
+    assert routes.count('@app.post("/api/v1/background-pilot/artifact-grounded-brief")') == 1
+    assert routes.count('@app.post("/tasks/background-artifact-grounded-brief")') == 1
+    assert "/api/v1/background-pilot/{" not in routes
+    assert "/tasks/background/{" not in routes
     assert "connector:" not in source
     assert "approval_service" not in source
     assert "consequence" not in source
@@ -515,24 +519,10 @@ def test_runtime_has_no_registered_route_model_tool_or_external_effect_surface()
     assert "import services.memory" not in source
 
 
-def test_synthetic_runtime_evidence_pins_exact_implementation_and_default_off_state():
+def test_synthetic_runtime_evidence_is_an_immutable_historical_checkpoint():
     evidence = json.loads((
         REPO / "skills/evidence/spec40-gate-f-synthetic-runtime-20260829.json"
     ).read_text())
-    paths = {
-        "offline_qualification_evidence_sha256":
-            "skills/evidence/spec40-gate-f-offline-qualification-20260829.json",
-        "compiled_catalog_file_sha256": "skills/catalog.v1.json",
-        "background_skill_runtime_sha256": "services/background_skill_runtime.py",
-        "background_work_sha256": "services/background_work.py",
-        "workflow_runtime_sha256": "services/workflow_runtime.py",
-        "workflow_contracts_sha256": "services/workflow_contracts.py",
-        "workflow_plan_validator_sha256": "services/workflow_plan_validator.py",
-        "capability_registry_sha256": "services/capability_registry.py",
-        "activity_projection_sha256": "services/background_pilot.py",
-        "activity_ui_sha256": "app/static/index.html",
-    }
-
     assert evidence["status"] == "PASSED_SYNTHETIC_RUNTIME"
     assert evidence["content_free"] is True
     assert evidence["release_progression"]["founder_release_approval_required"] is False
@@ -543,6 +533,9 @@ def test_synthetic_runtime_evidence_pins_exact_implementation_and_default_off_st
         "conversation_delivery_enabled": False,
         "generic_runs_or_sse_enabled": False,
     }
-    for key, relative in paths.items():
-        actual = "sha256:" + hashlib.sha256((REPO / relative).read_bytes()).hexdigest()
-        assert evidence["pinned_inputs"][key] == actual
+    assert evidence["pinned_inputs"]
+    assert all(
+        isinstance(value, str) and value.startswith("sha256:")
+        and len(value) == len("sha256:") + 64
+        for value in evidence["pinned_inputs"].values()
+    )

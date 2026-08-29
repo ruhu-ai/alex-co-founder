@@ -35,10 +35,12 @@ def _error(code: str = "workload_unauthorized") -> dict[str, Any]:
 
 
 def _allowlist(path: str) -> set[str]:
-    variable = (
-        "BACKGROUND_PILOT_WORKLOAD_ALLOWLIST_JSON"
-        if path == "/tasks/background-artifact-pilot"
-        else "HIRING_WORKLOAD_ALLOWLIST_JSON")
+    variable = {
+        "/tasks/background-artifact-pilot":
+            "BACKGROUND_PILOT_WORKLOAD_ALLOWLIST_JSON",
+        "/tasks/background-artifact-grounded-brief":
+            "BACKGROUND_SKILL_WORKLOAD_ALLOWLIST_JSON",
+    }.get(path, "HIRING_WORKLOAD_ALLOWLIST_JSON")
     try:
         configured = json.loads(os.environ.get(variable, "{}"))
     except ValueError:
@@ -49,7 +51,10 @@ def _allowlist(path: str) -> set[str]:
 
 def _test_principal(request, audience: str,
                     route_path: str) -> WorkloadPrincipal | dict[str, Any]:
-    pilot = route_path == "/tasks/background-artifact-pilot"
+    pilot = route_path in {
+        "/tasks/background-artifact-pilot",
+        "/tasks/background-artifact-grounded-brief",
+    }
     enabled_name = (
         "BACKGROUND_PILOT_ALLOW_TEST_DISPATCH" if pilot
         else "HIRING_ALLOW_TEST_DISPATCH")
@@ -83,6 +88,13 @@ def _test_principal(request, audience: str,
         return _error()
     if (claims.get("principal_kind") not in {"CLOUD_TASKS", "PUBSUB", "INTERNAL_SERVICE"}
             or not claims.get("service_account") or not claims.get("delivery_id")):
+        return _error()
+    expected_test_account = {
+        "/tasks/background-artifact-pilot": "local-background-pilot-worker",
+        "/tasks/background-artifact-grounded-brief":
+            "local-background-skill-worker",
+    }.get(route_path)
+    if expected_test_account and claims.get("service_account") != expected_test_account:
         return _error()
     return WorkloadPrincipal(
         principal_kind=str(claims.get("principal_kind") or ""),

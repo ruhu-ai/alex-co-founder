@@ -3657,6 +3657,7 @@ let sessionMemoryMode = "STANDARD", memoryPanelState = null;
 
 let pipelineApps = [], founderInboxRows = [], investorOutreaches = [];
 let backgroundPilotJobs = [], backgroundPilotEnabled = false;
+let backgroundSkillEnabled = false;
 // sessionId is always the explicitly active/write-bound conversation.
 // viewingSession is a read-through context only and must never replace it.
 let viewingSession = null, sessionResources = [], sessionResourcesTruncated = false;
@@ -4500,7 +4501,7 @@ function renderSessionActivity() {
     const occurrence = row.latest_occurrence || {};
     const artifactId = row.result_type === "artifact"
       ? String((row.canonical_ref || {}).id || "") : "";
-    const canAnalyze = backgroundPilotEnabled && !readThrough()
+    const eligibleArtifact = !readThrough()
       && /^[a-f0-9]{32}$/.test(artifactId)
       && ["READY", "CONFIRMED"].includes(String(row.status || ""));
     return `<div class="audit-item">
@@ -4510,8 +4511,10 @@ function renderSessionActivity() {
       <time class="when" datetime="${esc(occurrence.occurred_at || row.occurred_at || "")}">
         ${timeAgo(occurrence.occurred_at || row.occurred_at)}</time>
       <span class="detail">${esc(row.title || "Untitled work")}</span>
-      ${canAnalyze ? `<button class="btn" data-variant="secondary" data-size="sm"
+      ${backgroundPilotEnabled && eligibleArtifact ? `<button class="btn" data-variant="secondary" data-size="sm"
         data-background-analyze="${esc(artifactId)}">Analyze safely in background</button>` : ""}
+      ${backgroundSkillEnabled && eligibleArtifact ? `<button class="btn" data-variant="secondary" data-size="sm"
+        data-background-brief="${esc(artifactId)}">Prepare private grounded brief</button>` : ""}
     </div>`;
   });
   setTabState("audit", jobRows.length + resourceRows.length || null, false);
@@ -4535,6 +4538,25 @@ async function startBackgroundArtifactAnalysis(artifactId) {
     await refresh();
   } catch (err) {
     toast(err.message || "The background analysis was not accepted.", "danger");
+  }
+}
+
+async function startBackgroundArtifactBrief(artifactId) {
+  if (!requireActiveContext("prepare a grounded brief from this artifact")) return;
+  const clientRequestId = "background_brief_" + crypto.randomUUID();
+  try {
+    await api("/api/v1/background-pilot/artifact-grounded-brief", {
+      method: "POST",
+      headers: {"Idempotency-Key": clientRequestId},
+      body: JSON.stringify({
+        session_id: contextSessionId(), artifact_id: artifactId,
+        client_request_id: clientRequestId
+      })
+    });
+    toast("Alex queued one private grounded evidence brief.", "ok");
+    await refresh();
+  } catch (err) {
+    toast(err.message || "The private evidence brief was not accepted.", "danger");
   }
 }
 
@@ -4707,6 +4729,7 @@ async function refresh() {
   sessionResourcesTruncated = !!resourceResult.truncated;
   backgroundPilotJobs = backgroundResult.jobs || [];
   backgroundPilotEnabled = !!backgroundResult.enabled;
+  backgroundSkillEnabled = !!backgroundResult.grounded_brief_enabled;
   renderSessionWork();
   const groups = board.opportunities || {};
   const LANE_COPY = { SHORTLISTED: "Worth applying to", DISCOVERED: "Found, not yet scored",
@@ -6049,6 +6072,11 @@ async function deleteSessionAttachment(button) {
 }
 
 document.addEventListener("click", e => {
+    const brief = e.target.closest("[data-background-brief]");
+    if (brief) {
+        startBackgroundArtifactBrief(brief.dataset.backgroundBrief);
+        return;
+    }
     const analyze = e.target.closest("[data-background-analyze]");
     if (analyze) {
         startBackgroundArtifactAnalysis(analyze.dataset.backgroundAnalyze);

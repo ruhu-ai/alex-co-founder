@@ -2,7 +2,13 @@
 
 from __future__ import annotations
 
-from enum import StrEnum
+try:
+    from enum import StrEnum
+except ImportError:  # Python 3.10 in the pinned Cloud Run base image.
+    from enum import Enum
+
+    class StrEnum(str, Enum):
+        """Minimal compatibility base for string-valued closed enums."""
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator

@@ -14,6 +14,21 @@ authority, or the separate exact in-product human approval required before any
 irreversible external action. The historical Gate F offline approval remains
 audit evidence for the already completed batch but grants no current authority.
 
+**Gate F implementation checkpoint (2026-08-29):** the one closed
+`pilot.artifact_grounded_brief@1` template has passed offline qualification,
+synthetic runtime tests, and a controlled synthetic cloud canary. The canary
+proved exact duplicate handling, bounded retry/failure, in-flight cancellation,
+ordered actor-private Activity visibility, one tool-less model call, citation
+validation, the kill switch, alert delivery, and complete synthetic/resource
+cleanup. Evidence is frozen in
+`background-work-gate-f-cloud-canary-evidence.md` and its machine-readable
+packet. Repository defaults remain off. Normal-service integration is a
+separate technical gate: an active revision changed concurrently during the
+canary, so release automation must reconcile the main-equivalent source and
+rerun these checks rather than overwrite that revision. Gate G approval waits,
+Gate H expansion, generic routes, effects, external retrieval, memory, and
+proactive conversation delivery remain disabled.
+
 **External review disposition (2026-08-28):** findings-first gate review
 SHA-256 `6d353a60c2e16201d9e53f78001537368bde282d5bf3ff026ef4ed78fe2a0dd6`
 was reconciled into this revision. The architecture remains proposed and must

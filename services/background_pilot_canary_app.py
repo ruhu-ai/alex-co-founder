@@ -1,9 +1,10 @@
 """Private, synthetic-only Cloud Run host for the Spec 40 canary.
 
 This service is deliberately separate from the product app.  It exposes only
-the closed artifact-inventory pilot, fixed synthetic canary controls, and a
-health check.  It has no agent runner, model, browser, connector, approval,
-effect, memory, conversation-delivery, or user-selected routing surface.
+one enabled pilot at a time, fixed synthetic canary controls, and a health
+check. The Gate F profile permits one closed Vertex call but has no agent
+runner, web, browser, connector, approval, effect, memory,
+conversation-delivery, or user-selected routing surface.
 """
 
 from __future__ import annotations
@@ -21,6 +22,12 @@ from app import background_pilot_routes
 from services import firestore
 from services.actor_identity import ActorPrincipal, WorkspaceRole, create_membership
 from services.background_pilot import BackgroundPilotExecutor, StoredArtifactInventoryPort
+from services.background_skill_runtime import (
+    GateFSkillExecutor,
+    GateFSkillFlags,
+    StoredSelectedArtifactPort,
+    VertexGroundedDraftModelPort,
+)
 from services.durable_store import DurableStore, production_store
 
 WORKSPACE_ID = "spec40_canary_workspace_20260828"
@@ -33,8 +40,8 @@ FOUNDER_KEY_ENV = "SPEC40_CANARY_FOUNDER_KEY"
 FOUNDER_HEADER = "X-Spec40-Canary-Key"
 
 _SOURCE_CHUNKS = (
-    "Synthetic Spec 40 canary evidence. It contains no real user or external data.",
-    "The closed pilot may count and hash this text but cannot send or act on it.",
+    "Synthetic company records three internal usability trials with twelve fictional participants.",
+    "Synthetic records provide no revenue or independent validation figures.",
 )
 _SOURCE_BYTES = "\n".join(_SOURCE_CHUNKS).encode()
 _FORBIDDEN_COLLECTIONS = (
@@ -57,18 +64,36 @@ def _exact_configuration() -> dict[str, bool]:
     """Report the fail-closed canary envelope without exposing secrets."""
     return {
         "cloud_run": bool(os.environ.get("K_SERVICE")),
+        "gate_f_selected": (
+            os.environ.get("SPEC40_CANARY_TEMPLATE")
+            == "pilot.artifact_grounded_brief@1"),
         "admission_enabled": (
             os.environ.get("BACKGROUND_JOB_ADMISSION_ENABLED") == "true"
-            and os.environ.get("BACKGROUND_ARTIFACT_PILOT_ENABLED") == "true"),
+            and os.environ.get("BACKGROUND_SKILLS_ENABLED") == "true"
+            and os.environ.get("BACKGROUND_ARTIFACT_PREPARATION_ENABLED")
+            == "true"),
         "execution_enabled": (
             os.environ.get("BACKGROUND_SPECIALIST_EXECUTION_ENABLED") == "true"
-            and os.environ.get("BACKGROUND_ARTIFACT_PILOT_EXECUTION_ENABLED")
+            and os.environ.get(
+                "BACKGROUND_ARTIFACT_PREPARATION_EXECUTION_ENABLED")
             == "true"),
         "kill_switch_clear": (
-            os.environ.get("BACKGROUND_ARTIFACT_PILOT_KILL_SWITCH") == "false"),
+            os.environ.get("BACKGROUND_ARTIFACT_PREPARATION_KILL_SWITCH")
+            == "false"),
         "single_workspace": (
-            os.environ.get("BACKGROUND_ARTIFACT_PILOT_WORKSPACES")
+            os.environ.get("BACKGROUND_ARTIFACT_PREPARATION_WORKSPACES")
             == WORKSPACE_ID),
+        "exact_queue": (
+            os.environ.get("BACKGROUND_ARTIFACT_PREPARATION_QUEUE")
+            == "co-founder-background-skill-gate-f"),
+        "inventory_pilot_disabled": (
+            os.environ.get("BACKGROUND_ARTIFACT_PILOT_ENABLED", "false")
+            != "true"
+            and os.environ.get(
+                "BACKGROUND_ARTIFACT_PILOT_EXECUTION_ENABLED", "false")
+            != "true"
+            and os.environ.get("BACKGROUND_ARTIFACT_PILOT_KILL_SWITCH", "true")
+            != "false"),
         "conversation_delivery_off": (
             os.environ.get("BACKGROUND_CONVERSATION_DELIVERY_ENABLED", "false")
             == "false"),
@@ -142,9 +167,32 @@ class _CanaryInventoryPort(StoredArtifactInventoryPort):
         return await super().inspect(**kwargs)
 
 
+class _CanaryEvidencePort(StoredSelectedArtifactPort):
+    """Inject fixed pre-model recovery/cancellation conditions."""
+
+    async def read(self, **kwargs: Any) -> dict[str, Any]:
+        if await _consume_control("failures_remaining"):
+            raise RuntimeError("synthetic bounded canary failure")
+        if await _consume_control("timeouts_remaining"):
+            raise TimeoutError("synthetic bounded canary timeout")
+        if await _consume_control("delays_remaining"):
+            await asyncio.sleep(10)
+        return await super().read(**kwargs)
+
+
 def _executor(store: DurableStore) -> BackgroundPilotExecutor:
     return BackgroundPilotExecutor(
         store, inventory_port=_CanaryInventoryPort(store), timeout_seconds=1)
+
+
+def _skill_executor(store: DurableStore) -> GateFSkillExecutor:
+    return GateFSkillExecutor(
+        store, flags=GateFSkillFlags.from_env(),
+        evidence_port=_CanaryEvidencePort(store),
+        model_port=VertexGroundedDraftModelPort(
+            project_id=os.environ.get("GOOGLE_CLOUD_PROJECT", "")),
+        timeout_seconds=120,
+    )
 
 
 app = FastAPI(
@@ -153,7 +201,8 @@ app = FastAPI(
 )
 background_pilot_routes.register(
     app, principal_resolver=_principal, session_resolver=_session,
-    store_factory=production_store, executor_factory=_executor)
+    store_factory=production_store, executor_factory=_executor,
+    skill_executor_factory=_skill_executor)
 
 
 async def _founder_or_401(request: Request) -> JSONResponse | None:
@@ -165,8 +214,10 @@ async def _founder_or_401(request: Request) -> JSONResponse | None:
 
 @app.get("/health")
 async def health():
-    return {"status": "ok", "synthetic": True,
-            "template_id": "pilot.artifact_evidence_inventory@1",
+    exact = _exact_configuration()
+    return {"status": "ok" if all(exact.values()) else "blocked",
+            "synthetic": True,
+            "template_id": "pilot.artifact_grounded_brief@1",
             "flags": _exact_configuration()}
 
 
@@ -216,7 +267,7 @@ async def seed(request: Request):
                 "schema_version": 1, "generation": GENERATION,
                 "ordinal": ordinal, "content": content,
                 "content_sha256": hashlib.sha256(content.encode()).hexdigest(),
-                "locator": {"section": f"synthetic-{ordinal}"},
+                "locator": {"page": ordinal},
                 "synthetic": True,
             })
     return {"status": "success", "duplicate": False,
@@ -269,15 +320,10 @@ async def state(request: Request):
         "workspace_id": WORKSPACE_ID}, limit=50)
     outputs = [row for row in await store.list(
         "artifacts", filters={"workspace_id": WORKSPACE_ID}, limit=50)
-        if row.get("artifact_kind") == "BACKGROUND_ARTIFACT_INVENTORY"]
+        if row.get("artifact_kind") == "BACKGROUND_GROUNDED_EVIDENCE_DRAFT"]
     forbidden = {name: len(await store.list(
         name, filters={"workspace_id": WORKSPACE_ID}, limit=20))
         for name in _FORBIDDEN_COLLECTIONS}
-    content_free = all(
-        not ({"content", "text", "raw_text", "source_text"} & set(output))
-        and all(not ({"content", "text", "raw_text"} & set(citation))
-                for citation in output.get("citations") or [])
-        for output in outputs)
     return {
         "status": "success", "workspace_id": WORKSPACE_ID,
         "actor_id": ACTOR_ID, "role": "FOUNDER", "session_id": SESSION_ID,
@@ -287,7 +333,15 @@ async def state(request: Request):
         "attempt_count": len(attempts),
         "failed_attempt_count": sum(
             row.get("status") == "FAILED" for row in attempts),
-        "output_count": len(outputs), "output_content_free": content_free,
+        "output_count": len(outputs),
+        "output_private_draft_only": all(
+            output.get("visibility_scope") == "ACTOR_PRIVATE"
+            and output.get("draft_status") == "DRAFT"
+            for output in outputs),
+        "output_citation_counts": sorted(
+            int(output.get("citation_count") or 0) for output in outputs),
+        "output_content_hashes": sorted(
+            str(output.get("content_hash") or "") for output in outputs),
         "output_keys": sorted(outputs[0]) if outputs else [],
         "forbidden_collection_counts": forbidden,
         "flags": _exact_configuration(),
