@@ -1,0 +1,507 @@
+app/static/index.html
+  s_77f1bb234f38de::t_47b63bf4c4a82f 1,6-80,82,87-125,127-165,167,172-220,223-227,229-239,241-249,251-264,266-269,271-279,281,285-306,308,311-342,344-353,355-363,365-373,375-381,383-389,391-395,397,400-433,436-458,461-784,787-822,824,827-850,852,855-893,897-1083,1088-1090,1094-1115,1117-1146,1149-1225,1227-1325,1327,1330-1366,1369-1492,1495-2310,2314-2357,2360-2421,2426-2485,2487-2557,2559-2661,2663-2719,2722-2792,2795,2798-2834,2836,2840-3036,3039-3160,3163-3641,3643-3832,3842-3843,3855,3890-3919,3921-3931,3934-3936,3939-3942,3944,3947-5786,5788-5796,5798-5802,5804-5841,5843-5854,5856-5859,5861-5868,5870-5876,5878-5912,5914-5967,5969-5979,5981-5994,5996-6014,6016,6018,6020,6022-6037,6039-6054,6056-6064,6066-6068,6070-6077,6080-6081,6083-6094,6096,6098-6106,6108-6141,6144-6167,6170-6174,6177-6184,6186-6203,6206-6212,6215-6248,6251-6260,6263-6266,6269-6270,6273-6300,6302-6303,6305-6311,6314-6322,6325-6337,6340-6341,6343-6360,6362-6381,6384-6407,6409-6426,6429-6430,6433-6457,6459-6463,6466-6468,6471-6479,6482-6492,6494-6548,6550-6556,6559-6601,6604-6636,6639-6652,6655-6676,6679-6705,6708-6714,6716-6724,6727-6730,6732-6735,6738-6741,6743-6744,6746-6769,6772-6777,6779-6783,6786-6788,6791-6812,6815-6984,6987-7014,7017-7041,7043-7052,7055-7069,7072-7081,7084-7134,7137-7154,7157-7192,7195-7196,7199-7202,7205-7211,7214-7215,7218-7225,7228-7255,7257-7282,7284-7315,7318-7343,7346-7360,7363-7373,7376-7390,7392-7402,7405-7420,7423-7436,7439-7463,7466-7473,7475-7480,7482-7496,7498-7525,7528-7531,7533-7549,7552-7555,7557-7560,7562-7566,7569-7575,7577-7593,7596-7600,7603-7608,7610-7621,7624-7632,7634-7638,7640-7643,7646-7664,7666-7681,7684-7697,7699-7737,7741-7782,7785-7826,7829-7833,7836-7839,7842-7888,7891-7893,7896-7897,7900-8014,8017-8023,8026-8067,8070-8098,8101-8130,8132-8145,8147-8162,8164-8194,8197-8198,8201-8231,8233-8284,8286-8312,8315-8319,8322-8326,8328-8509,8511-8562,8564-8572,8574-8576,8578-8582,8584-8588,8591-8626,8628-8630,8633-8644,8647-8724,8726-8780,8783-8787,8790-8877,8880-8898,8903,8905-8908,8910,8912,8915-8925,8930-8947,8951-8957,8961-8970,8974-8979,8983-9007,9011-9023,9027-9041,9043,9045-9068,9072-9076,9080-9085,9089-9095,9101-9105,9109-9113,9115-9154,9159-9206,9213-9238,9243,9245-9249,9251,9253-9270,9272,9274-9277,9279-9281,9283-9288,9290,9292-9301,9305-9326,9328-9329,9332-9349,9351-9368,9370-9536,9540,9542,9544,9548,9550-9556
+tests/unit/test_durable_memory_release_boundary.py
+  s_77f1bb234f38de::t_ee666a5de106b0 1-92
+tests/unit/test_review_fixes_app.py
+  s_77f1bb234f38de::t_ee666a5de106b0 93-96
+.env.example
+  s_77f1bb234f38de::t_dedc497f309897 18-25,37-43,56,58,60,78-80,97-102,106-111,118-119,179-182,200-215
+.gcloudignore
+  s_77f1bb234f38de::t_eeb9daac140567 9
+.gitattributes
+  s_77f1bb234f38de::t_0a4734bf1f168d 3-5
+.github/workflows/ci.yml
+  s_77f1bb234f38de::t_10527af4a48f91 3-17,61,97
+agents/co_founder/agent.py
+  s_77f1bb234f38de::t_8bce1134a4de1e 18,27,52-53,60,80,82-83,88-89
+agents/co_founder/callbacks.py
+  s_77f1bb234f38de::t_13e333a9467160 37-40,66,98-151,218-235,278-295
+agents/co_founder/config.py
+  s_77f1bb234f38de::t_fd6a321fe84f18 12-13,63,68
+agents/co_founder/instructions.py
+  s_77f1bb234f38de::t_0e3b774ed69d9d 10-12,22-24,37-39,44-48,53-88,96-98,147-152,179-186,210-225,290-292,309
+agents/co_founder/state_schema.py
+  s_77f1bb234f38de::t_f14abda3e2a872 62-67,75-80
+agents/co_founder/tools/attachments.py
+  s_77f1bb234f38de::t_d11166f06d4879 13-14,17-21
+agents/co_founder/tools/hiring.py
+  s_77f1bb234f38de::t_554ba72ff80eb8 1-270
+alex-voice-orb/.env.example
+  s_77f1bb234f38de::t_3bf145936377dc 1-9
+alex-voice-orb/.gitignore
+  s_77f1bb234f38de::t_463d018a835d9c 1-8
+alex-voice-orb/README.md
+  s_77f1bb234f38de::t_4b0bb1ea2dbcf3 1-20
+alex-voice-orb/index.html
+  s_77f1bb234f38de::t_5d593766c9be33 1-18
+alex-voice-orb/metadata.json
+  s_77f1bb234f38de::t_33ef385b78ab22 1-6
+alex-voice-orb/package.json
+  s_77f1bb234f38de::t_8a364ad13dceb6 1-35
+alex-voice-orb/src/App.tsx
+  s_77f1bb234f38de::t_7f747866809974 1-260
+alex-voice-orb/src/components/ControlsPanel.tsx
+  s_77f1bb234f38de::t_ab17c959449928 1-341
+alex-voice-orb/src/components/DesignTokensExport.tsx
+  s_77f1bb234f38de::t_a16a9b0817f5ae 1-171
+alex-voice-orb/src/components/KeyframeStudio.tsx
+  s_77f1bb234f38de::t_e6b1ce93cd30e7 1-458
+alex-voice-orb/src/components/ProductivityMockups.tsx
+  s_77f1bb234f38de::t_cdf694e7c5a6da 1-342
+alex-voice-orb/src/components/ScaleMatrix.tsx
+  s_77f1bb234f38de::t_a8ba0472581649 1-226
+alex-voice-orb/src/components/VoiceOrbCanvas.tsx
+  s_77f1bb234f38de::t_009369509e2152 1-119
+alex-voice-orb/src/components/VoiceSessionStage.tsx
+  s_77f1bb234f38de::t_8c48c3518864ff 1-293
+alex-voice-orb/src/index.css
+  s_77f1bb234f38de::t_088f1243ce1f7f 1
+alex-voice-orb/src/lib/audioService.ts
+  s_77f1bb234f38de::t_0cdcb7a433f4e9 1-189
+alex-voice-orb/src/lib/orbRenderer.ts
+  s_77f1bb234f38de::t_b002a7a2baebe3 1-510
+alex-voice-orb/src/main.tsx
+  s_77f1bb234f38de::t_21317f1187292c 1-10
+alex-voice-orb/src/types/orb.ts
+  s_77f1bb234f38de::t_b7365c25d032e4 1-44
+alex-voice-orb/tsconfig.json
+  s_77f1bb234f38de::t_e4a9d192e9b7e2 1-26
+alex-voice-orb/vite.config.ts
+  s_77f1bb234f38de::t_e84a82fe137d95 1-22
+app/auth.py
+  s_77f1bb234f38de::t_81d7ac2c1709ae 43-59,65-66,138-139,155-156,230-234,378-379,422,479-480,484-487
+app/background_pilot_routes.py
+  s_77f1bb234f38de::t_60b839d03b90f2 5,17-24,34,82-84,90-93,112,147-182,199-202,242-261,276,318-350
+app/google_login.py
+  s_77f1bb234f38de::t_366ff798d069d7 42-43,200-223,244-250,305-310,322-323
+app/hiring_routes.py
+  s_77f1bb234f38de::t_1448433d52cd89 1,11,15,34,36-44,71-92,281,308,313,315,341-342,345-347,350,356-358,363-364,366-416,430-444,576,595,643,870,882-883,887,904,908-982,991,1079,1101,1121,1139,1186,1211-1241,1401,1408
+app/live.py
+  s_77f1bb234f38de::t_a5a8fb34cd4e40 21,24,33,37-121,136-141,149-157,159-161,165-168,172,177,187-191,193,200-221,224-323,327-331,334-516,519,521-544,547-560,564-566,568,572,577-578,581,583-626,630,633-639,642-660,662-666,669-673,684-717,721,723,725-729
+app/main.py
+  s_77f1bb234f38de::t_9f6e33032d136c 57,70,83-88,159-162,198,210-223,333-336,341-378,430-433,438,449-450,544,778-784,788-792,795-803,808-811,839-855,902-919,933-934,962-977,1030,1032,1039-1040,1050,1052-1054,1065,1164-1168,1172-1194,1218-1240,1267-1268,1275,1284-1289,1292,1294,1298-1301,1312-1313,1334-1348,1391-1587,1753-1755,2117-2118,2122-2123,2126-2128,2130,2370-2372,2394-2408,2418,2447-2448,2558-2559,2665-2666,2668,2673,2679-2681,2752,2767-2768,2781-2782,2805-2825,3161,3194-3298,3306-3308,3323-3325,3336-3341,3347-3350,3447-3448,3467,3482,3492-3498,3702,3725-3743,3770,3801,3810-3812,3816-3916,4041-4044,4048,4069,4118-4119,4559-4585,5440,5444-5449,5472-5476,5491-5494,5509-5510,5512,5515,5523,5525,5527,5529-5530,5556,5560,5562-5563,5583-5590,5594,5598,5603-5604,5606-5609,5611-5612,5627,5630-5631,5634-5635,5687-5689,5692-5693,5698
+app/static/alex-voice-orb.css
+  s_77f1bb234f38de::t_d824478e9b4537 1-149
+app/static/alex-voice-orb.js
+  s_77f1bb234f38de::t_d0dcaaaee3271f 1-237
+app/static/brand/lockup.svg
+  s_77f1bb234f38de::t_3ae16aed60b5f0 1-15
+app/static/brand/mark.svg
+  s_77f1bb234f38de::t_e26b3665e0f136 1-4
+app/static/favicon.svg
+  s_77f1bb234f38de::t_3c1810a64c803a 3,6,9,13-15
+app/static/hiring-notice.html
+  s_77f1bb234f38de::t_788742699b23f1 2-120
+app/static/hiring.html
+  s_77f1bb234f38de::t_e6f5645998cade 2-2860
+app/static/login.html
+  s_77f1bb234f38de::t_afd2435b91d99b 7,52-53,84-94,97-100,157,176
+app/static/product-shell.css
+  s_77f1bb234f38de::t_213d1093a29c2f 1-517
+app/static/site.webmanifest
+  s_77f1bb234f38de::t_ef42560174bf31 1-32
+app/static/vendor/icons/phosphor/camera.svg
+  s_77f1bb234f38de::t_99ebfeacf0e63f 1
+app/static/vendor/icons/phosphor/monitor-arrow-up.svg
+  s_77f1bb234f38de::t_0133a675685fe2 1
+app/static/vendor/icons/phosphor/users-three.svg
+  s_77f1bb234f38de::t_e737eb9a49441f 1
+docs/02-data-model.md
+  s_77f1bb234f38de::t_f74bd3f62b8937 97,116-140,267
+docs/12-security.md
+  s_77f1bb234f38de::t_0c5e7a7c2550c0 16-17
+docs/13-deployment.md
+  s_77f1bb234f38de::t_27560a0d46a2d8 87-92,95-96,99-122,133-140,142,156,158,160,183-189
+docs/14-build-plan.md
+  s_77f1bb234f38de::t_9e53296391b569 104-113
+docs/16-design-system.md
+  s_77f1bb234f38de::t_65fb5ff4eb6c86 3-11,307,309-310,315-344,396-460,755,770-776
+docs/25-hiring-operations.md
+  s_77f1bb234f38de::t_6b5c21674a909c 105-109,910,917-921,925-927,938,1090-1096,1127-1129,1138-1151,1462,1464-1465,1467-1468,1476-1477,1490,1723-1730,1735,1741,1746-1747,1750-1751,1783-1813,1838-1844,1848-1859,1861-1862,1954,2191,2261-2262,2705-2723
+docs/27-ruhu-fde-walkthrough.md
+  s_77f1bb234f38de::t_3e1097a1f58652 9
+docs/30-hiring-h4-sandbox-and-run-intelligence.md
+  s_77f1bb234f38de::t_dbc4d3b51ee580 110
+docs/36-unified-alex-product-experience.md
+  s_77f1bb234f38de::t_14a54d3e786457 1-2162
+docs/37-production-skills-system.md
+  s_77f1bb234f38de::t_c9eb7fa1222f5e 1-1744
+docs/38-user-facing-vision.md
+  s_77f1bb234f38de::t_1379543971003d 1-2521
+docs/39-durable-cross-session-memory.md
+  s_77f1bb234f38de::t_8dcaa344aa9fa7 1-2119
+docs/40-durable-background-work.md
+  s_77f1bb234f38de::t_89e89eca22f7cf 3-30,936-938
+docs/README.md
+  s_77f1bb234f38de::t_a7abf77fc41072 69-73
+docs/alex-companion-specs-integration-record.md
+  s_77f1bb234f38de::t_7ad174cb7e0e9f 1-42
+docs/background-work-gate-e-exit-review.md
+  s_77f1bb234f38de::t_05a61961bf34e4 65-72
+docs/background-work-gate-f-cloud-canary-evidence.md
+  s_77f1bb234f38de::t_0a4594bcf03886 1-66
+docs/background-work-gate-f-offline-qualification.md
+  s_77f1bb234f38de::t_84bc4d3b996170 4,7-11,19-77,129-130,136,141,172-219
+docs/background-work-gate-f-synthetic-runtime-evidence.md
+  s_77f1bb234f38de::t_0790f542a3f3f7 1-51
+docs/submission-draft.md
+  s_77f1bb234f38de::t_b5b47cbbd74372 1,3-7,9-12,14-16,18-24,28-203
+infra/firestore.indexes.json
+  s_77f1bb234f38de::t_2ae1ef241ed177 4-22,413-461
+infra/firestore.ttl.json
+  s_77f1bb234f38de::t_4e413c544cc60f 1-20
+requirements-dev.txt
+  s_77f1bb234f38de::t_8421e90e9bf97c 6-10
+requirements.txt
+  s_77f1bb234f38de::t_195d6a69fc174d 38-40
+scripts/build_brand.py
+  s_77f1bb234f38de::t_25320a85eb1e5e 1-447
+scripts/build_icons.py
+  s_77f1bb234f38de::t_2c42fb5c1570f5 2,23-26,40-41,54,131-137
+scripts/compile_skills.py
+  s_77f1bb234f38de::t_4245d6c299efdc 1-33
+scripts/configure_phase7_monitoring.py
+  s_77f1bb234f38de::t_d8001341c56938 32
+scripts/deploy.sh
+  s_77f1bb234f38de::t_4ccabf8d62dcc3 28,47,92,95,98,101,104,107,110,114-116,120-121,123-124,126-127,129-130,132-133,135-136,138-139,141-145,204-205,225,239,250-253,315,339,342,348
+scripts/deploy_firestore_ttl.py
+  s_77f1bb234f38de::t_6cdbfaa96a0004 1-75
+scripts/migrate_durable_memory_m2.py
+  s_77f1bb234f38de::t_c7506d73e9968c 1-68
+scripts/phase7_cloud_audit.py
+  s_77f1bb234f38de::t_73b5025e144d3e 65,87-95,102
+scripts/reset_legacy_workspace_memberships.py
+  s_77f1bb234f38de::t_81967af66f1ecd 1-109
+scripts/run_spec40_gate_f_qualification.py
+  s_77f1bb234f38de::t_36096bfd9e22b5 1-172
+scripts/seed_demo.py
+  s_77f1bb234f38de::t_62742c420f3d7c 91
+scripts/seed_hiring_fde_demo.py
+  s_77f1bb234f38de::t_d3c2fc42ef48cf 3,33,106,108,110
+scripts/seed_hiring_founder.py
+  s_77f1bb234f38de::t_6d4207d7aef376 1,3-5,17,19,21,23-24,27
+scripts/seed_workspace_founder.py
+  s_77f1bb234f38de::t_5ebed8511013b2 1,3-5,17,19,23,25-26,29,33
+scripts/setup.sh
+  s_77f1bb234f38de::t_4926d87b9367f2 52
+services/actor_identity.py
+  s_77f1bb234f38de::t_377db62e05e059 56-57,119,123,133,135-136,149-155,157-158,160,169-171,182-183,194,201-202,205,209-210,222,236-238
+services/approval_service.py
+  s_77f1bb234f38de::t_fcad862ea75a06 25-26,125-127,167,175
+services/background_pilot.py
+  s_77f1bb234f38de::t_ba2f379463c05d 52-67,454,457,525,531,535,543-545
+services/background_pilot_canary_app.py
+  s_77f1bb234f38de::t_09daea664070e7 4-7,25-30,43-44,67-69,72-74,77-78,81-82,84,86-96,170-182,188-197,204-205,217-220,270,323,336-344
+services/background_skill_runtime.py
+  s_77f1bb234f38de::t_518b721058493f 1-895
+services/background_work.py
+  s_77f1bb234f38de::t_14e8f242cbe616 24,50,93-95,133-175,189-195,255,263-275,277,280-288,292,446,462,464
+services/capability_registry.py
+  s_77f1bb234f38de::t_9f68a6c084ccf2 36-91,142-169,171-174,179-189,256-259
+services/connectors.py
+  s_77f1bb234f38de::t_78916d5bfe20b7 16-17,22-31,36-37,42-43,48,55-56,62-63,69-70,76-77,82-83,88-89,103
+services/data_lifecycle.py
+  s_77f1bb234f38de::t_99741a5b57b334 82-85,125-140,233-234,371-376,378-380
+services/data_source_contracts.py
+  s_77f1bb234f38de::t_a3e9dd5cc232c7 23,132,208-214
+services/document_ingestion.py
+  s_77f1bb234f38de::t_2622b3c16c836c 521-525,527,533,536-553,591,601-650,673-678,741,784-793
+services/drive_adapter.py
+  s_77f1bb234f38de::t_1bedad4412294b 57,60-66,74-77,82-83,85-88,94-99,102-103,105-106,119-120,122,190-191,193,224-225,227-230
+services/durable_memory.py
+  s_77f1bb234f38de::t_f5840a1dc4c112 1-1345
+services/durable_store.py
+  s_77f1bb234f38de::t_4e4693eb29cdea 95-101
+services/external_action_service.py
+  s_77f1bb234f38de::t_0dc4abf64a30d9 181-183
+services/firestore.py
+  s_77f1bb234f38de::t_efa33e8336ea89 67-69,96-104,159,194-316,1069-1070,1095-1097,1102-1110,1131-1132,1173-1174,2090-2091,2105-2108,2114-2116,2127,2150-2151,2154-2157,2160,2169,2193-2195,2330-2376,3001-3019
+services/gemini_backends.py
+  s_77f1bb234f38de::t_e6b668018aeb5d 18-19,38-39,258,261-262,264-265,267-268,270-283,285-286
+services/gemma_evidence.py
+  s_77f1bb234f38de::t_0df5b182715491 494-495,500-501
+services/google_oauth.py
+  s_77f1bb234f38de::t_72acf53fada8aa 1,5-7,31-34,54-58,404
+services/hiring_approval_service.py
+  s_77f1bb234f38de::t_ac8af2a0b36108 38,115,189
+services/hiring_contracts.py
+  s_77f1bb234f38de::t_d527a1a747c6cf 1
+services/hiring_data_rights.py
+  s_77f1bb234f38de::t_fd5e4f5004a772 7,65,91,100,237
+services/hiring_identity_vault.py
+  s_77f1bb234f38de::t_1b224849af6915 15,26-28,33,44-45,76-78,84,94,96
+services/hiring_policy_service.py
+  s_77f1bb234f38de::t_abf337777209e2 7,10,22,25,38-42,60,70-71,86,97-100,130-135,146-160,170-176,182,190-205,208
+services/hiring_public_intake.py
+  s_77f1bb234f38de::t_843183fa62b2de 1-364
+services/hiring_role_draft.py
+  s_77f1bb234f38de::t_b014f6d30ab9a4 1-410
+services/hiring_run_answer.py
+  s_77f1bb234f38de::t_1c62f291d15e27 23-25,82,91,116,128,130,192-335
+services/hiring_sandbox.py
+  s_77f1bb234f38de::t_9f2e1b17ca98d8 18,86-87,97,136,427
+services/hiring_service.py
+  s_77f1bb234f38de::t_0f7f450939fbb0 1,9,32-37,62-101,113-120,128,144,151-153,159,164-167,173-205,207-272,274-281,287,300-309,311-325,343,364-459,463,465,469-470,472-473,478,511,517,533-535,560-562,594-596,608-610,624,627,639-641,675,765-767,810,825-858,861-865,881-882,884,978,988,992
+services/hiring_workflow_adapter.py
+  s_77f1bb234f38de::t_d4ceeab76e22ce 12-13,23-31,33,42-45
+services/image_ingestion.py
+  s_77f1bb234f38de::t_433f4ce596ee69 1-292
+services/internal_controlled_demo.py
+  s_77f1bb234f38de::t_5c15e84f2e710e 18,154,159,173,204,266,309
+services/live_attention.py
+  s_77f1bb234f38de::t_deeb71316dd009 1-66
+services/live_media.py
+  s_77f1bb234f38de::t_44cb81a5769e63 1-436
+services/live_transcript.py
+  s_77f1bb234f38de::t_2e017342a3eb23 1-293
+services/live_vision_protocol.py
+  s_77f1bb234f38de::t_fb45d78073d8eb 1-158
+services/live_visual_context.py
+  s_77f1bb234f38de::t_70d4409de7854c 1-66
+services/memory_evaluation.py
+  s_77f1bb234f38de::t_65fa77c020c21c 13-53,61-63,65-92
+services/profile_service.py
+  s_77f1bb234f38de::t_ef86f2ba210238 340-341,344
+services/projection_stream.py
+  s_77f1bb234f38de::t_b06a5389f58f67 10,24-69,144
+services/retry_policy.py
+  s_77f1bb234f38de::t_930493e9646889 1-6,10,13-72
+services/session_deletion.py
+  s_77f1bb234f38de::t_78136f8a819744 14,77-79,113-114,141-159,210-213
+services/session_ingestion_retention.py
+  s_77f1bb234f38de::t_da8671dbf22749 1-74
+services/session_resources.py
+  s_77f1bb234f38de::t_782f8ba080a8eb 539,979-980
+services/source_ingestion.py
+  s_77f1bb234f38de::t_d336ea330f42cf 14-21,32-39,63-64,197-208,214-215,240-246,268-270,294-315,330-332,345-346
+services/task_queue.py
+  s_77f1bb234f38de::t_b33f6b5186c67e 28-29,47-54,77-80,170-174
+services/wake_delivery_service.py
+  s_77f1bb234f38de::t_7e6f53e78bdcc8 34
+services/workflow_contracts.py
+  s_77f1bb234f38de::t_9707d7f6d39c32 55-67,123-127,198,208-209
+services/workflow_plan_validator.py
+  s_77f1bb234f38de::t_1ed7a277eab22e 15-16
+services/workflow_runtime.py
+  s_77f1bb234f38de::t_9f473fce6b7952 18,31-77,172-173,192-201,210-211
+services/workload_identity.py
+  s_77f1bb234f38de::t_f245235530bcac 38-43,54-57,92-98
+services/workspace_brief.py
+  s_77f1bb234f38de::t_ef66cccfa078e7 1-360
+skills/__init__.py
+  s_77f1bb234f38de::t_4e9e30e97d27b8 1-11
+skills/approvals.py
+  s_77f1bb234f38de::t_81f43826f50156 1-149
+skills/approvals/spec40-gate-f-cost-preflight.json
+  s_77f1bb234f38de::t_d6067b4cb525b7 1-22
+skills/approvals/spec40-gate-f-offline-qualification.json
+  s_77f1bb234f38de::t_617baab06f5291 1-34
+skills/approvals/spec40-gate-f-provider-preflight.json
+  s_77f1bb234f38de::t_d45e0984d14b3c 1-19
+skills/approvals/spec40-gate-f-technical-gates.json
+  s_77f1bb234f38de::t_87c0cddf91e48b 1-26
+skills/audit.py
+  s_77f1bb234f38de::t_3ebe43a1cbe1fd 1-29
+skills/catalog.v1.json
+  s_77f1bb234f38de::t_9f3ba68725ded1 1-394
+skills/compiler.py
+  s_77f1bb234f38de::t_b7971bc44867d7 1-332
+skills/context.py
+  s_77f1bb234f38de::t_90b420363347f1 1-76
+skills/contracts.py
+  s_77f1bb234f38de::t_d3d12de5113b60 1-151
+skills/documents/produce_grounded_artifact/PLAYBOOK.md
+  s_77f1bb234f38de::t_fcb2b56bd5ee8b 1-18
+skills/documents/produce_grounded_artifact/qualification.json
+  s_77f1bb234f38de::t_a0bc5f657c6409 1-12
+skills/documents/produce_grounded_artifact/schemas/input.v1.json
+  s_77f1bb234f38de::t_aa8162c0aa9d20 1-34
+skills/documents/produce_grounded_artifact/schemas/output.v1.json
+  s_77f1bb234f38de::t_1ecea0f3ae10d2 1-128
+skills/documents/produce_grounded_artifact/skill.yaml
+  s_77f1bb234f38de::t_bbe453e64d4f12 1-79
+skills/evidence/spec40-gate-f-cloud-canary-20260829.json
+  s_77f1bb234f38de::t_7f7d6879c1867b 1-162
+skills/evidence/spec40-gate-f-offline-qualification-20260829.json
+  s_77f1bb234f38de::t_387754529ef127 1-99
+skills/evidence/spec40-gate-f-synthetic-runtime-20260829.json
+  s_77f1bb234f38de::t_fd2fabaf5b0b2f 1-73
+skills/funding/discover_opportunities/PLAYBOOK.md
+  s_77f1bb234f38de::t_28a207a615bda9 1-12
+skills/funding/discover_opportunities/qualification.json
+  s_77f1bb234f38de::t_59bf53246ed942 1-10
+skills/funding/discover_opportunities/schemas/input.v1.json
+  s_77f1bb234f38de::t_4d5d0692088878 1-10
+skills/funding/discover_opportunities/schemas/output.v1.json
+  s_77f1bb234f38de::t_2797efdf536b94 1-11
+skills/funding/discover_opportunities/skill.yaml
+  s_77f1bb234f38de::t_5b340c76a34d04 1-62
+skills/funding/draft_grounded_section/PLAYBOOK.md
+  s_77f1bb234f38de::t_4ffef863963a2e 1-12
+skills/funding/draft_grounded_section/qualification.json
+  s_77f1bb234f38de::t_e58cba737e99c4 1-10
+skills/funding/draft_grounded_section/schemas/input.v1.json
+  s_77f1bb234f38de::t_10df72c5fea9a6 1-11
+skills/funding/draft_grounded_section/schemas/output.v1.json
+  s_77f1bb234f38de::t_4a9589776fc27e 1-12
+skills/funding/draft_grounded_section/skill.yaml
+  s_77f1bb234f38de::t_13c6f40a8c5b49 1-62
+skills/grounding.py
+  s_77f1bb234f38de::t_6ab4d08bba352e 1-88
+skills/model_policies/spec40-gate-f-offline-v1.json
+  s_77f1bb234f38de::t_be432c9d9f126f 1-26
+skills/models.py
+  s_77f1bb234f38de::t_e1bbe6b7282f91 1-227
+skills/offline_capabilities.py
+  s_77f1bb234f38de::t_41bebc1ce397b9 1-63
+skills/pilots/gate-f-artifact-grounded-brief.json
+  s_77f1bb234f38de::t_e2ee07f1112582 1-22
+skills/pilots/pilot-0-funding-discovery.json
+  s_77f1bb234f38de::t_f421682ce98502 1-22
+skills/policy.py
+  s_77f1bb234f38de::t_4d55b5f471dd14 1-150
+skills/qualification_runner.py
+  s_77f1bb234f38de::t_4cb0f4b07512d7 1-457
+skills/readiness.py
+  s_77f1bb234f38de::t_0b9871064622e2 1-57
+skills/selection.py
+  s_77f1bb234f38de::t_e30b9d3d44ff8a 1-51
+tests/conftest.py
+  s_77f1bb234f38de::t_cdebb0f6e09652 6,510-512,533-535,554-556
+tests/eval/spec40_gate_f_cases.json
+  s_77f1bb234f38de::t_dea8f7cb27b140 1-286
+tests/eval/spec40_gate_f_qualification_plan.json
+  s_77f1bb234f38de::t_1aa4b029a4617a 4,11,58,71-89,91-93,97
+tests/unit/test_activity_ui_contract.py
+  s_77f1bb234f38de::t_0728b6a21c5f99 44,82-84
+tests/unit/test_actor_identity_platform.py
+  s_77f1bb234f38de::t_45153bd92c4c31 12,27,46,64-82,85,97,128
+tests/unit/test_app_server.py
+  s_77f1bb234f38de::t_3bc6de03f90f0d 106,110,150-220,307-308,316-436,773-774,776-783,941-942,946-962,965-966,968-984,986-988,994-995,1000,1008
+tests/unit/test_attachment_ui_contract.py
+  s_77f1bb234f38de::t_20e0c25bd59470 10-12,14-15
+tests/unit/test_auth.py
+  s_77f1bb234f38de::t_d21fe0a75285af 19,46-49,241-258
+tests/unit/test_background_artifact_pilot.py
+  s_77f1bb234f38de::t_5aa0515c0100b9 27,31,145
+tests/unit/test_background_pilot_canary_app.py
+  s_77f1bb234f38de::t_61218a7f712469 16,22,30-32,34-38,47,59,61-62,64-71,79-80,82-83
+tests/unit/test_background_pilot_local_dispatch.py
+  s_77f1bb234f38de::t_6b3459e06ac854 68-98
+tests/unit/test_background_pilot_real_app.py
+  s_77f1bb234f38de::t_18972a0bee4010 36,42
+tests/unit/test_background_pilot_routes.py
+  s_77f1bb234f38de::t_954e304b3b0542 15,18,22,86
+tests/unit/test_browser_ui_contract.py
+  s_77f1bb234f38de::t_06381f1d5d614e 56,87-105,119,121-123
+tests/unit/test_command_service.py
+  s_77f1bb234f38de::t_203dadd782a0c7 19
+tests/unit/test_connection_registry.py
+  s_77f1bb234f38de::t_e18ebac5de115c 15,58-82
+tests/unit/test_consequence_service.py
+  s_77f1bb234f38de::t_39236c5ea8273b 24,28,274,278
+tests/unit/test_conversation_serialization_foundation.py
+  s_77f1bb234f38de::t_e5eed5f83f605b 44
+tests/unit/test_cost_controls.py
+  s_77f1bb234f38de::t_91e6f9f9b594b9 1-108
+tests/unit/test_data_source_contracts.py
+  s_77f1bb234f38de::t_9a4921d64117e0 38-39
+tests/unit/test_deploy_firestore_ttl.py
+  s_77f1bb234f38de::t_5fe9fff2370bc6 1-24
+tests/unit/test_design_encodings.py
+  s_77f1bb234f38de::t_13626415fe4031 301,304-306,321,328-329,331-332,334,368,370
+tests/unit/test_durable_memory_m2.py
+  s_77f1bb234f38de::t_0199a0a9741492 1-409
+tests/unit/test_external_event_service.py
+  s_77f1bb234f38de::t_db8eb6cdc47b43 191,195
+tests/unit/test_findings_hardening.py
+  s_77f1bb234f38de::t_d4727a35149ec9 151-153,156,164-166
+tests/unit/test_google_login.py
+  s_77f1bb234f38de::t_44fcf33cae9720 3,5,66,101-103,195-252
+tests/unit/test_google_oauth.py
+  s_77f1bb234f38de::t_292a4cfa3db92a 34-45,83-100
+tests/unit/test_hiring_founder_draft.py
+  s_77f1bb234f38de::t_14c8d54ef1ce50 1,5-6,12-13,17-24,30-50,54,56-175,178-189,193,196,199,201,204,206-262,266-381,385-386,388-472,474-529,533-534,536-656,658-660,663-690,692-769
+tests/unit/test_hiring_h0_h3.py
+  s_77f1bb234f38de::t_bc9c4df9a1a25d 60,62-71,206-207,212,221-283,290,306,369-370,385,391,400,462,487,490,499,511,513,517,522,529,534,537,543,550,600,678,685,687,699-700,702,705,707,710,717,735,740,746,758,764,769,773,778,784,798,805,817,822,829,835,838,844,847,852
+tests/unit/test_hiring_sandbox.py
+  s_77f1bb234f38de::t_9db6e8e696708a 23,27-28,33,36-37,41,47,55,64,71,78,82,89,100,121,125,129,136,139,141,145,159,172,179,185,193,198,202,209,213-214,217,221,225,234,241,243,253,257-258,264,268,273,277,281,283,337,339,342-343,346,350,354,360,366,370,374,387,391,394,407,412,416,428,433,440,451,460,470,475,479,507,512,514,519
+tests/unit/test_image_ingestion.py
+  s_77f1bb234f38de::t_d9570b11c259fe 1-154
+tests/unit/test_internal_controlled_demo.py
+  s_77f1bb234f38de::t_d9918f6f1fc045 21,23-24,33,36,60,65,68,73,76,80,85,87,89,97,100,124,129-130,132,136,148,156,162,167,169,176,185,188,192,194,196,199,204,208,211,234
+tests/unit/test_investor_outreach_service.py
+  s_77f1bb234f38de::t_4d62a56b16f23a 19,23
+tests/unit/test_live_attention.py
+  s_77f1bb234f38de::t_16099282af0414 1-58
+tests/unit/test_live_media.py
+  s_77f1bb234f38de::t_9ac00c39b6e6f0 1-239
+tests/unit/test_live_transcript.py
+  s_77f1bb234f38de::t_a72a79c657baa5 1-318
+tests/unit/test_live_vision_lifecycle.py
+  s_77f1bb234f38de::t_ad7a50a76a5f2d 1-49
+tests/unit/test_live_vision_ui_contract.py
+  s_77f1bb234f38de::t_02e71e293d9f81 1-341
+tests/unit/test_live_vision_v0.py
+  s_77f1bb234f38de::t_6341aedc958e3d 1-143
+tests/unit/test_live_voice_startup_ui.py
+  s_77f1bb234f38de::t_36e82b340eb3f2 1-259
+tests/unit/test_phase4_memory.py
+  s_77f1bb234f38de::t_aee4f77b7e021e 129-144,146-150,152-154
+tests/unit/test_phase7_cloud_audit.py
+  s_77f1bb234f38de::t_6b6bf03241200d 63-71,74
+tests/unit/test_phase7_monitoring.py
+  s_77f1bb234f38de::t_c52238f67e84c9 66,68,89
+tests/unit/test_projection_stream.py
+  s_77f1bb234f38de::t_de440b9d7f4ecf 6-10,40
+tests/unit/test_review_fixes_agents.py
+  s_77f1bb234f38de::t_6b254d7995ce0c 304-313,354-378
+tests/unit/test_search_ui_contract.py
+  s_77f1bb234f38de::t_ba8a37564684ac 11,17-23,26-27,52,175-178
+tests/unit/test_session_deletion.py
+  s_77f1bb234f38de::t_a4bc6866e77139 13-15,27,45-48,57-59,224-240
+tests/unit/test_session_ingestion_retention.py
+  s_77f1bb234f38de::t_17f1b01618d238 1-102
+tests/unit/test_skill_foundation.py
+  s_77f1bb234f38de::t_b37a77787c01af 1-238
+tests/unit/test_source_ingestion.py
+  s_77f1bb234f38de::t_f09e631fc38a44 68-73
+tests/unit/test_spec40_founder_stage_approval.py
+  s_77f1bb234f38de::t_858d4a3e6321cf 1-343
+tests/unit/test_spec40_gate_f_offline.py
+  s_77f1bb234f38de::t_cfccb5be865214 1-524
+tests/unit/test_spec40_gate_f_qualification_command.py
+  s_77f1bb234f38de::t_36d7ff15b35d5d 1-77
+tests/unit/test_spec40_gate_f_qualification_plan.py
+  s_77f1bb234f38de::t_1976bd4aac69e1 20,27,36,71-72,74,79,87-88
+tests/unit/test_spec40_gate_f_qualification_runner.py
+  s_77f1bb234f38de::t_df69195a8d4399 1-200
+tests/unit/test_spec40_gate_f_routes.py
+  s_77f1bb234f38de::t_10272e827cd607 1-357
+tests/unit/test_spec40_gate_f_runtime.py
+  s_77f1bb234f38de::t_9af370f860b338 1-540
+tests/unit/test_unified_product_ui_contract.py
+  s_77f1bb234f38de::t_15b6ccfd93685f 1-438
+tests/unit/test_visual_action_guard.py
+  s_77f1bb234f38de::t_9243a195d52c96 1-69
+tests/unit/test_workspace_brief_m1.py
+  s_77f1bb234f38de::t_0e02ea16cb8fb1 1-108
+tests/unit/test_workspace_brief_release.py
+  s_77f1bb234f38de::t_fc87f463a1dec5 1-112
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "3fa105bff226568e34d65348b30ee5a429e9e5af",
+  "prompts": {},
+  "sessions": {
+    "s_77f1bb234f38de": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a046ae-fe02-7782-82b7-4676370ad1b6",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Ijidai Lassa <ijidai@cued.app>"
+    }
+  }
+}
