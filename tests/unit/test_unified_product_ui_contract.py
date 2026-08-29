@@ -422,6 +422,13 @@ def test_candidate_open_role_is_receipt_gated_and_contains_no_internal_controls(
     assert "Copy application link" in HIRING
     assert "PUBLISHED ROLE · APPLICATION INTAKE" in HIRING
     assert "No applications have been received for this role yet." in HIRING
+    assert '"Evidence"' in HIRING
+    assert '"Not prepared"' in HIRING
+    assert '"Ready"' in HIRING
+    assert '"Prepare evidence"' in HIRING
+    assert '"Review evidence"' in HIRING
+    assert 'id="mapEvidenceButton"' in HIRING
+    assert "Founder-triggered only" in HIRING
     assert 'id="applicationLinkStatus" role="status" aria-live="polite"' in HIRING
     assert "/api/public/hiring/roles/" in OPEN_ROLE
     assert "/applications" in OPEN_ROLE

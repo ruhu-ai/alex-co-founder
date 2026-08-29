@@ -2,9 +2,9 @@
 
 The form path is available only when explicitly enabled with a dedicated
 256-bit intake key, for a non-synthetic role whose exact policy and publication
-receipt are current. Applicant email, optional message, and resume bytes are encrypted
-before they enter the durable candidate queue or artifact store. No assessment,
-ranking, contact, or provider action is started by intake.
+receipt are current. Applicant name, email, optional message, and resume bytes are
+encrypted before they enter the durable candidate queue or artifact store. No
+assessment, ranking, contact, or provider action is started by intake.
 """
 
 from __future__ import annotations
@@ -25,6 +25,7 @@ from typing import Any
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 from services import document_ingestion, storage
+from services.actor_identity import ActorPrincipal, authorize
 from services.durable_store import AtomicMutation, DurableStore, production_store
 from services.hiring_contracts import CandidateState, RoleState, stable_id, utc_now
 from services.resource_sensitivity import registration_policy
@@ -32,8 +33,8 @@ from services.resource_sensitivity import registration_policy
 MAX_RESUME_BYTES = 5 * 1024 * 1024
 TOKEN_TTL_SECONDS = 15 * 60
 PRIVACY_NOTICE = (
-    "By submitting, you agree that the email address, optional message, and CV "
-    "you provide may be used only to review your application for this role. "
+    "By submitting, you agree that the full name, email address, optional message, "
+    "and CV you provide may be used only to review your application for this role. "
     "They are kept in the role's restricted candidate queue and are not used "
     "for automated ranking or a hiring decision."
 )
@@ -498,6 +499,55 @@ class HiringPublicIntakeService:
         extension = ".pdf" if artifact.get("content_type") == "application/pdf" else ".docx"
         return {"status": "success", "resume_bytes": resume_bytes,
                 "extension": extension, "artifact": artifact}
+
+    async def reveal_restricted_identity(
+            self, *, application: dict[str, Any],
+            principal: ActorPrincipal) -> dict[str, Any]:
+        """Reveal only name/email after the normal recent-Founder auth gate."""
+        gate = authorize(principal, "read_candidate", require_fresh=True)
+        if gate.get("error"):
+            return gate
+        if not self._enabled or not self._key:
+            return _error("public_intake_not_enabled",
+                          "Candidate identity is temporarily unavailable.", 503)
+        application_id = str(application.get("candidate_application_id") or "")
+        role_id = str(application.get("role_id") or "")
+        workspace_id = str(application.get("workspace_id") or "")
+        candidate_id = str(application.get("candidate_id") or "")
+        if (application.get("source_kind") != "PUBLIC_FORM"
+                or application.get("synthetic") is not False
+                or principal.workspace_id != workspace_id):
+            return _error("identity_access_forbidden",
+                          "Candidate identity operation was refused.", 403)
+        identity = await self.store.get("candidate_identities", candidate_id)
+        if (not identity or identity.get("workspace_id") != workspace_id
+                or identity.get("role_id") != role_id
+                or identity.get("candidate_application_id") != application_id):
+            return _error("identity_not_found",
+                          "Candidate identity operation was refused.", 404)
+        try:
+            wrapped_key = base64.b64decode(str(identity["wrapped_key"]))
+            wrap_nonce = base64.b64decode(str(identity["wrap_nonce"]))
+            dek = AESGCM(self._key).decrypt(
+                wrap_nonce, wrapped_key, candidate_id.encode())
+            aad = (
+                f"v1\x1f{workspace_id}\x1f{role_id}\x1f{application_id}"
+                "\x1fidentity").encode()
+            plaintext = AESGCM(dek).decrypt(
+                base64.b64decode(str(identity["nonce"])),
+                base64.b64decode(str(identity["ciphertext"])), aad)
+            fields = json.loads(plaintext)
+        except Exception:
+            return _error("decryption_failed",
+                          "Candidate identity operation was refused.", 503)
+        name = str(fields.get("name") or "")
+        email = str(fields.get("email") or "")
+        if not name or not _EMAIL.fullmatch(email):
+            return _error("decryption_failed",
+                          "Candidate identity operation was refused.", 503)
+        return {"status": "success", "identity": {
+            "name": name, "email": email,
+        }}
 
 
 def _error(code: str, message: str, http_status: int) -> dict[str, Any]:

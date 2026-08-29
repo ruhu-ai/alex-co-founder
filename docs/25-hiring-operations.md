@@ -6,8 +6,9 @@
 `/hiring` intake creates a real, editable Founder role draft from the supplied
 description; the former Ruhu FDE package is an optional synthetic demo fixture
 only. The app-owned role page and encrypted role-scoped application form may be
-enabled with a dedicated deployment secret. Resume evidence mapping is a
-separate Founder-clicked operation and produces only criterion-linked
+enabled with a dedicated deployment secret. Intake remains dormant in
+`FOUNDER_REVIEW_REQUIRED`; resume evidence mapping is a separate
+Founder-clicked operation and produces only criterion-linked
 `PRESENT` / `MISSING` / `UNCLEAR` coverage. Provider writes, third-party job
 posting/outreach, automatic assessment, ranking, recommendation, advance,
 decline, offer, and onboarding effects remain disabled and unauthorized.

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import io
+import time
 from types import SimpleNamespace
 
 import pytest
@@ -613,6 +614,15 @@ async def test_local_public_form_encrypts_and_queues_without_automatic_processin
     serialized = repr(store.records)
     assert "candidate@example.test" not in serialized
     assert "Synthetic Applicant" not in serialized
+    fresh_founder = ActorPrincipal(
+        actor_id="founder_actor", workspace_id="workspace_test",
+        role=WorkspaceRole.FOUNDER, session_auth_time=int(time.time()),
+        membership_version=1)
+    revealed = await service.reveal_restricted_identity(
+        application=application, principal=fresh_founder)
+    assert revealed == {"status": "success", "identity": {
+        "name": "Synthetic Applicant", "email": "candidate@example.test",
+    }}
 
     duplicate = await service.submit(
         role_id=role_id, intake_token=projection["intake_token"],
@@ -691,6 +701,21 @@ async def test_founder_click_maps_public_resume_without_ranking_or_deciding(
     assert submitted["status"] == "success"
     application = (await store.list(
         "candidate_applications", filters={"role_id": role["role_id"]}))[0]
+    original_get = store.get
+
+    async def reject_empty_document_ids(collection, document_id):
+        assert document_id, f"empty document id requested for {collection}"
+        return await original_get(collection, document_id)
+
+    monkeypatch.setattr(store, "get", reject_empty_document_ids)
+    pending = await service.candidate_detail(
+        principal=_founder(),
+        application_id=application["candidate_application_id"])
+    assert pending["status"] == "success"
+    assert pending["assessment"] is None
+    assert pending["evidence_status"] == "NOT_STARTED"
+    assert all(item["summary"] == "Evidence mapping pending."
+               for item in pending["evidence_coverage"])
     monkeypatch.setattr(
         "services.document_ingestion.extract_chunks",
         lambda path, suffix: {"status": "success", "chunks": [{
@@ -713,6 +738,11 @@ async def test_founder_click_maps_public_resume_without_ranking_or_deciding(
     assert committed["role_id"] == role["role_id"]
     assert committed["current_decision_id"] is None
     assert committed["external_actions"] == []
+    ready = await service.candidate_detail(
+        principal=_founder(),
+        application_id=application["candidate_application_id"])
+    assert ready["evidence_status"] == "READY"
+    assert ready["assessment"]["assessment_id"] == mapped["assessment_id"]
 
 
 @pytest.mark.asyncio
@@ -985,6 +1015,11 @@ def test_public_application_route_converges_on_restricted_candidate_queue(monkey
         lambda name: bool(saved.pop(name, None)))
     monkeypatch.setattr(hiring_routes, "production_store", lambda: store)
     monkeypatch.setattr(hiring_routes, "_services", lambda: (service, object()))
+
+    async def actor(_request):
+        return _founder()
+
+    monkeypatch.setattr(hiring_routes, "_actor", actor)
     app = FastAPI()
     hiring_routes.register(app)
     client = TestClient(app)
@@ -1005,3 +1040,6 @@ def test_public_application_route_converges_on_restricted_candidate_queue(monkey
     rows = asyncio.run(store.list(
         "candidate_applications", filters={"role_id": role_id}))
     assert len(rows) == 1 and rows[0]["processing_status"] == "FOUNDER_REVIEW_REQUIRED"
+    role_response = client.get(f"/api/hiring/roles/{role_id}")
+    assert role_response.status_code == 200
+    assert role_response.json()["candidates"][0]["evidence_status"] == "NOT_STARTED"

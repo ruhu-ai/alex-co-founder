@@ -67,6 +67,28 @@ def _is_public_url(value: str) -> bool:
         and "@" not in parts.netloc)
 
 
+def candidate_evidence_status(
+        application: dict[str, Any], *, assessment: dict[str, Any] | None = None,
+        current_policy_version_id: str = "") -> str:
+    """Project truthful evidence readiness without starting candidate work."""
+    if assessment:
+        if assessment.get("staleness") == "STALE_POLICY":
+            return "STALE_POLICY"
+        return "READY"
+    if application.get("current_assessment_id"):
+        if (current_policy_version_id
+                and application.get("current_policy_version_id") !=
+                current_policy_version_id):
+            return "STALE_POLICY"
+        return "READY"
+    processing = str(application.get("processing_status") or "")
+    if processing == "EVIDENCE_MAPPING_IN_PROGRESS":
+        return "PREPARING"
+    if processing == "EVIDENCE_MAPPING_FAILED":
+        return "FAILED"
+    return "NOT_STARTED"
+
+
 def _candidate_facing_projection(
         *, contract: RoleContract, description: dict[str, Any],
         published_source_url: str = "", intake: dict[str, Any] | None = None,
@@ -1002,11 +1024,13 @@ class HiringService:
         gate = authorize(principal, "read_candidate")
         if gate.get("error"):
             return gate
-        assessment = await self.store.get(
-            "candidate_assessments", str(application.get("current_assessment_id") or ""))
+        assessment_id = str(application.get("current_assessment_id") or "").strip()
+        assessment = (await self.store.get(
+            "candidate_assessments", assessment_id) if assessment_id else None)
         role = await self.store.get("hiring_roles", application["role_id"])
-        policy = await self.store.get(
-            "hiring_policy_versions", str((role or {}).get("current_policy_version_id") or ""))
+        policy_id = str((role or {}).get("current_policy_version_id") or "").strip()
+        policy = (await self.store.get(
+            "hiring_policy_versions", policy_id) if policy_id else None)
         if assessment:
             assessment = dict(assessment)
             if (assessment.get("policy_version_id") != (role or {}).get(
@@ -1048,8 +1072,12 @@ class HiringService:
                 "unknowns": ["Candidate-provided information has not been mapped yet."],
                 "contradictions": [], "summary": "Evidence mapping pending.",
             } for criterion_id, label in criteria_by_id.items()]
+        evidence_status = candidate_evidence_status(
+            application, assessment=assessment,
+            current_policy_version_id=policy_id)
         return {"status": "success", "application": application,
                 "assessment": assessment, "timeline": events,
+                "evidence_status": evidence_status,
                 "evidence_coverage": evidence_coverage,
                 "artifacts": [{key: item.get(key) for key in (
                     "artifact_id", "scope", "sensitivity", "content_type",

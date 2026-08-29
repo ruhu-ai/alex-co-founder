@@ -45,7 +45,7 @@ from services.hiring_run_answer import (
     HiringRunAnswerService,
 )
 from services.hiring_sandbox import HiringSandboxService
-from services.hiring_service import HiringService
+from services.hiring_service import HiringService, candidate_evidence_status
 from services.internal_controlled_demo import InternalControlledDemoService
 from services.internal_controlled_demo_effects import InternalDemoEffectService
 from services.internal_controlled_demo_intake import InternalDemoInboxImportService
@@ -900,6 +900,12 @@ def register(app: FastAPI) -> None:
             if not authorize(
                 principal, "read_candidate",
             ).get("error")]
+        candidates = [{
+            **row,
+            "evidence_status": candidate_evidence_status(
+                row, current_policy_version_id=str(
+                    role.get("current_policy_version_id") or "")),
+        } for row in candidates]
         policies.sort(key=lambda item: int(item.get("sequence", 0)))
         return {"status": "success", "role": role, "candidates": candidates,
                 "policy_versions": policies, "policy_impacts": impacts}
@@ -1325,10 +1331,17 @@ def register(app: FastAPI) -> None:
         application = await store.get("candidate_applications", application_id)
         if not application or application.get("workspace_id") != principal.workspace_id:
             return JSONResponse({"error": "not found"}, status_code=404)
-        revealed = await services[0].identity_vault.reveal_identity(
-            identity_id=application["candidate_id"],
-            workspace_id=application["workspace_id"], role_id=application["role_id"],
-            candidate_application_id=application_id, principal=principal)
+        if (application.get("source_kind") == "PUBLIC_FORM"
+                and application.get("synthetic") is False):
+            revealed = await HiringPublicIntakeService(
+                store=store).reveal_restricted_identity(
+                    application=application, principal=principal)
+        else:
+            revealed = await services[0].identity_vault.reveal_identity(
+                identity_id=application["candidate_id"],
+                workspace_id=application["workspace_id"],
+                role_id=application["role_id"],
+                candidate_application_id=application_id, principal=principal)
         if revealed.get("error"):
             return _response(revealed)
         audit_id = stable_id("audit", principal.workspace_id, "identity_reveal",
@@ -1339,7 +1352,7 @@ def register(app: FastAPI) -> None:
             "workspace_id": principal.workspace_id, "actor": principal.actor_id,
             "actor_id": principal.actor_id, "action": "hiring.identity.reveal",
             "target": f"candidate_applications/{application_id}",
-            "result": "success", "detail": "authorized synthetic identity reveal",
+            "result": "success", "detail": "authorized candidate identity reveal",
             "idempotency_key": payload.client_request_id,
             "created_at": utc_now(), "version": 1,
         })
