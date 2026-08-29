@@ -353,9 +353,12 @@ class GateFSkillDispatcher:
         base_url = os.environ.get("AGENT_BASE_URL", "").rstrip("/")
         queue_name = os.environ.get(
             "BACKGROUND_ARTIFACT_PREPARATION_QUEUE",
-            "co-founder-background-skill-gate-f",
+            "co-founder-background-skill-live-v1",
         )
-        if queue_name != "co-founder-background-skill-gate-f":
+        if queue_name not in {
+            "co-founder-background-skill-gate-f",
+            "co-founder-background-skill-live-v1",
+        }:
             return _error(
                 "background_skill_dispatch_queue_invalid",
                 "Artifact-preparation queue is not registered.",

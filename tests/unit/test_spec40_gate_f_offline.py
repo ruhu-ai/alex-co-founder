@@ -506,14 +506,19 @@ def test_live_app_agent_and_capability_registry_do_not_import_offline_skills():
                 assert "import skills" not in text
 
 
-def test_no_gate_f_flag_route_queue_or_deploy_surface_exists():
-    paths = [
-        REPO / ".env.example",
-        REPO / "scripts/deploy.sh",
-        REPO / "app/main.py",
-        REPO / "app/background_pilot_routes.py",
-    ]
-    combined = "\n".join(path.read_text() for path in paths)
-    assert "BACKGROUND_SKILLS_ENABLED" not in combined
-    assert "BACKGROUND_ARTIFACT_PREPARATION_ENABLED" not in combined
-    assert "pilot.artifact_grounded_brief" not in combined
+def test_live_gate_f_surface_is_exact_and_repository_default_off():
+    env = (REPO / ".env.example").read_text()
+    deploy = (REPO / "scripts/deploy.sh").read_text()
+    routes = (REPO / "app/background_pilot_routes.py").read_text()
+
+    assert "BACKGROUND_SKILLS_ENABLED=false" in env
+    assert "BACKGROUND_ARTIFACT_PREPARATION_ENABLED=false" in env
+    assert "BACKGROUND_ARTIFACT_PREPARATION_EXECUTION_ENABLED=false" in env
+    assert "BACKGROUND_ARTIFACT_PREPARATION_KILL_SWITCH=true" in env
+    assert "BACKGROUND_JOB_ADMISSION_ENABLED=false" in env
+    assert "BACKGROUND_SPECIALIST_EXECUTION_ENABLED=false" in env
+    assert "BACKGROUND_CONVERSATION_DELIVERY_ENABLED=false" in env
+    assert "co-founder-background-skill-live-v1" in deploy
+    assert "background-skill-worker" in deploy
+    assert '"/api/v1/background-pilot/artifact-grounded-brief"' in routes
+    assert '"/tasks/background-artifact-grounded-brief"' in routes

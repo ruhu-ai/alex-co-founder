@@ -29,6 +29,7 @@ QUEUE_DEPTH_LIMITS = {
     "co-founder-reconciliation": 2_000,
     "co-founder-interactive": 2_000,
     "co-founder-background-pilot": 100,
+    "co-founder-background-skill-live-v1": 10,
 }
 
 

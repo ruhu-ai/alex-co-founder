@@ -139,6 +139,7 @@ not alter any other collection. Bootstrap the one-role workspace after reset.
 | Cloud Tasks queue | `co-founder-reconciliation` | Uncertain-effect reconciliation only; route-scoped `reconciliation-worker@` identity, max concurrency 4, max attempts 3. |
 | Cloud Tasks queue | `co-founder-interactive` | Bounded founder-triggered reasoning/distillation; route-scoped `interactive-worker@` identity, max concurrency 4, max attempts 3. |
 | Cloud Tasks queue | `co-founder-background-pilot` | Default-off founder artifact-analysis pilot only; route-scoped `background-pilot-worker@` identity, max concurrency 1, max attempts 3, zero provider/model/effect authority. |
+| Cloud Tasks queue | `co-founder-background-skill-live-v1` | Default-off Founder grounded-artifact pilot only; route-scoped `background-skill-worker@` identity, max concurrency 1, max attempts 3, one bounded model call and no external/effect authority. |
 | Cloud Run ×3 | `co-founder`, `co-founder-browser-worker`, `mock-portal` | `co-founder` scales independently (`0..10`) and reaches browser work only through the typed OIDC gateway. `co-founder-browser-worker` is private, `0..1`, concurrency 1, owns every Playwright object, and accepts only the API service identity. `mock-portal` is a non-authoritative demo provider (`0..2`). |
 
 Reference commands (`scripts/deploy.sh` implements them idempotently):

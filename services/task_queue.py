@@ -26,6 +26,7 @@ QUEUE_IDENTITY_ENV = {
     "co-founder-background-pilot-real": "TASKS_BACKGROUND_PILOT_SA",
     "co-founder-background-pilot-gate-e": "TASKS_BACKGROUND_PILOT_SA",
     "co-founder-background-skill-gate-f": "TASKS_BACKGROUND_SKILL_SA",
+    "co-founder-background-skill-live-v1": "TASKS_BACKGROUND_SKILL_SA",
 }
 LOGGER = logging.getLogger("background_pilot.local_dispatch")
 
@@ -46,6 +47,8 @@ def _enqueue_local_background_pilot(
     route_pairs = {
         ("co-founder-background-pilot", "/tasks/background-artifact-pilot"),
         ("co-founder-background-skill-gate-f",
+         "/tasks/background-artifact-grounded-brief"),
+        ("co-founder-background-skill-live-v1",
          "/tasks/background-artifact-grounded-brief"),
     }
     if (queue_name, path) not in route_pairs or schedule_at:

@@ -255,7 +255,7 @@ async def test_accept_is_exact_private_bounded_idempotent_and_opaque():
     assert duplicate["dispatch_error_code"] is None
     assert len(calls) == 1
     assert calls[0]["path"] == "/tasks/background-artifact-grounded-brief"
-    assert calls[0]["queue_name"] == "co-founder-background-skill-gate-f"
+    assert calls[0]["queue_name"] == "co-founder-background-skill-live-v1"
     assert set(calls[0]["payload"]) == {"workspace_id", "run_id", "step_id"}
     assert ARTIFACT not in repr(calls[0]["payload"])
     run = await store.get("workflow_runs", first["run_id"])
