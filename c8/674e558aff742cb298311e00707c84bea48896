@@ -1,0 +1,183 @@
+services/capability_registry.py
+  s_16e75b10efee22::t_5744a1e2a5339e 91-94
+services/workflow_plan_validator.py
+  s_16e75b10efee22::t_8d44116c6ec084 13
+  s_16e75b10efee22::t_a38df55eb35f36 14,112-113,117
+  s_16e75b10efee22::t_bcfad1252a144f 114-116
+services/background_pilot.py
+  s_16e75b10efee22::t_46e1293f2a550c 1-12,14-15,17,20,23-38,40-134,137-141,146,148-151,154-169,182-185,192-239,246-276,281-289,291-298,303-321,325-358,376-385,393-400,402-406,414-421,429-457,465-500,502-505,517-534,536-584,589-596,606-610,612-613,617-631,635-655,665-693,697-728,733-883,899-909,911,913,919-984,990-994
+  s_16e75b10efee22::t_bcfad1252a144f 13,135-136,152-153,170-174,186-191,240-245,322-324,401,660-664,729-732,910,912,914-918
+  s_16e75b10efee22::t_d18c4064c353cf 501,506-516,535
+  s_16e75b10efee22::t_5603dfe3e57c15 18
+  s_16e75b10efee22::t_e7de9c5cba9bf3 597-605,611
+  s_16e75b10efee22::t_5df18b4c9a2659 16,21,277-280,290,359-375,585-588,614-616,632-634,656-659,694-696,884-898,985-989
+  s_16e75b10efee22::t_8126c8d6cded82 299,387,408,423,459
+  s_16e75b10efee22::t_a93449589b13e8 19,142-145,147,175-181
+  s_16e75b10efee22::t_b9db1a4a05007a 22,39,300-302,386,388-392,407,409-413,422,424-428,458,460-464
+services/workflow_contracts.py
+  s_16e75b10efee22::t_7ab4bc6fd4f9e9 34,44-51,53-55,78-91,105-106,109
+  s_16e75b10efee22::t_8c5377b33b6e34 52,107-108,188-189
+tests/unit/test_conversation_serialization_foundation.py
+  s_16e75b10efee22::t_cb39ba694284e5 11,56-60
+  s_16e75b10efee22::t_7068d55a8f7b58 1-10,12-43,45-55,61-240
+services/data_lifecycle.py
+  s_16e75b10efee22::t_7e8f3cfa4a668b 73-76
+.env.example
+  s_16e75b10efee22::t_ef186de576ad82 4-12,14,18
+  s_16e75b10efee22::t_2bd233501a3c5a 15-17
+  s_16e75b10efee22::t_e7de9c5cba9bf3 13
+services/workload_identity.py
+  s_16e75b10efee22::t_61c0ae03366a39 62-67
+  s_16e75b10efee22::t_cac4fbb920a2eb 50-52,118
+  s_16e75b10efee22::t_2bd233501a3c5a 38-41,43,53-59,61
+scripts/phase7_cloud_audit.py
+  s_16e75b10efee22::t_bcfad1252a144f 65,86,99
+  s_16e75b10efee22::t_3991fe4c91215a 93
+services/command_dispatcher.py
+  s_16e75b10efee22::t_b9db1a4a05007a 57-61,122-123
+services/platform_operations.py
+  s_16e75b10efee22::t_0f827918ebb499 33-38,48
+tests/unit/test_background_work_foundation.py
+  s_16e75b10efee22::t_8126c8d6cded82 32,216,219,231
+  s_16e75b10efee22::t_cb39ba694284e5 105,109,115-116,119,189-190
+  s_16e75b10efee22::t_ace416eb87e0e1 1-31,33-104,106-108,110-114,120-188,191-215,217-218,220-230,232-280
+  s_16e75b10efee22::t_bcfad1252a144f 117-118
+tests/unit/test_background_pilot_local_dispatch.py
+  s_16e75b10efee22::t_61c0ae03366a39 1-85
+scripts/configure_spec40_pagerduty_channel.py
+  s_16e75b10efee22::t_11227aa7f6a9a7 1-153
+services/durable_store.py
+  s_16e75b10efee22::t_d027b0188765f2 59-60
+scripts/deploy.sh
+  s_16e75b10efee22::t_73a1a41b7d0dd1 111-113,137,197-198,217,230-231,238-241,303
+  s_16e75b10efee22::t_3991fe4c91215a 138-139
+services/background_pilot_local_app.py
+  s_16e75b10efee22::t_48ccfb3d95c1d2 1-15,17-19,21-35,38-44,46-76,79-80,82-125,128-133,135-141,143-154,161-163,175-178,180-185,345-359,362-373,375-379,386-388
+  s_16e75b10efee22::t_8126c8d6cded82 81,134,142,374
+  s_16e75b10efee22::t_5bed87d5550fe4 316-324
+  s_16e75b10efee22::t_3d7b78fcab488c 16,20,36-37,45,77-78,126-127,164-174,179,186-315,325-344,360-361,380-385
+  s_16e75b10efee22::t_ec2f42a43f0f35 155-160
+docs/13-deployment.md
+  s_16e75b10efee22::t_73a1a41b7d0dd1 141
+services/task_queue.py
+  s_16e75b10efee22::t_e7de9c5cba9bf3 26
+  s_16e75b10efee22::t_a93449589b13e8 78-82,85-86
+  s_16e75b10efee22::t_61c0ae03366a39 7,9,11-15,28-77,83-84,87-110,123-127
+  s_16e75b10efee22::t_d78b1981279665 25
+scripts/run_background_pilot_local.sh
+  s_16e75b10efee22::t_87b34adb9236cc 46
+  s_16e75b10efee22::t_4efd2a556a382c 1-10,13,15-17,19-45,47-61
+  s_16e75b10efee22::t_c44292ccf4350d 11-12,14,18
+tests/unit/test_background_artifact_pilot.py
+  s_16e75b10efee22::t_9ac09ff53ab995 4
+  s_16e75b10efee22::t_8126c8d6cded82 27
+  s_16e75b10efee22::t_3562f24e7c566b 1-3,5-15,17-26,28-193,195-197,268-462,503-535
+  s_16e75b10efee22::t_b9db1a4a05007a 16,198-199,223-267
+  s_16e75b10efee22::t_bcfad1252a144f 194
+  s_16e75b10efee22::t_96e2ea2c09fbc3 463-502
+  s_16e75b10efee22::t_c18c50f0d5908c 200-222
+services/background_pilot_canary_app.py
+  s_16e75b10efee22::t_d6e3ce10e470ff 1-80,83-149,154-324
+  s_16e75b10efee22::t_139d404af8a7fc 81-82,150-153
+tests/unit/test_phase7_cloud_audit.py
+  s_16e75b10efee22::t_bcfad1252a144f 62
+  s_16e75b10efee22::t_0a285176103759 69
+docs/background-work-founder-artifact-pilot-evidence.md
+  s_16e75b10efee22::t_da02ec610e2992 125-127
+  s_16e75b10efee22::t_17bb2e57929fe7 312-379,385
+  s_16e75b10efee22::t_2b0be50cb329e6 5-6,15-16,30,122,124,128-146,154,173-174,182,185-187,197
+  s_16e75b10efee22::t_1831ff5258f11c 49-54,106,121,123,183-184
+  s_16e75b10efee22::t_efcdbf43a600cd 220-263
+  s_16e75b10efee22::t_38419956dbfa77 147-153,155-172,175-181
+  s_16e75b10efee22::t_ab762d7cf2f83d 264-274
+  s_16e75b10efee22::t_467896b324ecaf 1-4,7-14,17-29,31-48,55-105,108-120,188-196,198-219,448-449
+  s_16e75b10efee22::t_11227aa7f6a9a7 289-301
+  s_16e75b10efee22::t_182be1fce98e42 302-311
+  s_16e75b10efee22::t_04df36d8dde664 275-288
+  s_16e75b10efee22::t_8d12039b624281 380-384
+  s_16e75b10efee22::t_3f6658b610e5fc 107
+  s_16e75b10efee22::t_7047183fc15fa5 386-447,450-456
+tests/unit/test_phase7_monitoring.py
+  s_16e75b10efee22::t_182be1fce98e42 38,66,68,89
+services/actor_identity.py
+  s_16e75b10efee22::t_8126c8d6cded82 21
+app/main.py
+  s_16e75b10efee22::t_c3522cf01606a7 44-49,3764-3766
+  s_16e75b10efee22::t_61d18914c77abd 3767-3768
+services/background_pilot_metrics.py
+  s_16e75b10efee22::t_0f827918ebb499 1-30
+app/background_pilot_routes.py
+  s_16e75b10efee22::t_d18c4064c353cf 7,11,82-83,85-92,109-110,132-136,140-141,154-155,165-166,177-178,221-222,243
+  s_16e75b10efee22::t_98a4180726691b 1-6,8-10,12-16,18-21,25-29,33-50,60-81,93,98-99,103-108,111-118,122,124-131,137-139,142-144,146-153,157-164,168-176,179-184,186-220,223-233,238-242,244
+  s_16e75b10efee22::t_dc3e157fc3d790 95,100-102,123,145,156,167,185,234
+  s_16e75b10efee22::t_a93449589b13e8 17,23-24,94,235-237
+  s_16e75b10efee22::t_ef9b74557ea66f 22,96-97,119-121
+  s_16e75b10efee22::t_b9db1a4a05007a 30-32,51-59
+  s_16e75b10efee22::t_8126c8d6cded82 84
+services/command_service.py
+  s_16e75b10efee22::t_bc1d288032cd38 62-83,85
+app/static/index.html
+  s_16e75b10efee22::t_87fa7ec2e90e71 2031
+  s_16e75b10efee22::t_369822e2c48d0e 2627-2647,2649-2653,2661-2662,2664-2666,2670-2705
+  s_16e75b10efee22::t_578a103009a84d 2833,2835,2839,2862-2863
+  s_16e75b10efee22::t_e932b9db8ae68a 2706
+  s_16e75b10efee22::t_a04141f19766cb 2626,2648,2654-2660,2663,2667-2669,2829-2832,2834,2836-2838,2840-2853,2855-2861,2864-2881
+  s_16e75b10efee22::t_6cf524c30e4683 4018-4029
+infra/firestore.indexes.json
+  s_16e75b10efee22::t_bcfad1252a144f 195-204
+  s_16e75b10efee22::t_b199bf6f534d54 232-238
+  s_16e75b10efee22::t_1dc3831726c4aa 194
+  s_16e75b10efee22::t_d8293ae7f2af27 231
+tests/unit/test_background_pilot_real_app.py
+  s_16e75b10efee22::t_ef9b74557ea66f 1-23,26-62
+  s_16e75b10efee22::t_e7de9c5cba9bf3 24-25
+scripts/configure_phase7_monitoring.py
+  s_16e75b10efee22::t_182be1fce98e42 31,299-300
+services/workflow_runtime.py
+  s_16e75b10efee22::t_da37a8b70affa9 17,47-52,81-82,105-125,128-130,132-137,140-146,148-161,168-185,199-202,269,305-306,322-323,556-559,671,673-675
+  s_16e75b10efee22::t_bcfad1252a144f 89-91,164-166
+  s_16e75b10efee22::t_fc50bbb110da15 264-265
+  s_16e75b10efee22::t_519bafc70b5120 88,92,126-127,131,138-139,147,162-163,167
+  s_16e75b10efee22::t_11a7cab09fb2b0 608-610,613-623,641
+tests/unit/test_background_pilot_routes.py
+  s_16e75b10efee22::t_d18c4064c353cf 93-97,100
+  s_16e75b10efee22::t_76c4f9910c469e 1-14,16-22,24-57,59-92,101-161
+  s_16e75b10efee22::t_8126c8d6cded82 15,23
+  s_16e75b10efee22::t_409ab975620aef 58
+  s_16e75b10efee22::t_5256aeb5ce341e 98-99
+services/background_pilot_real_app.py
+  s_16e75b10efee22::t_ef9b74557ea66f 1-71,75-146
+  s_16e75b10efee22::t_e7de9c5cba9bf3 72-74
+scripts/exercise_background_pilot_local.py
+  s_16e75b10efee22::t_30457bf11988ad 15-16,83-97
+  s_16e75b10efee22::t_4bc33ad0b3b2d4 2,62-78,101-113,129-133,141-144,160-170,176-182
+  s_16e75b10efee22::t_48ccfb3d95c1d2 1,3-14,17-61,79-82,98-100,114-128,134-140,145-159,171-175,183-191
+services/background_work.py
+  s_16e75b10efee22::t_bcfad1252a144f 124-125
+  s_16e75b10efee22::t_8126c8d6cded82 163
+  s_16e75b10efee22::t_2aa0f9b049ec5f 528,552-554,564-565
+  s_16e75b10efee22::t_f3a82f6ccaa48d 13,39-46,411-450,466-467
+  s_16e75b10efee22::t_47360acb4e964f 1-5,18,48,93-94,98,105,107,110-112,115,123,126,157,180,388,393
+  s_16e75b10efee22::t_f0adaafdee6257 471-479
+  s_16e75b10efee22::t_bd27ff6e00e4bf 6-12,14-17,19-38,47,49-92,95-97,99-104,106,108-109,113-114,116-122,127-156,158-162,164-179,181-387,389-392,394-410,451-465,468-470,480-527,529-551,555-563,566-579
+services/firestore.py
+  s_16e75b10efee22::t_aea351e1a457f5 62-63
+tests/unit/test_background_pilot_canary_app.py
+  s_16e75b10efee22::t_139d404af8a7fc 1-65
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "c8674e558aff742cb298311e00707c84bea48896",
+  "prompts": {},
+  "sessions": {
+    "s_16e75b10efee22": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0484d-a6bd-7182-90ae-527ccfd2a966",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Ijidai Lassa <ijidai@cued.app>"
+    }
+  }
+}
