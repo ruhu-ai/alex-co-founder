@@ -36,13 +36,12 @@ CONTENT_HASH = hashlib.sha256(CONTENT.encode()).hexdigest()
 
 def _principal(
     *, workspace: str = WORKSPACE, actor: str = ACTOR,
-    role: WorkspaceRole = WorkspaceRole.FOUNDER,
+        role: WorkspaceRole | str = WorkspaceRole.FOUNDER,
     kind: str = "INTERACTIVE",
 ) -> ActorPrincipal:
     return ActorPrincipal(
         actor_id=actor, workspace_id=workspace, role=role,
-        role_grants=frozenset(), candidate_assignments=frozenset(),
-        interview_assignments=frozenset(), session_auth_time=1,
+        session_auth_time=1,
         membership_version=1, principal_kind=kind,
     )
 
@@ -204,7 +203,7 @@ async def test_gate_f_flags_founder_scope_and_malicious_ids_fail_before_authorit
             principal=_principal(), session_id=SESSION, artifact_id=ARTIFACT,
             client_request_id="gate-f-foreign-0001"),
         await _pilot(store, calls).start(
-            principal=_principal(role=WorkspaceRole.OBSERVER), session_id=SESSION,
+            principal=_principal(role="OBSERVER"), session_id=SESSION,
             artifact_id=ARTIFACT, client_request_id="gate-f-observer-0001"),
         await _pilot(store, calls).start(
             principal=_principal(kind="CLOUD_TASKS"), session_id=SESSION,

@@ -47,7 +47,10 @@ def test_catalog_compiles_deterministically_and_is_draft_only():
     assert first.catalog_hash == second.catalog_hash
     assert {skill.manifest.status.value for skill in first.skills} == {"DRAFT"}
     assert {skill.manifest.skill_id for skill in first.skills} == {
-        "funding.discover-opportunities", "funding.draft-grounded-section"}
+        "documents.produce-grounded-artifact",
+        "funding.discover-opportunities",
+        "funding.draft-grounded-section",
+    }
     assert not any("hiring" in skill.manifest.skill_id
                    or "browser" in skill.manifest.skill_id
                    or "vision" in skill.manifest.skill_id for skill in first.skills)
@@ -143,7 +146,9 @@ def test_selector_is_shadow_only_and_never_silently_truncates():
 
 
 def test_more_than_five_candidates_requires_clarification_without_truncation():
-    base = compile_catalog(ROOT).skills[0]
+    base = compile_catalog(ROOT).by_identity()[
+        "funding.discover-opportunities@1.0.0"
+    ]
     skills = tuple(base.model_copy(update={
         "manifest": base.manifest.model_copy(update={"skill_id": f"funding.candidate-{index}"})
     }) for index in range(6))

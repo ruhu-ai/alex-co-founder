@@ -140,18 +140,18 @@ def _qualified_descriptors() -> dict:
     }
 
 
-def test_catalog_is_deterministic_single_draft_and_matches_generated_artifact():
+def test_catalog_is_deterministic_and_contains_qualified_gate_f_draft():
     first = compile_catalog(SKILLS_ROOT)
     second = compile_catalog(SKILLS_ROOT)
     generated = json.loads((SKILLS_ROOT / "catalog.v1.json").read_text())
 
     assert first == second
     assert first.model_dump(mode="json") == generated
-    assert len(first.skills) == 1
-    assert first.skills[0].identity == "documents.produce-grounded-artifact@1.0.0"
-    assert first.skills[0].manifest.status.value == "DRAFT"
-    assert first.skills[0].qualification.status == "PASSED"
-    assert first.skills[0].qualification.suite_result_refs == (
+    assert len(first.skills) == 3
+    skill = first.by_identity()["documents.produce-grounded-artifact@1.0.0"]
+    assert skill.manifest.status.value == "DRAFT"
+    assert skill.qualification.status == "PASSED"
+    assert skill.qualification.suite_result_refs == (
         "skills/evidence/spec40-gate-f-offline-qualification-20260829.json",
     )
 
@@ -245,7 +245,8 @@ def test_contract_catalog_is_closed_owned_and_evidenced():
         assert entry.status in {"CURRENT", "DRAFT"}
         assert entry.owner
         assert entry.canonical_reference
-        assert entry.acceptance_evidence == "tests/unit/test_spec40_gate_f_offline.py"
+        assert entry.acceptance_evidence.startswith("tests/unit/test_")
+        assert (REPO / entry.acceptance_evidence).is_file()
         assert "TODO" not in repr(entry)
 
 

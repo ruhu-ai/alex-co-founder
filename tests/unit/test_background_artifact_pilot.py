@@ -24,12 +24,11 @@ REPO = Path(__file__).resolve().parents[2]
 
 def _principal(*, actor: str = "actor-founder",
                workspace: str = "workspace-pilot",
-               role: WorkspaceRole = WorkspaceRole.FOUNDER,
+               role: WorkspaceRole | str = WorkspaceRole.FOUNDER,
                kind: str = "INTERACTIVE") -> ActorPrincipal:
     return ActorPrincipal(
         actor_id=actor, workspace_id=workspace, role=role,
-        role_grants=frozenset(), candidate_assignments=frozenset(),
-        interview_assignments=frozenset(), session_auth_time=1,
+        session_auth_time=1,
         membership_version=1, principal_kind=kind)
 
 
@@ -143,7 +142,7 @@ async def test_flags_workspace_role_and_malicious_input_fail_closed():
             principal=_principal(), session_id="session-pilot-001",
             artifact_id="a" * 32, client_request_id="background-foreign-001")
     observer = await _pilot(store, calls).start(
-        principal=_principal(role=WorkspaceRole.OBSERVER),
+        principal=_principal(role="OBSERVER"),
         session_id="session-pilot-001", artifact_id="a" * 32,
         client_request_id="background-observer-001")
     noninteractive = await _pilot(store, calls).start(

@@ -12,15 +12,14 @@ pytestmark = pytest.mark.asyncio
 
 
 def _principal(actor: str = "actor-founder",
-               role: WorkspaceRole = WorkspaceRole.FOUNDER) -> ActorPrincipal:
+               role: WorkspaceRole | str = WorkspaceRole.FOUNDER) -> ActorPrincipal:
     return ActorPrincipal(
         actor_id=actor, workspace_id="workspace-pilot", role=role,
-        role_grants=frozenset(), candidate_assignments=frozenset(),
-        interview_assignments=frozenset(), session_auth_time=1,
+        session_auth_time=1,
         membership_version=1, principal_kind="INTERACTIVE")
 
 
-async def _client(monkeypatch, *, role: WorkspaceRole = WorkspaceRole.FOUNDER):
+async def _client(monkeypatch, *, role: WorkspaceRole | str = WorkspaceRole.FOUNDER):
     store = InMemoryDurableStore()
     await store.create("artifacts", "a" * 32, {
         "artifact_id": "a" * 32, "workspace_id": "workspace-pilot",
@@ -84,7 +83,7 @@ async def test_route_requires_idempotency_session_and_founder_role(monkeypatch):
     assert len(await store.list("workflow_runs", filters={})) == 1
 
     observer_client, observer_store = await _client(
-        monkeypatch, role=WorkspaceRole.OBSERVER)
+        monkeypatch, role="OBSERVER")
     async with observer_client:
         denied = await observer_client.post(
             "/api/v1/background-pilot/artifact-analysis",

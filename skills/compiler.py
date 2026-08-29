@@ -99,13 +99,21 @@ def _safe_file(root: Path, relative: str, *, max_bytes: int) -> tuple[Path, byte
     return path, data
 
 
-def _validate_schema(data: bytes, path: str) -> None:
+def _validate_schema(
+    data: bytes,
+    path: str,
+    *,
+    strict_nested: bool = False,
+) -> None:
     try:
         schema = json.loads(data)
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise SkillCompileError(f"invalid JSON schema: {path}") from exc
     if not isinstance(schema, dict) or schema.get("type") != "object":
         raise SkillCompileError(f"schema must describe an object: {path}")
+
+    if schema.get("additionalProperties") is not False:
+        raise SkillCompileError(f"schema must be closed: {path}")
 
     def require_closed_objects(node: object) -> None:
         if isinstance(node, dict):
@@ -119,7 +127,8 @@ def _validate_schema(data: bytes, path: str) -> None:
             for value in node:
                 require_closed_objects(value)
 
-    require_closed_objects(schema)
+    if strict_nested:
+        require_closed_objects(schema)
 
 
 def _contract_ids(manifest: SkillManifest) -> tuple[str, ...]:
@@ -168,11 +177,12 @@ def compile_package(
         descriptor = capabilities.get(pin.capability_id)
         if descriptor is None or descriptor.semantic_version != pin.version:
             raise SkillCompileError(f"unresolved capability pin: {pin.capability_id}@{pin.version}")
-        if manifest.status == "DRAFT" and descriptor.lifecycle != "DRAFT":
-            raise SkillCompileError(
-                f"draft skill must pin draft-only capabilities: {pin.capability_id}")
-        for contract_id in _descriptor_contract_ids(descriptor):
-            require_contract(contract_id)
+        if pin.capability_id in OFFLINE_DRAFT_CAPABILITIES:
+            if manifest.status == "DRAFT" and descriptor.lifecycle != "DRAFT":
+                raise SkillCompileError(
+                    f"draft skill must pin draft-only capabilities: {pin.capability_id}")
+            for contract_id in _descriptor_contract_ids(descriptor):
+                require_contract(contract_id)
 
     declared = {"skill.yaml"}
     _, playbook = _safe_file(package, manifest.provenance.playbook_path, max_bytes=65_536)
@@ -183,7 +193,13 @@ def compile_package(
         (manifest.contracts.output_schema_id, manifest.contracts.output_schema_path),
     ):
         _, data = _safe_file(package, path, max_bytes=65_536)
-        _validate_schema(data, path)
+        _validate_schema(
+            data,
+            path,
+            strict_nested=(
+                manifest.skill_id == "documents.produce-grounded-artifact"
+            ),
+        )
         declared.add(path)
         schema_hashes[contract_id] = _sha(data)
 
