@@ -24,6 +24,16 @@ failure returns `role_writer_unavailable`; a second invalid response returns
 only as an explicitly labelled non-Cloud local fallback, and the synthetic FDE
 fixture never participates in normal drafting.
 
+**Public application surface:** the app-owned public role page renders the
+complete approved job description before a minimal application form containing
+email, PDF/DOCX CV upload, an optional message, and one Submit application
+button. Published roles expose View public job page and Copy application link
+controls in the authenticated Hiring workspace. Local development persists a
+dedicated user-private 256-bit intake key outside the repository by default so
+Founder-published local roles are actually testable across restarts; an explicit
+local `0` disables intake. Cloud Run never falls back to that local key and
+continues to require its separately configured intake secret and release gate.
+
 **Decision:** build hiring as a curated, human-controlled outcome pack on the
 shared Alex runtime. A role may remain open for months. One durable parent role
 run coordinates independent candidate child runs, and an accepted candidate

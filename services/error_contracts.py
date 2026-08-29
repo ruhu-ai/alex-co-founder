@@ -36,6 +36,7 @@ _STATUS_BY_CODE = {
     "run_fenced": 409,
     "reconciliation_required": 409,
     "provider_unavailable": 503,
+    "public_intake_not_enabled": 503,
     "provider_timeout": 504,
 }
 

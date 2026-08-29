@@ -15,6 +15,8 @@ import hmac
 import json
 import os
 import re
+import secrets
+import stat
 import time
 import uuid
 from pathlib import Path
@@ -38,6 +40,9 @@ PRIVACY_NOTICE = (
 _EMAIL = re.compile(r"^[^\s@]{1,64}@[^\s@]{1,190}\.[^\s@]{2,63}$")
 _REQUEST_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{7,127}$")
 _ROLE_EMAIL = re.compile(r"^[^\s@]{1,64}@[^\s@]{1,190}\.[^\s@]{2,63}$")
+_LOCAL_INTAKE_SETTING = "HIRING_PUBLIC_INTAKE_LOCAL_ENABLED"
+_LOCAL_INTAKE_KEY = "HIRING_PUBLIC_INTAKE_LOCAL_KEY"
+_LOCAL_INTAKE_KEY_FILE = "HIRING_PUBLIC_INTAKE_LOCAL_KEY_FILE"
 
 
 def _b64(data: bytes) -> str:
@@ -48,18 +53,97 @@ def _unb64(value: str) -> bytes:
     return base64.urlsafe_b64decode(value + "=" * (-len(value) % 4))
 
 
-def _configured_intake_key() -> bytes | None:
-    """Resolve the dedicated intake key; never derive it from app auth state."""
-    enabled = os.environ.get("HIRING_PUBLIC_INTAKE_ENABLED") == "1"
-    raw = os.environ.get("HIRING_PUBLIC_INTAKE_KEY", "")
-    if not enabled and not os.environ.get("K_SERVICE"):
-        enabled = os.environ.get("HIRING_PUBLIC_INTAKE_LOCAL_ENABLED") == "1"
-        raw = os.environ.get("HIRING_PUBLIC_INTAKE_LOCAL_KEY", "")
-    if not enabled:
+def _local_intake_key_path() -> Path:
+    """Return a user-private path outside the repository for local intake."""
+    configured = os.environ.get(_LOCAL_INTAKE_KEY_FILE, "").strip()
+    if configured:
+        return Path(configured).expanduser()
+    state_root = os.environ.get("XDG_STATE_HOME", "").strip()
+    root = Path(state_root).expanduser() if state_root else (
+        Path.home() / ".local" / "state")
+    return root / "cofounder" / "hiring-public-intake.key"
+
+
+def _read_private_key_file(path: Path) -> bytes | None:
+    """Read one regular, non-symlink 0600 local key file fail-closed."""
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        descriptor = os.open(path, flags)
+    except OSError:
         return None
+    try:
+        metadata = os.fstat(descriptor)
+        if not stat.S_ISREG(metadata.st_mode):
+            return None
+        os.fchmod(descriptor, 0o600)
+        raw = os.read(descriptor, 129).decode("ascii").strip()
+    except (OSError, UnicodeDecodeError):
+        return None
+    finally:
+        os.close(descriptor)
     if not re.fullmatch(r"[0-9a-fA-F]{64}", raw):
         return None
     return bytes.fromhex(raw)
+
+
+def _load_or_create_local_intake_key() -> bytes | None:
+    """Persist one local-only intake key so encrypted CVs survive restarts."""
+    path = _local_intake_key_path()
+    try:
+        path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    except OSError:
+        return None
+    existing = _read_private_key_file(path)
+    if existing:
+        return existing
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
+    material = secrets.token_bytes(32)
+    try:
+        descriptor = os.open(path, flags, 0o600)
+    except FileExistsError:
+        return _read_private_key_file(path)
+    except OSError:
+        return None
+    try:
+        os.write(descriptor, material.hex().encode("ascii"))
+        os.fsync(descriptor)
+    except OSError:
+        try:
+            path.unlink()
+        except OSError:
+            pass
+        return None
+    finally:
+        os.close(descriptor)
+    return _read_private_key_file(path)
+
+
+def _configured_intake_key() -> bytes | None:
+    """Resolve a dedicated key; cloud never falls back to local key material."""
+    cloud_enabled = os.environ.get("HIRING_PUBLIC_INTAKE_ENABLED") == "1"
+    cloud_raw = os.environ.get("HIRING_PUBLIC_INTAKE_KEY", "")
+    if os.environ.get("K_SERVICE"):
+        if not cloud_enabled or not re.fullmatch(
+                r"[0-9a-fA-F]{64}", cloud_raw):
+            return None
+        return bytes.fromhex(cloud_raw)
+    if cloud_enabled and re.fullmatch(r"[0-9a-fA-F]{64}", cloud_raw):
+        return bytes.fromhex(cloud_raw)
+
+    local_setting = os.environ.get(_LOCAL_INTAKE_SETTING, "auto").strip().lower()
+    if local_setting not in {"auto", "1"}:
+        return None
+    local_raw = os.environ.get(_LOCAL_INTAKE_KEY, "").strip()
+    if local_raw:
+        if not re.fullmatch(r"[0-9a-fA-F]{64}", local_raw):
+            return None
+        return bytes.fromhex(local_raw)
+    return _load_or_create_local_intake_key()
+
+
+def public_intake_configured() -> bool:
+    """Return whether this runtime can encrypt and accept public applications."""
+    return _configured_intake_key() is not None
 
 
 def _active_app_publication_receipt(role: dict[str, Any]) -> dict[str, Any] | None:

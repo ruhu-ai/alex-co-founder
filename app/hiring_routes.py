@@ -37,6 +37,7 @@ from services.hiring_mailbox import HiringMailboxService
 from services.hiring_public_intake import (
     MAX_RESUME_BYTES,
     HiringPublicIntakeService,
+    public_intake_configured,
 )
 from services.hiring_role_draft import build_contract
 from services.hiring_run_answer import (
@@ -1088,6 +1089,14 @@ def register(app: FastAPI) -> None:
             return _response({"status": "error", "error": True,
                               "error_code": "hiring_unavailable",
                               "message": "Hiring is temporarily unavailable."})
+        if not public_intake_configured():
+            return _response({
+                "status": "error", "error": True,
+                "error_code": "public_intake_not_enabled",
+                "message": (
+                    "The public application form is not securely configured. "
+                    "Nothing was published."),
+            })
         configured = os.environ.get("AGENT_BASE_URL", "").rstrip("/")
         base = (configured if os.environ.get("K_SERVICE") else
                 str(request.base_url).rstrip("/"))

@@ -419,6 +419,8 @@ def test_candidate_open_role_is_receipt_gated_and_contains_no_internal_controls(
     assert 'id="applicationForm"' not in HIRING
     assert "View public job page" in HIRING
     assert "Copy application link" in HIRING
+    assert "PUBLISHED ROLE · APPLICATION INTAKE" in HIRING
+    assert "No applications have been received for this role yet." in HIRING
     assert 'id="applicationLinkStatus" role="status" aria-live="polite"' in HIRING
     assert "/api/public/hiring/roles/" in OPEN_ROLE
     assert "/applications" in OPEN_ROLE

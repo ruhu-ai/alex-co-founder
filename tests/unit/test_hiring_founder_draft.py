@@ -11,7 +11,7 @@ from fastapi.testclient import TestClient
 
 from agents.co_founder import state_schema as ss
 from agents.co_founder.tools import hiring as hiring_tools
-from services import hiring_policy_service
+from services import hiring_policy_service, hiring_public_intake
 from services.actor_identity import ActorPrincipal, WorkspaceRole
 from services.durable_store import InMemoryDurableStore
 from services.hiring_approval_service import request_approval, resolve_approval
@@ -65,6 +65,40 @@ def _founder() -> ActorPrincipal:
         actor_id="founder_actor", workspace_id="workspace_test",
         role=WorkspaceRole.FOUNDER, session_auth_time=0,
         membership_version=1)
+
+
+def test_local_public_intake_auto_key_is_private_and_persistent(
+        monkeypatch, tmp_path):
+    monkeypatch.delenv("K_SERVICE", raising=False)
+    monkeypatch.delenv("HIRING_PUBLIC_INTAKE_ENABLED", raising=False)
+    monkeypatch.delenv("HIRING_PUBLIC_INTAKE_KEY", raising=False)
+    monkeypatch.delenv("HIRING_PUBLIC_INTAKE_LOCAL_ENABLED", raising=False)
+    monkeypatch.delenv("HIRING_PUBLIC_INTAKE_LOCAL_KEY", raising=False)
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path))
+
+    first = hiring_public_intake._configured_intake_key()
+    second = hiring_public_intake._configured_intake_key()
+    path = tmp_path / "cofounder" / "hiring-public-intake.key"
+
+    assert first is not None and len(first) == 32
+    assert second == first
+    assert path.read_text(encoding="ascii") == first.hex()
+    assert path.stat().st_mode & 0o777 == 0o600
+
+
+def test_local_public_intake_explicit_off_and_cloud_never_auto_generate(
+        monkeypatch, tmp_path):
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path))
+    monkeypatch.setenv("HIRING_PUBLIC_INTAKE_LOCAL_ENABLED", "0")
+    assert hiring_public_intake.public_intake_configured() is False
+    assert not (tmp_path / "cofounder").exists()
+
+    monkeypatch.delenv("HIRING_PUBLIC_INTAKE_LOCAL_ENABLED", raising=False)
+    monkeypatch.setenv("K_SERVICE", "co-founder")
+    monkeypatch.delenv("HIRING_PUBLIC_INTAKE_ENABLED", raising=False)
+    monkeypatch.delenv("HIRING_PUBLIC_INTAKE_KEY", raising=False)
+    assert hiring_public_intake.public_intake_configured() is False
+    assert not (tmp_path / "cofounder").exists()
 
 
 def test_builder_requires_readable_job_description_and_rejects_proxies():

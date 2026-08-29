@@ -2372,7 +2372,9 @@
             (groups[c.candidate_state] ??= []).push(c);
           const roleKind = role.synthetic
               ? "READ-ONLY TEST ROLE"
-              : "DRAFT ROLE · INTERNAL REVIEW",
+              : role.role_state === "PUBLISHED"
+                ? "PUBLISHED ROLE · APPLICATION INTAKE"
+                : "DRAFT ROLE · INTERNAL REVIEW",
             publicationText = role.synthetic
               ? "No manual publication receipt. Publication stays a separate founder action in the contained Browser panel."
               : role.role_state === "PUBLISHED"
@@ -2380,7 +2382,9 @@
                 : "Applications are not open yet. Approve the complete draft, then publish it through the separate manual publication step.",
             candidateEmpty = role.synthetic
               ? "Dormant: waiting for a trusted role-address application."
-              : "Candidate processing is unavailable for this internal draft.",
+              : role.role_state === "PUBLISHED"
+                ? "No applications have been received for this role yet."
+                : "Candidate processing is unavailable for this internal draft.",
             applicationsLabel = "Applications",
             applicationsStatus = role.role_state === "PUBLISHED"
               ? `${candidates.length} received`
