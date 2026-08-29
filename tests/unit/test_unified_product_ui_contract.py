@@ -405,14 +405,15 @@ def test_candidate_open_role_is_receipt_gated_and_contains_no_internal_controls(
     assert "manual publication receipt exists" in OPEN_ROLE
     for label in (
             "Overview", "Responsibilities", "Requirements", "Working model",
-            "Employment", "Apply for this role", "Email address",
+            "Employment", "Apply for this role", "Full name", "Email address",
             "Message", "(optional)", "CV or resume", "Submit application"):
         assert label in OPEN_ROLE
-    assert 'id="applicantName"' not in OPEN_ROLE
     form_start = OPEN_ROLE.index('<form id="applicationForm"')
     form_end = OPEN_ROLE.index("</form>", form_start)
     application_form = OPEN_ROLE[form_start:form_end]
     assert application_form.count("<button") == 1
+    assert ('id="applicantName" name="applicant_name" type="text" '
+            'autocomplete="name" maxlength="160" required') in application_form
     assert 'id="coverNote"' in application_form
     assert 'id="coverNote" name="cover_note" maxlength="4000" required' not in application_form
     assert OPEN_ROLE.index('<div class="job-description"') < form_start

@@ -84,6 +84,11 @@
           </div>
           <form id="applicationForm" hidden enctype="multipart/form-data">
             <div class="field">
+              <label for="applicantName">Full name <span class="required">(required)</span></label>
+              <input id="applicantName" name="applicant_name" type="text" autocomplete="name" maxlength="160" required aria-required="true" aria-describedby="nameHelp" />
+              <span class="help" id="nameHelp">Enter your name as you would like it shown on your application.</span>
+            </div>
+            <div class="field">
               <label for="applicantEmail">Email address <span class="required">(required)</span></label>
               <input id="applicantEmail" name="email" type="email" autocomplete="email" maxlength="254" required aria-required="true" aria-describedby="emailHelp" />
               <span class="help" id="emailHelp">Enter your email directly; it is never inferred from your CV.</span>

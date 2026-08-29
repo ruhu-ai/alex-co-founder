@@ -384,7 +384,7 @@ def register(app: FastAPI) -> None:
     async def submit_public_application(
             request: Request, role_id: str,
             email: str = Form(...), cover_note: str = Form(""),
-            applicant_name: str = Form(""), privacy_consent: str = Form(...),
+            applicant_name: str = Form(...), privacy_consent: str = Form(...),
             intake_token: str = Form(...), client_request_id: str = Form(...),
             resume: UploadFile = File(...)):
         """Role-scoped candidate intake; never enables a provider connector.

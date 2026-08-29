@@ -579,14 +579,23 @@ async def test_local_public_form_encrypts_and_queues_without_automatic_processin
     no_consent = await service.submit(
         role_id=role_id, intake_token=projection["intake_token"],
         client_request_id="application_request_no_consent",
-        applicant_name="", email="candidate@example.test", cover_note="",
+        applicant_name="Synthetic Applicant", email="candidate@example.test",
+        cover_note="",
         consent_accepted=False, filename="candidate-resume.pdf",
         content_type="application/pdf", resume_bytes=resume)
     assert no_consent["error_code"] == "privacy_consent_required"
+    missing_name = await service.submit(
+        role_id=role_id, intake_token=projection["intake_token"],
+        client_request_id="application_request_missing_name",
+        applicant_name="", email="candidate@example.test", cover_note="",
+        consent_accepted=True, filename="candidate-resume.pdf",
+        content_type="application/pdf", resume_bytes=resume)
+    assert missing_name["error_code"] == "applicant_name_invalid"
     submitted = await service.submit(
         role_id=role_id, intake_token=projection["intake_token"],
         client_request_id="application_request_001",
-        applicant_name="", email="candidate@example.test", cover_note="",
+        applicant_name="  Synthetic   Applicant  ",
+        email="candidate@example.test", cover_note="",
         consent_accepted=True, filename="candidate-resume.pdf",
         content_type="application/pdf", resume_bytes=resume)
     assert submitted["status"] == "success"
@@ -603,18 +612,21 @@ async def test_local_public_form_encrypts_and_queues_without_automatic_processin
     assert next(iter(saved.values())) != resume
     serialized = repr(store.records)
     assert "candidate@example.test" not in serialized
+    assert "Synthetic Applicant" not in serialized
 
     duplicate = await service.submit(
         role_id=role_id, intake_token=projection["intake_token"],
         client_request_id="application_request_001",
-        applicant_name="", email="candidate@example.test", cover_note="",
+        applicant_name="Synthetic Applicant", email="candidate@example.test",
+        cover_note="",
         consent_accepted=True, filename="candidate-resume.pdf",
         content_type="application/pdf", resume_bytes=resume)
     assert duplicate["duplicate"] is True
     conflict = await service.submit(
         role_id=role_id, intake_token=projection["intake_token"],
         client_request_id="application_request_001",
-        applicant_name="", email="other@example.test", cover_note="",
+        applicant_name="Synthetic Applicant", email="other@example.test",
+        cover_note="",
         consent_accepted=True, filename="candidate-resume.pdf",
         content_type="application/pdf", resume_bytes=resume)
     assert conflict["error_code"] == "intake_idempotency_conflict"
@@ -981,6 +993,7 @@ def test_public_application_route_converges_on_restricted_candidate_queue(monkey
     response = client.post(
         f"/api/public/hiring/roles/{role_id}/applications",
         data={
+            "applicant_name": "Route Applicant",
             "email": "applicant@example.test",
             "privacy_consent": "accepted",
             "intake_token": projection["intake_token"],

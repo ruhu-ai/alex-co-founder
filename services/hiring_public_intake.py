@@ -285,9 +285,9 @@ class HiringPublicIntakeService:
         name = " ".join(applicant_name.split())
         normalized_email = email.strip().casefold()
         note = cover_note.strip()
-        if len(name) > 160:
+        if not name or len(name) > 160:
             return _error("applicant_name_invalid",
-                          "The applicant name must be 160 characters or fewer.", 400)
+                          "Enter a full name of 160 characters or fewer.", 400)
         if len(normalized_email) > 254 or not _EMAIL.fullmatch(normalized_email):
             return _error("applicant_email_invalid", "Enter a valid email address.", 400)
         if len(note) > 4000:
