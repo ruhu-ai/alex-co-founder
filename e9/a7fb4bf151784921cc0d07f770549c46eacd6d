@@ -9,6 +9,7 @@ skills/catalog.v1.json
   s_16e75b10efee22::t_554ed03c5c819d 141
 requirements-dev.txt
   s_16e75b10efee22::t_f22c470d6abe40 10
+  s_16e75b10efee22::t_c7ef9454399f67 6-9
 skills/contracts.py
   s_16e75b10efee22::t_718d8fa8b94092 22,83-88
   s_16e75b10efee22::t_c5015f104c6cb0 31-40,64-66,69-71,80-82
