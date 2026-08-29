@@ -64,3 +64,60 @@ Repository flags remain omitted/default-off and the kill switch defaults on.
 This packet qualifies the closed synthetic Gate F canary. It does not claim
 that the concurrently changing normal `co-founder` service has integrated this
 work, and it enables no Gate G approval wait or Gate H broad expansion.
+
+## Normal-service Founder-only live pilot
+
+**Status:** `LIVE_BOUNDED_FOUNDER_PILOT`
+**Date:** 2026-08-29
+**Exact deployed source:** `f522a72bb5a6ced7872a31343ac0ec8051510581`
+**Cloud Build:** `bb521f7b-c102-47c6-bad0-31327089c799`
+**Immutable image:**
+`sha256:fb7cefe003dc9e67a94fc8a263c77f16c179b364e6714db5ce3f94d46c103aac`
+
+The normal service now exposes only the closed
+`pilot.artifact_grounded_brief@1` lane to the authenticated `FOUNDER` in
+workspace `founder`. The source fix projects a normal structural ingestion
+locator such as `{"section":"document"}` to its stable one-based chunk page
+for the already-qualified closed citation schema. It does not widen model
+input, output, tool, URL, connector, memory, approval, or effect authority.
+
+The canonical service is 100% on
+`co-founder-spec40-main-f522-live`. Same-image rollback revision
+`co-founder-spec40-main-f522-ready` keeps Spec 40 off and both artifact kill
+switches on. `co-founder-spec40-main-f522-m2off` additionally disables the
+Spec 39 M2 entry gate. The live queue is limited to one dispatch per second and
+one concurrent dispatch. The pre-live killed arm returned HTTP 403
+`background_skill_killed` for a valid owned artifact and created zero new runs.
+
+Exact-image verification reproduced the deployed source hash and read the
+previously failing harmless artifact as one chunk with locator `{"page":1}`;
+the probe emitted no content and called no model, provider, or effect path.
+The bounded live retry was admitted once with a new idempotency key and
+progressed uniquely through `QUEUED(1) -> RUNNING(2) -> SUCCEEDED(3)`. It
+created one actor-private `DRAFT` with two citations, used one model/provider
+call and zero retries, and created zero approvals, external actions, action
+outbox rows, conversation deliveries, or memory items.
+
+The canonical redesigned interface was verified in a real authenticated
+browser. It showed the complete Product navigation (Alex, Search, Runs,
+Hiring, Decisions, Activity, and Settings), made no unreleased workspace-brief
+request, and displayed the authoritative completed status and private-draft
+citation count in contextual Activity. The funding-specific Runs surface was
+not repurposed as generic background-work authority.
+
+After receipts were captured, the exact synthetic session, source file, input
+manifests, private draft, failed and successful test runs, plans, steps,
+attempts, events, commands, and outbox rows were removed. Re-reads returned 404
+or absent for every enumerated id; the append-only content-free cleanup audit
+was retained. Final service checks found zero ERROR or safety signals, and the
+three content-free Spec 40 alert policies were enabled with a verified channel.
+
+The final live envelope deliberately keeps the older inventory pilot off and
+killed, conversation delivery off, open web off, and every connector, browser,
+approval, external effect, memory-write, hiring, generic route/template,
+multi-user, generic Runs, and SSE expansion outside this pilot. Broader Spec 40
+rollout still requires the remaining gates in `40-durable-background-work.md`,
+including a second-template review, external-read authority and egress proof,
+the full proactive conversation serializer/delivery proof, multi-user privacy,
+and broader load/restore/error-budget evidence. None is implied by this bounded
+Founder pilot.
