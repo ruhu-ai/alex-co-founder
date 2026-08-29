@@ -1,0 +1,305 @@
+app/live.py
+  s_16e75b10efee22::t_249175af0c56dc 21,24,33,37-121,136-140,153-161,163-165,169-172,176,181,191-195,197,204-224,227-326,330-333,336-520,523,525-548,551-564,568-570,572,576,581,584,586-599,603,606-612,615-633,635-639,642-646,657-686,690,692,694-698
+tests/unit/test_app_server.py
+  s_16e75b10efee22::t_8be6dd3da495c1 121,125
+services/actor_identity.py
+  s_16e75b10efee22::t_8be6dd3da495c1 31-36,62-63,91-92,130,134-136,149,151-152,165-171,173-174,176,185-187,199-200,211,218-219,222,226-227,239,253-255
+app/main.py
+  s_16e75b10efee22::t_8be6dd3da495c1 287,4058
+tests/unit/test_workspace_brief_m1.py
+  s_16e75b10efee22::t_229876f844d348 17
+tests/unit/test_durable_memory_release_boundary.py
+  s_16e75b10efee22::t_a30aec43e592d3 129,133
+infra/firestore.ttl.json
+  s_16e75b10efee22::t_a30aec43e592d3 2,4-13
+tests/unit/test_workspace_brief_release.py
+  s_16e75b10efee22::t_229876f844d348 15
+.gitattributes
+  s_16e75b10efee22::t_e4ce756293b932 3-5
+.github/workflows/ci.yml
+  s_16e75b10efee22::t_f799c98ad8726a 3-17,61,97
+agents/co_founder/config.py
+  s_16e75b10efee22::t_7e70f79304c630 12-13,63,68
+agents/co_founder/tools/attachments.py
+  s_16e75b10efee22::t_a9ae8ecba0a612 13-14,17-21
+agents/co_founder/tools/hiring.py
+  s_16e75b10efee22::t_48ab549e4a98a6 1-268
+alex-voice-orb/.env.example
+  s_16e75b10efee22::t_de9bad73dcc032 1-9
+alex-voice-orb/.gitignore
+  s_16e75b10efee22::t_3777310f91cb7c 1-8
+alex-voice-orb/README.md
+  s_16e75b10efee22::t_c4c3d966a45985 1-20
+alex-voice-orb/index.html
+  s_16e75b10efee22::t_99ae7058edd0c4 1-18
+alex-voice-orb/metadata.json
+  s_16e75b10efee22::t_153930ff6a2501 1-6
+alex-voice-orb/package.json
+  s_16e75b10efee22::t_0b3dd233ac529a 1-35
+alex-voice-orb/src/App.tsx
+  s_16e75b10efee22::t_7017be78c6d587 1-260
+alex-voice-orb/src/components/ControlsPanel.tsx
+  s_16e75b10efee22::t_683d7835d0743c 1-341
+alex-voice-orb/src/components/DesignTokensExport.tsx
+  s_16e75b10efee22::t_6551dd37abf6ca 1-171
+alex-voice-orb/src/components/KeyframeStudio.tsx
+  s_16e75b10efee22::t_0d7b34fe518758 1-458
+alex-voice-orb/src/components/ProductivityMockups.tsx
+  s_16e75b10efee22::t_9feab4203282c9 1-342
+alex-voice-orb/src/components/ScaleMatrix.tsx
+  s_16e75b10efee22::t_f723427ad08ba6 1-226
+alex-voice-orb/src/components/VoiceOrbCanvas.tsx
+  s_16e75b10efee22::t_303ed38a296988 1-119
+alex-voice-orb/src/components/VoiceSessionStage.tsx
+  s_16e75b10efee22::t_760473d4a9e439 1-293
+alex-voice-orb/src/index.css
+  s_16e75b10efee22::t_27a1527380e18b 1
+alex-voice-orb/src/lib/audioService.ts
+  s_16e75b10efee22::t_a86186f80dd6f7 1-189
+alex-voice-orb/src/lib/orbRenderer.ts
+  s_16e75b10efee22::t_84387414ccb8ff 1-510
+alex-voice-orb/src/main.tsx
+  s_16e75b10efee22::t_9e195d9ad34a00 1-10
+alex-voice-orb/src/types/orb.ts
+  s_16e75b10efee22::t_79799d7bd77e27 1-44
+alex-voice-orb/tsconfig.json
+  s_16e75b10efee22::t_6f2da8b9d738a5 1-26
+alex-voice-orb/vite.config.ts
+  s_16e75b10efee22::t_86bcd6885b0277 1-22
+app/auth.py
+  s_16e75b10efee22::t_8949eef6c6c2e3 43-59,65-66,138-139,155-156,230-234,378-379
+app/google_login.py
+  s_16e75b10efee22::t_88a40a72a391e1 42-43,200-223,244-250,305-310,322-323
+app/hiring_routes.py
+  s_16e75b10efee22::t_b73dcfae15d7cc 10,36-43,285,290,292,333-394,407-421,553,572,620,847,859-860,864,892,980,1002,1022,1040,1112-1142,1302,1309
+app/static/alex-voice-orb.css
+  s_16e75b10efee22::t_180bd14fe49458 1-154
+app/static/alex-voice-orb.js
+  s_16e75b10efee22::t_1db3bc394f203a 1-237
+app/static/brand/lockup.svg
+  s_16e75b10efee22::t_efb153dc5af496 1-15
+app/static/brand/mark.svg
+  s_16e75b10efee22::t_3c767192d174e5 1-4
+app/static/favicon.svg
+  s_16e75b10efee22::t_0cafed8d74f920 3,6,9,13-15
+app/static/hiring-notice.html
+  s_16e75b10efee22::t_75d11c3254f315 2-82
+app/static/hiring.html
+  s_16e75b10efee22::t_ed8d5f7dace7f5 2-2859
+app/static/index.html
+  s_16e75b10efee22::t_d4699653986965 1,6-80,82,87-125,127-165,167,172-220,223-227,229-239,241-249,251-264,266-269,271-279,281,285-306,308,311-342,344-353,355-363,365-373,375-381,383-389,391-395,397,400-433,436-458,461-533,536-571,573,576-599,601,604-650,654-840,845-847,851-872,874-903,906-982,984-1082,1084,1087-1123,1126-1249,1252-1663,1666-1750,1754-1817,1820-1854,1856,1858-1891,1893,1896-1988,1994-2062,2071-2114,2117-2178,2183-2242,2244-2314,2316-2418,2420-2476,2479-2530,2533,2536-2572,2574,2578-2645,2647-2761,2767-2888,2891-3356,3358-3529,3539-3540,3552,3587-3629,3632-3638,3641,3643-3646,3648,3650,3655,3657,3663-3664,3666,3668,3670,3672,3674-3680,3682,3684,3688-3691,3699,3701,3705-3718,3720,3722-3724,3726,3729-3730,3733-3752,3754-3762,3764-3782,3784,3786-3811,3813,3815-3818,3820-3827,3829-3834,3836,3839-3841,3843,3845-3850,3852,3855-3861,3866-3868,3873-3923,3927-3953,3956,3958-3964,3966,3968,3970-3972,3974,3976-4034,4036,4040,4042-4073,4075-4087,4089,4093-4098,4101-4103,4106-4108,4113-4123,4128-4134,4139-4156,4160-4161,4165-4181,4185-4188,4195-4197,4201-4220,4224-4228,4230-4242,4246-4262,4265-4267,4270-4280,4282,4284-4290,4292,4294-4323,4325,4331-4345,4347,4351-4371,4373,4375-4423,4432-4434,4438-4443,4447-4453,4457-4471,4582-4591,4595-4613,4617-4626,4630-4644,4648-4660,4664-4676,4680-4693,4753-4768,4798,4800-4834,4842-4879,4881-4934,4937,4944-4948,4952-4964,4970,4972-4974,4983-4985,4993-5010,5014-5047,5053-5054,5056-5073,5077-5089,5093-5099,5106-5107,5109-5118,5120-5144,5148-5171,5175-5179,5183-5215,5219-5270,5276-5282,5286-5297,5306-5319,5321-5324,5327-5340,5344-5357,5365-5369,5371,5377-5381,5385,5389-5397,5399,5401,5403-5430,5432,5437-5456,5460-5463,5470-5472,5476-5492,5496-5501,5503,5505-5537,5544,5546-5549,5551,5553-5555,5557,5559,5561,5563-5588,5592,5594-5618,5620-5646,5650-5669,5671-5742,5746-5747,5749,5751-5757,5762,5764-5767,5769-5838,5840-5856,5858-5870,5872-5877,5883-5912,5914,5918-5930,5934-5954,5961-5983,5987-6002,6004,6006-6018,6025-6029,6032-6037,6043,6047-6048,6050,6096,6102-6190,6192-6200,6205-6221,6225-6245,6247-6270,6275-6308,6310,6312-6337,6344-6346,6349-6364,6366-6387,6393,6402-6418,6420,6425-6435,6437-6439,6441,6445-6448,6450,6452,6456-6462,6466-6484,6486-6492,6495-6533,6537-6591,6593,6595-6607,6609,6611-6620,6622,6624-6638,6640,6642-7580,7582-7584,7587-7591,7593-7596,7599-7629,7632-7634,7636-7648,7651-7714,7717-7845,7848-7859,7864,7866-7869,7871,7875-7882,7887-7898,7902-7908,7912-7921,7925-7930,7934-7958,7962-7974,7978-7991,7993,7995-8018,8022-8026,8030-8035,8039-8045,8051-8055,8059-8063,8065-8104,8109-8156,8163-8188,8193,8195-8199,8201,8203-8220,8222,8224-8227,8229-8231,8233-8238,8240,8242-8251,8255-8268,8271-8273,8277-8286,8290-8313,8317-8332,8336-8338,8342-8364,8368-8385,8389-8403,8407-8422,8426-8441,8443-8474,8478,8480,8482,8486,8488-8494
+app/static/login.html
+  s_16e75b10efee22::t_914225940d18a6 7,52-53,84-94,97-100,157,176
+app/static/product-shell.css
+  s_16e75b10efee22::t_4d82c5d67a5419 1-406
+app/static/site.webmanifest
+  s_16e75b10efee22::t_da495a3d3f6787 1-32
+app/static/vendor/icons/phosphor/camera.svg
+  s_16e75b10efee22::t_1e9a85369a33fb 1
+app/static/vendor/icons/phosphor/monitor-arrow-up.svg
+  s_16e75b10efee22::t_a6c8051bea7736 1
+app/static/vendor/icons/phosphor/users-three.svg
+  s_16e75b10efee22::t_7b218c00112405 1
+docs/02-data-model.md
+  s_16e75b10efee22::t_967be34079b35e 97,116-140,267
+docs/14-build-plan.md
+  s_16e75b10efee22::t_6d7844c56886cd 104-113
+docs/16-design-system.md
+  s_16e75b10efee22::t_1e4b1d70fc3952 3-11,307,309-310,315-344,396-460,755,770-776
+docs/25-hiring-operations.md
+  s_16e75b10efee22::t_76abee39ffe831 105-109,910,917-921,925-927,938,1090-1096,1127-1129,1138-1146,1457,1459-1460,1462-1463,1471-1472,1485,1718-1725,1730,1736,1741-1742,1745-1746,1778-1808,1833-1839,1843-1854,1856-1857,1949,2186,2256-2257,2700-2718
+docs/27-ruhu-fde-walkthrough.md
+  s_16e75b10efee22::t_a65854dc511ab4 9
+docs/30-hiring-h4-sandbox-and-run-intelligence.md
+  s_16e75b10efee22::t_8b543dcc261d5f 110
+docs/36-unified-alex-product-experience.md
+  s_16e75b10efee22::t_d78fc8698fb86b 1-2133
+docs/38-user-facing-vision.md
+  s_16e75b10efee22::t_7b06a72daa0b2b 1-2521
+docs/submission-draft.md
+  s_16e75b10efee22::t_0d699aa04f993b 1,3-5,7-11,13-18,20,24-268
+requirements.txt
+  s_16e75b10efee22::t_051d5245a23ebc 38-40
+scripts/build_brand.py
+  s_16e75b10efee22::t_a39735ecc0481a 1-447
+scripts/build_icons.py
+  s_16e75b10efee22::t_5e11cbca6f776d 2,23-26,40-41,54,131-137
+scripts/compile_skills.py
+  s_16e75b10efee22::t_b43730d91f8906 1-33
+scripts/reset_legacy_workspace_memberships.py
+  s_16e75b10efee22::t_5d93d4731e83a2 1-109
+scripts/seed_demo.py
+  s_16e75b10efee22::t_6d4ec59b52faae 91
+scripts/seed_hiring_fde_demo.py
+  s_16e75b10efee22::t_d1d5da4b5a93b7 3,33,106,108,110
+scripts/seed_hiring_founder.py
+  s_16e75b10efee22::t_36265ff921ae9e 1-31
+scripts/seed_workspace_founder.py
+  s_16e75b10efee22::t_3936051ffdd94b 1-37
+services/command_service.py
+  s_16e75b10efee22::t_3647125b5ef0fd 75-77,90-96,99-102,144-148,162-164,176-179,182-191,195-201,253-263,267,269-273
+services/conversation_serialization.py
+  s_16e75b10efee22::t_54f63e90285ee0 1-555
+services/document_ingestion.py
+  s_16e75b10efee22::t_7495a67ca50760 521-525,527,533,536-553,591,601-650,673-678,741,784-793
+services/gemini_backends.py
+  s_16e75b10efee22::t_eae2f8ef657d66 18-19,38-39,261-287
+services/gemma_evidence.py
+  s_16e75b10efee22::t_b6d41b3fd7bd0d 494-495,500-501
+services/hiring_approval_service.py
+  s_16e75b10efee22::t_81d0af09aaec3d 38,115,189
+services/hiring_data_rights.py
+  s_16e75b10efee22::t_0db72c23b89b76 7,100,237
+services/hiring_identity_vault.py
+  s_16e75b10efee22::t_e08b90303ca078 15,94,96
+services/hiring_policy_service.py
+  s_16e75b10efee22::t_d2b562aa1b7845 7,23,117-122
+services/hiring_public_intake.py
+  s_16e75b10efee22::t_0cbd86c2b31885 1-362
+services/hiring_role_draft.py
+  s_16e75b10efee22::t_a0023a4260b2e2 1-349
+services/hiring_run_answer.py
+  s_16e75b10efee22::t_05628df8891c3a 23-25,82,91,116,128,130,192-335
+services/hiring_sandbox.py
+  s_16e75b10efee22::t_e1b3590aaef536 18,86-87,97,136,427
+services/hiring_service.py
+  s_16e75b10efee22::t_7fef7cc9c635d9 9,32-36,76-81,123-241,246,259-262,303-398,615,750,765-798,801-805,821-822,824
+services/hiring_workflow_adapter.py
+  s_16e75b10efee22::t_1c392d644b0f79 23-31,33,42-44
+services/image_ingestion.py
+  s_16e75b10efee22::t_65c7ed6e534af7 1-292
+services/internal_controlled_demo.py
+  s_16e75b10efee22::t_bc2a43e4e3a2d2 18,154,159,173,204,266,309
+services/live_media.py
+  s_16e75b10efee22::t_55374b5de9f5ab 1-436
+services/live_transcript.py
+  s_16e75b10efee22::t_101443b5d54ef6 1-293
+services/live_visual_context.py
+  s_16e75b10efee22::t_b8265ac1d91ced 1-66
+services/memory_evaluation.py
+  s_16e75b10efee22::t_d8a0b93c339693 13-53,61-63,65-92
+services/profile_service.py
+  s_16e75b10efee22::t_b1e28c04b81633 340-341,344
+services/projection_stream.py
+  s_16e75b10efee22::t_bd12734d6e4537 10,24-69,144
+services/retry_policy.py
+  s_16e75b10efee22::t_5bf86e0dc8001f 1-72
+services/session_ingestion_retention.py
+  s_16e75b10efee22::t_e9d5f3a08d0fdc 1-74
+services/session_resources.py
+  s_16e75b10efee22::t_1c142f3a387c26 539,979-980
+services/task_queue.py
+  s_16e75b10efee22::t_8d5deb0858c495 170-174
+services/wake_delivery_service.py
+  s_16e75b10efee22::t_f0dce02ced5472 34
+skills/__init__.py
+  s_16e75b10efee22::t_33916899470043 1-11
+skills/audit.py
+  s_16e75b10efee22::t_3e106533e59945 1-29
+skills/context.py
+  s_16e75b10efee22::t_e2ab3a9eb57d98 1-76
+skills/funding/discover_opportunities/PLAYBOOK.md
+  s_16e75b10efee22::t_ad50d9de313743 1-12
+skills/funding/discover_opportunities/qualification.json
+  s_16e75b10efee22::t_36b71a57ca4fa5 1-10
+skills/funding/discover_opportunities/schemas/input.v1.json
+  s_16e75b10efee22::t_b3ce8f0be4cdde 1-10
+skills/funding/discover_opportunities/schemas/output.v1.json
+  s_16e75b10efee22::t_665b6c2628188c 1-11
+skills/funding/discover_opportunities/skill.yaml
+  s_16e75b10efee22::t_01d21f10b0b649 1-62
+skills/funding/draft_grounded_section/PLAYBOOK.md
+  s_16e75b10efee22::t_9959a1cd3b335f 1-12
+skills/funding/draft_grounded_section/qualification.json
+  s_16e75b10efee22::t_5d5ea2d0b1b603 1-10
+skills/funding/draft_grounded_section/schemas/input.v1.json
+  s_16e75b10efee22::t_fe32a2e0ca73c5 1-11
+skills/funding/draft_grounded_section/schemas/output.v1.json
+  s_16e75b10efee22::t_e907b6a188eac2 1-12
+skills/funding/draft_grounded_section/skill.yaml
+  s_16e75b10efee22::t_9e07f850d2785e 1-62
+skills/pilots/pilot-0-funding-discovery.json
+  s_16e75b10efee22::t_c95a97cb21a00d 1-22
+skills/readiness.py
+  s_16e75b10efee22::t_992806ec1c3b01 1-57
+skills/selection.py
+  s_16e75b10efee22::t_54db05c8bb38bd 1-51
+tests/conftest.py
+  s_16e75b10efee22::t_9e2d4c61ebea99 6,510-512,533-535,554-556
+tests/unit/test_activity_ui_contract.py
+  s_16e75b10efee22::t_fb69bb33e036ac 44,82-84
+tests/unit/test_actor_identity_platform.py
+  s_16e75b10efee22::t_de3d3d63a8379f 12,27,46,64-82,85,97,128
+tests/unit/test_attachment_ui_contract.py
+  s_16e75b10efee22::t_83f31933d93614 10-12,14-15
+tests/unit/test_auth.py
+  s_16e75b10efee22::t_ac47f781d99c61 19,238-255
+tests/unit/test_command_service.py
+  s_16e75b10efee22::t_0e5a97b7666a5f 19
+tests/unit/test_consequence_service.py
+  s_16e75b10efee22::t_193c401088e340 24,28,274,278
+tests/unit/test_cost_controls.py
+  s_16e75b10efee22::t_ee55f627e61e77 1-108
+tests/unit/test_deploy_firestore_ttl.py
+  s_16e75b10efee22::t_91037000854511 1-24
+tests/unit/test_design_encodings.py
+  s_16e75b10efee22::t_3c9abd2a54c85f 301,304-306,321,328-329,331-332,334,368,370
+tests/unit/test_external_event_service.py
+  s_16e75b10efee22::t_1aaaf6b10d8a35 191,195
+tests/unit/test_findings_hardening.py
+  s_16e75b10efee22::t_06954b5121513a 151-153,156,164-166
+tests/unit/test_google_login.py
+  s_16e75b10efee22::t_abbd731a5dbbf2 3,5,66,101-103,195-252
+tests/unit/test_hiring_h0_h3.py
+  s_16e75b10efee22::t_e1586cadca6a46 60,62-71,206-207,212,221-283,290,306,369-370,385,391,400,462,487,490,499,511,513,517,522,529,534,537,543,550,600,678,685,687,699-700,702,705,707,710,717,735,740,746,758,764,769,773,778,784,798,805,817,822,829,835,838,844,847,852
+tests/unit/test_hiring_sandbox.py
+  s_16e75b10efee22::t_b8d2ccf0aa17d9 23,27-28,33,36-37,41,47,55,64,71,78,82,89,100,121,125,129,136,139,141,145,159,172,179,185,193,198,202,209,213-214,217,221,225,234,241,243,253,257-258,264,268,273,277,281,283,337,339,342-343,346,350,354,360,366,370,374,387,391,394,407,412,416,428,433,440,451,460,470,475,479,507,512,514,519
+tests/unit/test_image_ingestion.py
+  s_16e75b10efee22::t_c0545dd916f514 1-154
+tests/unit/test_internal_controlled_demo.py
+  s_16e75b10efee22::t_4b2230d81c36ea 21,23-24,33,36,60,65,68,73,76,80,85,87,89,97,100,124,129-130,132,136,148,156,162,167,169,176,185,188,192,194,196,199,204,208,211,234
+tests/unit/test_investor_outreach_service.py
+  s_16e75b10efee22::t_618738b31d93d7 19,23
+tests/unit/test_live_media.py
+  s_16e75b10efee22::t_6a788801124716 1-216
+tests/unit/test_live_transcript.py
+  s_16e75b10efee22::t_0b5a778afa0fdd 1-318
+tests/unit/test_live_vision_lifecycle.py
+  s_16e75b10efee22::t_ef592ab9de0d7d 1-49
+tests/unit/test_live_vision_ui_contract.py
+  s_16e75b10efee22::t_05e9b95242154d 1-278
+tests/unit/test_live_voice_startup_ui.py
+  s_16e75b10efee22::t_c95ab6c0a624b3 1-212
+tests/unit/test_phase4_memory.py
+  s_16e75b10efee22::t_48fbabd8ed08cf 129-144,146-150,152-154
+tests/unit/test_projection_stream.py
+  s_16e75b10efee22::t_8d111c31f63447 6-10,40
+tests/unit/test_review_fixes_agents.py
+  s_16e75b10efee22::t_a9bdca84fb4fce 304-313,354-378
+tests/unit/test_session_deletion.py
+  s_16e75b10efee22::t_dbcf13b7bfe66c 13-15,27,45-48,57-59,224-240
+tests/unit/test_session_ingestion_retention.py
+  s_16e75b10efee22::t_cf3b8f47c8bf58 1-102
+tests/unit/test_source_ingestion.py
+  s_16e75b10efee22::t_c6b24c38ae0360 68-73
+tests/unit/test_unified_product_ui_contract.py
+  s_16e75b10efee22::t_1af9e628395ccb 1-260
+tests/unit/test_visual_action_guard.py
+  s_16e75b10efee22::t_786da610f88e5d 1-69
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "5ad39a38ffb99e33aec5a9a0272d9d64068b34cf",
+  "prompts": {},
+  "sessions": {
+    "s_16e75b10efee22": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0484d-a6bd-7182-90ae-527ccfd2a966",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Ijidai Lassa <ijidai@cued.app>"
+    }
+  }
+}
