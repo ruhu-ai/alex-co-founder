@@ -328,25 +328,24 @@ class HiringCoordinationService:
         context = await self._context(principal, application_id, require_advanced=False)
         if context.get("error"):
             return context
-        items = await self.store.list(
-            "hiring_coordination_items",
-            filters={"workspace_id": principal.workspace_id,
-                     "candidate_application_id": application_id},
-            order_by="created_at", descending=False, limit=200)
-        replies = await self.store.list(
-            "hiring_reply_correlations",
-            filters={"workspace_id": principal.workspace_id,
-                     "candidate_application_id": application_id,
-                     "mode": "LIVE"},
-            order_by="created_at", descending=False, limit=200)
+        items = [
+            row for row in await self._workspace_rows(
+                "hiring_coordination_items", principal.workspace_id)
+            if row.get("candidate_application_id") == application_id
+        ][:200]
+        replies = [
+            row for row in await self._workspace_rows(
+                "hiring_reply_correlations", principal.workspace_id)
+            if row.get("candidate_application_id") == application_id
+            and row.get("mode") == "LIVE"
+        ][:200]
         actions = [
-            row for row in await self.store.list(
-                "external_actions", filters={"workspace_id": principal.workspace_id},
-                order_by="created_at", descending=False, limit=500)
+            row for row in await self._workspace_rows(
+                "external_actions", principal.workspace_id)
             if row.get("approval_domain") == "HIRING"
             and row.get("application_id") == application_id
             and row.get("action_kind") in LIVE_ACTIONS
-        ]
+        ][:500]
         safe_items = [{key: row.get(key) for key in (
             "coordination_id", "item_kind", "status", "action_kind", "approval_id",
             "subject", "body", "recipients_masked", "slot_options", "start", "end",
@@ -388,10 +387,9 @@ class HiringCoordinationService:
         if reply:
             subject = f"Re: {subject}"
             prior_sends = [
-                row for row in await self.store.list(
-                    "external_actions",
-                    filters={"workspace_id": principal.workspace_id},
-                    order_by="created_at", descending=True, limit=500)
+                row for row in await self._workspace_rows(
+                    "external_actions", principal.workspace_id,
+                    descending=True)
                 if row.get("approval_domain") == "HIRING"
                 and row.get("application_id") == application_id
                 and row.get("action_kind") == "HIRING_SEND_EMAIL"
@@ -611,9 +609,8 @@ class HiringCoordinationService:
             "mailer-daemon", "delivery status notification", "undeliverable",
             "automatic reply", "auto-reply", "out of office")))
         candidates = [
-            row for row in await self.store.list(
-                "external_actions", filters={"workspace_id": workspace_id},
-                order_by="created_at", descending=True, limit=500)
+            row for row in await self._workspace_rows(
+                "external_actions", workspace_id, descending=True)
             if row.get("approval_domain") == "HIRING"
             and row.get("action_kind") == "HIRING_SEND_EMAIL"
             and row.get("status") == "SUCCEEDED"
@@ -875,9 +872,8 @@ class HiringCoordinationService:
                            event_id: str) -> dict[str, Any] | None:
         if not event_id:
             return None
-        rows = await self.store.list(
-            "external_actions", filters={"workspace_id": workspace_id},
-            order_by="created_at", descending=True, limit=500)
+        rows = await self._workspace_rows(
+            "external_actions", workspace_id, descending=True)
         return next((row for row in rows
                      if row.get("application_id") == application_id
                      and row.get("action_kind") in {
@@ -885,6 +881,15 @@ class HiringCoordinationService:
                      and row.get("status") == "SUCCEEDED"
                      and str((row.get("result_ref") or {}).get("event_id") or
                              row.get("provider_effect_id") or "") == event_id), None)
+
+    async def _workspace_rows(self, collection: str, workspace_id: str, *,
+                              descending: bool = False) -> list[dict[str, Any]]:
+        """Use the ubiquitous workspace index; avoid rollout-only composites."""
+        rows = await self.store.list(
+            collection, filters={"workspace_id": workspace_id}, limit=2000)
+        return sorted(
+            rows, key=lambda row: str(row.get("created_at") or ""),
+            reverse=descending)
 
     @staticmethod
     def _validate_payload(action_kind: str, recipients: list[str],

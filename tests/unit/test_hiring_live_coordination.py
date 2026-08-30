@@ -47,6 +47,16 @@ class _UncertainProvider(_Provider):
         return {"status": "uncertain", "uncertainty_reason": "provider_timeout"}
 
 
+class _WorkspaceIndexOnlyStore(InMemoryDurableStore):
+    async def list(self, collection, *, filters=None, order_by=None,
+                   descending=False, limit=100):
+        assert order_by is None
+        assert not filters or set(filters) == {"workspace_id"}
+        return await super().list(
+            collection, filters=filters, order_by=order_by,
+            descending=descending, limit=limit)
+
+
 @pytest.fixture
 def founder() -> ActorPrincipal:
     return ActorPrincipal(
@@ -152,6 +162,16 @@ async def test_non_advanced_synthetic_cross_tenant_and_kill_switch_fail_closed(
         client_request_id="contact_request_0003")
     assert killed["error_code"] == "hiring_operations_killed"
     assert provider.calls == []
+
+
+@pytest.mark.asyncio
+async def test_projection_needs_only_existing_workspace_index(founder):
+    store, provider = _WorkspaceIndexOnlyStore(), _Provider()
+    application_id = await _seed(store)
+    result = await _service(store, provider).projection(
+        principal=founder, application_id=application_id)
+    assert result["status"] == "success"
+    assert result["items"] == []
 
 
 @pytest.mark.asyncio
