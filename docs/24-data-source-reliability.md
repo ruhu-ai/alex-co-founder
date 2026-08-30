@@ -264,6 +264,11 @@ Status rules:
 
 - OAuth callback success writes `CONNECTED` only after token exchange and an
   identity/scope check.
+- Google may echo the standard OIDC `email` alias when the exact connector
+  contract requests both `openid` and `userinfo.email`. The callback
+  canonicalizes only that equivalent identity alias before exact scope
+  comparison and persistence; every Gmail, Calendar, and Drive scope remains
+  strict, and any other excess scope fails closed.
 - A successful provider operation updates `last_success_at`; UI reads the
   projection and never calls every provider on page load.
 - Authentication failure sets `REAUTH_REQUIRED`.

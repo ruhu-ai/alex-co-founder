@@ -31,9 +31,23 @@ class _OAuth2Service:
         return _Request({"email": self.email, "id": "provider-subject"})
 
 
+class _GmailService:
+    def __init__(self, email: str):
+        self.email = email
+
+    def users(self):
+        return self
+
+    def getProfile(self, *, userId: str):
+        assert userId == "me"
+        return _Request({"emailAddress": self.email})
+
+
 def test_alex_calendar_verifies_identity_without_calendar_list_scope(monkeypatch):
     scopes = google_oauth.SCOPE_MAP["alex_calendar"]
-    oauth2 = _OAuth2Service(scopes, "alex@ruhu.ai")
+    # Google echoes the OIDC alias ``email`` even though the connector asks
+    # for the equivalent userinfo.email scope.
+    oauth2 = _OAuth2Service([*scopes, "email"], "alex@ruhu.ai")
 
     def build(api, version, **_kwargs):
         assert (api, version) == ("oauth2", "v2")
@@ -50,6 +64,42 @@ def test_alex_calendar_verifies_identity_without_calendar_list_scope(monkeypatch
         "account_hint": "a***@ruhu.ai",
         "provider_account_hash": google_oauth.provider_account_hash("alex@ruhu.ai"),
     }
+
+
+def test_founder_calendar_accepts_only_google_email_alias(monkeypatch):
+    scopes = google_oauth.SCOPE_MAP["calendar"]
+    oauth2 = _OAuth2Service([*scopes, "email"], "founder@ruhu.ai")
+    monkeypatch.setattr(
+        "googleapiclient.discovery.build",
+        lambda *_args, **_kwargs: oauth2,
+    )
+
+    result = google_oauth.verify_consent(
+        SimpleNamespace(token="access-token"), "calendar")
+
+    assert result["status"] == "success"
+    assert result["granted_scopes"] == sorted(set(scopes))
+
+
+def test_alex_mail_accepts_google_email_alias_but_no_other_scope(monkeypatch):
+    scopes = google_oauth.SCOPE_MAP["alex_mail"]
+    oauth2 = _OAuth2Service([*scopes, "email"], "alex@ruhu.ai")
+    gmail = _GmailService("alex@ruhu.ai")
+
+    def build(api, _version, **_kwargs):
+        return oauth2 if api == "oauth2" else gmail
+
+    monkeypatch.setattr("googleapiclient.discovery.build", build)
+
+    accepted = google_oauth.verify_consent(
+        SimpleNamespace(token="access-token"), "alex_mail")
+    assert accepted["status"] == "success"
+    assert accepted["granted_scopes"] == sorted(set(scopes))
+
+    oauth2.scopes.append("https://www.googleapis.com/auth/drive")
+    rejected = google_oauth.verify_consent(
+        SimpleNamespace(token="access-token"), "alex_mail")
+    assert rejected["error_code"] == "scope_excess"
 
 
 def test_alex_calendar_rejects_founder_account_in_role_slot(monkeypatch):

@@ -53,6 +53,22 @@ SCOPE_MAP = {
         "https://www.googleapis.com/auth/drive.file",  # app-created files only
     ],
 }
+
+# Google may echo the OIDC ``email`` scope when a consent asks for both
+# ``openid`` and the equivalent Google API ``userinfo.email`` scope.  That
+# alias does not widen access: both expose the same verified account email.
+# Canonicalise it away before enforcing and persisting the connector's exact
+# scope contract.  No Gmail, Calendar, or Drive scope is ever normalised.
+_OIDC_EMAIL_SCOPE = "email"
+_GOOGLE_EMAIL_SCOPE = "https://www.googleapis.com/auth/userinfo.email"
+
+
+def _canonical_granted_scopes(granted: set[str], required: set[str]) -> set[str]:
+    """Return provider scopes in the connector's canonical vocabulary."""
+    canonical = set(granted)
+    if {"openid", _GOOGLE_EMAIL_SCOPE}.issubset(required):
+        canonical.discard(_OIDC_EMAIL_SCOPE)
+    return canonical
 # Which Google account each connector auths as (adr/001: Alex's mailbox is a
 # separate Workspace user). Unlisted connectors use the founder account.
 CONNECTOR_ACCOUNT = {
@@ -391,12 +407,13 @@ def verify_consent(credentials, connector: str) -> dict:
         info = build("oauth2", "v2", credentials=credentials,
                      cache_discovery=False).tokeninfo(
                          access_token=credentials.token).execute()
-        granted = sorted(set((info.get("scope") or "").split()))
+        provider_granted = set((info.get("scope") or "").split())
         # A fresh consent must carry the complete feature contract. STATUS_SCOPES
         # is only for rendering an older partial grant as connected/degraded;
         # accepting it here would claim a requested write upgrade succeeded.
         required = set(SCOPE_MAP[connector])
-        granted_set = set(granted)
+        granted_set = _canonical_granted_scopes(provider_granted, required)
+        granted = sorted(granted_set)
         if not required.issubset(granted_set):
             return {"status": "error", "error": True,
                     "error_code": "scope_missing",
