@@ -11,6 +11,7 @@ from services.actor_identity import ActorPrincipal, WorkspaceRole
 from services.durable_store import InMemoryDurableStore
 from services.hiring_approval_service import resolve_approval
 from services.hiring_coordination import HiringCoordinationService
+from services.hiring_scheduling_agent import set_interpreter_fn
 
 
 class _Identity:
@@ -63,6 +64,13 @@ def founder() -> ActorPrincipal:
         actor_id="founder_actor", workspace_id="founder",
         role=WorkspaceRole.FOUNDER, session_auth_time=int(time.time()),
         membership_version=1)
+
+
+@pytest.fixture(autouse=True)
+def _reset_scheduling_interpreter():
+    set_interpreter_fn(None)
+    yield
+    set_interpreter_fn(None)
 
 
 async def _seed(store: InMemoryDurableStore, *, advanced: bool = True,
@@ -400,6 +408,78 @@ async def test_ambiguous_reply_gets_bounded_alex_followup_without_new_approval(
     refreshed = await store.get(
         "hiring_coordination_mandates", mandate["mandate_id"])
     assert refreshed["email_count"] == 2
+
+
+@pytest.mark.asyncio
+async def test_free_form_candidate_time_is_interpreted_then_calendar_guarded(
+        founder, monkeypatch):
+    store, provider = InMemoryDurableStore(), _Provider()
+    application_id = await _seed(store)
+    service = _service(store, provider)
+    mandate = await _activate_mandate(
+        service, store, founder, application_id, monkeypatch)
+    alternative = datetime.fromisoformat(
+        mandate["confirmed_slots"][0]["start"]).replace(hour=12)
+
+    async def interpret(_payload):
+        return {
+            "intent": "PROPOSE_ALTERNATIVE", "selected_option": 0,
+            "proposed_start": alternative.isoformat(),
+            "timezone": "Africa/Lagos", "confidence": "HIGH",
+        }
+
+    set_interpreter_fn(interpret)
+    reply = await service.correlate_reply(
+        workspace_id="founder", provider_event={
+            "id": "message_free_form", "thread_id": "thread_hiring_1",
+            "from": "Ada Candidate <ada@example.test>",
+            "subject": "Re: Interview availability",
+            "excerpt": "Could we meet at noon on that day instead?",
+            "kind": "update"})
+    assert reply["continuation_status"] == "success"
+    assert [call["action_kind"] for call in provider.calls] == [
+        "HIRING_SEND_EMAIL", "HIRING_CREATE_INTERVIEW"]
+    exact = provider.calls[-1]["exact_action"]
+    assert exact["payload"]["start"] == alternative.isoformat()
+    current = await store.get(
+        "hiring_coordination_mandates", mandate["mandate_id"])
+    assert current["goal_kind"] == "SCHEDULE_INTERVIEW"
+    assert current["goal_status"] == "SCHEDULED"
+    assert current["current_event_id"] == "calendar_event_1"
+
+
+@pytest.mark.asyncio
+async def test_candidate_change_after_booking_updates_same_owned_event(
+        founder, monkeypatch):
+    store, provider = InMemoryDurableStore(), _Provider()
+    application_id = await _seed(store)
+    service = _service(store, provider)
+    mandate = await _activate_mandate(
+        service, store, founder, application_id, monkeypatch)
+    first = await service.correlate_reply(
+        workspace_id="founder", provider_event={
+            "id": "message_book_first", "thread_id": "thread_hiring_1",
+            "from": "Ada Candidate <ada@example.test>",
+            "subject": "Re: Interview availability",
+            "excerpt": "Option one works for me.", "kind": "update"})
+    assert first["continuation_status"] == "success"
+    changed = await service.correlate_reply(
+        workspace_id="founder", provider_event={
+            "id": "message_change_second", "thread_id": "thread_hiring_1",
+            "from": "Ada Candidate <ada@example.test>",
+            "subject": "Re: Interview availability",
+            "excerpt": "Please reschedule me to option two instead.",
+            "kind": "update"})
+    assert changed["continuation_status"] == "success"
+    assert [call["action_kind"] for call in provider.calls] == [
+        "HIRING_SEND_EMAIL", "HIRING_CREATE_INTERVIEW",
+        "HIRING_UPDATE_INTERVIEW"]
+    assert provider.calls[-1]["exact_action"]["payload"][
+        "target_event_id"] == "calendar_event_1"
+    current = await store.get(
+        "hiring_coordination_mandates", mandate["mandate_id"])
+    assert current["goal_status"] == "SCHEDULED"
+    assert current["goal_step"] == "INTERVIEW_CONFIRMED"
 
 
 @pytest.mark.asyncio

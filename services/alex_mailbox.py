@@ -129,7 +129,10 @@ def _message_to_event(svc, stub: dict) -> dict | None:
         "from": sender,
         "subject": subject,
         "kind": gmail_adapter.classify(subject, body),
-        "excerpt": re.sub(r"\s+", " ", body)[:280],
+        # The generic wake/inbox projection truncates this again to 280 chars.
+        # Hiring receives the bounded 1,000-char reply so relative scheduling
+        # context is not lost before its isolated interpretation boundary.
+        "excerpt": re.sub(r"\s+", " ", body)[:1000],
     }
 
 

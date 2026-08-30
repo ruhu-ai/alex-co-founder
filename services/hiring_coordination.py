@@ -3,10 +3,11 @@
 This is deliberately separate from H4S.  A live action is admitted only for a
 non-synthetic public application whose current human decision is ``ADVANCE``.
 Candidate identity, connector identity, recipients and provider targets are
-resolved server-side.  Every provider mutation consumes one fresh, exact
-Hiring approval and is written to ``external_actions`` before the provider is
-called.  Provider ambiguity is terminal ``UNCERTAIN`` until reconciliation;
-the service never blind-retries an email or calendar mutation.
+resolved server-side.  One fresh Founder consent activates a candidate-bound,
+time-bounded ``SCHEDULE_INTERVIEW`` goal; every provider mutation is still
+written to ``external_actions`` before the provider is called.  Provider
+ambiguity is terminal ``UNCERTAIN`` until reconciliation; the service never
+blind-retries an email or calendar mutation.
 """
 
 from __future__ import annotations
@@ -29,6 +30,7 @@ from services.durable_store import AtomicMutation, DurableStore, production_stor
 from services.hiring_approval_service import request_approval, validate_approval_claim
 from services.hiring_contracts import canonical_hash, stable_id, utc_now
 from services.hiring_public_intake import HiringPublicIntakeService
+from services.hiring_scheduling_agent import interpret_scheduling_reply
 from services.workflow_runtime import WorkflowRuntime
 
 LIVE_ACTIONS = frozenset({
@@ -372,7 +374,8 @@ class HiringCoordinationService:
         safe_replies = [{key: row.get(key) for key in (
             "correlation_id", "status", "message_kind", "safe_subject",
             "safe_excerpt", "auto_submitted", "provider_thread_id",
-            "injection_suspected", "created_at")}
+            "injection_suspected", "continuation_status",
+            "continuation_error_code", "created_at")}
             for row in replies]
         safe_actions = [{key: row.get(key) for key in (
             "action_id", "action_kind", "status", "approval_id", "provider_effect_id",
@@ -389,7 +392,10 @@ class HiringCoordinationService:
                 "mandate": ({key: active.get(key) for key in (
                     "mandate_id", "status", "copy_founder", "confirmed_slots",
                     "duration_minutes", "email_count", "calendar_action_count",
-                    "activated_at", "expires_at")}
+                    "goal_kind", "goal_status", "goal_step", "current_event_id",
+                    "last_reply_correlation_id", "last_transition_at",
+                    "scheduling_window_start", "scheduling_window_end",
+                    "founder_timezone", "activated_at", "expires_at")}
                     if active else None),
                 "items": safe_items, "replies": safe_replies, "actions": safe_actions}
 
@@ -417,10 +423,28 @@ class HiringCoordinationService:
         if mandate:
             candidate_email = str(mandate["candidate_email"])
             candidate_name = str(mandate.get("candidate_first_name") or "there")
-            slots = list(mandate["confirmed_slots"])
             copy_founder = bool(mandate.get("copy_founder"))
             duration_minutes = int(
                 mandate.get("duration_minutes") or _DEFAULT_INTERVIEW_MINUTES)
+            if reply:
+                availability = await self._available_slots(
+                    principal.workspace_id, duration_minutes=duration_minutes)
+                if availability.get("error"):
+                    return availability
+                slots = list(availability["slots"])
+                current = await self.store.get(
+                    "hiring_coordination_mandates", str(mandate["mandate_id"]))
+                if not current or not await self.store.compare_and_set(
+                        "hiring_coordination_mandates", str(mandate["mandate_id"]),
+                        int(current["version"]),
+                        {"confirmed_slots": slots, "updated_at": utc_now()}):
+                    return _error(
+                        "concurrency_conflict",
+                        "Founder availability changed concurrently.")
+                mandate = await self.store.get(
+                    "hiring_coordination_mandates", str(mandate["mandate_id"]))
+            else:
+                slots = list(mandate["confirmed_slots"])
         else:
             if duration_minutes not in _INTERVIEW_DURATION_OPTIONS:
                 return _error(
@@ -696,6 +720,12 @@ class HiringCoordinationService:
                     1 if action_kind == "HIRING_SEND_EMAIL" else 0),
                 "calendar_action_count": (
                     0 if action_kind == "HIRING_SEND_EMAIL" else 1),
+                "goal_kind": "SCHEDULE_INTERVIEW",
+                "goal_status": "CONTACTING",
+                "goal_step": "SEND_INITIAL_INVITATION",
+                "current_event_id": "",
+                "last_reply_correlation_id": "",
+                "last_transition_at": now,
                 "activated_by_actor_id": principal.actor_id,
                 "activated_at": now, "expires_at": expires_at,
                 "created_at": now, "updated_at": now, "version": 1,
@@ -843,6 +873,15 @@ class HiringCoordinationService:
                 continuation = await self._continue_from_reply(
                     workspace_id=workspace_id, application_id=application_id,
                     correlation_id=correlation_id, excerpt=excerpt)
+                await self.store.compare_and_set(
+                    "hiring_reply_correlations", correlation_id, 1, {
+                        "continuation_status": (
+                            "GOAL_ADVANCED" if not continuation.get("error")
+                            else "GOAL_BLOCKED"),
+                        "continuation_error_code": str(
+                            continuation.get("error_code") or ""),
+                        "updated_at": utc_now(),
+                    })
         return {"status": "success", "duplicate": not created,
                 "correlation_id": correlation_id,
                 "candidate_application_id": application_id,
@@ -856,7 +895,7 @@ class HiringCoordinationService:
     async def _continue_from_reply(
             self, *, workspace_id: str, application_id: str,
             correlation_id: str, excerpt: str) -> dict[str, Any]:
-        """Continue one candidate thread under its active Founder mandate."""
+        """Wake and advance the durable scheduling goal for one exact reply."""
         application = await self.store.get("candidate_applications", application_id)
         role = (await self.store.get("hiring_roles", str(
             application.get("role_id") or "")) if application else None)
@@ -875,33 +914,111 @@ class HiringCoordinationService:
             actor_id="agent:alex", workspace_id=workspace_id,
             role=WorkspaceRole.FOUNDER, session_auth_time=0,
             membership_version=0, principal_kind="WORKLOAD")
-        selected = self._selected_slot(excerpt, mandate.get("confirmed_slots") or [])
-        if selected:
+        transitioned = await self._transition_goal(
+            mandate, goal_status="PROCESSING_REPLY",
+            goal_step="INTERPRET_CANDIDATE_REPLY",
+            correlation_id=correlation_id)
+        if transitioned.get("error"):
+            return transitioned
+        mandate = transitioned["mandate"]
+        current_event_id = str(mandate.get("current_event_id") or "")
+        current_event = await self._current_owned_event(
+            workspace_id, application_id)
+        if not current_event_id:
+            current_event_id = str((current_event or {}).get("event_id") or "")
+        try:
+            interpretation = await interpret_scheduling_reply(
+                excerpt,
+                offered_slots=list(mandate.get("confirmed_slots") or []),
+                founder_timezone=str(
+                    mandate.get("founder_timezone") or "Africa/Lagos"),
+                duration_minutes=int(
+                    mandate.get("duration_minutes") or
+                    _DEFAULT_INTERVIEW_MINUTES),
+                has_booking=bool(current_event_id),
+                current_time=utc_now(),
+                scheduling_window_end=str(
+                    mandate.get("scheduling_window_end") or
+                    mandate.get("expires_at") or utc_now()),
+                current_booking=current_event,
+            )
+        except Exception:
+            interpretation = {
+                "status": "error", "error": True,
+                "error_code": "scheduling_interpreter_unavailable",
+            }
+        intent = str(interpretation.get("intent") or "ASK_CLARIFICATION")
+        selected_option = int(interpretation.get("selected_option") or 0)
+        slots = list(mandate.get("confirmed_slots") or [])
+        selected = (slots[selected_option - 1]
+                    if 0 < selected_option <= len(slots) else None)
+        proposed_start = str(interpretation.get("proposed_start") or "")
+        proposed_end = str(interpretation.get("proposed_end") or "")
+        proposed_timezone = str(
+            interpretation.get("timezone") or
+            mandate.get("founder_timezone") or "Africa/Lagos")
+        if selected or (proposed_start and proposed_end and intent in {
+                "ACCEPT_OFFERED_SLOT", "PROPOSE_ALTERNATIVE",
+                "REQUEST_RESCHEDULE"}):
+            slot = selected or {
+                "start": proposed_start, "end": proposed_end,
+                "timezone": proposed_timezone,
+            }
             prepared = await self.prepare_interview(
                 principal=principal, application_id=application_id,
-                start=str(selected["start"]), end=str(selected["end"]),
-                timezone_name=str(selected["timezone"]),
-                client_request_id=f"reply_book:{correlation_id}")
+                start=str(slot["start"]), end=str(slot["end"]),
+                timezone_name=str(slot["timezone"]),
+                client_request_id=f"reply_schedule:{correlation_id}",
+                target_event_id=current_event_id)
+        elif intent == "REQUEST_CANCELLATION" and current_event_id:
+            prepared = await self.prepare_interview(
+                principal=principal, application_id=application_id,
+                start="", end="", timezone_name=proposed_timezone,
+                client_request_id=f"reply_cancel:{correlation_id}",
+                target_event_id=current_event_id, cancel=True)
         else:
             prepared = await self.prepare_contact(
                 principal=principal, application_id=application_id,
                 client_request_id=f"reply_continue:{correlation_id}", reply=True)
         if prepared.get("error"):
+            latest = await self.store.get(
+                "hiring_coordination_mandates", str(mandate["mandate_id"]))
+            if latest:
+                await self._transition_goal(
+                    latest, goal_status="BLOCKED",
+                    goal_step=str(prepared.get("error_code") or
+                                  "REVIEW_REQUIRED"),
+                    correlation_id=correlation_id)
             return prepared
         return await self.execute(
             principal=principal, application_id=application_id,
             coordination_id=str(prepared["coordination_id"]), approval_id="")
 
-    @staticmethod
-    def _selected_slot(excerpt: str, slots: list[dict[str, str]]) -> dict[str, str] | None:
-        text = re.sub(r"\s+", " ", excerpt).casefold()
-        patterns = (
-            (0, r"\b(?:option|slot)\s*(?:1|one|first)\b|\bfirst\s+(?:option|slot)\b"),
-            (1, r"\b(?:option|slot)\s*(?:2|two|second)\b|\bsecond\s+(?:option|slot)\b"),
-            (2, r"\b(?:option|slot)\s*(?:3|three|third)\b|\bthird\s+(?:option|slot)\b"),
-        )
-        matches = [index for index, pattern in patterns if re.search(pattern, text)]
-        return slots[matches[0]] if len(matches) == 1 and matches[0] < len(slots) else None
+    async def _transition_goal(
+            self, mandate: dict[str, Any], *, goal_status: str,
+            goal_step: str, correlation_id: str = "",
+            event_id: str | None = None) -> dict[str, Any]:
+        """CAS one content-free transition on the durable scheduling goal."""
+        updates: dict[str, Any] = {
+            "goal_kind": "SCHEDULE_INTERVIEW",
+            "goal_status": goal_status,
+            "goal_step": goal_step,
+            "last_transition_at": utc_now(),
+            "updated_at": utc_now(),
+        }
+        if correlation_id:
+            updates["last_reply_correlation_id"] = correlation_id
+        if event_id is not None:
+            updates["current_event_id"] = event_id
+        committed = await self.store.compare_and_set(
+            "hiring_coordination_mandates", str(mandate["mandate_id"]),
+            int(mandate["version"]), updates)
+        if not committed:
+            return _error(
+                "concurrency_conflict", "Scheduling goal changed concurrently.")
+        current = await self.store.get(
+            "hiring_coordination_mandates", str(mandate["mandate_id"]))
+        return {"status": "success", "mandate": current}
 
     async def _prepare_item(self, *, principal: ActorPrincipal,
                             context: dict[str, Any], client_request_id: str,
@@ -946,6 +1063,9 @@ class HiringCoordinationService:
             approval_status = "MANDATE_ACTIVE"
             item_status = "AUTHORIZED"
         else:
+            prepared_at = datetime.now(timezone.utc)
+            founder_timezone = os.environ.get(
+                "FOUNDER_TIMEZONE", "Africa/Lagos")
             mandate_exact = {
                 "schema_version": 1,
                 "mandate_id": mandate_id,
@@ -960,6 +1080,11 @@ class HiringCoordinationService:
                 "confirmed_slots": slot_options,
                 "duration_minutes": (
                     duration_minutes or _DEFAULT_INTERVIEW_MINUTES),
+                "goal_kind": "SCHEDULE_INTERVIEW",
+                "scheduling_window_start": prepared_at.isoformat(),
+                "scheduling_window_end": (
+                    prepared_at + timedelta(days=_MANDATE_DAYS)).isoformat(),
+                "founder_timezone": founder_timezone,
                 "initial_message_hash": canonical_hash({
                     "recipients": recipients, "payload": payload}),
                 "copy_founder": copy_founder,
@@ -1029,13 +1154,12 @@ class HiringCoordinationService:
         if not action_now or not item:
             return _error("action_receipt_missing", "Action receipt is unavailable.", 503)
         safe_result = self._safe_ref(result.get("result_ref"))
-        mandate = None
+        mandate = await self.store.get(
+            "hiring_coordination_mandates",
+            str(action_now.get("mandate_id") or ""))
         provider_thread_id = ""
         if status == "SUCCEEDED" and action_now.get(
                 "action_kind") == "HIRING_SEND_EMAIL":
-            mandate = await self.store.get(
-                "hiring_coordination_mandates",
-                str(action_now.get("mandate_id") or ""))
             provider_thread_id = str(safe_result.get("provider_thread_id") or "")
             existing_thread_id = str(
                 (mandate or {}).get("provider_thread_id") or "")
@@ -1065,13 +1189,44 @@ class HiringCoordinationService:
                                "updated_at": utc_now(),
                            }),
         ]
-        if (status == "SUCCEEDED" and mandate is not None
-                and not mandate.get("provider_thread_id")):
+        if mandate is not None:
+            action_kind = str(action_now.get("action_kind") or "")
+            goal_updates: dict[str, Any] = {
+                "goal_kind": "SCHEDULE_INTERVIEW",
+                "last_transition_at": utc_now(),
+                "updated_at": utc_now(),
+            }
+            if status == "SUCCEEDED" and action_kind == "HIRING_SEND_EMAIL":
+                goal_updates.update(
+                    goal_status="WAITING_FOR_REPLY",
+                    goal_step="WAIT_FOR_APPLICANT_REPLY")
+                if not mandate.get("provider_thread_id"):
+                    goal_updates["provider_thread_id"] = provider_thread_id
+            elif status == "SUCCEEDED" and action_kind in {
+                    "HIRING_CREATE_INTERVIEW", "HIRING_UPDATE_INTERVIEW"}:
+                goal_updates.update(
+                    goal_status="SCHEDULED",
+                    goal_step="INTERVIEW_CONFIRMED",
+                    current_event_id=str(
+                        safe_result.get("event_id") or
+                        result.get("provider_effect_id") or ""))
+            elif status == "SUCCEEDED" and action_kind == "HIRING_CANCEL_INTERVIEW":
+                goal_updates.update(
+                    goal_status="CANCELLED",
+                    goal_step="INTERVIEW_CANCELLED",
+                    current_event_id="")
+            elif status == "UNCERTAIN":
+                goal_updates.update(
+                    goal_status="BLOCKED",
+                    goal_step="RECONCILIATION_REQUIRED")
+            elif status == "FAILED":
+                goal_updates.update(
+                    goal_status="BLOCKED",
+                    goal_step=str(result.get("error_code") or
+                                  "PROVIDER_REJECTED"))
             mutations.append(AtomicMutation(
                 "hiring_coordination_mandates", str(mandate["mandate_id"]),
-                int(mandate["version"]),
-                updates={"provider_thread_id": provider_thread_id,
-                         "updated_at": utc_now()}))
+                int(mandate["version"]), updates=goal_updates))
         committed = await self.store.atomic_compare_and_set(tuple(mutations))
         if not committed:
             return _error("concurrency_conflict", "Action receipt changed concurrently.")
@@ -1282,11 +1437,49 @@ class HiringCoordinationService:
                 allowed_slots = [{key: row.get(key) for key in (
                     "start", "end", "timezone")}
                     for row in mandate.get("confirmed_slots") or []]
-                if slot not in allowed_slots:
+                if (slot not in allowed_slots
+                        and not HiringCoordinationService._slot_within_window(
+                            mandate, slot)):
                     return _error(
                         "slot_outside_mandate",
-                        "The interview time was not in the Founder-approved options.", 409)
+                        "The interview time is outside the approved scheduling window.",
+                        409)
         return {"status": "success"}
+
+    @staticmethod
+    def _slot_within_window(
+            mandate: dict[str, Any], slot: dict[str, Any]) -> bool:
+        """Admit an alternative only inside the consented window and duration."""
+        window_start = str(mandate.get("scheduling_window_start") or "")
+        window_end = str(mandate.get("scheduling_window_end") or "")
+        if not window_start or not window_end:
+            return False
+        try:
+            ZoneInfo(str(slot.get("timezone") or ""))
+            start = datetime.fromisoformat(str(slot.get("start") or ""))
+            end = datetime.fromisoformat(str(slot.get("end") or ""))
+            lower = datetime.fromisoformat(window_start)
+            upper = datetime.fromisoformat(window_end)
+        except (ValueError, ZoneInfoNotFoundError):
+            return False
+        if any(value.tzinfo is None for value in (start, end, lower, upper)):
+            return False
+        expected = int(
+            mandate.get("duration_minutes") or _DEFAULT_INTERVIEW_MINUTES)
+        actual = int((end - start).total_seconds() / 60)
+        try:
+            founder_zone = ZoneInfo(str(
+                mandate.get("founder_timezone") or "Africa/Lagos"))
+        except ZoneInfoNotFoundError:
+            return False
+        local_start = start.astimezone(founder_zone)
+        local_end = end.astimezone(founder_zone)
+        return (actual == expected
+                and start >= max(lower, datetime.now(timezone.utc))
+                and end <= upper
+                and local_start.weekday() < 5
+                and time(9, 0) <= local_start.timetz().replace(tzinfo=None)
+                and local_end.timetz().replace(tzinfo=None) <= time(18, 0))
 
     async def _owned_event(self, workspace_id: str, application_id: str,
                            event_id: str) -> dict[str, Any] | None:
@@ -1301,6 +1494,34 @@ class HiringCoordinationService:
                      and row.get("status") == "SUCCEEDED"
                      and str((row.get("result_ref") or {}).get("event_id") or
                              row.get("provider_effect_id") or "") == event_id), None)
+
+    async def _current_owned_event(
+            self, workspace_id: str,
+            application_id: str) -> dict[str, str] | None:
+        """Resolve the latest still-active Hiring-owned Calendar event."""
+        rows = [row for row in await self._workspace_rows(
+            "external_actions", workspace_id, descending=True)
+            if row.get("application_id") == application_id
+            and row.get("status") == "SUCCEEDED"
+            and row.get("action_kind") in {
+                "HIRING_CREATE_INTERVIEW", "HIRING_UPDATE_INTERVIEW",
+                "HIRING_CANCEL_INTERVIEW"}]
+        for row in rows:
+            event_id = str((row.get("result_ref") or {}).get("event_id") or
+                           row.get("provider_effect_id") or
+                           ((row.get("exact_action") or {}).get("payload") or {}).get(
+                               "target_event_id") or "")
+            if not event_id:
+                continue
+            if row.get("action_kind") == "HIRING_CANCEL_INTERVIEW":
+                return None
+            payload = dict((row.get("exact_action") or {}).get("payload") or {})
+            return {"event_id": event_id,
+                    "action_id": str(row.get("action_id") or ""),
+                    "start": str(payload.get("start") or ""),
+                    "end": str(payload.get("end") or ""),
+                    "timezone": str(payload.get("timezone") or "")}
+        return None
 
     async def _workspace_rows(self, collection: str, workspace_id: str, *,
                               descending: bool = False) -> list[dict[str, Any]]:

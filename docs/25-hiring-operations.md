@@ -18,9 +18,12 @@ committed Evidence Passport and records an attributed `ADVANCE`, the real H4
 lane may use the connected Alex Mail and Founder Calendar accounts to prepare
 candidate communication, read Founder free/busy, correlate candidate replies,
 negotiate bounded availability, and create/update/cancel one candidate-bound
-interview. One fresh Founder consent binds the candidate, current decision and
-policy, confirmed time options, optional Founder copy, and expiry.
-Alex may then continue that exact thread and schedule within those bounds without
+interview. One fresh Founder consent activates a durable
+`SCHEDULE_INTERVIEW` goal bound to the candidate, current decision and policy,
+exact applicant thread, interview duration, bounded scheduling window,
+optional Founder copy, and expiry. Alex may then continue that exact thread,
+interpret explicit or free-form scheduling replies, recheck Founder
+availability, and create or update only the Hiring-owned interview without
 per-message approval. Every provider effect still has a `PREPARED` receipt;
 `UNCERTAIN` blocks retry until reconciliation. This is not H4S and does not
 require synthetic identities. Third-party job posting, scoring, ranking,
@@ -1331,9 +1334,11 @@ model call may satisfy this contract.
 ### 8.5 Communication and scheduling
 
 The Hiring Operator prepares the initial message and confirmed Founder time
-options. The Founder gives one fresh coordination consent binding the exact
+options. The Founder gives one fresh coordination consent activating a durable
+`SCHEDULE_INTERVIEW` goal and binding the exact
 candidate/run, current decision and policy, Alex sender identity, server-resolved
-recipient, optional server-configured Founder copy, proposed slots, and 14-day
+recipient, optional server-configured Founder copy, interview duration,
+bounded scheduling window, and 14-day
 expiry. There is no fixed per-candidate email or Calendar action quota; legitimate
 coordination volume is governed by that consent and actual availability. The send capability creates an
 `external_actions` row before every Gmail call. Successful provider
@@ -1348,12 +1353,18 @@ reply wait, and open contact correction without deciding the candidate. A
 temporary DSN or vacation reply leaves the candidate-reply wait open. A changed
 candidate address is outside the existing consent and requires a new consent.
 
-Scheduling reads Founder free/busy, applies working-hour/time-zone constraints,
-and proposes slots. The consent binds the exact options. Candidate choice or
-Founder selection may create/update the interview only within those options,
-after a fresh availability check; new options require a new consent. Calendar
-changes target only the Hiring-owned event and wake the exact wait using stored
-provider event identity.
+Scheduling is event-driven rather than polled. The durable goal moves through
+`CONTACTING`, `WAITING_FOR_REPLY`, `PROCESSING_REPLY`, `SCHEDULED`,
+`CANCELLED`, or content-free `BLOCKED` states and persists its current
+Hiring-owned Calendar event id. A verified Alex Mail reply wakes exactly that
+goal. A tool-less Gemini boundary may classify an explicit option, a concrete
+alternative date/time, a reschedule, a cancellation, or ambiguity; the model
+has no connectors, durable writes, decisions, or effect authority. Code then
+rechecks the candidate/thread/decision/policy/consent window, exact duration,
+Founder free/busy, and event ownership before preparing any effect. Ambiguity
+produces a bounded clarification on the same thread. A reply after booking uses
+Calendar update for the stored event, never a second create. An alternative
+outside the consent window or an expired goal requires fresh Founder consent.
 
 **Completion:** provider receipt plus open wait with exact causal thread/event
 keys. Sending a message or invite does not imply candidate receipt, agreement,
@@ -2694,6 +2705,8 @@ synthetic identity/destination gate and H4S cannot authorize a live effect.
   withholding;
 - Founder free/busy slot proposal, applicant email negotiation, interview
   create/update/cancel and receipt tracking;
+- explicit durable `SCHEDULE_INTERVIEW` goal, tool-less grounded reply
+  interpretation, live availability recheck, and update-not-create rescheduling;
 - one fresh, bounded Founder coordination consent plus per-effect durable
   receipts, uncertainty and reconciliation controls in candidate scope.
 

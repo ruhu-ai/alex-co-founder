@@ -354,8 +354,9 @@ def test_hiring_is_a_dedicated_shared_shell_with_scoped_candidate_work():
     assert "hiring_candidate_id" in INDEX
     assert "/conversation-context`" in INDEX
     assert "Candidate communication &amp; interview" in HIRING
-    assert "exact applicant thread and confirmed availability only" in HIRING
-    assert "One Founder approval confirms the candidate" in HIRING
+    assert "durable SCHEDULE_INTERVIEW goal" in HIRING
+    assert "exact applicant thread, current ADVANCE decision" in HIRING
+    assert "One Founder approval starts a durable" in HIRING
     assert "/coordination/contact" in HIRING
     assert "/coordination/interview" in HIRING
     assert 'id="interviewDuration"' in HIRING
