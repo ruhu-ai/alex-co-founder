@@ -307,7 +307,7 @@ def test_attention_hold_is_a_narrow_server_enforced_gate_not_a_prompt_rule():
     assert "attention_held = True" in LIVE
     assert "if voice_paused or attention_held:" in LIVE
     assert "if voice_paused or attention_held or not downstream_armed:" in LIVE
-    hold_branch = LIVE.split('reason_code": "addressed_hold_intent"', 1)[0].rsplit(
+    hold_branch = LIVE.split('reason_code": "direct_hold_intent"', 1)[0].rsplit(
         "hold_transcription", 1,
     )[1]
     assert "queue.pause_audio()" in hold_branch

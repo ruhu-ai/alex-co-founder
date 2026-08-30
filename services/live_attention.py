@@ -1,7 +1,12 @@
-"""Deterministic, addressed intent gate for Alex Live conversational hold.
+"""Deterministic intent gate for Alex Live conversational hold.
 
 These commands control only the Live attention state. They never authorize a
 tool, workflow transition, approval, memory write, or external action.
+
+Hold accepts either an addressed command ("Alex, hold on") or a short direct
+imperative in an active conversation ("Just hold on, I'll get back to you").
+Resume remains addressed-only because background speech is intentionally kept
+on-device while held and must never wake Alex accidentally.
 """
 
 from __future__ import annotations
@@ -28,7 +33,12 @@ _HOLD = re.compile(
     r"hang\s+on|stand\s+by|"
     r"give\s+me\s+(?:(?:a|one)\s+)?(?:moment|minute|second|sec)|"
     r"(?:do\s+not|don't)\s+(?:listen|respond)(?:\s+(?:yet|for\s+now))?"
-    rf"){_TRAILING_POLITE}(?:\s+for\s+(?:a|one)\s+(?:moment|minute|second))?$"
+    rf"){_TRAILING_POLITE}(?:"
+    r"\s+for\s+(?:a|one)\s+(?:moment|minute|second)|"
+    r"\s+i(?:'ll|\s+will)\s+get\s+back\s+to\s+you(?:\s+(?:then|later))?|"
+    r"\s+until\s+(?:i|we)\s+(?:call|say|refer\s+to)\s+"
+    r"(?:you|your\s+name)(?:\s+again)?"
+    r")?$"
 )
 _RESUME = re.compile(
     rf"^{_POLITE}(?:"
@@ -49,18 +59,17 @@ def _normalize(text: str) -> str:
 
 
 def classify_addressed_attention_intent(text: str) -> str | None:
-    """Return HOLD/RESUME only for a short utterance directly addressing Alex."""
+    """Return bounded HOLD, or addressed-only RESUME, for one short utterance."""
     normalized = _normalize(text)
     if not normalized or len(normalized) > 160:
         return None
     addressed = _ADDRESS.fullmatch(normalized)
-    if not addressed:
-        return None
-    command = " ".join(addressed.group(1).split())
+    command = " ".join(
+        (addressed.group(1) if addressed else normalized).split())
     if not command or "hold on to" in command:
         return None
     if _HOLD.fullmatch(command):
         return HOLD
-    if _RESUME.fullmatch(command):
+    if addressed and _RESUME.fullmatch(command):
         return RESUME
     return None

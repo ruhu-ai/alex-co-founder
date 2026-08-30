@@ -13,6 +13,10 @@ def test_hold_meaning_accepts_natural_addressed_variants():
         "Okay Alex could you stand by please",
         "Alex, give me a second",
         "Please Alex don't respond yet",
+        "hold on",
+        "Just hold on, I'll get back to you then.",
+        "Can you hold on until I refer to you",
+        "Please wait a moment",
     ):
         assert classify_addressed_attention_intent(text) == HOLD
 
@@ -28,9 +32,10 @@ def test_resume_meaning_accepts_natural_addressed_variants():
         assert classify_addressed_attention_intent(text) == RESUME
 
 
-def test_alex_address_is_required_and_background_speech_is_ignored():
+def test_resume_requires_alex_and_referential_speech_is_ignored():
     for text in (
-        "hold on",
+        "resume",
+        "continue now",
         "we can continue now",
         "Did Alex say to hold on?",
         "Alex should hold on to this document",

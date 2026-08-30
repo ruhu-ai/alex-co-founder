@@ -92,11 +92,18 @@ async def verify_before_action(tool, args, tool_context):
     return None
 
 
-def build_agent(model=None) -> Agent:
+def build_agent(model=None, *, task_mode: bool = False) -> Agent:
     """Fresh instance per parent (voice + text surfaces each need their own tree)."""
     return Agent(
         name="form_filler_agent",
+        description=(
+            "Inspect and pre-fill an approved application portal under durable "
+            "staleness and approval guards, then return receipts to Alex."
+        ),
         model=model or MODEL,
+        mode="task" if task_mode else None,
+        disallow_transfer_to_parent=True,
+        disallow_transfer_to_peers=True,
         instruction=FORM_FILLER_INSTRUCTION,
         tools=[
             browser.register_account,

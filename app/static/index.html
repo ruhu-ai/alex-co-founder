@@ -7678,16 +7678,15 @@ function classifyLocalAttentionIntent(text) {
         .replace(/\s+/g, " ").trim();
     if (!normalized || normalized.length > 160) return null;
     const addressed = normalized.match(/^(?:(?:hey|hi|hello|okay|ok|please)\s+){0,2}alex\b[\s,.:;!?-]*(.*)$/);
-    if (!addressed) return null;
-    const command = addressed[1].trim();
+    const command = (addressed ? addressed[1] : normalized).trim();
     if (!command || command.includes("hold on to")) return null;
     const polite = "(?:please\\s+)?";
     const trailingPolite = "(?:\\s+please)?";
     const request = "(?:(?:can|could|would|will)\\s+you\\s+)?(?:(?:actually|just)\\s+)?(?:(?:i\\s+(?:need|want)\\s+you\\s+to)\\s+)?";
-    const hold = new RegExp(`^${polite}${request}${polite}(?:hold(?:\\s+on)?|pause(?:\\s+and\\s+wait)?|wait(?:\\s+(?:(?:a|one)\\s+)?(?:moment|minute|second|sec))?|hang\\s+on|stand\\s+by|give\\s+me\\s+(?:(?:a|one)\\s+)?(?:moment|minute|second|sec)|(?:do\\s+not|don't)\\s+(?:listen|respond)(?:\\s+(?:yet|for\\s+now))?)${trailingPolite}(?:\\s+for\\s+(?:a|one)\\s+(?:moment|minute|second))?$`);
+    const hold = new RegExp(`^${polite}${request}${polite}(?:hold(?:\\s+on)?|pause(?:\\s+and\\s+wait)?|wait(?:\\s+(?:(?:a|one)\\s+)?(?:moment|minute|second|sec))?|hang\\s+on|stand\\s+by|give\\s+me\\s+(?:(?:a|one)\\s+)?(?:moment|minute|second|sec)|(?:do\\s+not|don't)\\s+(?:listen|respond)(?:\\s+(?:yet|for\\s+now))?)${trailingPolite}(?:\\s+for\\s+(?:a|one)\\s+(?:moment|minute|second)|\\s+i(?:'ll|\\s+will)\\s+get\\s+back\\s+to\\s+you(?:\\s+(?:then|later))?|\\s+until\\s+(?:i|we)\\s+(?:call|say|refer\\s+to)\\s+(?:you|your\\s+name)(?:\\s+again)?)?$`);
     const resume = new RegExp(`^${polite}(?:resume|resume\\s+(?:listening|the\\s+conversation)|(?:you\\s+can\\s+)?(?:listen|respond|continue)(?:\\s+(?:again|now))?|start\\s+listening(?:\\s+again)?|come\\s+back|carry\\s+on|(?:i\\s+am|i'm|we\\s+are|we're)\\s+ready(?:\\s+now)?)${trailingPolite}$`);
     if (hold.test(command)) return "hold";
-    if (resume.test(command)) return "resume";
+    if (addressed && resume.test(command)) return "resume";
     return null;
 }
 
@@ -8333,7 +8332,7 @@ async function toggleVoice() {
         const attentionUnavailable = localAttention.availability === "restart_required"
             ? "Chrome installed the private Hold language pack. Restart Chrome once, then start a new voice call to enable conversational Hold."
             : "Listening — conversational Hold is unavailable because this browser has no verified on-device speech recognition.";
-        toast(attentionReady ? "Listening — say ‘Alex, hold on’ as a short direct command to hold, or tap again to end the call." : attentionUnavailable, attentionReady ? "ok" : "attn");
+        toast(attentionReady ? "Listening — say ‘Hold on’ or ‘Alex, hold on’ as a short direct command to hold, or tap again to end the call." : attentionUnavailable, attentionReady ? "ok" : "attn");
     } catch (error) {
         btn.classList.remove("connecting", "live");
         if (liveUi.paused) {

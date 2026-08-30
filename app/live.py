@@ -18,17 +18,20 @@ import base64
 import json
 import logging
 import os
+import secrets
 from urllib.parse import urlsplit
 
 from fastapi import WebSocket, WebSocketDisconnect
 from google.adk.agents.live_request_queue import LiveRequest, LiveRequestQueue
 from google.adk.agents.run_config import RunConfig, StreamingMode
 from google.adk.apps import App
+from google.adk.events import Event, EventActions
 from google.adk.models import Gemini
 from google.adk.runners import Runner
 from google.adk.sessions.base_session_service import GetSessionConfig
 from google.genai import types
 
+from agents.co_founder import state_schema as ss
 from agents.co_founder.agent import build_root_agent
 from agents.co_founder.config import LIVE_MODEL_ID
 from services import (
@@ -150,6 +153,42 @@ live_app = App(name="co_founder",
                root_agent=build_root_agent(Gemini(model=LIVE_MODEL_ID), live=True))
 
 
+async def _prepare_live_session(*, session_service, session, actor_id: str,
+                                workspace_id: str) -> None:
+    """Start every Live connection at Alex with invocation-scoped continuity.
+
+    ADK chat-agent transfers are intentionally sticky. A historical text turn
+    can therefore leave the durable event stream pointing at a specialist such
+    as ``scout_agent``. Live must always enter through the root Alex
+    orchestrator so pipeline, continuity, and routing tools remain available.
+
+    The content-free root event is both the routing boundary and the supported
+    ADK state-delta path. ``temp:continuity_context`` is applied to this
+    in-memory invocation and trimmed before persistence; actor/workspace remain
+    ordinary server-derived session projections. No transcript text is added.
+    """
+    session_mode = str(session.state.get(ss.K_MEMORY_MODE) or "PRIVATE")
+    continuity = conversation_history.build_envelope(
+        session_id=session.id,
+        session_mode=session_mode,
+        saved_context_available=None,
+    ).instruction()
+    await session_service.append_event(session, Event(
+        author=live_app.root_agent.name,
+        invocation_id=f"live-bootstrap:{secrets.token_hex(12)}",
+        actions=EventActions(state_delta={
+            ss.K_ACTOR_ID: actor_id,
+            ss.K_USER_PROFILE_ID: workspace_id,
+            ss.K_CONTINUITY_CONTEXT: continuity,
+            ss.K_CONVERSATION_RECALL_ACTIVE: False,
+        }),
+        custom_metadata={
+            "live_control_event": "root_continuity_bootstrap",
+            "content_free": True,
+        },
+    ))
+
+
 def register_live(app, session_service, founder_id: str) -> None:
     """Mount the bidi voice websocket on the FastAPI app."""
     # One runner owns this surface for the process lifetime. Sessions remain
@@ -209,15 +248,19 @@ def register_live(app, session_service, founder_id: str) -> None:
                 app_name=live_app.name, user_id=workspace_id, session_id=session_id)
         # Live receives the same server-derived actor/workspace projection as
         # text. Tools still re-read durable membership at their own boundary.
-        from agents.co_founder import state_schema as ss
-        session.state[ss.K_ACTOR_ID] = actor_id
-        session.state[ss.K_USER_PROFILE_ID] = workspace_id
-        session_mode = str(session.state.get(ss.K_MEMORY_MODE) or "PRIVATE")
-        session.state[ss.K_CONTINUITY_CONTEXT] = conversation_history.build_envelope(
-            session_id=session_id,
-            session_mode=session_mode,
-            saved_context_available=None,
-        ).instruction()
+        # This also closes historical sticky-specialist sessions before the
+        # provider sees any audio.
+        try:
+            await _prepare_live_session(
+                session_service=session_service,
+                session=session,
+                actor_id=actor_id,
+                workspace_id=workspace_id,
+            )
+        except Exception as exc:  # fail closed before model/audio transport
+            logger.warning("live continuity bootstrap failed: %s", exc)
+            await websocket.close(code=1011)
+            return
 
         queue = LatestVisualLiveRequestQueue()
         resumption_handle = await live_resumption.load(
@@ -683,7 +726,7 @@ def register_live(app, session_service, founder_id: str) -> None:
                             "type": "voice.attention.held",
                             "pause_revision": pause_revision,
                             "state": "HELD",
-                            "reason_code": "addressed_hold_intent",
+                            "reason_code": "direct_hold_intent",
                         })
                         touch_activity()
                         continue

@@ -61,11 +61,11 @@ def _build_sub_agents(live: bool) -> list[Agent]:
                       retry_options=gemini_retry_options())
 
     return [
-        scout.build_agent(_live_model()),
-        matchmaker.build_agent(_live_model()),
-        interviewer.build_agent(_live_model()),
-        drafter.build_agent(_live_model()),
-        form_filler.build_agent(_live_model()),
+        scout.build_agent(_live_model(), task_mode=True),
+        matchmaker.build_agent(_live_model(), task_mode=True),
+        interviewer.build_agent(_live_model(), task_mode=True),
+        drafter.build_agent(_live_model(), task_mode=True),
+        form_filler.build_agent(_live_model(), task_mode=True),
     ]
 
 

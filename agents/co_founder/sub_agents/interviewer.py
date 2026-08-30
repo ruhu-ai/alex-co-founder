@@ -14,11 +14,18 @@ from ..instructions import INTERVIEWER_INSTRUCTION
 from ..tools import attachments, pipeline, profile
 
 
-def build_agent(model=None) -> Agent:
+def build_agent(model=None, *, task_mode: bool = False) -> Agent:
     """Fresh instance per parent (voice + text surfaces each need their own tree)."""
     return Agent(
         name="interviewer_agent",
+        description=(
+            "Identify application gaps and collect one grounded Founder answer "
+            "at a time, returning progress to Alex."
+        ),
         model=model or MODEL,
+        mode="task" if task_mode else None,
+        disallow_transfer_to_parent=True,
+        disallow_transfer_to_peers=True,
         instruction=INTERVIEWER_INSTRUCTION,
         tools=[
             profile.get_profile,

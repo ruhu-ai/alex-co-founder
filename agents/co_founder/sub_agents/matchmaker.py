@@ -14,11 +14,18 @@ from ..instructions import MATCHMAKER_INSTRUCTION
 from ..tools import pipeline, profile
 
 
-def build_agent(model=None) -> Agent:
+def build_agent(model=None, *, task_mode: bool = False) -> Agent:
     """Fresh instance per parent (voice + text surfaces each need their own tree)."""
     return Agent(
         name="matchmaker_agent",
+        description=(
+            "Score pending opportunities against durable Founder Profile facts "
+            "and return grounded fit results to Alex."
+        ),
         model=model or MODEL,
+        mode="task" if task_mode else None,
+        disallow_transfer_to_parent=True,
+        disallow_transfer_to_peers=True,
         instruction=MATCHMAKER_INSTRUCTION,
         tools=[
             pipeline.get_unscored_opportunities,

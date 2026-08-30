@@ -15,11 +15,18 @@ from ..instructions import DRAFTER_INSTRUCTION
 from ..tools import attachments, documents, drafting, pipeline, profile
 
 
-def build_agent(model=None) -> Agent:
+def build_agent(model=None, *, task_mode: bool = False) -> Agent:
     """Fresh instance per parent (voice + text surfaces each need their own tree)."""
     return Agent(
         name="drafter_agent",
+        description=(
+            "Draft grounded application sections and validated documents from "
+            "approved evidence, then return the receipt to Alex."
+        ),
         model=model or MODEL,
+        mode="task" if task_mode else None,
+        disallow_transfer_to_parent=True,
+        disallow_transfer_to_peers=True,
         instruction=DRAFTER_INSTRUCTION,
         tools=[
             drafting.save_draft_section,

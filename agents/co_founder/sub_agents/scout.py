@@ -22,11 +22,21 @@ from ..workflow import get_workflow
 
 _schema = get_workflow().entity_schema
 
-def build_agent(model=None) -> Agent:
+def build_agent(model=None, *, task_mode: bool = False) -> Agent:
     """Fresh instance per parent (voice + text surfaces each need their own tree)."""
     return Agent(
         name="scout_agent",
+        description=(
+            "Research and extract bounded, source-grounded funding and program "
+            "opportunities, then return the result to Alex."
+        ),
         model=model or MODEL,
+        mode="task" if task_mode else None,
+        # A specialist is a task boundary, never the durable conversational
+        # owner. Text re-enters Alex on the next turn; Live uses task mode and
+        # returns the specialist result to Alex within the same call.
+        disallow_transfer_to_parent=True,
+        disallow_transfer_to_peers=True,
         instruction=SCOUT_INSTRUCTION.replace(
             "__ENTITY_SCHEMA__", json.dumps(_schema, indent=2)
         ),
