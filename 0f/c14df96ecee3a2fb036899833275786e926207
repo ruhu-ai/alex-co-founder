@@ -1,0 +1,25 @@
+docs/24-data-source-reliability.md
+  s_bf598a20bfcdaa::t_947cdf9cc09b2d 267-271
+tests/unit/test_google_oauth.py
+  s_bf598a20bfcdaa::t_5dfc6bdb074cb0 48-50,69-86,93-102
+  s_bf598a20bfcdaa::t_86d3b7dc4a6de3 34-45,87-92
+  s_bf598a20bfcdaa::t_e1bd2f6adddadf 103-104
+services/google_oauth.py
+  s_bf598a20bfcdaa::t_5dfc6bdb074cb0 56-71,410,415-416
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "0fc14df96ecee3a2fb036899833275786e926207",
+  "prompts": {},
+  "sessions": {
+    "s_bf598a20bfcdaa": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a04860-dde3-79c3-b2bd-2987b04adc68",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Ijidai Lassa <ijidai@cued.app>"
+    }
+  }
+}
