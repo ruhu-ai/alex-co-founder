@@ -41,13 +41,14 @@ class _Req:
 
 
 def _msg(subject, body="we received your application",
-         sender="portal@program.org", thread="t1"):
+         sender="portal@program.org", thread="t1", extra_headers=None):
     return {"threadId": thread, "snippet": body[:100],
             "payload": {"mimeType": "text/plain",
                         "headers": [{"name": "Subject", "value": subject},
                                     {"name": "From", "value": sender},
                                     {"name": "To", "value": "alex@ruhu.ai"},
-                                    {"name": "Date", "value": "Mon, 24 Aug 2026 09:00:00 +0000"}],
+                                    {"name": "Date", "value": "Mon, 24 Aug 2026 09:00:00 +0000"},
+                                    *(extra_headers or [])],
                         "body": {"data": base64.urlsafe_b64encode(body.encode()).decode()}}}
 
 
@@ -228,6 +229,36 @@ class TestFetchDoesNotMarkProcessed:
         assert marked == {"status": "success", "marked": 1, "ids": ["m1"]}
         third = await alex_mailbox.scan_unread()
         assert third["events"] == [] and third["unmarked_event_ids"] == []
+
+    async def test_authored_reply_excludes_quoted_invitation_keywords(
+            self, mail_state):
+        body = (
+            "Tuesday 1 September at 11:00 WAT works for me.\n\n"
+            "On Mon, Alex <alex@ruhu.ai> wrote:\n"
+            "Thank you for applying. The Founder is currently available.")
+        _use(_FakeMessages(stubs=[{"id": "reply1"}], messages={
+            "reply1": _msg("Re: Interview availability", body=body,
+                           sender="Ada <ada@example.test>")}))
+
+        event = (await alex_mailbox.scan_unread())["events"][0]
+
+        assert event["automated"] is False
+        assert event["excerpt"] == "Tuesday 1 September at 11:00 WAT works for me."
+        assert "Thank you for applying" not in event["excerpt"]
+
+    async def test_auto_submitted_header_remains_automated(self, mail_state):
+        _use(_FakeMessages(stubs=[{"id": "reply2"}], messages={
+            "reply2": _msg(
+                "Automatic reply: Interview availability",
+                body="I am away from the office.",
+                sender="Ada <ada@example.test>",
+                extra_headers=[{"name": "Auto-Submitted",
+                                "value": "auto-replied"}])}))
+
+        event = (await alex_mailbox.scan_unread())["events"][0]
+
+        assert event["automated"] is True
+        assert event["automation_basis"] == "AUTO_SUBMITTED"
 
     async def test_history_fetch_returns_ids_without_marking(self, mail_state):
         mail_state["history_id"] = "100"

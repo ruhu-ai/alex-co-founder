@@ -11,7 +11,7 @@ from services.actor_identity import ActorPrincipal, WorkspaceRole
 from services.durable_store import InMemoryDurableStore
 from services.hiring_approval_service import resolve_approval
 from services.hiring_coordination import HiringCoordinationService
-from services.hiring_scheduling_agent import set_interpreter_fn
+from services.hiring_scheduling_agent import set_draft_fn, set_interpreter_fn
 
 
 class _Identity:
@@ -69,8 +69,10 @@ def founder() -> ActorPrincipal:
 @pytest.fixture(autouse=True)
 def _reset_scheduling_interpreter():
     set_interpreter_fn(None)
+    set_draft_fn(None)
     yield
     set_interpreter_fn(None)
+    set_draft_fn(None)
 
 
 async def _seed(store: InMemoryDurableStore, *, advanced: bool = True,
@@ -387,6 +389,100 @@ async def test_reply_requires_exact_thread_and_candidate_sender(founder, monkeyp
 
 
 @pytest.mark.asyncio
+async def test_exact_applicant_reply_is_not_suppressed_by_quoted_confirmation_kind(
+        founder, monkeypatch):
+    store, provider = InMemoryDurableStore(), _Provider()
+    application_id = await _seed(store)
+    service = _service(store, provider)
+    await _activate_mandate(service, store, founder, application_id, monkeypatch)
+
+    reply = await service.correlate_reply(
+        workspace_id="founder", provider_event={
+            "id": "message_quoted_confirmation",
+            "thread_id": "thread_hiring_1",
+            "from": "Ada Candidate <ada@example.test>",
+            "subject": "Re: Interview availability",
+            "excerpt": "Option two works for me.",
+            "kind": "confirmation", "automated": False,
+        })
+
+    assert reply["automated"] is False
+    assert reply["continuation_status"] == "success"
+    assert provider.calls[-1]["action_kind"] == "HIRING_CREATE_INTERVIEW"
+
+
+@pytest.mark.asyncio
+async def test_exact_automated_notice_can_be_replayed_once_after_reclassification(
+        founder, monkeypatch):
+    store, provider = InMemoryDurableStore(), _Provider()
+    application_id = await _seed(store)
+    service = _service(store, provider)
+    await _activate_mandate(service, store, founder, application_id, monkeypatch)
+    event = {
+        "id": "message_replay_exact", "thread_id": "thread_hiring_1",
+        "from": "Ada Candidate <ada@example.test>",
+        "subject": "Re: Interview availability",
+        "excerpt": "Option one works for me.", "kind": "confirmation",
+        "automated": True, "automation_basis": "LEGACY_CLASSIFIER",
+    }
+    first = await service.correlate_reply(
+        workspace_id="founder", provider_event=event)
+    assert first["automated"] is True
+    assert len(provider.calls) == 1
+
+    repaired = await service.correlate_reply(
+        workspace_id="founder", provider_event={**event, "automated": False,
+                                                 "automation_basis": ""},
+        replay_existing=True)
+    duplicate = await service.correlate_reply(
+        workspace_id="founder", provider_event={**event, "automated": False},
+        replay_existing=True)
+
+    assert repaired["replayed"] is True
+    assert repaired["continuation_status"] == "success"
+    assert provider.calls[-1]["action_kind"] == "HIRING_CREATE_INTERVIEW"
+    assert duplicate["duplicate"] is True
+
+
+@pytest.mark.asyncio
+async def test_replay_reloads_only_receipt_bound_message_and_dry_run_is_inert(
+        founder, monkeypatch):
+    store, provider = InMemoryDurableStore(), _Provider()
+    application_id = await _seed(store)
+    service = _service(store, provider)
+    await _activate_mandate(service, store, founder, application_id, monkeypatch)
+    first = await service.correlate_reply(
+        workspace_id="founder", provider_event={
+            "id": "message_bound_replay", "thread_id": "thread_hiring_1",
+            "from": "Ada Candidate <ada@example.test>",
+            "subject": "Re: Interview availability", "excerpt": "Option one.",
+            "automated": True, "automation_basis": "LEGACY_CLASSIFIER",
+        })
+    reads = []
+
+    async def load(message_id, workspace_id):
+        reads.append((message_id, workspace_id))
+        return {"status": "success", "event": {
+            "id": message_id, "thread_id": "thread_hiring_1",
+            "from": "Ada Candidate <ada@example.test>",
+            "subject": "Re: Interview availability", "excerpt": "Option one.",
+            "automated": False,
+        }}
+
+    monkeypatch.setattr("services.alex_mailbox.load_provider_event", load)
+    preview = await service.replay_misclassified_reply(
+        workspace_id="founder", correlation_id=first["correlation_id"])
+    replay = await service.replay_misclassified_reply(
+        workspace_id="founder", correlation_id=first["correlation_id"],
+        execute=True)
+
+    assert preview["dry_run"] is True and preview["eligible"] is True
+    assert reads == [("message_bound_replay", "founder")]
+    assert replay["replayed"] is True
+    assert provider.calls[-1]["action_kind"] == "HIRING_CREATE_INTERVIEW"
+
+
+@pytest.mark.asyncio
 async def test_ambiguous_reply_gets_bounded_alex_followup_without_new_approval(
         founder, monkeypatch):
     store, provider = InMemoryDurableStore(), _Provider()
@@ -446,6 +542,43 @@ async def test_free_form_candidate_time_is_interpreted_then_calendar_guarded(
     assert current["goal_kind"] == "SCHEDULE_INTERVIEW"
     assert current["goal_status"] == "SCHEDULED"
     assert current["current_event_id"] == "calendar_event_1"
+
+
+@pytest.mark.asyncio
+async def test_candidate_availability_window_is_planned_against_live_calendar(
+        founder, monkeypatch):
+    store, provider = InMemoryDurableStore(), _Provider()
+    application_id = await _seed(store)
+    service = _service(store, provider)
+    mandate = await _activate_mandate(
+        service, store, founder, application_id, monkeypatch)
+    first = mandate["confirmed_slots"][0]
+    window_start = datetime.fromisoformat(first["start"]).replace(hour=9)
+    window_end = window_start.replace(hour=18)
+
+    async def interpret(_payload):
+        return {
+            "intent": "PROPOSE_ALTERNATIVE", "selected_option": 0,
+            "proposed_start": "", "proposed_starts": [],
+            "availability_windows": [
+                f"{window_start.isoformat()}/{window_end.isoformat()}"],
+            "unavailable_windows": [], "timezone": "Africa/Lagos",
+            "clarification_needed": "", "confidence": "HIGH",
+        }
+
+    set_interpreter_fn(interpret)
+    reply = await service.correlate_reply(
+        workspace_id="founder", provider_event={
+            "id": "message_window", "thread_id": "thread_hiring_1",
+            "from": "Ada Candidate <ada@example.test>",
+            "subject": "Re: Interview availability",
+            "excerpt": "I can do any working hour that Tuesday.",
+            "kind": "update", "automated": False,
+        })
+
+    assert reply["continuation_status"] == "success"
+    assert provider.calls[-1]["action_kind"] == "HIRING_CREATE_INTERVIEW"
+    assert provider.calls[-1]["exact_action"]["payload"]["start"] == first["start"]
 
 
 @pytest.mark.asyncio

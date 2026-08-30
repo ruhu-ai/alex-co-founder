@@ -1347,18 +1347,28 @@ active consent Alex may continue only that exact candidate thread without a new
 approval for each message.
 
 Inbound mail is classified deterministically for DSN/deferred-delivery and
-automatic-reply semantics before ordinary reply correlation. A permanent DSN
+automatic-reply semantics from provider headers/envelope facts before ordinary
+reply correlation. Quoted message history is stripped before scheduling
+interpretation; words copied from Alex's original invitation can never turn an
+exact applicant/thread match into an automated notice. A permanent DSN
 must correlate to the original RFC822 Message-ID/external action, supersede its
 reply wait, and open contact correction without deciding the candidate. A
 temporary DSN or vacation reply leaves the candidate-reply wait open. A changed
 candidate address is outside the existing consent and requires a new consent.
 
-Scheduling is event-driven rather than polled. The durable goal moves through
+Scheduling is event-driven rather than polled. The versioned
+`schedule-interview.v2` application skill is a tool-less reasoning boundary,
+not an effect authority. On every exact reply wake the controller performs the
+bounded sequence **correlate → normalize authored reply → interpret constraints
+→ read current event/availability → choose one valid next action → draft natural
+connective prose → validate exact recipients/thread/times → prepare receipt →
+execute once → reconcile/wait**. The durable goal moves through
 `CONTACTING`, `WAITING_FOR_REPLY`, `PROCESSING_REPLY`, `SCHEDULED`,
 `CANCELLED`, or content-free `BLOCKED` states and persists its current
 Hiring-owned Calendar event id. A verified Alex Mail reply wakes exactly that
-goal. A tool-less Gemini boundary may classify an explicit option, a concrete
-alternative date/time, a reschedule, a cancellation, or ambiguity; the model
+goal. A tool-less Gemini boundary may classify an explicit option, multiple
+concrete alternative dates/times, bounded availability windows and exclusions,
+a reschedule, a cancellation, or ambiguity; the model
 has no connectors, durable writes, decisions, or effect authority. Code then
 rechecks the candidate/thread/decision/policy/consent window, exact duration,
 Founder free/busy, and event ownership before preparing any effect. Ambiguity
@@ -1369,6 +1379,12 @@ outside the consent window or an expired goal requires fresh Founder consent.
 **Completion:** provider receipt plus open wait with exact causal thread/event
 keys. Sending a message or invite does not imply candidate receipt, agreement,
 attendance, or interview completion.
+
+Older receipts classified as `AUTOMATED_NOTICE` are recoverable only through an
+exact-correlation replay: dry-run first, then reload the single immutable Gmail
+message id already bound to the receipt, repeat current header/thread/sender and
+mandate checks, and advance idempotently. Replay never scans for a replacement
+message and cannot reuse an already advanced receipt.
 
 ### 8.6 Interview evidence
 
@@ -2706,7 +2722,9 @@ synthetic identity/destination gate and H4S cannot authorize a live effect.
 - Founder free/busy slot proposal, applicant email negotiation, interview
   create/update/cancel and receipt tracking;
 - explicit durable `SCHEDULE_INTERVIEW` goal, tool-less grounded reply
-  interpretation, live availability recheck, and update-not-create rescheduling;
+  interpretation of slots/windows/exclusions, natural bounded reply composition,
+  live availability recheck, update-not-create rescheduling, and exact-receipt
+  replay recovery;
 - one fresh, bounded Founder coordination consent plus per-effect durable
   receipts, uncertainty and reconciliation controls in candidate scope.
 

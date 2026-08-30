@@ -30,7 +30,11 @@ from services.durable_store import AtomicMutation, DurableStore, production_stor
 from services.hiring_approval_service import request_approval, validate_approval_claim
 from services.hiring_contracts import canonical_hash, stable_id, utc_now
 from services.hiring_public_intake import HiringPublicIntakeService
-from services.hiring_scheduling_agent import interpret_scheduling_reply
+from services.hiring_scheduling_agent import (
+    SCHEDULING_SKILL_VERSION,
+    draft_scheduling_reply,
+    interpret_scheduling_reply,
+)
 from services.workflow_runtime import WorkflowRuntime
 
 LIVE_ACTIONS = frozenset({
@@ -393,6 +397,7 @@ class HiringCoordinationService:
                     "mandate_id", "status", "copy_founder", "confirmed_slots",
                     "duration_minutes", "email_count", "calendar_action_count",
                     "goal_kind", "goal_status", "goal_step", "current_event_id",
+                    "scheduling_skill_version",
                     "last_reply_correlation_id", "last_transition_at",
                     "scheduling_window_start", "scheduling_window_end",
                     "founder_timezone", "activated_at", "expires_at")}
@@ -528,7 +533,7 @@ class HiringCoordinationService:
             }
         custom_draft = subject is not None or body is not None
         if custom_draft:
-            if (reply or mandate or not availability_hash
+            if (not availability_hash
                     or availability_hash != current_availability_hash):
                 return _error(
                     "founder_availability_changed",
@@ -797,21 +802,71 @@ class HiringCoordinationService:
         return await self._finish(item_id=str(action["coordination_id"]),
                                   action=action, result=result)
 
+    async def replay_misclassified_reply(
+            self, *, workspace_id: str, correlation_id: str,
+            execute: bool = False) -> dict[str, Any]:
+        """Safely inspect or replay one exact old ``AUTOMATED_NOTICE`` receipt.
+
+        Dry-run is the default and reads no provider content. Execute reloads
+        only the immutable provider message referenced by the receipt, then
+        repeats exact thread/sender/header checks. A duplicate, a genuinely
+        automated message, a changed candidate/policy/mandate, or an already
+        advanced receipt remains inert.
+        """
+        row = await self.store.get("hiring_reply_correlations", correlation_id)
+        if (not row or row.get("workspace_id") != workspace_id
+                or row.get("mode") != "LIVE"):
+            return _error("reply_not_found", "Reply receipt is unavailable.", 404)
+        eligible = (row.get("status") == "AUTOMATED_NOTICE"
+                    and not row.get("continuation_status")
+                    and bool(row.get("provider_message_id"))
+                    and bool(row.get("provider_thread_id")))
+        if not execute:
+            return {"status": "success", "dry_run": True,
+                    "eligible": eligible, "correlation_id": correlation_id,
+                    "candidate_application_id": row.get(
+                        "candidate_application_id")}
+        if not eligible:
+            return _error("reply_replay_not_eligible",
+                          "Reply receipt is not eligible for replay.", 409)
+        from services import alex_mailbox
+
+        loaded = await alex_mailbox.load_provider_event(
+            str(row["provider_message_id"]), workspace_id)
+        if loaded.get("error"):
+            return loaded
+        event = dict(loaded["event"])
+        if (event.get("id") != row.get("provider_message_id")
+                or event.get("thread_id") != row.get("provider_thread_id")):
+            return _error("reply_replay_source_changed",
+                          "Provider source no longer matches the receipt.", 409)
+        return await self.correlate_reply(
+            workspace_id=workspace_id, provider_event=event,
+            replay_existing=True)
+
     async def correlate_reply(self, *, workspace_id: str,
-                              provider_event: dict[str, Any]) -> dict[str, Any]:
-        """Bind one Alex-mail event to exactly one successful Hiring send."""
+                              provider_event: dict[str, Any],
+                              replay_existing: bool = False) -> dict[str, Any]:
+        """Bind one Alex-mail event to one send; optionally repair a bad receipt.
+
+        Exact thread + applicant sender is resolved before message semantics.
+        Automated mail is admitted only from provider envelope/header evidence,
+        never a keyword copied from the quoted invitation body.
+        """
         thread_id = str(provider_event.get("thread_id") or "")[:512]
         provider_message_id = str(provider_event.get("id") or "")[:512]
         sender = parseaddr(str(provider_event.get("from") or ""))[1].strip().casefold()
         if not thread_id or not provider_message_id or not sender:
             return _error("reply_not_correlatable", "Reply metadata is incomplete.", 404)
-        kind = str(provider_event.get("kind") or "update")
         raw_subject = str(provider_event.get("subject") or "")
         raw_excerpt = str(provider_event.get("excerpt") or "")
-        automated_text = f"{sender} {raw_subject} {raw_excerpt}".casefold()
-        auto = (kind == "confirmation" or any(marker in automated_text for marker in (
-            "mailer-daemon", "delivery status notification", "undeliverable",
-            "automatic reply", "auto-reply", "out of office")))
+        automated_text = f"{sender} {raw_subject}".casefold()
+        explicit_auto = provider_event.get("automated")
+        auto = (bool(explicit_auto) if explicit_auto is not None else any(
+            marker in automated_text for marker in (
+                "mailer-daemon", "postmaster@", "delivery status notification",
+                "undeliverable", "automatic reply", "auto-reply",
+                "out of office")))
         candidates = [
             row for row in await self._workspace_rows(
                 "external_actions", workspace_id, descending=True)
@@ -852,6 +907,8 @@ class HiringCoordinationService:
             "provider_thread_id": thread_id,
             "message_kind": "AUTOMATED" if auto else "APPLICANT_REPLY",
             "auto_submitted": auto,
+            "automation_basis": str(
+                provider_event.get("automation_basis") or "")[:80],
             "status": "AUTOMATED_NOTICE" if auto else "REPLY_RECEIVED",
             "safe_subject": subject, "safe_excerpt": excerpt,
             "content_authority": "UNTRUSTED_CANDIDATE_MESSAGE",
@@ -860,21 +917,51 @@ class HiringCoordinationService:
         }
         created = await self.store.create(
             "hiring_reply_correlations", correlation_id, row)
+        replayed = False
+        current = (row if created else await self.store.get(
+            "hiring_reply_correlations", correlation_id))
+        if (not created and replay_existing and current
+                and current.get("workspace_id") == workspace_id
+                and current.get("candidate_application_id") == application_id
+                and current.get("provider_message_id") == provider_message_id
+                and current.get("provider_thread_id") == thread_id
+                and current.get("status") == "AUTOMATED_NOTICE" and not auto):
+            replay_commit = await self.store.compare_and_set(
+                "hiring_reply_correlations", correlation_id,
+                int(current["version"]), {
+                    "message_kind": "APPLICANT_REPLY",
+                    "auto_submitted": False,
+                    "automation_basis": "",
+                    "status": "REPLY_RECEIVED",
+                    "safe_subject": subject,
+                    "safe_excerpt": excerpt,
+                    "replayed_at": utc_now(),
+                    "updated_at": utc_now(),
+                })
+            replayed = bool(replay_commit)
+            if replayed:
+                current = await self.store.get(
+                    "hiring_reply_correlations", correlation_id)
         continuation: dict[str, Any] | None = None
-        if created:
+        if created or replayed:
             await self.runtime.append_event(
                 str(action.get("run_id") or ""),
                 event_kind=("CANDIDATE_REPLY_RECEIVED" if not auto
                             else "CANDIDATE_AUTOMATED_MAIL_RECEIVED"),
-                idempotency_key=f"hiring-reply:{correlation_id}",
+                idempotency_key=(f"hiring-reply-replay:{correlation_id}"
+                                 if replayed else f"hiring-reply:{correlation_id}"),
                 safe_payload={"correlation_id": correlation_id,
                               "message_kind": row["message_kind"]})
             if not auto and not injection_suspected:
                 continuation = await self._continue_from_reply(
                     workspace_id=workspace_id, application_id=application_id,
                     correlation_id=correlation_id, excerpt=excerpt)
-                await self.store.compare_and_set(
-                    "hiring_reply_correlations", correlation_id, 1, {
+                latest = await self.store.get(
+                    "hiring_reply_correlations", correlation_id)
+                if latest:
+                    await self.store.compare_and_set(
+                    "hiring_reply_correlations", correlation_id,
+                    int(latest["version"]), {
                         "continuation_status": (
                             "GOAL_ADVANCED" if not continuation.get("error")
                             else "GOAL_BLOCKED"),
@@ -882,7 +969,8 @@ class HiringCoordinationService:
                             continuation.get("error_code") or ""),
                         "updated_at": utc_now(),
                     })
-        return {"status": "success", "duplicate": not created,
+        return {"status": "success", "duplicate": not created and not replayed,
+                "replayed": replayed,
                 "correlation_id": correlation_id,
                 "candidate_application_id": application_id,
                 "candidate_run_id": row["candidate_run_id"],
@@ -950,36 +1038,138 @@ class HiringCoordinationService:
         intent = str(interpretation.get("intent") or "ASK_CLARIFICATION")
         selected_option = int(interpretation.get("selected_option") or 0)
         slots = list(mandate.get("confirmed_slots") or [])
-        selected = (slots[selected_option - 1]
-                    if 0 < selected_option <= len(slots) else None)
-        proposed_start = str(interpretation.get("proposed_start") or "")
-        proposed_end = str(interpretation.get("proposed_end") or "")
         proposed_timezone = str(
             interpretation.get("timezone") or
             mandate.get("founder_timezone") or "Africa/Lagos")
-        if selected or (proposed_start and proposed_end and intent in {
+        transitioned = await self._transition_goal(
+            mandate, goal_status="PROCESSING_REPLY",
+            goal_step="CHECK_FOUNDER_AVAILABILITY",
+            correlation_id=correlation_id)
+        if transitioned.get("error"):
+            return transitioned
+        mandate = transitioned["mandate"]
+
+        candidates: list[dict[str, str]] = []
+        if 0 < selected_option <= len(slots):
+            candidates.append(dict(slots[selected_option - 1]))
+        duration = int(
+            mandate.get("duration_minutes") or _DEFAULT_INTERVIEW_MINUTES)
+        for value in list(interpretation.get("proposed_starts") or []):
+            try:
+                start = datetime.fromisoformat(str(value))
+                end = start + timedelta(minutes=duration)
+            except ValueError:
+                continue
+            candidates.append({
+                "start": start.isoformat(), "end": end.isoformat(),
+                "timezone": proposed_timezone,
+                "display": start.astimezone(
+                    ZoneInfo(proposed_timezone)).strftime("%a %d %b, %H:%M %Z"),
+            })
+
+        refreshed: dict[str, Any] | None = None
+        windows = list(interpretation.get("availability_windows") or [])
+        excluded = list(interpretation.get("unavailable_windows") or [])
+        if windows:
+            refreshed = await self._available_slots(
+                workspace_id, duration_minutes=duration)
+            if not refreshed.get("error"):
+                for slot in refreshed.get("slots") or []:
+                    slot_start = datetime.fromisoformat(str(slot["start"]))
+                    slot_end = datetime.fromisoformat(str(slot["end"]))
+                    inside = any(
+                        datetime.fromisoformat(window.split("/", 1)[0]) <= slot_start
+                        and slot_end <= datetime.fromisoformat(
+                            window.split("/", 1)[1])
+                        for window in windows)
+                    blocked = any(
+                        slot_start < datetime.fromisoformat(
+                            window.split("/", 1)[1])
+                        and slot_end > datetime.fromisoformat(
+                            window.split("/", 1)[0])
+                        for window in excluded)
+                    if inside and not blocked:
+                        candidates.append(dict(slot))
+
+        selected: dict[str, str] | None = None
+        seen: set[tuple[str, str]] = set()
+        for slot in candidates:
+            key = (str(slot.get("start") or ""), str(slot.get("end") or ""))
+            if key in seen or not self._slot_within_window(mandate, slot):
+                continue
+            seen.add(key)
+            available = await self._slot_still_available(
+                workspace_id, key[0], key[1])
+            if not available.get("error"):
+                selected = slot
+                break
+
+        if (selected and intent in {
                 "ACCEPT_OFFERED_SLOT", "PROPOSE_ALTERNATIVE",
                 "REQUEST_RESCHEDULE"}):
-            slot = selected or {
-                "start": proposed_start, "end": proposed_end,
-                "timezone": proposed_timezone,
-            }
+            transitioned = await self._transition_goal(
+                mandate, goal_status="PROCESSING_REPLY",
+                goal_step=("PREPARE_INTERVIEW_UPDATE" if current_event_id
+                           else "PREPARE_INTERVIEW_CREATE"),
+                correlation_id=correlation_id)
+            if transitioned.get("error"):
+                return transitioned
+            mandate = transitioned["mandate"]
             prepared = await self.prepare_interview(
                 principal=principal, application_id=application_id,
-                start=str(slot["start"]), end=str(slot["end"]),
-                timezone_name=str(slot["timezone"]),
+                start=str(selected["start"]), end=str(selected["end"]),
+                timezone_name=str(selected["timezone"]),
                 client_request_id=f"reply_schedule:{correlation_id}",
                 target_event_id=current_event_id)
         elif intent == "REQUEST_CANCELLATION" and current_event_id:
+            transitioned = await self._transition_goal(
+                mandate, goal_status="PROCESSING_REPLY",
+                goal_step="PREPARE_INTERVIEW_CANCELLATION",
+                correlation_id=correlation_id)
+            if transitioned.get("error"):
+                return transitioned
+            mandate = transitioned["mandate"]
             prepared = await self.prepare_interview(
                 principal=principal, application_id=application_id,
                 start="", end="", timezone_name=proposed_timezone,
                 client_request_id=f"reply_cancel:{correlation_id}",
                 target_event_id=current_event_id, cancel=True)
         else:
-            prepared = await self.prepare_contact(
-                principal=principal, application_id=application_id,
-                client_request_id=f"reply_continue:{correlation_id}", reply=True)
+            if refreshed is None:
+                refreshed = await self._available_slots(
+                    workspace_id, duration_minutes=duration)
+            if refreshed.get("error"):
+                prepared = refreshed
+            else:
+                verified_slots = list(refreshed.get("slots") or [])
+                drafted = await draft_scheduling_reply(
+                    applicant_reply=excerpt,
+                    candidate_first_name=str(
+                        mandate.get("candidate_first_name") or "there"),
+                    role_title=str(role.get("role_title") or "your application"),
+                    outcome=("OFFER_ALTERNATIVES" if candidates
+                             else "ASK_CLARIFICATION"),
+                    verified_slots=verified_slots,
+                    duration_minutes=duration,
+                    provider_thread_id=str(
+                        mandate.get("provider_thread_id") or ""),
+                )
+                transitioned = await self._transition_goal(
+                    mandate, goal_status="PROCESSING_REPLY",
+                    goal_step="DRAFT_BOUNDED_CONTINUATION",
+                    correlation_id=correlation_id)
+                if transitioned.get("error"):
+                    return transitioned
+                mandate = transitioned["mandate"]
+                prepared = await self.prepare_contact(
+                    principal=principal, application_id=application_id,
+                    client_request_id=f"reply_continue:{correlation_id}",
+                    reply=True, subject=str(drafted["subject"]),
+                    body=str(drafted["body"]),
+                    availability_hash=canonical_hash({
+                        "duration_minutes": duration,
+                        "slots": verified_slots,
+                    }))
         if prepared.get("error"):
             latest = await self.store.get(
                 "hiring_coordination_mandates", str(mandate["mandate_id"]))
@@ -1003,6 +1193,7 @@ class HiringCoordinationService:
             "goal_kind": "SCHEDULE_INTERVIEW",
             "goal_status": goal_status,
             "goal_step": goal_step,
+            "scheduling_skill_version": SCHEDULING_SKILL_VERSION,
             "last_transition_at": utc_now(),
             "updated_at": utc_now(),
         }

@@ -119,26 +119,115 @@ def _no_oauth() -> dict:
             "message": "Alex's mailbox not connected (Connectors → Alex's Mailbox → Connect)"}
 
 
+_QUOTED_REPLY_BOUNDARIES = (
+    re.compile(r"^\s*>"),
+    re.compile(r"^\s*On .{1,300} wrote:\s*$", re.IGNORECASE),
+    re.compile(r"^\s*-{2,}\s*Original Message\s*-{2,}\s*$", re.IGNORECASE),
+    re.compile(r"^\s*(?:From|Sent|To|Subject):\s+.+$", re.IGNORECASE),
+)
+
+
+def _authored_reply(body: str) -> str:
+    """Return only the newly authored, bounded part of an email reply.
+
+    Quoted history is useful in the mailbox but must not be interpreted as the
+    applicant's new scheduling intent.  In particular, the original invitation
+    contains phrases such as "thank you for applying" that generic mail
+    classifiers otherwise misread as an automated confirmation.
+    """
+    lines: list[str] = []
+    for raw in str(body or "").replace("\r\n", "\n").split("\n"):
+        if any(pattern.match(raw) for pattern in _QUOTED_REPLY_BOUNDARIES):
+            break
+        if raw.strip() == "--":
+            break
+        lines.append(raw)
+    return re.sub(r"\s+", " ", "\n".join(lines)).strip()[:1600]
+
+
+def _automated_message(headers: dict[str, str], sender: str,
+                       subject: str) -> tuple[bool, str]:
+    """Classify DSN/vacation/system mail from envelope facts, not quoted body."""
+    auto_submitted = headers.get("auto-submitted", "").strip().casefold()
+    precedence = headers.get("precedence", "").strip().casefold()
+    content_type = headers.get("content-type", "").strip().casefold()
+    return_path = headers.get("return-path", "").strip().casefold()
+    folded = f"{sender} {subject}".casefold()
+    if auto_submitted and auto_submitted != "no":
+        return True, "AUTO_SUBMITTED"
+    if precedence in {"bulk", "junk", "list", "auto_reply"}:
+        return True, "PRECEDENCE"
+    if ("delivery-status" in content_type or "mailer-daemon" in folded
+            or "postmaster@" in folded or return_path == "<>"
+            or any(marker in subject.casefold() for marker in (
+                "delivery status notification", "undeliverable",
+                "automatic reply", "auto-reply", "out of office"))):
+        return True, "PROVIDER_AUTOMATION"
+    return False, ""
+
+
 def _message_to_event(svc, stub: dict) -> dict | None:
     try:
         msg = svc.users().messages().get(userId="me", id=stub["id"], format="full").execute()
     except Exception:
         return None  # one unreadable message never fails the scan
     headers = msg.get("payload", {}).get("headers", [])
+    header_map = {
+        str(item.get("name") or "").casefold(): str(item.get("value") or "")
+        for item in headers
+    }
     subject = gmail_adapter._header(headers, "subject")
     sender = gmail_adapter._header(headers, "from")
-    body = gmail_adapter._body_text(msg.get("payload", {}))[:2000] or msg.get("snippet", "")
+    body = (gmail_adapter._body_text(msg.get("payload", {}))[:_BODY_CAP]
+            or msg.get("snippet", ""))
+    reply_text = _authored_reply(body)
+    automated, automation_basis = _automated_message(
+        header_map, sender, subject)
     return {
         "id": stub["id"],
         "thread_id": msg.get("threadId") or stub.get("threadId") or "",
         "from": sender,
         "subject": subject,
-        "kind": gmail_adapter.classify(subject, body),
+        # Generic mailbox classification sees only newly authored text. Hiring
+        # uses the exact thread/sender plus the explicit envelope automation
+        # facts below; it never treats a quoted invitation as a confirmation.
+        "kind": gmail_adapter.classify(subject, reply_text),
+        "automated": automated,
+        "automation_basis": automation_basis,
+        "auto_submitted": header_map.get("auto-submitted", "")[:_META_CAP],
+        "precedence": header_map.get("precedence", "")[:_META_CAP],
+        "content_type": header_map.get("content-type", "")[:_META_CAP],
+        "in_reply_to": header_map.get("in-reply-to", "")[:_META_CAP],
+        "references": header_map.get("references", "")[:500],
         # The generic wake/inbox projection truncates this again to 280 chars.
-        # Hiring receives the bounded 1,000-char reply so relative scheduling
-        # context is not lost before its isolated interpretation boundary.
-        "excerpt": re.sub(r"\s+", " ", body)[:1000],
+        # Hiring receives only the authored reply so quoted history cannot
+        # become scheduling intent. The immutable provider message id remains
+        # the audit/source reference.
+        "excerpt": reply_text[:1000],
     }
+
+
+async def load_provider_event(message_id: str, workspace_id: str = "") -> dict:
+    """Reload one exact Gmail message as a normalized, content-bounded event.
+
+    This is the recovery seam for a durable reply receipt that was classified
+    incorrectly by an older build. It performs one read, never marks mail,
+    advances a cursor, or triggers a workflow by itself.
+    """
+    if not re.fullmatch(r"[A-Za-z0-9_-]{1,512}", str(message_id or "")):
+        return {"status": "error", "error": True,
+                "error_code": "invalid_contract",
+                "message": "Provider message id is invalid."}
+    svc = await asyncio.to_thread(_service, workspace_id)
+    if svc is None:
+        return _no_oauth()
+    event = await asyncio.to_thread(
+        _message_to_event, svc, {"id": message_id})
+    if not event:
+        return {"status": "error", "error": True,
+                "error_code": "provider_message_unavailable",
+                "message": "Provider message could not be read."}
+    return {"status": "success", "event": event}
 
 
 def _full_body(svc, message_id: str) -> str:
