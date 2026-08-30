@@ -1,0 +1,47 @@
+agents/co_founder/instructions.py
+  s_16e75b10efee22::t_a53b17cdf5e5a0 242,246-247
+agents/co_founder/agent.py
+  s_16e75b10efee22::t_f1f653e7c3cb1d 64-68
+tests/unit/test_live_vision_ui_contract.py
+  s_16e75b10efee22::t_7581ea0aa3dc07 310
+tests/unit/test_live_agent_routing.py
+  s_16e75b10efee22::t_96c0e6454aa0d4 1-75
+services/live_attention.py
+  s_16e75b10efee22::t_a53b17cdf5e5a0 1,5-9,36-41,62,67-68,73
+agents/co_founder/sub_agents/scout.py
+  s_16e75b10efee22::t_f1f653e7c3cb1d 25,29-32,34-39
+tests/unit/test_live_attention.py
+  s_16e75b10efee22::t_7581ea0aa3dc07 16-19,35,37-38
+agents/co_founder/sub_agents/form_filler.py
+  s_16e75b10efee22::t_f1f653e7c3cb1d 95,99-102,104-106
+agents/co_founder/sub_agents/interviewer.py
+  s_16e75b10efee22::t_f1f653e7c3cb1d 17,21-24,26-28
+agents/co_founder/sub_agents/drafter.py
+  s_16e75b10efee22::t_f1f653e7c3cb1d 18,22-25,27-29
+agents/co_founder/sub_agents/matchmaker.py
+  s_16e75b10efee22::t_f1f653e7c3cb1d 17,21-24,26-28
+app/live.py
+  s_16e75b10efee22::t_2a663cceaf4e75 34
+  s_16e75b10efee22::t_a53b17cdf5e5a0 729
+  s_16e75b10efee22::t_c05b94aebd9ded 21,28,156-191,251-263
+tests/unit/test_live_voice_startup_ui.py
+  s_16e75b10efee22::t_7581ea0aa3dc07 230-232,236
+app/static/index.html
+  s_16e75b10efee22::t_d4f581927bd27b 7681,7686,7689,8335
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "438cbfbf80e4ce91dbe6646b3b6c7a8853a658cb",
+  "prompts": {},
+  "sessions": {
+    "s_16e75b10efee22": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0484d-a6bd-7182-90ae-527ccfd2a966",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Ijidai Lassa <ijidai@cued.app>"
+    }
+  }
+}
