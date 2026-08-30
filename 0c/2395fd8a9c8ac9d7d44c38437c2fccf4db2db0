@@ -1,0 +1,22 @@
+services/drive_adapter.py
+  s_16e75b10efee22::t_75d2c0511554eb 79,82,87-97
+tests/unit/test_services.py
+  s_16e75b10efee22::t_75d2c0511554eb 644-646,651-668
+  s_16e75b10efee22::t_e104bd7d039eff 669
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "0c2395fd8a9c8ac9d7d44c38437c2fccf4db2db0",
+  "prompts": {},
+  "sessions": {
+    "s_16e75b10efee22": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0484d-a6bd-7182-90ae-527ccfd2a966",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Ijidai Lassa <ijidai@cued.app>"
+    }
+  }
+}
