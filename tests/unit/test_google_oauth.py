@@ -226,6 +226,19 @@ def test_alex_connector_credential_slots_are_distinct_and_founder_slot_is_stable
             "founder", "workspace-a")
 
 
+def test_local_credential_presence_uses_exact_connector_slot(monkeypatch):
+    slot = google_oauth.credential_ref(
+        "alex", "workspace-a", "alex_mail")
+    monkeypatch.delenv("K_SERVICE", raising=False)
+    monkeypatch.delenv(slot, raising=False)
+    assert google_oauth.credential_presence(
+        "alex", "workspace-a", "alex_mail") == "missing"
+
+    monkeypatch.setenv(slot, "opaque-test-token")
+    assert google_oauth.credential_presence(
+        "alex", "workspace-a", "alex_mail") == "available"
+
+
 def test_alex_connector_refresh_tokens_are_saved_to_separate_slots(monkeypatch):
     writes = []
     monkeypatch.setattr(

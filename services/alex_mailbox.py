@@ -13,7 +13,9 @@ full message reads are allowed. The boundaries that remain:
 
 Inbound: Gmail watch → Pub/Sub → POST /webhooks/alex_mail → history-based
 fetch → classified events. Processed ids + history id persist in Firestore so
-rescans are idempotent (principle 4).
+rescans are idempotent (principle 4). The history cursor advances only after
+every returned message has a durable domain receipt and its provider id has
+been recorded processed.
 
 CALLER CONTRACT — fetch and mark are SEPARATE (docs/24 §9.2 step 3/7):
 `scan_unread()` and `fetch_history_events()` return events and mark NOTHING.
@@ -24,7 +26,9 @@ lost the message permanently: it stayed on the processed list and every later
 rescan skipped it. The price of the correct order is at-least-once delivery: an
 event can be returned twice when the caller dies before marking, so domain
 effects must tolerate a repeat. Both fetches also return `unmarked_event_ids`,
-the exact list to hand to `mark_processed`.
+the exact list to hand to `mark_processed`. History fetches additionally return
+an expected/proposed cursor pair; the caller must commit it with
+`advance_history_cursor()` only after durable settlement.
 
 Outbound (docs/24 §11.2): every send is bound to the founder-approved payload
 by `approval_service.action_subject_hash`, carries a deterministic RFC822
@@ -111,6 +115,7 @@ def _service(workspace_id: str = "", account: str = "alex"):
 
 def _no_oauth() -> dict:
     return {"status": "error", "error": True,
+            "error_code": "auth_required",
             "message": "Alex's mailbox not connected (Connectors → Alex's Mailbox → Connect)"}
 
 
@@ -178,6 +183,30 @@ async def mark_processed(message_ids: list[str], workspace_id: str = "") -> dict
                 "marked": 0, "ids": ids,
                 "message": f"could not record processed ids: {type(exc).__name__}"}
     return {"status": "success", "marked": len(ids), "ids": ids}
+
+
+async def advance_history_cursor(expected_history_id: str,
+                                 proposed_history_id: str,
+                                 workspace_id: str = "") -> dict:
+    """CAS-advance Gmail history only after the fetched batch is settled.
+
+    A retry may observe that another worker already advanced to the same or a
+    later provider cursor. Firestore owns that concurrency decision; this
+    wrapper keeps failures as data so the webhook can nack/retry safely.
+    """
+    if not proposed_history_id:
+        return {"status": "success", "advanced": False,
+                "history_id": expected_history_id or ""}
+    try:
+        return await firestore.advance_alex_history_id(
+            str(expected_history_id or ""), str(proposed_history_id),
+            workspace_id)
+    except Exception as exc:
+        return {"status": "error", "error": True,
+                "error_code": "history_cursor_write_failed",
+                "advanced": False,
+                "message": ("Could not durably advance Alex Mail history: "
+                            f"{type(exc).__name__}")}
 
 
 async def scan_unread(max_results: int = 20, workspace_id: str = "") -> dict:
@@ -349,7 +378,22 @@ async def fetch_history_events(workspace_id: str = "") -> dict:
     unread scan when no watch history id is stored yet.
 
     Marks NOTHING processed — see `mark_processed` and the module docstring."""
-    svc = await asyncio.to_thread(_service, workspace_id)
+    try:
+        svc = await asyncio.to_thread(_service, workspace_id)
+    except Exception as exc:
+        # Refresh-token rejection is an authentication state, while transport
+        # and control-plane failures remain retryable provider availability.
+        # Never expose provider text or credential material to the caller.
+        lowered = f"{type(exc).__name__} {exc}".lower()
+        auth_failed = any(marker in lowered for marker in (
+            "invalid_grant", "refresherror", "unauthorized", "401"))
+        return {
+            "status": "error", "error": True,
+            "error_code": ("auth_required" if auth_failed
+                           else "provider_unavailable"),
+            "message": ("Alex's mailbox authorization is no longer valid"
+                        if auth_failed else "Alex's mailbox is temporarily unavailable"),
+        }
     if svc is None:
         return _no_oauth()
     start = await (firestore.get_alex_history_id(workspace_id)
@@ -374,28 +418,23 @@ async def fetch_history_events(workspace_id: str = "") -> dict:
         except Exception as exc:
             if _history_expired(exc):
                 # The stored cursor is DEAD, so recovering the messages is only
-                # half the job: without replacing it, this branch returns before
-                # set_alex_history_id and every subsequent push 404s straight
-                # back into a 20-message capped scan — permanently.
+                # half the job. Return a fresh proposed cursor but do not write
+                # it here: the caller must first durably settle every recovered
+                # message, otherwise a crash loses the reply permanently.
                 # Read the fresh cursor BEFORE the recovery scan: anything that
                 # arrives during the scan then belongs to the next history
-                # fetch instead of falling into a gap. Persist it only once the
-                # scan actually succeeded.
+                # fetch instead of falling into a gap.
                 fresh = await asyncio.to_thread(_mailbox_history_id, svc)
                 result = await scan_unread(workspace_id=workspace_id)
                 if isinstance(result, dict) and result.get("status") == "success":
                     result["recovered_via"] = "scan_unread"  # startHistoryId expired
-                    if fresh:
-                        if workspace_id:
-                            await firestore.set_alex_history_id(
-                                fresh, workspace_id)
-                        else:
-                            await firestore.set_alex_history_id(fresh)
-                    result["history_id"] = fresh
-                    result["cursor_advanced"] = bool(fresh)
+                    result["start_history_id"] = str(start)
+                    result["proposed_history_id"] = fresh
+                    result["cursor_advanced"] = False
                 return result
             return {"status": "error", "error": True,
-                    "message": f"history fetch failed: {exc}"}
+                    "error_code": "provider_unavailable",
+                    "message": "Alex Mail history is temporarily unavailable"}
         stubs.extend(m for h in resp.get("history", []) for m in h.get("messages", []))
         new_history_id = resp.get("historyId", new_history_id)
         page_token = resp.get("nextPageToken")
@@ -409,24 +448,24 @@ async def fetch_history_events(workspace_id: str = "") -> dict:
         if stub["id"] in processed:
             continue
         event = await asyncio.to_thread(_message_to_event, svc, stub)
-        if event:
-            events.append(event)
-    # The cursor advances here (a replayed push must not re-walk the same
-    # history), but the per-message processed list does NOT: that is the
-    # caller's to write once the domain effect is durable.
-    if new_history_id:
-        if workspace_id:
-            await firestore.set_alex_history_id(
-                str(new_history_id), workspace_id)
-        else:
-            await firestore.set_alex_history_id(str(new_history_id))
+        if not event:
+            # A history stub is a real provider event. Treating an unreadable
+            # one as absent and then advancing the cursor silently loses it.
+            return {"status": "error", "error": True,
+                    "error_code": "provider_message_unavailable",
+                    "message": "An Alex Mail message could not be read safely"}
+        events.append(event)
     summary = {"events": events, "scanned": len(stubs)}
     if workspace_id:
         await firestore.set_last_alex_scan(summary, workspace_id)
     else:
         await firestore.set_last_alex_scan(summary)
     return {"status": "success", **summary,
-            "unmarked_event_ids": [e["id"] for e in events]}
+            "unmarked_event_ids": [e["id"] for e in events],
+            "start_history_id": str(start),
+            "proposed_history_id": (str(new_history_id)
+                                    if new_history_id else str(start)),
+            "cursor_advanced": False}
 
 
 async def start_watch(topic: str, workspace_id: str = "") -> dict:

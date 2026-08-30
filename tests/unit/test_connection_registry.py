@@ -90,6 +90,69 @@ async def test_legacy_alex_drive_scope_is_reauth_and_cannot_execute(fake_store):
     assert gate["error_code"] == "scope_missing"
 
 
+async def test_exact_alex_grant_requires_its_runtime_credential(
+        fake_store, monkeypatch):
+    connector = "alex_mail"
+    credential_ref = google_oauth.credential_ref(
+        "alex", "founder", connector)
+    connection = await firestore.upsert_data_connection(
+        "founder", connector, account_ref="alex-role-mailbox",
+        auth_kind="google_oauth", credential_ref=credential_ref,
+        granted_scopes=google_oauth.SCOPE_MAP[connector], status="CONNECTED")
+    monkeypatch.delenv("K_SERVICE", raising=False)
+    monkeypatch.delenv(credential_ref, raising=False)
+
+    gate = await connection_registry.authorize_connector_operation(
+        "founder", connector)
+
+    assert gate["status"] == "error"
+    assert gate["error_code"] == "auth_required"
+    current = await firestore.get_data_connection(
+        "founder", connection["connection_id"])
+    assert current["status"] == "REAUTH_REQUIRED"
+    assert current["last_error_code"] == "auth_required"
+
+
+async def test_exact_alex_grant_with_runtime_credential_is_authorized(
+        fake_store, monkeypatch):
+    connector = "alex_mail"
+    credential_ref = google_oauth.credential_ref(
+        "alex", "founder", connector)
+    await firestore.upsert_data_connection(
+        "founder", connector, account_ref="alex-role-mailbox",
+        auth_kind="google_oauth", credential_ref=credential_ref,
+        granted_scopes=google_oauth.SCOPE_MAP[connector], status="CONNECTED")
+    monkeypatch.delenv("K_SERVICE", raising=False)
+    monkeypatch.setenv(credential_ref, "test-refresh-token")
+
+    gate = await connection_registry.authorize_connector_operation(
+        "founder", connector)
+
+    assert gate["status"] == "success"
+    assert gate["connection"]["status"] == "CONNECTED"
+
+
+async def test_transient_credential_lookup_does_not_force_reauthentication(
+        fake_store, monkeypatch):
+    connector = "alex_mail"
+    credential_ref = google_oauth.credential_ref(
+        "alex", "founder", connector)
+    connection = await firestore.upsert_data_connection(
+        "founder", connector, account_ref="alex-role-mailbox",
+        auth_kind="google_oauth", credential_ref=credential_ref,
+        granted_scopes=google_oauth.SCOPE_MAP[connector], status="CONNECTED")
+    monkeypatch.setattr(google_oauth, "credential_presence",
+                        lambda *_args: "unavailable")
+
+    gate = await connection_registry.authorize_connector_operation(
+        "founder", connector)
+
+    assert gate["error_code"] == "provider_unavailable"
+    current = await firestore.get_data_connection(
+        "founder", connection["connection_id"])
+    assert current["status"] == "CONNECTED"
+
+
 async def test_successful_operation_repairs_degraded_connection(fake_store):
     connection = await _connection("founder", "calendar")
     await firestore.transition_data_connection(

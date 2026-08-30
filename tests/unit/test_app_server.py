@@ -360,11 +360,13 @@ class TestDriveExportReceipts:
         command_store = InMemoryDurableStore()
         monkeypatch.setattr(appmod, "production_store", lambda: command_store)
 
+        alex_drive_credential = google_oauth.credential_ref(
+            "alex", appmod.FOUNDER_ID, "alex_drive")
+        monkeypatch.setenv(alex_drive_credential, "test-refresh-token")
         connection = asyncio.run(firestore.upsert_data_connection(
             appmod.FOUNDER_ID, "alex_drive", account_ref="alex-role-mailbox",
             auth_kind="google_oauth",
-            credential_ref=google_oauth.credential_ref(
-                "alex", appmod.FOUNDER_ID, "alex_drive"),
+            credential_ref=alex_drive_credential,
             granted_scopes=google_oauth.SCOPE_MAP["alex_drive"],
             status="CONNECTED"))
         listed = []
@@ -1009,6 +1011,175 @@ class TestFounderInboxApi:
 
         assert response.status_code == 409
         assert response.json()["error_code"] == "connector_binding_ambiguous"
+
+    def test_local_alex_mail_push_refuses_ack_when_processing_fails(
+            self, appmod, client, monkeypatch):
+        monkeypatch.delenv("K_SERVICE", raising=False)
+
+        async def _allow(_request):
+            return True
+
+        async def _fail(_workspace_id):
+            return {"status": "error", "error": True,
+                    "error_code": "auth_required", "message": "reconnect"}
+
+        monkeypatch.setattr(appmod, "_verify_task_caller", _allow)
+        monkeypatch.setattr(appmod, "_alex_mail_process", _fail)
+
+        response = client.post("/webhooks/alex_mail", json={"message": {}})
+
+        assert response.status_code == 503
+        assert response.json()["error_code"] == "auth_required"
+
+    def test_local_alex_mail_push_acks_only_successful_processing(
+            self, appmod, client, monkeypatch):
+        monkeypatch.delenv("K_SERVICE", raising=False)
+
+        async def _allow(_request):
+            return True
+
+        async def _succeed(_workspace_id):
+            return {"status": "success", "processed": 1, "settled": 1}
+
+        monkeypatch.setattr(appmod, "_verify_task_caller", _allow)
+        monkeypatch.setattr(appmod, "_alex_mail_process", _succeed)
+
+        response = client.post("/webhooks/alex_mail", json={"message": {}})
+
+        assert response.status_code == 200
+        assert response.json()["settled"] == 1
+
+    def test_alex_mail_batch_does_not_advance_an_unsettled_event(
+            self, appmod, monkeypatch):
+        from services import alex_mailbox, connection_registry, external_event_service
+
+        async def _gate(_workspace, _connector):
+            return {"status": "success"}
+
+        async def _fetch(_workspace):
+            return {"status": "success", "events": [{"id": "mail-1"}],
+                    "start_history_id": "100", "proposed_history_id": "200"}
+
+        async def _record(*_args):
+            return None
+
+        async def _batch(*_args, **_kwargs):
+            return {"status": "success", "results": [{"settled": False}],
+                    "settled_provider_ids": [], "processed": 1}
+
+        async def _must_not_run(*_args, **_kwargs):
+            raise AssertionError("unsettled mail must remain retryable")
+
+        async def _last(*_args):
+            return None
+
+        monkeypatch.setattr(connection_registry, "authorize_connector_operation", _gate)
+        monkeypatch.setattr(connection_registry, "record_operation_result", _record)
+        monkeypatch.setattr(alex_mailbox, "fetch_history_events", _fetch)
+        monkeypatch.setattr(alex_mailbox, "mark_processed", _must_not_run)
+        monkeypatch.setattr(alex_mailbox, "advance_history_cursor", _must_not_run)
+        monkeypatch.setattr(external_event_service, "process_mail_batch", _batch)
+        monkeypatch.setattr(appmod.firestore, "set_last_alex_scan", _last)
+
+        result = asyncio.run(appmod._alex_mail_process("founder"))
+
+        assert result["status"] == "error"
+        assert result["error_code"] == "provider_event_unsettled"
+
+    def test_alex_mail_batch_marks_then_advances_cursor(
+            self, appmod, monkeypatch):
+        from services import alex_mailbox, connection_registry, external_event_service
+
+        order = []
+
+        async def _gate(_workspace, _connector):
+            return {"status": "success"}
+
+        async def _fetch(_workspace):
+            return {"status": "success", "events": [{"id": "mail-1"}],
+                    "start_history_id": "100", "proposed_history_id": "200"}
+
+        async def _record(*_args):
+            return None
+
+        async def _batch(*_args, **_kwargs):
+            order.append("domain_receipt")
+            return {"status": "success", "results": [{"settled": True}],
+                    "settled_provider_ids": ["mail-1"], "processed": 1}
+
+        async def _mark(ids, workspace):
+            order.append("processed_id")
+            assert ids == ["mail-1"] and workspace == "founder"
+            return {"status": "success", "marked": 1, "ids": ids}
+
+        async def _advance(expected, proposed, workspace):
+            order.append("cursor")
+            assert (expected, proposed, workspace) == ("100", "200", "founder")
+            return {"status": "success", "advanced": True, "history_id": "200"}
+
+        async def _last(*_args):
+            return None
+
+        monkeypatch.setattr(connection_registry, "authorize_connector_operation", _gate)
+        monkeypatch.setattr(connection_registry, "record_operation_result", _record)
+        monkeypatch.setattr(alex_mailbox, "fetch_history_events", _fetch)
+        monkeypatch.setattr(alex_mailbox, "mark_processed", _mark)
+        monkeypatch.setattr(alex_mailbox, "advance_history_cursor", _advance)
+        monkeypatch.setattr(external_event_service, "process_mail_batch", _batch)
+        monkeypatch.setattr(appmod.firestore, "set_last_alex_scan", _last)
+
+        result = asyncio.run(appmod._alex_mail_process("founder"))
+
+        assert result == {"status": "success", "processed": 1, "settled": 1,
+                          "cursor_advanced": True}
+        assert order == ["domain_receipt", "processed_id", "cursor"]
+
+    def test_alex_mail_large_batch_marks_partial_progress_without_cursor(
+            self, appmod, monkeypatch):
+        from services import alex_mailbox, connection_registry, external_event_service
+
+        marked = []
+
+        async def _gate(*_args):
+            return {"status": "success"}
+
+        async def _fetch(_workspace):
+            return {"status": "success",
+                    "events": [{"id": f"mail-{index}"} for index in range(51)],
+                    "start_history_id": "100", "proposed_history_id": "200"}
+
+        async def _record(*_args):
+            return None
+
+        async def _batch(*_args, **_kwargs):
+            ids = [f"mail-{index}" for index in range(50)]
+            return {"status": "success",
+                    "results": [{"settled": True} for _ in ids],
+                    "settled_provider_ids": ids, "processed": len(ids)}
+
+        async def _mark(ids, _workspace):
+            marked.extend(ids)
+            return {"status": "success", "marked": len(ids), "ids": ids}
+
+        async def _must_not_advance(*_args):
+            raise AssertionError("partial batch must not advance history")
+
+        async def _last(*_args):
+            return None
+
+        monkeypatch.setattr(connection_registry, "authorize_connector_operation", _gate)
+        monkeypatch.setattr(connection_registry, "record_operation_result", _record)
+        monkeypatch.setattr(alex_mailbox, "fetch_history_events", _fetch)
+        monkeypatch.setattr(alex_mailbox, "mark_processed", _mark)
+        monkeypatch.setattr(alex_mailbox, "advance_history_cursor", _must_not_advance)
+        monkeypatch.setattr(external_event_service, "process_mail_batch", _batch)
+        monkeypatch.setattr(appmod.firestore, "set_last_alex_scan", _last)
+
+        result = asyncio.run(appmod._alex_mail_process("founder"))
+
+        assert result["error_code"] == "provider_event_unsettled"
+        assert len(marked) == 50
+        assert "mail-50" not in marked
 
     def test_prod_webhooks_fail_closed_without_configured_tokens(
             self, client, monkeypatch):

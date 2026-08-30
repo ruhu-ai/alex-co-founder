@@ -181,6 +181,16 @@ def mail_state(monkeypatch):
         state["history_id"] = history_id
         state["history_writes"].append(history_id)
 
+    async def _advance(expected, proposed, _workspace_id=""):
+        if state["history_id"] != expected:
+            return {"status": "error", "error": True,
+                    "error_code": "history_cursor_conflict",
+                    "advanced": False, "history_id": state["history_id"]}
+        state["history_id"] = proposed
+        state["history_writes"].append(proposed)
+        return {"status": "success", "advanced": True,
+                "history_id": proposed}
+
     async def _last(summary):
         state["last_scan"] = summary
 
@@ -188,6 +198,7 @@ def mail_state(monkeypatch):
     monkeypatch.setattr(firestore, "add_processed_alex_ids", _add)
     monkeypatch.setattr(firestore, "get_alex_history_id", _get_hid)
     monkeypatch.setattr(firestore, "set_alex_history_id", _set_hid)
+    monkeypatch.setattr(firestore, "advance_alex_history_id", _advance)
     monkeypatch.setattr(firestore, "set_last_alex_scan", _last)
     return state
 
@@ -231,10 +242,39 @@ class TestFetchDoesNotMarkProcessed:
         assert result["scanned"] == 2
         assert set(result["unmarked_event_ids"]) == {"a", "b"}
         assert mail_state["mark_calls"] == []       # nothing retired by the fetch
-        assert mail_state["history_id"] == "201"    # but the cursor still advances
+        assert mail_state["history_id"] == "100"    # cursor remains retryable
+        assert result["start_history_id"] == "100"
+        assert result["proposed_history_id"] == "201"
 
         await alex_mailbox.mark_processed(result["unmarked_event_ids"])
+        advanced = await alex_mailbox.advance_history_cursor(
+            result["start_history_id"], result["proposed_history_id"])
+        assert advanced["advanced"] is True
         assert set(mail_state["processed"]) == {"a", "b"}
+        assert mail_state["history_id"] == "201"
+
+    async def test_missing_connector_credential_is_typed_auth_error(
+            self, mail_state, monkeypatch):
+        alex_mailbox.set_service_factory(None)
+        monkeypatch.setattr(alex_mailbox, "_service", lambda _workspace="": None)
+
+        result = await alex_mailbox.fetch_history_events("founder")
+
+        assert result["status"] == "error"
+        assert result["error_code"] == "auth_required"
+
+    async def test_refresh_failure_is_error_data(self, mail_state, monkeypatch):
+        alex_mailbox.set_service_factory(None)
+
+        def _raise(_workspace=""):
+            raise RuntimeError("invalid_grant")
+
+        monkeypatch.setattr(alex_mailbox, "_service", _raise)
+
+        result = await alex_mailbox.fetch_history_events("founder")
+
+        assert result["status"] == "error"
+        assert result["error_code"] == "auth_required"
 
     async def test_mark_processed_is_idempotent_and_ignores_empty(self, mail_state):
         assert (await alex_mailbox.mark_processed([]))["marked"] == 0
@@ -255,8 +295,8 @@ class TestFetchDoesNotMarkProcessed:
 
 # --- 2. expired history must replace the dead cursor ------------------------
 
-class TestExpiredHistoryAdvancesCursor:
-    async def test_expiry_persists_a_fresh_history_id(self, mail_state):
+class TestExpiredHistoryProposesCursor:
+    async def test_expiry_defers_fresh_cursor_until_settlement(self, mail_state):
         mail_state["history_id"] = "100"  # aged out
         _use(_FakeMessages(stubs=[{"id": "m1"}],
                            messages={"m1": _msg("Application received")}),
@@ -266,12 +306,17 @@ class TestExpiredHistoryAdvancesCursor:
         result = await alex_mailbox.fetch_history_events()
         assert result["status"] == "success"
         assert result["recovered_via"] == "scan_unread"   # marker preserved
-        assert result["cursor_advanced"] is True
-        assert result["history_id"] == "555"
-        # The dead cursor is gone: the next push resumes from 555 instead of
-        # 404ing into a capped scan forever.
+        assert result["cursor_advanced"] is False
+        assert result["start_history_id"] == "100"
+        assert result["proposed_history_id"] == "555"
+        assert mail_state["history_id"] == "100"
+        assert mail_state["history_writes"] == []
+
+        await alex_mailbox.mark_processed(result["unmarked_event_ids"])
+        advanced = await alex_mailbox.advance_history_cursor(
+            result["start_history_id"], result["proposed_history_id"])
+        assert advanced["advanced"] is True
         assert mail_state["history_id"] == "555"
-        assert mail_state["history_writes"] == ["555"]
 
     async def test_expiry_falls_back_to_the_newest_message_history_id(self, mail_state):
         mail_state["history_id"] = "100"
@@ -282,7 +327,8 @@ class TestExpiredHistoryAdvancesCursor:
 
         result = await alex_mailbox.fetch_history_events()
         assert result["status"] == "success"
-        assert mail_state["history_id"] == "777"
+        assert result["proposed_history_id"] == "777"
+        assert mail_state["history_id"] == "100"
 
     async def test_unknown_cursor_is_reported_not_guessed(self, mail_state):
         mail_state["history_id"] = "100"
@@ -291,7 +337,25 @@ class TestExpiredHistoryAdvancesCursor:
         result = await alex_mailbox.fetch_history_events()
         assert result["status"] == "success"
         assert result["cursor_advanced"] is False
+        assert result["proposed_history_id"] == ""
         assert mail_state["history_writes"] == []  # never advanced to a guess
+
+    async def test_unreadable_history_message_blocks_cursor(
+            self, mail_state, monkeypatch):
+        mail_state["history_id"] = "100"
+        history = _FakeHistory(pages={
+            None: {"history": [{"messages": [{"id": "missing"}]}],
+                   "historyId": "200"}})
+        _use(_FakeMessages(messages={}), history=history)
+        monkeypatch.setattr(alex_mailbox, "_message_to_event",
+                            lambda _svc, _stub: None)
+
+        result = await alex_mailbox.fetch_history_events()
+
+        assert result["status"] == "error"
+        assert result["error_code"] == "provider_message_unavailable"
+        assert mail_state["history_id"] == "100"
+        assert mail_state["history_writes"] == []
 
 
 # --- 3. the send approval is bound to the exact payload --------------------

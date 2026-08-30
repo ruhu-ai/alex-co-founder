@@ -121,6 +121,29 @@ async def authorize_connector_operation(founder_id: str,
         return {"status": "error", "error": True,
                 "error_code": "scope_missing",
                 "message": "connector permissions changed; reconnect it first"}
+    # Modern Alex role-account grants are connector-isolated. The durable row
+    # proves what was consented, but it cannot by itself prove that the exact
+    # runtime token survived a restart/deploy. Resolve that secret only at the
+    # operation boundary; never let a stale CONNECTED projection reach Gmail or
+    # Calendar and fail as a misleading generic provider outage.
+    if (account_for_connector(connector_id) == "alex"
+            and row.get("granted_scopes")):
+        presence = await asyncio.to_thread(
+            google_oauth.credential_presence, "alex", founder_id, connector_id)
+        if presence == "missing":
+            transitioned = await firestore.transition_data_connection(
+                founder_id, connection_id, expected_version=row["version"],
+                status="REAUTH_REQUIRED", error_code="auth_required")
+            if transitioned.get("error") \
+                    and transitioned.get("error_code") != "version_conflict":
+                return transitioned
+            return {"status": "error", "error": True,
+                    "error_code": "auth_required",
+                    "message": "connector credential is absent; reconnect it first"}
+        if presence == "unavailable":
+            return {"status": "error", "error": True,
+                    "error_code": "provider_unavailable",
+                    "message": "connector credential could not be resolved"}
     return {"status": "success", "connection": row,
             "connection_id": connection_id}
 

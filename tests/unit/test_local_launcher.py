@@ -69,6 +69,8 @@ def test_launcher_supports_external_env_and_event_driven_alex_mail():
     assert "SubscriberClient" in subscriber
     assert "message.ack()" in subscriber
     assert "message.nack()" in subscriber
+    assert "timeout=120" in subscriber
+    assert "FlowControl(max_messages=1)" in subscriber
     assert "127.0.0.1:8090/webhooks/alex_mail" not in subscriber
 
 

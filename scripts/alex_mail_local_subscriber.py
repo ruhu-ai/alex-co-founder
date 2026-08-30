@@ -58,7 +58,10 @@ def main() -> int:
             method="POST",
         )
         try:
-            with urllib.request.urlopen(request, timeout=30) as response:
+            # A scheduling continuation can include bounded model, Gmail and
+            # Calendar calls. Keep the push outstanding until the webhook has
+            # durably settled it instead of running a concurrent duplicate.
+            with urllib.request.urlopen(request, timeout=120) as response:
                 if 200 <= response.status < 300:
                     message.ack()
                     return
@@ -66,7 +69,9 @@ def main() -> int:
             pass
         message.nack()
 
-    future = subscriber.subscribe(subscription, callback=receive)
+    future = subscriber.subscribe(
+        subscription, callback=receive,
+        flow_control=pubsub_v1.types.FlowControl(max_messages=1))
 
     def stop(_signum, _frame) -> None:
         stopped.set()

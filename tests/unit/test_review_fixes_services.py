@@ -256,12 +256,10 @@ class TestHistoryFetch:
         async def _hid(): return "100"
         async def _processed(): return []
         async def _add(ids): captured["ids"] = ids
-        async def _set_hid(h): captured["history_id"] = h
         async def _scan(_s): pass
         monkeypatch.setattr("services.alex_mailbox.firestore.get_alex_history_id", _hid)
         monkeypatch.setattr("services.alex_mailbox.firestore.get_processed_alex_ids", _processed)
         monkeypatch.setattr("services.alex_mailbox.firestore.add_processed_alex_ids", _add)
-        monkeypatch.setattr("services.alex_mailbox.firestore.set_alex_history_id", _set_hid)
         monkeypatch.setattr("services.alex_mailbox.firestore.set_last_alex_scan", _scan)
         monkeypatch.setattr("services.alex_mailbox._message_to_event",
                             lambda svc, stub: {"id": stub["id"], "kind": "update",
@@ -270,7 +268,9 @@ class TestHistoryFetch:
         result = await alex_mailbox.fetch_history_events()
         assert result["scanned"] == 2  # both pages walked
         assert set(result["unmarked_event_ids"]) == {"a", "b"}
-        assert captured["history_id"] == "201"  # last page's historyId persisted
+        assert result["start_history_id"] == "100"
+        assert result["proposed_history_id"] == "201"
+        assert "history_id" not in captured
         # The fetch marks nothing: the caller retires the ids only after the
         # domain effect is durable (docs/24 §9.2).
         assert "ids" not in captured

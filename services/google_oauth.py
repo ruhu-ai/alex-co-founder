@@ -219,6 +219,33 @@ def _refresh_token(account: str = "founder", workspace_id: str = "",
         return ""
 
 
+def credential_presence(account: str = "founder", workspace_id: str = "",
+                        connector_id: str = "") -> str:
+    """Return ``available``, ``missing`` or ``unavailable`` for one token slot.
+
+    This is an execution-bound check, not a connector-panel/provider probe. It
+    never returns the token. Local development can decide absence from the
+    exported environment; Cloud Run resolves the exact Secret Manager slot by
+    name and distinguishes a genuinely absent credential from a transient
+    control-plane failure.
+    """
+    slot = credential_ref(account, workspace_id, connector_id)
+    if os.environ.get(slot):
+        return "available"
+    if not os.environ.get("K_SERVICE"):
+        return "missing"
+    try:
+        from services import secrets
+
+        return "available" if secrets.get(slot) else "missing"
+    except Exception as exc:
+        from google.api_core import exceptions as gexc
+
+        if isinstance(exc, (KeyError, gexc.NotFound)):
+            return "missing"
+        return "unavailable"
+
+
 def configured(connector: str | None = None, account: str = "founder",
                workspace_id: str = "") -> bool:
     """OAuth ready? With `connector`, True only when that connector's scopes

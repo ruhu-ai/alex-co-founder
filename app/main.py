@@ -5382,8 +5382,13 @@ async def alex_mail_push(request: Request):
     # durable transport to hand the work to.
     # A local developer uses the seeded workspace; production never reaches
     # this compatibility branch.
-    await _alex_mail_process(FOUNDER_ID)
-    return {"status": "success"}
+    result = await _alex_mail_process(FOUNDER_ID)
+    if result.get("error"):
+        # The local streaming-pull subscriber acknowledges only 2xx. Preserve
+        # the notification for redelivery when credential/provider processing
+        # failed instead of silently dropping an applicant reply.
+        return JSONResponse(result, status_code=503)
+    return result
 
 
 @app.post("/tasks/alex_mail_scan")
@@ -5421,9 +5426,16 @@ async def _alex_mail_process(workspace_id: str) -> dict:
                 "message": "Alex mailbox scan failed"}
     events = result.get("events", [])
     if not events:
+        cursor = await alex_mailbox.advance_history_cursor(
+            result.get("start_history_id", ""),
+            result.get("proposed_history_id", ""), workspace_id)
+        if cursor.get("error"):
+            return cursor
         await firestore.set_last_alex_scan(
-            {"event_count": 0, "settled": 0}, workspace_id)
-        return {"status": "success", "processed": 0}
+            {"event_count": 0, "settled": 0,
+             "cursor_advanced": bool(cursor.get("advanced"))}, workspace_id)
+        return {"status": "success", "processed": 0,
+                "cursor_advanced": bool(cursor.get("advanced"))}
 
     async def _wake(founder_id: str, session_id: str, notice: str) -> None:
         await resume_handler.wake(
@@ -5432,15 +5444,42 @@ async def _alex_mail_process(workspace_id: str) -> dict:
 
     batch = await external_event_service.process_mail_batch(
         workspace_id, "alex_mail", events, wake=_wake)
-    await alex_mailbox.mark_processed(
-        batch["settled_provider_ids"], workspace_id)
+    event_ids = {str(event.get("id") or "") for event in events}
+    settled_ids = {str(value) for value in batch["settled_provider_ids"] if value}
+    if not settled_ids.issubset(event_ids):
+        return {"status": "error", "error": True,
+                "error_code": "provider_event_receipt_invalid",
+                "message": "Alex Mail returned an invalid durable receipt"}
+    # The processor is intentionally bounded to 50 messages. Persist any
+    # settled subset before nacking so a large delivery makes progress on the
+    # next retry, while the history cursor still remains behind the batch.
+    if settled_ids:
+        marked = await alex_mailbox.mark_processed(
+            sorted(settled_ids), workspace_id)
+        if marked.get("error"):
+            return marked
+    if settled_ids != event_ids:
+        await firestore.set_last_alex_scan({
+            "error": "provider_event_unsettled", "event_count": len(events),
+            "settled": len(settled_ids),
+        }, workspace_id)
+        return {"status": "error", "error": True,
+                "error_code": "provider_event_unsettled",
+                "message": "An Alex Mail event is awaiting a durable receipt"}
+    cursor = await alex_mailbox.advance_history_cursor(
+        result.get("start_history_id", ""),
+        result.get("proposed_history_id", ""), workspace_id)
+    if cursor.get("error"):
+        return cursor
     await firestore.set_last_alex_scan({
         "event_count": len(events), "settled": len(batch["settled_provider_ids"]),
+        "cursor_advanced": bool(cursor.get("advanced")),
         "receipt_ids": [row.get("event_id") for row in batch["results"]
                         if row.get("event_id")][:50],
     }, workspace_id)
     return {"status": "success", "processed": batch["processed"],
-            "settled": len(batch["settled_provider_ids"])}
+            "settled": len(batch["settled_provider_ids"]),
+            "cursor_advanced": bool(cursor.get("advanced"))}
 
 
 # ---------------------------------------------------------------------------

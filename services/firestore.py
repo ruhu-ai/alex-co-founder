@@ -2698,6 +2698,53 @@ async def set_alex_history_id(history_id: str, founder_id: str = "") -> None:
          "at": _now()})
 
 
+async def advance_alex_history_id(expected_history_id: str,
+                                  proposed_history_id: str,
+                                  founder_id: str = "") -> dict[str, Any]:
+    """CAS-advance Alex Mail history after every message is durably settled.
+
+    Gmail history ids are monotonically increasing decimal strings. Concurrent
+    delivery is safe: the same/later committed cursor is success, while an
+    unexpected older/divergent value fails closed and asks the task to retry.
+    """
+    from google.cloud import firestore as gc_firestore
+
+    expected = str(expected_history_id or "")
+    proposed = str(proposed_history_id or "")
+    if not proposed:
+        return {"status": "success", "advanced": False,
+                "history_id": expected}
+    ref = get_client().collection("alex_mail_state").document(
+        _connector_state_doc("watch", founder_id))
+    transaction = get_client().transaction()
+
+    @gc_firestore.async_transactional
+    async def _advance(txn):
+        snap = await ref.get(transaction=txn)
+        current = (str((snap.to_dict() or {}).get("history_id") or "")
+                   if snap.exists else "")
+        if current == proposed:
+            return {"status": "success", "advanced": False,
+                    "duplicate": True, "history_id": current}
+        if current != expected:
+            try:
+                superseded = bool(current) and int(current) > int(proposed)
+            except ValueError:
+                superseded = False
+            if superseded:
+                return {"status": "success", "advanced": False,
+                        "superseded": True, "history_id": current}
+            return {"status": "error", "error": True,
+                    "error_code": "history_cursor_conflict",
+                    "advanced": False, "history_id": current}
+        txn.set(ref, {"history_id": proposed,
+                      "workspace_id": founder_id or None, "at": _now()})
+        return {"status": "success", "advanced": True,
+                "history_id": proposed}
+
+    return await _advance(transaction)
+
+
 async def set_last_alex_scan(
         summary: dict[str, Any], founder_id: str = "") -> None:
     await get_client().collection("alex_mail_state").document(
