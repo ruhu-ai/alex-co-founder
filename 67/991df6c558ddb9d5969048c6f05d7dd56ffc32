@@ -1,0 +1,37 @@
+docs/12-security.md
+  s_16e75b10efee22::t_a6bc48206bf9a0 20
+app/static/index.html
+  s_16e75b10efee22::t_a6bc48206bf9a0 4014,4017,4020
+  s_16e75b10efee22::t_46f7f97eba4725 7331,7334-7335
+tests/unit/test_google_connector_expansion.py
+  s_16e75b10efee22::t_46f7f97eba4725 16,23-27,29,31,34-36
+  s_16e75b10efee22::t_d7c8fddae465dd 46
+tests/unit/test_google_oauth.py
+  s_16e75b10efee22::t_46f7f97eba4725 121
+  s_16e75b10efee22::t_a6bc48206bf9a0 143-180
+docs/adr/001-agent-identity.md
+  s_16e75b10efee22::t_a6bc48206bf9a0 63-67,73-74
+  s_16e75b10efee22::t_46f7f97eba4725 68-72
+tests/unit/test_unified_product_ui_contract.py
+  s_16e75b10efee22::t_616f92d707ebef 48-61
+services/google_oauth.py
+  s_16e75b10efee22::t_46f7f97eba4725 5-8,43-45,54-56
+services/connectors.py
+  s_16e75b10efee22::t_46f7f97eba4725 60,65,70
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "67991df6c558ddb9d5969048c6f05d7dd56ffc32",
+  "prompts": {},
+  "sessions": {
+    "s_16e75b10efee22": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0484d-a6bd-7182-90ae-527ccfd2a966",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Ijidai Lassa <ijidai@cued.app>"
+    }
+  }
+}
