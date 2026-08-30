@@ -42,8 +42,6 @@ _EMAIL = re.compile(r"^[^\s@]{1,64}@[^\s@]{1,190}\.[^\s@]{2,63}$")
 _MAX_SUBJECT = 240
 _MAX_BODY = 12_000
 _ALEX_ADDRESS = "alex@ruhu.ai"
-_MAX_MANDATE_EMAILS = 12
-_MAX_MANDATE_CALENDAR_ACTIONS = 4
 _MANDATE_DAYS = 14
 
 
@@ -387,8 +385,8 @@ class HiringCoordinationService:
                 "candidate_state": application.get("candidate_state"),
                 "mandate": ({key: active.get(key) for key in (
                     "mandate_id", "status", "copy_founder", "confirmed_slots",
-                    "email_count", "max_emails", "calendar_action_count",
-                    "max_calendar_actions", "activated_at", "expires_at")}
+                    "email_count", "calendar_action_count", "activated_at",
+                    "expires_at")}
                     if active else None),
                 "items": safe_items, "replies": safe_replies, "actions": safe_actions}
 
@@ -910,8 +908,6 @@ class HiringCoordinationService:
                 "founder_copy_email": (_founder_copy_address()
                                        if copy_founder else ""),
                 "allowed_action_kinds": sorted(LIVE_ACTIONS),
-                "max_emails": _MAX_MANDATE_EMAILS,
-                "max_calendar_actions": _MAX_MANDATE_CALENDAR_ACTIONS,
                 "valid_days": _MANDATE_DAYS,
             }
             approval = await request_approval(
@@ -1183,10 +1179,6 @@ class HiringCoordinationService:
             if recipients != allowed or payload.get("candidate_recipient") != candidate:
                 return _error("coordination_mandate_invalid",
                               "Email recipients are outside the mandate.", 409)
-            if int(mandate.get("email_count") or 0) >= int(
-                    mandate.get("max_emails") or 0):
-                return _error("coordination_message_limit",
-                              "The bounded email exchange is complete.", 409)
             expected_thread_id = str(mandate.get("provider_thread_id") or "")
             actual_thread_id = str(payload.get("provider_thread_id") or "")
             if (int(mandate.get("email_count") or 0) == 0
@@ -1201,10 +1193,6 @@ class HiringCoordinationService:
                     "coordination_mandate_invalid",
                     "Email continuation must use the approved applicant thread.", 409)
         else:
-            if int(mandate.get("calendar_action_count") or 0) >= int(
-                    mandate.get("max_calendar_actions") or 0):
-                return _error("coordination_calendar_limit",
-                              "The bounded Calendar action limit is reached.", 409)
             if action_kind == "HIRING_CANCEL_INTERVIEW":
                 if recipients:
                     return _error(

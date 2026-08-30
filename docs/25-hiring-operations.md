@@ -19,7 +19,7 @@ lane may use the connected Alex Mail and Founder Calendar accounts to prepare
 candidate communication, read Founder free/busy, correlate candidate replies,
 negotiate bounded availability, and create/update/cancel one candidate-bound
 interview. One fresh Founder consent binds the candidate, current decision and
-policy, confirmed time options, optional Founder copy, expiry, and action limits.
+policy, confirmed time options, optional Founder copy, and expiry.
 Alex may then continue that exact thread and schedule within those bounds without
 per-message approval. Every provider effect still has a `PREPARED` receipt;
 `UNCERTAIN` blocks retry until reconciliation. This is not H4S and does not
@@ -1333,8 +1333,9 @@ model call may satisfy this contract.
 The Hiring Operator prepares the initial message and confirmed Founder time
 options. The Founder gives one fresh coordination consent binding the exact
 candidate/run, current decision and policy, Alex sender identity, server-resolved
-recipient, optional server-configured Founder copy, proposed slots, 14-day
-expiry, and bounded email/Calendar action counts. The send capability creates an
+recipient, optional server-configured Founder copy, proposed slots, and 14-day
+expiry. There is no fixed per-candidate email or Calendar action quota; legitimate
+coordination volume is governed by that consent and actual availability. The send capability creates an
 `external_actions` row before every Gmail call. Successful provider
 message/thread ids become the correlation authority for replies. Within the
 active consent Alex may continue only that exact candidate thread without a new
@@ -2159,14 +2160,15 @@ these technical facts are true at action time:
    committed human decision is `ADVANCE`;
 2. the current role-policy version, decision, candidate run, server-resolved
    candidate identity, connector account, exact time options, optional Founder
-   copy and action limits are bound into one durable coordination consent;
+   copy and consent expiry are bound into one durable coordination consent;
 3. the Founder has a recent authenticated session when granting that consent;
    later sends and scheduling actions require the same active consent but no
    additional per-message approval;
 4. Alex Mail or Founder Calendar is `CONNECTED` with the connector's exact
    minimum scopes, and credentials resolve only for the bound workspace/account;
-5. the consent is active for at most 14 days, permits no more than 12 email and
-   4 Calendar actions, and is invalidated by candidate, decision or policy drift;
+5. the consent is active for at most 14 days and is invalidated by candidate,
+   decision or policy drift; it has no fixed message/action quota, while
+   operational provider throttles remain independent abuse/availability controls;
 6. email recipients remain exactly the server-resolved candidate plus the
    optional server-configured Founder copy, while Calendar attendees remain the
    candidate and Alex; applicant content can never add recipients or actions;

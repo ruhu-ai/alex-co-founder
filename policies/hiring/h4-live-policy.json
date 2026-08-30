@@ -13,8 +13,8 @@
   "controls": {
     "one_fresh_founder_coordination_consent": true,
     "consent_expires_after_days": 14,
-    "maximum_email_actions": 12,
-    "maximum_calendar_actions": 4,
+    "no_fixed_per_candidate_action_quota": true,
+    "operational_throttles_do_not_replace_consent": true,
     "new_recipient_or_time_options_require_new_consent": true,
     "server_resolved_candidate_identity": true,
     "candidate_run_and_policy_binding": true,

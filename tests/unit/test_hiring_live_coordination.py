@@ -337,7 +337,7 @@ async def test_reply_email_continues_verified_thread_and_reply_stays_correlatabl
 
 
 @pytest.mark.asyncio
-async def test_active_mandate_rejects_other_thread_expiry_and_message_limit(
+async def test_active_mandate_rejects_other_thread_and_expiry_not_volume(
         founder, monkeypatch):
     store, provider = InMemoryDurableStore(), _Provider()
     application_id = await _seed(store)
@@ -365,14 +365,26 @@ async def test_active_mandate_rejects_other_thread_expiry_and_message_limit(
         "hiring_coordination_mandates", mandate["mandate_id"])
     await store.compare_and_set(
         "hiring_coordination_mandates", mandate["mandate_id"],
-        current["version"], {"email_count": current["max_emails"]})
-    limited = await service.prepare_contact(
+        current["version"], {"email_count": 100, "calendar_action_count": 100})
+    high_volume_reply = await service.prepare_contact(
         principal=founder, application_id=application_id,
-        client_request_id="contact_limit", reply=True)
-    denied = await service.execute(
+        client_request_id="contact_high_volume", reply=True)
+    sent = await service.execute(
         principal=founder, application_id=application_id,
-        coordination_id=limited["coordination_id"], approval_id="")
-    assert denied["error_code"] == "coordination_message_limit"
+        coordination_id=high_volume_reply["coordination_id"], approval_id="")
+    assert sent["receipt_status"] == "SUCCEEDED"
+    current = await store.get(
+        "hiring_coordination_mandates", mandate["mandate_id"])
+    slot = current["confirmed_slots"][0]
+    interview = await service.prepare_interview(
+        principal=founder, application_id=application_id,
+        start=slot["start"], end=slot["end"],
+        timezone_name=slot["timezone"],
+        client_request_id="interview_high_volume")
+    booked = await service.execute(
+        principal=founder, application_id=application_id,
+        coordination_id=interview["coordination_id"], approval_id="")
+    assert booked["receipt_status"] == "SUCCEEDED"
 
     current = await store.get(
         "hiring_coordination_mandates", mandate["mandate_id"])
