@@ -1,0 +1,23 @@
+tests/unit/test_local_launcher.py
+  s_bf598a20bfcdaa::t_0e6fdd2009ff7c 63
+docs/13-deployment.md
+  s_bf598a20bfcdaa::t_0e6fdd2009ff7c 80-81
+scripts/run_local.sh
+  s_bf598a20bfcdaa::t_0e6fdd2009ff7c 18,39-40,43,95,97,131,160
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "e19f988eac7dcc8917ceb7bd6c1999cf6c4ac2e9",
+  "prompts": {},
+  "sessions": {
+    "s_bf598a20bfcdaa": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a04860-dde3-79c3-b2bd-2987b04adc68",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Ijidai Lassa <ijidai@cued.app>"
+    }
+  }
+}
