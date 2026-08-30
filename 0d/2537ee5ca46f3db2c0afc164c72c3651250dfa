@@ -1,0 +1,34 @@
+app/static/hiring.html
+  s_16e75b10efee22::t_2ce1223db5142b 2769-2771,2773-2774,2782-2787,2789-2801
+tests/unit/test_hiring_live_coordination.py
+  s_16e75b10efee22::t_d37e95487eafa0 267-301
+  s_16e75b10efee22::t_844d7c94ca668c 213-235
+  s_16e75b10efee22::t_677e81b7f79100 165-211,236-266
+  s_16e75b10efee22::t_aa2a5d207e20c9 212
+services/hiring_coordination.py
+  s_16e75b10efee22::t_61eb8a709fb25b 46-47,364-365,391-392,399-404,422-423,425-428,438-439,448-449,452,473,476,481-515,523,528-529,1134-1140,1170,1176-1178
+  s_16e75b10efee22::t_28e0f2ec2b5b12 913-914,961-962,997,1019-1020
+  s_16e75b10efee22::t_aa2a5d207e20c9 963-964,1257-1262
+docs/25-hiring-operations.md
+  s_16e75b10efee22::t_b11ce058f9e7ee 1543-1552
+app/hiring_routes.py
+  s_16e75b10efee22::t_607c97e2bbca29 206-210,1519-1523
+tests/unit/test_unified_product_ui_contract.py
+  s_16e75b10efee22::t_fb846564b1947c 361-370
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "0d2537ee5ca46f3db2c0afc164c72c3651250dfa",
+  "prompts": {},
+  "sessions": {
+    "s_16e75b10efee22": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0484d-a6bd-7182-90ae-527ccfd2a966",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Ijidai Lassa <ijidai@cued.app>"
+    }
+  }
+}
