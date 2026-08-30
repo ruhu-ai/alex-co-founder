@@ -921,6 +921,118 @@ async def test_candidate_workspace_reports_coverage_and_alex_never_makes_judgmen
     assert "conversation_token" not in unavailable
 
 
+@pytest.mark.asyncio
+async def test_candidate_detail_resolves_citations_and_retains_committed_decision():
+    store = InMemoryDurableStore()
+    service = _service(store)
+    contract = _package()["contract"]
+    policy_hash = hiring_tools.canonical_hash(contract)
+    criterion_id = contract.criteria[0].criterion_id
+    evidence_hash = "sha256:" + "a" * 64
+    await store.create("hiring_roles", "role_citation", {
+        "role_id": "role_citation", "workspace_id": "workspace_test",
+        "current_policy_version_id": "policy_citation",
+        "current_policy_hash": policy_hash, "role_state": "PUBLISHED",
+        "version": 1,
+    })
+    await store.create("hiring_policy_versions", "policy_citation", {
+        "policy_version_id": "policy_citation", "role_id": "role_citation",
+        "workspace_id": "workspace_test", "status": "APPROVED",
+        "canonical_hash": policy_hash,
+        "contract": contract.model_dump(mode="json"), "version": 1,
+    })
+    await store.create("candidate_applications", "candidateapp_citation", {
+        "candidate_application_id": "candidateapp_citation",
+        "workspace_id": "workspace_test", "role_id": "role_citation",
+        "candidate_code": "C-00000002", "candidate_state": "ADVANCED",
+        "current_policy_version_id": "policy_citation",
+        "current_assessment_id": "assessment_citation",
+        "current_decision_id": "decision_citation", "run_id": None,
+        "synthetic": True, "version": 2,
+    })
+    await store.create("hiring_candidate_artifacts", "artifact_citation", {
+        "artifact_id": "artifact_citation", "workspace_id": "workspace_test",
+        "role_id": "role_citation",
+        "candidate_application_id": "candidateapp_citation",
+        "scope": "HIRING_RESTRICTED", "sensitivity": "HIRING_RESTRICTED",
+        "content_type": "application/pdf", "source_kind": "RESUME",
+        "version": 1,
+    })
+    await store.create("candidate_evidence", "ce_citation", {
+        "evidence_id": "ce_citation", "workspace_id": "workspace_test",
+        "role_id": "role_citation",
+        "candidate_application_id": "candidateapp_citation",
+        "source_artifact_id": "artifact_citation", "source_kind": "RESUME",
+        "criterion_ids": [criterion_id],
+        "locator": {"page": 2, "block": "experience-2"},
+        "quote": "Owned a reviewed customer deployment from plan to launch.",
+        "normalized_fact": "", "authority": "CANDIDATE_CLAIM",
+        "verification": "UNVERIFIED", "content_risk": "CLEAR",
+        "evidence_hash": evidence_hash, "version": 1,
+    })
+    await store.create("candidate_assessments", "assessment_citation", {
+        "assessment_id": "assessment_citation", "workspace_id": "workspace_test",
+        "role_id": "role_citation",
+        "candidate_application_id": "candidateapp_citation",
+        "policy_version_id": "policy_citation", "policy_hash": policy_hash,
+        "criteria": [{
+            "criterion_id": criterion_id, "status": "SUPPORTED",
+            "summary": "Candidate-provided experience is cited.",
+            "citations": [{"evidence_id": "ce_citation",
+                           "evidence_hash": evidence_hash}],
+            "unknowns": [], "contradictions": [],
+        }], "version": 1,
+    })
+    await store.create("hiring_decisions", "decision_citation", {
+        "decision_id": "decision_citation", "workspace_id": "workspace_test",
+        "role_id": "role_citation",
+        "candidate_application_id": "candidateapp_citation",
+        "decision": "ADVANCE", "candidate_state_after": "ADVANCED",
+        "reason_codes": ["CRITERION_EVIDENCE_SUFFICIENT"],
+        "human_note": "Proceed to a structured Founder interview.",
+        "commit_status": "COMMITTED", "committed_at": "2099-01-01T10:00:00Z",
+        "policy_version_id": "policy_citation",
+        "evidence_ids_reviewed": ["ce_citation"], "version": 1,
+    })
+
+    detail = await service.candidate_detail(
+        principal=_founder(), application_id="candidateapp_citation")
+    citation = detail["evidence_coverage"][0]["citations"][0]
+    assert detail["evidence_coverage"][0]["coverage"] == "PRESENT"
+    assert citation == {
+        "evidence_id": "ce_citation", "resolved": True,
+        "label": "CV · page 2", "source_kind": "RESUME",
+        "source_artifact_id": "artifact_citation",
+        "content_type": "application/pdf",
+        "locator": {"page": 2, "block": "experience-2"},
+        "preview": "Owned a reviewed customer deployment from plan to launch.",
+        "authority": "CANDIDATE_CLAIM", "verification": "UNVERIFIED",
+        "openable": True,
+    }
+    assert detail["current_decision"]["decision"] == "ADVANCE"
+    assert detail["current_decision"]["commit_status"] == "COMMITTED"
+    assert detail["current_decision"]["human_note"] == (
+        "Proceed to a structured Founder interview.")
+    assert detail["current_decision"]["evidence_count"] == 1
+
+    assessment = await store.get("candidate_assessments", "assessment_citation")
+    broken_criteria = list(assessment["criteria"])
+    broken_criteria[0] = {
+        **broken_criteria[0],
+        "citations": [{"evidence_id": "ce_citation",
+                       "evidence_hash": "sha256:" + "b" * 64}],
+    }
+    assert await store.compare_and_set(
+        "candidate_assessments", "assessment_citation",
+        int(assessment["version"]), {"criteria": broken_criteria})
+    unresolved = await service.candidate_detail(
+        principal=_founder(), application_id="candidateapp_citation")
+    assert unresolved["evidence_coverage"][0]["coverage"] == "UNCLEAR"
+    assert unresolved["evidence_coverage"][0]["citations"][0]["resolved"] is False
+    assert "could not be resolved" in unresolved["evidence_coverage"][0][
+        "unknowns"][-1]
+
+
 def test_hiring_routes_expose_scoped_context_and_non_live_public_page(monkeypatch):
     store = InMemoryDurableStore()
     service = _service(store)

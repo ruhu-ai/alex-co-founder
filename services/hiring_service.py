@@ -1166,6 +1166,18 @@ class HiringService:
             "hiring_candidate_artifacts",
             filters={"workspace_id": principal.workspace_id,
                      "candidate_application_id": application_id}, limit=100)
+        artifact_by_id = {
+            str(item.get("artifact_id") or ""): item for item in artifacts
+            if str(item.get("artifact_id") or "")
+        }
+        evidence_rows = await self.store.list(
+            "candidate_evidence",
+            filters={"workspace_id": principal.workspace_id,
+                     "candidate_application_id": application_id}, limit=500)
+        evidence_by_id = {
+            str(item.get("evidence_id") or ""): item for item in evidence_rows
+            if str(item.get("evidence_id") or "")
+        }
         criteria_by_id = {
             str(item.get("criterion_id")): str(item.get("label") or item.get(
                 "criterion_id") or "Criterion")
@@ -1176,14 +1188,79 @@ class HiringService:
         evidence_coverage = []
         for item in list((assessment or {}).get("criteria") or []):
             criterion_id = str(item.get("criterion_id") or "")
+            projected_citations = []
+            for citation in list(item.get("citations") or []):
+                evidence_id = str(citation.get("evidence_id") or "")
+                evidence = evidence_by_id.get(evidence_id)
+                locator = dict((evidence or {}).get("locator") or {})
+                block = str(locator.get("block") or "").strip()
+                page_value = locator.get("page")
+                page = (page_value if isinstance(page_value, int)
+                        and page_value > 0 else None)
+                artifact_id = str((evidence or {}).get("source_artifact_id") or "")
+                artifact = artifact_by_id.get(artifact_id)
+                expected_hash = str(citation.get("evidence_hash") or "")
+                resolved = bool(
+                    evidence
+                    and evidence.get("workspace_id") == principal.workspace_id
+                    and evidence.get("role_id") == application.get("role_id")
+                    and evidence.get("candidate_application_id") == application_id
+                    and criterion_id in list(evidence.get("criterion_ids") or [])
+                    and str(evidence.get("evidence_hash") or "") == expected_hash
+                    and block
+                    and artifact
+                    and artifact.get("scope") == "HIRING_RESTRICTED"
+                    and artifact.get("sensitivity") == "HIRING_RESTRICTED"
+                )
+                source_kind = str((evidence or {}).get("source_kind") or "")
+                source_label = {
+                    "RESUME": "CV", "APPLICATION": "Application",
+                    "PORTFOLIO": "Portfolio", "INTERVIEW": "Interview",
+                    "REFERENCE": "Reference", "FOUNDER_NOTE": "Founder note",
+                }.get(source_kind, "Evidence")
+                label = (f"{source_label} · page {page}" if page
+                         else f"{source_label} · cited passage")
+                safe_passage = ""
+                if resolved and str(evidence.get("content_risk")) == "CLEAR":
+                    safe_passage = str(
+                        evidence.get("quote") or evidence.get("normalized_fact") or ""
+                    ).strip()[:800]
+                projected_citations.append({
+                    "evidence_id": evidence_id,
+                    "resolved": resolved,
+                    "label": label if resolved else "Source unavailable",
+                    "source_kind": source_kind if resolved else "",
+                    "source_artifact_id": artifact_id if resolved else "",
+                    "content_type": str((artifact or {}).get("content_type") or "")
+                    if resolved else "",
+                    "locator": {"page": page, "block": block} if resolved else {},
+                    "preview": safe_passage[:320],
+                    "authority": str((evidence or {}).get("authority") or "")
+                    if resolved else "",
+                    "verification": str((evidence or {}).get("verification") or "")
+                    if resolved else "",
+                    "openable": bool(resolved and source_kind == "RESUME"),
+                })
+            raw_status = str(item.get("status") or "")
+            sources_complete = bool(projected_citations) and all(
+                citation["resolved"] for citation in projected_citations)
+            coverage = status_labels.get(raw_status, "UNCLEAR")
+            unknowns = list(item.get("unknowns") or [])
+            summary = str(item.get("summary") or "")
+            if raw_status == "SUPPORTED" and not sources_complete:
+                coverage = "UNCLEAR"
+                unknowns.append(
+                    "One or more cited sources could not be resolved to an "
+                    "authorized passage.")
+                summary = "Source verification is incomplete."
             evidence_coverage.append({
                 "criterion_id": criterion_id,
                 "criterion_label": criteria_by_id.get(criterion_id, criterion_id),
-                "coverage": status_labels.get(str(item.get("status")), "UNCLEAR"),
-                "citations": list(item.get("citations") or []),
-                "unknowns": list(item.get("unknowns") or []),
+                "coverage": coverage,
+                "citations": projected_citations,
+                "unknowns": unknowns,
                 "contradictions": list(item.get("contradictions") or []),
-                "summary": str(item.get("summary") or ""),
+                "summary": summary,
             })
         if not evidence_coverage:
             evidence_coverage = [{
@@ -1195,10 +1272,35 @@ class HiringService:
         evidence_status = candidate_evidence_status(
             application, assessment=assessment,
             current_policy_version_id=policy_id)
+        current_decision = None
+        current_decision_id = str(application.get("current_decision_id") or "")
+        if current_decision_id:
+            decision = await self.store.get("hiring_decisions", current_decision_id)
+            if (decision
+                    and decision.get("workspace_id") == principal.workspace_id
+                    and decision.get("role_id") == application.get("role_id")
+                    and decision.get("candidate_application_id") == application_id):
+                current_decision = {
+                    "decision_id": current_decision_id,
+                    "decision": str(decision.get("decision") or ""),
+                    "candidate_state_after": str(
+                        decision.get("candidate_state_after") or ""),
+                    "reason_codes": list(decision.get("reason_codes") or []),
+                    "human_note": str(decision.get("human_note") or "")[:1000],
+                    "commit_status": str(decision.get("commit_status") or ""),
+                    "committed_at": decision.get("committed_at"),
+                    "created_at": decision.get("created_at"),
+                    "policy_version_id": str(
+                        decision.get("policy_version_id") or ""),
+                    "evidence_count": len(
+                        list(decision.get("evidence_ids_reviewed") or [])),
+                    "actor_label": "Founder",
+                }
         return {"status": "success", "application": application,
                 "assessment": assessment, "timeline": events,
                 "evidence_status": evidence_status,
                 "evidence_coverage": evidence_coverage,
+                "current_decision": current_decision,
                 "artifacts": [{key: item.get(key) for key in (
                     "artifact_id", "scope", "sensitivity", "content_type",
                     "source_kind", "created_at", "intake_mode")}

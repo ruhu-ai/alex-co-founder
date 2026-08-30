@@ -1939,6 +1939,24 @@ memory, logs, and candidate evidence supplied to Alex. The exact restricted CV
 opens only through an audited no-store Founder route with recent authentication.
 The evidence and decision panels do not expose unrelated protected data.
 
+Founder-facing citations render as meaningful source chips (for example,
+`CV · page 2`), never as bare `ce_...` identifiers. Hover and keyboard focus
+show the bounded redacted passage; activation opens the audited restricted
+source at its stored page when the source type supports it. The immutable
+evidence id, block locator, authority, and verification state remain available
+only under technical details. A citation is resolved only when its workspace,
+role, candidate, criterion, artifact scope, immutable hash, and block locator
+all match. A nominal `SUPPORTED` result with any unresolvable citation is
+projected as `UNCLEAR` until the source is repaired; the UI never presents an
+unverifiable source reference as polished `PRESENT` evidence.
+
+The Decisions tab shows the current append-only Founder decision before any
+new-decision control: committed status, decision, resulting candidate state,
+job-related reasons, timestamp, reviewed-evidence count, and the optional
+Founder note. The tab carries a visible `Committed` indicator. Recording a
+later decision is a separate progressive-disclosure action and never erases or
+visually replaces the latest durable record.
+
 ### 12.6 Role-policy impact screen
 
 Display exact diff, materiality, affected active/closed candidates, stale

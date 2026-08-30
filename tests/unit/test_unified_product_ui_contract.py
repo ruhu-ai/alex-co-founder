@@ -416,6 +416,14 @@ def test_founder_hiring_package_is_readable_and_exact_approval_is_primary():
     assert "/candidate-conversations/answer" not in HIRING
     assert "/applications/${encodeURIComponent(candidateId)}/conversations" not in HIRING
     assert "complete criterion map, citations, unknowns, contradictions" in HIRING
+    assert "citation-chip" in HIRING
+    assert "citation-preview" in HIRING
+    assert ".citation-wrap:hover .citation-preview" in HIRING
+    assert "openCandidateCitation" in HIRING
+    assert "Technical citation details" in HIRING
+    assert "Latest Founder decision" in HIRING
+    assert "Decision committed. The durable record is shown above." in HIRING
+    assert "Record another Founder decision" in HIRING
     assert "fixed email quota" not in HIRING
     assert "No active synthetic sandbox is scoped to this role" not in HIRING
     assert "Only the Founder can explicitly change a phase or decline" in HIRING

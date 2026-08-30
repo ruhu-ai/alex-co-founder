@@ -1322,6 +1322,79 @@
       .candidate-pane {
         padding: var(--sp-3) 0 var(--sp-6);
       }
+      .candidate-section-nav .badge {
+        margin-left: var(--sp-1);
+      }
+      .citation-list {
+        display: flex;
+        flex-wrap: wrap;
+        gap: var(--sp-2);
+        margin: var(--sp-2) 0;
+      }
+      .citation-wrap {
+        position: relative;
+        display: inline-flex;
+      }
+      .citation-chip {
+        min-height: 32px;
+        padding: 6px 10px;
+        border: 1px solid var(--border);
+        border-radius: var(--r-full, 999px);
+        background: var(--surface-2);
+        color: var(--ink-1);
+        font: 600 var(--fs-2) / 1.2 var(--font-ui);
+      }
+      .citation-chip:hover,
+      .citation-chip:focus-visible {
+        border-color: var(--accent);
+        background: var(--surface-3);
+      }
+      .citation-preview {
+        position: absolute;
+        left: 0;
+        bottom: calc(100% + var(--sp-2));
+        z-index: 12;
+        display: none;
+        width: min(360px, 80vw);
+        padding: var(--sp-3);
+        border: 1px solid var(--border);
+        border-radius: var(--r-2);
+        background: var(--surface-1);
+        color: var(--ink-1);
+        box-shadow: var(--e-2, 0 8px 24px rgb(0 0 0 / 0.22));
+        font: var(--fs-2) / 1.45 var(--font-ui);
+      }
+      .citation-wrap:hover .citation-preview,
+      .citation-wrap:focus-within .citation-preview {
+        display: block;
+      }
+      .citation-technical {
+        margin-top: var(--sp-2);
+        color: var(--ink-3);
+        font-size: var(--fs-2);
+      }
+      .citation-technical code {
+        overflow-wrap: anywhere;
+      }
+      .current-decision {
+        border-left: 3px solid var(--ok);
+      }
+      .current-decision-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: var(--sp-3);
+      }
+      .current-decision-note {
+        padding: var(--sp-3);
+        border-left: 2px solid var(--border);
+        background: var(--surface-2);
+        white-space: pre-wrap;
+      }
+      .decision-entry > summary {
+        cursor: pointer;
+        font-weight: 700;
+      }
       .candidate-identity {
         display: grid;
         gap: var(--sp-1);
@@ -1858,12 +1931,50 @@
       let roles = [],
         selected = null,
         currentCandidateId = "",
+        candidateCitationIndex = new Map(),
         h4sConversationToken = "",
         h4sSandboxId = "";
       let rolesLoaded = false,
         rolesVisibleCount = 12,
         loadedRoleId = "",
         candidateVisibleCount = 25;
+      function readableCode(value) {
+        return String(value || "")
+          .toLowerCase()
+          .replaceAll("_", " ")
+          .replace(/\b\w/g, (letter) => letter.toUpperCase());
+      }
+      function citationMarkup(citation, criterionIndex, citationIndex) {
+        if (!citation?.resolved) {
+          return '<span class="badge" data-tone="attn">Source unavailable</span>';
+        }
+        candidateCitationIndex.set(citation.evidence_id, citation);
+        const tooltipId = `citation-preview-${criterionIndex}-${citationIndex}`,
+          passageNumber = citation.label?.endsWith("cited passage")
+            ? ` ${citationIndex + 1}`
+            : "",
+          label = `${citation.label || "Evidence"}${passageNumber}`,
+          preview = citation.preview ||
+            "This source is verified, but no safe inline passage is available.";
+        return `<span class="citation-wrap"><button class="citation-chip" type="button" data-citation-id="${esc(citation.evidence_id)}" aria-describedby="${esc(tooltipId)}" onclick="openCandidateCitation(this.dataset.citationId)">${esc(label)}</button><span class="citation-preview" id="${esc(tooltipId)}" role="tooltip">${esc(preview)}</span></span>`;
+      }
+      function citationTechnicalMarkup(citations) {
+        if (!citations.length) return "";
+        return `<details class="citation-technical"><summary>Technical citation details</summary><ul>${citations.map((citation) => `<li><code>${esc(citation.evidence_id || "missing")}</code>${citation.resolved ? ` · ${esc(citation.authority || "unknown authority")} · ${esc(citation.verification || "unknown verification")} · block <code>${esc(citation.locator?.block || "missing")}</code>` : " · unresolved"}</li>`).join("")}</ul></details>`;
+      }
+      function currentDecisionMarkup(decision) {
+        if (!decision) {
+          return '<section class="card"><h3>No Founder decision committed</h3><p class="micro">A decision appears here only after the durable decision record is committed.</p></section>';
+        }
+        const committed = decision.commit_status === "COMMITTED",
+          when = decision.committed_at || decision.created_at || "time unavailable",
+          reasons = (decision.reason_codes || []).map(readableCode).join(", ") ||
+            "No reason code recorded";
+        return `<section class="card current-decision"><div class="current-decision-head"><h3>Latest Founder decision</h3><span class="badge" data-tone="${committed ? "ok" : "attn"}">${committed ? "Committed" : "Reconciliation required"}</span></div><p><strong>${esc(readableCode(decision.decision))}</strong> · candidate state ${esc(readableCode(decision.candidate_state_after))}</p><p class="micro">${esc(decision.actor_label || "Founder")} · ${esc(when)} · ${esc(reasons)} · ${esc(decision.evidence_count || 0)} evidence reference${Number(decision.evidence_count || 0) === 1 ? "" : "s"}</p>${decision.human_note ? `<h4>Founder note</h4><p class="current-decision-note">${esc(decision.human_note)}</p>` : '<p class="micro">No optional note was recorded.</p>'}<details class="citation-technical"><summary>Technical decision details</summary><p>Decision <code>${esc(decision.decision_id)}</code><br>Policy <code>${esc(decision.policy_version_id || "unavailable")}</code></p></details></section>`;
+      }
+      function decisionEntryMarkup(id, assessmentId, version, evidenceIds, hasDecision) {
+        return `<details class="card decision-entry" ${hasDecision ? "" : "open"}><summary>${hasDecision ? "Record another Founder decision" : "Record a Founder decision"}</summary><label>Decision<select id="decisionKind"><option>HOLD</option><option>REQUEST_EVIDENCE</option><option>ADVANCE</option><option>DECLINE</option></select></label><label>Job-related reason<select id="decisionReason">${(window.currentApprovedDecisionReasons || []).map((reason) => `<option value="${esc(reason)}">${esc(readableCode(reason))}</option>`).join("")}</select></label><label>Optional note<textarea id="decisionNote" maxlength="1000"></textarea></label><button id="decisionSubmit" onclick='submitDecision(${JSON.stringify(id)},${JSON.stringify(assessmentId)},${version},${JSON.stringify(evidenceIds)})' ${assessmentId ? "" : "disabled"}>Commit Founder decision</button><p class="micro">Only the Founder can explicitly change a phase or decline. Every new decision appends to the durable history; it does not overwrite the committed record shown above.</p><p id="decisionCommitStatus" class="micro" role="status" aria-live="polite"></p></details>`;
+      }
       async function api(path, options = {}) {
         const { timeoutMs = 20000, ...requestOptions } = options,
           controller = new AbortController(),
@@ -2591,8 +2702,10 @@
             artifacts = j.artifacts || [],
             cited = [
               ...new Set(
-                (p?.criteria || []).flatMap((c) =>
-                  (c.citations || []).map((x) => x.evidence_id),
+                coverage.flatMap((criterion) =>
+                  (criterion.citations || [])
+                    .filter((citation) => citation.resolved)
+                    .map((citation) => citation.evidence_id),
                 ),
               ),
             ],
@@ -2603,14 +2716,28 @@
               : "";
           const identity = j.identity || {},
             displayName = identity.name || `Candidate ${a.candidate_code}`,
-            discussLink = `/?hiring_candidate=${encodeURIComponent(id)}`;
+            discussLink = `/?hiring_candidate=${encodeURIComponent(id)}`,
+            currentDecision = j.current_decision,
+            decisionBadge = currentDecision?.commit_status === "COMMITTED"
+              ? '<span class="badge" data-tone="ok">Committed</span>'
+              : "";
+          candidateCitationIndex = new Map();
+          window.currentApprovedDecisionReasons = j.approved_reason_codes || [];
+          const evidenceCards = coverage.map((criterion, criterionIndex) => {
+              const citations = criterion.citations || [],
+                citationList = citations.length
+                  ? `<div class="citation-list">${citations.map((citation, citationIndex) => citationMarkup(citation, criterionIndex, citationIndex)).join("")}</div>${citationTechnicalMarkup(citations)}`
+                  : '<p class="micro">Citations: none</p>';
+              return `<section class="criterion"><strong>${esc(criterion.criterion_label || criterion.criterion_id)}</strong> <span class="${criterion.coverage === "MISSING" ? "unknown" : "supported"}">${esc(criterion.coverage)}</span><p>${esc(criterion.summary)}</p>${citationList}<p class="micro">Missing or unclear: ${(criterion.unknowns || []).map(esc).join("; ") || "none"}<br>Contradictions: ${(criterion.contradictions || []).map(esc).join("; ") || "none"}</p></section>`;
+            }).join("") || '<p class="muted">Evidence is not ready yet. This is not negative evidence.</p>',
+            decisionPanel = `${currentDecisionMarkup(currentDecision)}${decisionEntryMarkup(id, p?.assessment_id, a.version, cited, Boolean(currentDecision))}<p class="micro">Silence, confidence and elapsed time never create a decision.</p>`;
           document.querySelector("#candidateTitle").textContent =
             `${displayName} · ${a.candidate_code}`;
           document.querySelector("#hiringContextTitle").textContent =
             `${displayName} · ${a.candidate_code}`;
           document.querySelector("#candidateIdentityScope").textContent =
             j.identity ? "Founder view" : "Identity unavailable";
-          body.innerHTML = `<div class="role-summary-head"><div class="candidate-identity"><strong>${esc(displayName)}</strong>${identity.email ? `<span>${esc(identity.email)}</span>` : '<span class="micro">Candidate identity is temporarily unavailable.</span>'}<span class="micro">${esc(a.candidate_code)} · ${esc(a.candidate_state)}</span></div><a class="btn" data-variant="secondary" href="${esc(discussLink)}"><svg class="ico" aria-hidden="true"><use href="#i-chat"/></svg>Discuss with Alex</a></div><nav class="candidate-section-nav" role="tablist" aria-label="Candidate workspace"><button class="btn" data-variant="ghost" role="tab" aria-selected="true" data-candidate-tab="work" onclick="selectCandidateTab('work')">Work</button><button class="btn" data-variant="ghost" role="tab" aria-selected="false" data-candidate-tab="evidence" onclick="selectCandidateTab('evidence')">Evidence</button><button class="btn" data-variant="ghost" role="tab" aria-selected="false" data-candidate-tab="decisions" onclick="selectCandidateTab('decisions')">Decisions</button><button class="btn" data-variant="ghost" role="tab" aria-selected="false" data-candidate-tab="activity" onclick="selectCandidateTab('activity')">Activity</button></nav><section class="candidate-pane" id="candidate-pane-work" role="tabpanel"><h2>Candidate application</h2><p class="micro">${artifacts.length} restricted document${artifacts.length === 1 ? "" : "s"}. CVs and application material stay in this role and are excluded from general search, profile memory, and company knowledge.</p><ul>${artifacts.map((item) => `<li>${esc(item.source_kind || "CV or resume")} · ${esc(item.content_type || "restricted document")} · ${esc(item.scope || "HIRING_RESTRICTED")} <button class="btn" data-variant="secondary" data-size="sm" onclick='openCandidateResume(${JSON.stringify(id)})'>Open CV</button></li>`).join("") || "<li>No candidate document record is available yet.</li>"}</ul><section class="card" id="candidateDocumentViewer" hidden><div class="role-summary-head"><h3>Restricted CV</h3><button class="btn" data-variant="ghost" onclick="closeCandidateResume()">Close</button></div><iframe id="candidateDocumentFrame" title="Restricted candidate CV" style="width:100%;height:70vh;border:1px solid var(--divider)" hidden></iframe><a class="btn" id="candidateDocumentDownload" download hidden>Download CV</a></section><section class="card" id="hiringCoordination"><h3>Candidate communication &amp; interview</h3><p class="micro">Loading receipt-backed coordination…</p></section><section class="card"><h3>Candidate data rights</h3><button onclick='exportCandidate(${JSON.stringify(id)})'>Export candidate data</button> <button onclick='deleteCandidate(${JSON.stringify(id)})'>Review deletion plan</button><p id="dataRightsStatus" class="micro">Recent sign-in is required. Provider email remains subject to the stated provider limitations.</p></section></section><section class="candidate-pane" id="candidate-pane-evidence" role="tabpanel" hidden><p class="state" id="candidateEvidenceStatus">${esc(evidenceLabel)}</p>${preparationStatus}<h2>Evidence by approved criterion</h2><p class="micro">Policy ${esc(p?.policy_version_id || a.current_policy_version_id || "pending")} · labels report candidate-provided information as present, missing, or unclear. They are not scores or hiring advice.</p><div class="passport">${coverage.map((c) => `<section class="criterion"><strong>${esc(c.criterion_label || c.criterion_id)}</strong> <span class="${c.coverage === "MISSING" ? "unknown" : "supported"}">${esc(c.coverage)}</span><p>${esc(c.summary)}</p><p class="micro">Citations: ${(c.citations || []).map((x) => esc(x.evidence_id)).join(", ") || "none"}<br>Missing or unclear: ${(c.unknowns || []).map(esc).join("; ") || "none"}<br>Contradictions: ${(c.contradictions || []).map(esc).join("; ") || "none"}</p></section>`).join("") || '<p class="muted">Evidence is not ready yet. This is not negative evidence.</p>'}</div></section><section class="candidate-pane" id="candidate-pane-decisions" role="tabpanel" hidden><section class="card"><h3>Record a Founder decision</h3><label>Decision<select id="decisionKind"><option>HOLD</option><option>REQUEST_EVIDENCE</option><option>ADVANCE</option><option>DECLINE</option></select></label><label>Job-related reason<select id="decisionReason">${(j.approved_reason_codes || []).map((x) => `<option value="${esc(x)}">${esc(x)}</option>`).join("")}</select></label><label>Optional note<textarea id="decisionNote" maxlength="1000"></textarea></label><button id="decisionSubmit" onclick='submitDecision(${JSON.stringify(id)},${JSON.stringify(p?.assessment_id)},${a.version},${JSON.stringify(cited)})' ${p?.assessment_id ? "" : "disabled"}>Commit Founder decision</button><p class="micro">Only the Founder can explicitly change a phase or decline. ADVANCE permits one bounded interview-coordination consent; within it Alex may manage the approved applicant thread and confirmed time options without asking for every message.</p></section><p class="micro">Silence, confidence and elapsed time never create a decision.</p></section><section class="candidate-pane" id="candidate-pane-activity" role="tabpanel" hidden><h2>Causal timeline</h2><ol>${(j.timeline || []).map((e) => `<li><strong>${esc(e.event_kind)}</strong> <span class="micro">sequence ${esc(e.sequence)} · ${esc(e.occurred_at)}</span></li>`).join("") || "<li>Application received; no later workflow event is committed.</li>"}</ol></section>`;
+          body.innerHTML = `<div class="role-summary-head"><div class="candidate-identity"><strong>${esc(displayName)}</strong>${identity.email ? `<span>${esc(identity.email)}</span>` : '<span class="micro">Candidate identity is temporarily unavailable.</span>'}<span class="micro">${esc(a.candidate_code)} · ${esc(a.candidate_state)}</span></div><a class="btn" data-variant="secondary" href="${esc(discussLink)}"><svg class="ico" aria-hidden="true"><use href="#i-chat"/></svg>Discuss with Alex</a></div><nav class="candidate-section-nav" role="tablist" aria-label="Candidate workspace"><button class="btn" data-variant="ghost" role="tab" aria-selected="true" data-candidate-tab="work" onclick="selectCandidateTab('work')">Work</button><button class="btn" data-variant="ghost" role="tab" aria-selected="false" data-candidate-tab="evidence" onclick="selectCandidateTab('evidence')">Evidence</button><button class="btn" data-variant="ghost" role="tab" aria-selected="false" data-candidate-tab="decisions" onclick="selectCandidateTab('decisions')">Decisions ${decisionBadge}</button><button class="btn" data-variant="ghost" role="tab" aria-selected="false" data-candidate-tab="activity" onclick="selectCandidateTab('activity')">Activity</button></nav><section class="candidate-pane" id="candidate-pane-work" role="tabpanel"><h2>Candidate application</h2><p class="micro">${artifacts.length} restricted document${artifacts.length === 1 ? "" : "s"}. CVs and application material stay in this role and are excluded from general search, profile memory, and company knowledge.</p><ul>${artifacts.map((item) => `<li>${esc(item.source_kind || "CV or resume")} · ${esc(item.content_type || "restricted document")} · ${esc(item.scope || "HIRING_RESTRICTED")} <button class="btn" data-variant="secondary" data-size="sm" onclick='openCandidateResume(${JSON.stringify(id)})'>Open CV</button></li>`).join("") || "<li>No candidate document record is available yet.</li>"}</ul><section class="card" id="candidateDocumentViewer" hidden><div class="role-summary-head"><h3>Restricted CV</h3><button class="btn" data-variant="ghost" onclick="closeCandidateResume()">Close</button></div><p id="candidateDocumentContext" class="micro"></p><iframe id="candidateDocumentFrame" title="Restricted candidate CV" style="width:100%;height:70vh;border:1px solid var(--divider)" hidden></iframe><a class="btn" id="candidateDocumentDownload" download hidden>Download CV</a></section><section class="card" id="hiringCoordination"><h3>Candidate communication &amp; interview</h3><p class="micro">Loading receipt-backed coordination…</p></section><section class="card"><h3>Candidate data rights</h3><button onclick='exportCandidate(${JSON.stringify(id)})'>Export candidate data</button> <button onclick='deleteCandidate(${JSON.stringify(id)})'>Review deletion plan</button><p id="dataRightsStatus" class="micro">Recent sign-in is required. Provider email remains subject to the stated provider limitations.</p></section></section><section class="candidate-pane" id="candidate-pane-evidence" role="tabpanel" hidden><p class="state" id="candidateEvidenceStatus">${esc(evidenceLabel)}</p>${preparationStatus}<h2>Evidence by approved criterion</h2><p class="micro">Policy ${esc(p?.policy_version_id || a.current_policy_version_id || "pending")} · hover or focus a citation for its bounded passage; activate it to open the restricted source. Labels report candidate-provided information as present, missing, or unclear. They are not scores or hiring advice.</p><div class="passport">${evidenceCards}</div></section><section class="candidate-pane" id="candidate-pane-decisions" role="tabpanel" hidden>${decisionPanel}</section><section class="candidate-pane" id="candidate-pane-activity" role="tabpanel" hidden><h2>Causal timeline</h2><ol>${(j.timeline || []).map((e) => `<li><strong>${esc(e.event_kind)}</strong> <span class="micro">sequence ${esc(e.sequence)} · ${esc(e.occurred_at)}</span></li>`).join("") || "<li>Application received; no later workflow event is committed.</li>"}</ol></section>`;
           selectCandidateTab("work", false);
           await loadHiringCoordination(id);
         } catch (e) {
@@ -2714,8 +2841,10 @@
           ?.focus({ preventScroll: true });
       }
       async function submitDecision(id, assessmentId, version, evidenceIds) {
-        const b = document.querySelector("#decisionSubmit");
+        const b = document.querySelector("#decisionSubmit"),
+          status = document.querySelector("#decisionCommitStatus");
         b.disabled = true;
+        if (status) status.textContent = "Committing the Founder decision…";
         try {
           const csrf = (await api("/api/hiring/csrf")).csrf_token;
           const payload = {
@@ -2742,10 +2871,16 @@
           );
           await openRole(selected);
           await openCandidate(id);
+          selectCandidateTab("decisions", false);
+          const committedStatus = document.querySelector("#decisionCommitStatus");
+          if (committedStatus)
+            committedStatus.textContent =
+              "Decision committed. The durable record is shown above.";
         } catch (e) {
-          alert(e.message);
+          if (status) status.textContent = e.message;
+          else alert(e.message);
         } finally {
-          b.disabled = false;
+          if (b.isConnected) b.disabled = false;
         }
       }
       function openInAppBrowser(url) {
@@ -2990,7 +3125,16 @@
       }
 
       let candidateResumeBlobUrl = "";
-      async function openCandidateResume(candidateId) {
+      async function openCandidateCitation(evidenceId) {
+        const citation = candidateCitationIndex.get(evidenceId);
+        if (!citation?.resolved || !citation.openable) return;
+        await openCandidateResume(
+          currentCandidateId,
+          Number(citation.locator?.page || 0),
+          citation,
+        );
+      }
+      async function openCandidateResume(candidateId, page = 0, citation = null) {
         try {
           const response = await fetch(
             `/api/hiring/applications/${encodeURIComponent(candidateId)}/resume`,
@@ -3020,11 +3164,17 @@
           const viewer = document.querySelector("#candidateDocumentViewer"),
             frame = document.querySelector("#candidateDocumentFrame"),
             download = document.querySelector("#candidateDocumentDownload"),
+            context = document.querySelector("#candidateDocumentContext"),
             pdf = (response.headers.get("content-type") || "").startsWith("application/pdf");
+          selectCandidateTab("work", false);
           viewer.hidden = false;
           frame.hidden = !pdf;
           download.hidden = pdf;
-          if (pdf) frame.src = candidateResumeBlobUrl;
+          context.textContent = citation
+            ? `${citation.label}. ${citation.preview || "Open the cited source passage."}`
+            : "Full restricted CV. Access is audited and remains inside Hiring.";
+          if (pdf)
+            frame.src = `${candidateResumeBlobUrl}${page > 0 ? `#page=${page}&view=FitH` : ""}`;
           else {
             download.href = candidateResumeBlobUrl;
             download.download = "candidate-cv.docx";
@@ -3038,9 +3188,11 @@
       function closeCandidateResume() {
         const viewer = document.querySelector("#candidateDocumentViewer"),
           frame = document.querySelector("#candidateDocumentFrame"),
-          download = document.querySelector("#candidateDocumentDownload");
+          download = document.querySelector("#candidateDocumentDownload"),
+          context = document.querySelector("#candidateDocumentContext");
         if (frame) { frame.removeAttribute("src"); frame.hidden = true; }
         if (download) { download.removeAttribute("href"); download.hidden = true; }
+        if (context) context.textContent = "";
         if (viewer) viewer.hidden = true;
         if (candidateResumeBlobUrl) URL.revokeObjectURL(candidateResumeBlobUrl);
         candidateResumeBlobUrl = "";
