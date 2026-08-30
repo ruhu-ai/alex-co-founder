@@ -257,6 +257,28 @@ def test_login_restores_founder_directly_and_shell_redirect_is_single_shot():
     assert 'location.href = "/login.html"' not in shell
 
 
+def test_authenticated_route_401_never_enters_login_redirect_loop():
+    shell = open("app/static/index.html", encoding="utf-8").read()
+    api_block = shell.split("async function api(path, opts = {})", 1)[1].split(
+        "function esc(s)", 1)[0]
+    restore_block = shell.split("async function restoreSession()", 1)[1].split(
+        "// Agent-initiated messages", 1)[0]
+
+    # Route-owned principal/membership/freshness failures stay in the app.
+    assert "failure && failure.error_code" in api_block
+    # A legacy bare 401 may redirect only after the auth endpoint confirms the
+    # browser is no longer signed in. This is the loop-breaking invariant.
+    assert 'await fetch("/auth/me")' in api_block
+    assert "!routeOwned && !me?.authenticated" in api_block
+    assert api_block.index("!routeOwned && !me?.authenticated") < api_block.index(
+        "redirectToSignIn();")
+    # Startup clears the cached conversation only for a real 404. Authority
+    # failures are rendered once and never retried as a mutating session create.
+    assert "if (error.status !== 404) throw error;" in restore_block
+    assert "localStorage.removeItem(SESSION_KEY);" in restore_block
+    assert "renderBootFailure(error);" in shell
+
+
 def test_auth_me_modes(env, client):
     assert client.get("/auth/me").json()["mode"] == "open"
     env.setenv("APP_AUTH_TOKEN", "t-secret")

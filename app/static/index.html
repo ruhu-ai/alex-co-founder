@@ -4220,22 +4220,36 @@ async function api(path, opts = {}) {
         ...opts,
         headers: headers
     });
+    let failure = null;
+    if (!r.ok) failure = await r.clone().json().catch(() => ({}));
     if (r.status === 401 && !path.startsWith("/auth/")) {
-        const authFailure = await r.clone().json().catch(() => ({}));
-        // Signed out or session expired — the login page explains the way back in
-        // (and covers the ?key= flow when sign-in isn't configured).
-                redirectToSignIn();
-        throw new Error("signed out");
+        // A route-owned 401 is not proof that the browser session expired.
+        // Principal, membership, freshness and resource-bound failures all use
+        // 401 while carrying a typed error_code. Redirecting those responses
+        // made the authenticated workspace and login page bounce between each
+        // other forever. Even a legacy bare 401 is checked against /auth/me
+        // before navigation, so an authenticated browser can never enter that
+        // loop again.
+        const routeOwned = !!(failure && failure.error_code);
+        const me = routeOwned ? null : await fetch("/auth/me")
+          .then(response => response.ok ? response.json() : null)
+          .catch(() => null);
+        if (!routeOwned && !me?.authenticated) {
+            redirectToSignIn();
+            const signedOut = new Error("signed out");
+            signedOut.errorCode = "signed_out";
+            signedOut.status = 401;
+            throw signedOut;
+        }
     }
     if (!r.ok) {
         // Surface failures instead of toasting success on a 401/500 body.
-        let detail = "";
-        try {
-            const body = await r.json();
-            detail = body.message || body.detail || (typeof body.error === "string" ? body.error : "");
-        } catch (_) {
-            /* non-JSON */}
-        throw new Error(detail || `${r.status} ${r.statusText}`);
+        const detail = failure?.message || failure?.detail
+          || (typeof failure?.error === "string" ? failure.error : "");
+        const error = new Error(detail || `${r.status} ${r.statusText}`);
+        error.errorCode = failure?.error_code || "";
+        error.status = r.status;
+        throw error;
     }
     return r.json();
 }
@@ -4857,10 +4871,32 @@ async function restoreSession() {
             chatCount = 0;
             if (!(h.messages || []).length) chatPlaceholder();
             return;
-        } catch {
-            /* stored session gone — fall through to a fresh one */}
+        } catch (error) {
+            // Only a confirmed missing conversation invalidates this local
+            // pointer. Authentication, membership and dependency failures are
+            // authoritative and must remain visible instead of being retried
+            // as a second session mutation during startup.
+            if (error.status !== 404) throw error;
+            localStorage.removeItem(SESSION_KEY);
+        }
     }
     await newSession();
+}
+
+function renderBootFailure(error) {
+    delete document.body.dataset.refreshing;
+    document.querySelectorAll('[data-refreshing="true"]').forEach(node => {
+        node.removeAttribute("data-refreshing");
+        node.removeAttribute("aria-busy");
+    });
+    markLoaded();
+    chatPlaceholder();
+    const detail = error?.message || "The Founder workspace could not be opened.";
+    $("digestSlot").innerHTML = `<div class="digest"><div class="digest-head">
+      <h3>Workspace access needs attention</h3></div>
+      <p class="foot">${esc(detail)}</p>
+      <a class="btn" data-variant="secondary" data-size="sm"
+         href="/login.html?fresh=1&amp;next=%2F">Sign in again</a></div>`;
 }
 
 // Agent-initiated messages (sweep reports, deadline nudges) land in the
@@ -9658,7 +9694,11 @@ async function startAuthorizedApp() {
 
 async function boot() {
     await loadIdentity();
-    await startAuthorizedApp();
+    try {
+        await startAuthorizedApp();
+    } catch (error) {
+        renderBootFailure(error);
+    }
 }
 
 boot();
