@@ -1,0 +1,21 @@
+app/main.py
+  s_bf598a20bfcdaa::t_b6bab37bfa5c39 279
+tests/unit/test_findings_hardening.py
+  s_bf598a20bfcdaa::t_b6bab37bfa5c39 198,206
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "03a3891c866c1ef0ad66993960cebd5326c72c9f",
+  "prompts": {},
+  "sessions": {
+    "s_bf598a20bfcdaa": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a04860-dde3-79c3-b2bd-2987b04adc68",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Ijidai Lassa <ijidai@cued.app>"
+    }
+  }
+}
