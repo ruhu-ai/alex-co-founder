@@ -1,0 +1,23 @@
+services/connection_registry.py
+  s_16e75b10efee22::t_064a9d13653a80 19-27,33-37,117-120,245-248,260-261,266-267,269-271
+  s_16e75b10efee22::t_2893bb12eb152d 28-32
+tests/unit/test_connection_registry.py
+  s_16e75b10efee22::t_064a9d13653a80 15,58-74
+  s_16e75b10efee22::t_8109b59483bbe0 75-76
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "d96b681c8076b2756869fe35cdfd774fbdfb674d",
+  "prompts": {},
+  "sessions": {
+    "s_16e75b10efee22": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0484d-a6bd-7182-90ae-527ccfd2a966",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Ijidai Lassa <ijidai@cued.app>"
+    }
+  }
+}
