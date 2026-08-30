@@ -45,6 +45,20 @@ def test_alex_shell_is_conversation_first_with_stable_hiring_route():
     assert 'width:min(calc(100%-2*var(--sp-4)),760px)' in INDEX_SQUASHED
 
 
+def test_alex_role_account_connector_access_is_truthful():
+    for expected in (
+        "Read, search, label, and archive mail",
+        "within a durable workflow mandate",
+        "Mailbox settings, delegation, or immediate permanent deletion",
+        "Read events and availability",
+        "Share calendars, change ACLs, or delete a calendar",
+        "Read, create, edit, organize, and delete Alex-owned files",
+        "application-controlled and audited",
+    ):
+        assert expected in INDEX
+    assert "approval-gated — every send needs your approval" not in INDEX
+
+
 def test_contextual_workspace_has_reviewed_vocabulary_and_tabs():
     tabs = INDEX.split("const REF_TABS = [", 1)[1].split("];", 1)[0]
     assert [label in tabs for label in ('label: "Work"', 'label: "Evidence"',

@@ -60,9 +60,18 @@ rendered application pack; the founder sends it.
   `POST /tasks/alex_mail_scan` and the pane's Scan-now button.
 - **Extraction-only:** email bodies are untrusted input, treated exactly like
   web pages — parsed to structured events, never followed as instructions.
-- Outbound: `send_email` rides the same approval gate as submission
-  (`approval_service`, gate `send_email`) — a GRANTED, unexpired, unconsumed
-  approval resolved server-side; consuming it is the idempotency key.
+- Outbound: generic `send_email` retains its exact approval gate. Hiring
+  coordination uses one fresh, bounded Founder mandate for the candidate,
+  recipients, availability options, copy policy and expiry; Alex may continue
+  that exact thread and book the agreed slot without another approval. Every
+  send still has a durable idempotency key, receipt and uncertainty stop.
+- OAuth: the dedicated role mailbox uses `gmail.modify` for ordinary
+  read/send/label/archive work, excluding settings, delegation and immediate
+  permanent deletion. The same role account uses full `drive` access for its
+  own work files and `calendar.readonly` + `calendar.events` for event
+  scheduling; durable application controls remain authoritative over effects.
+  A scope-contract change always requires fresh consent; an older narrower
+  grant is never treated as if it carried the new authority.
 - Deliverability: SPF/DKIM/DMARC configured day one; correspondence volume
   only, never bulk. The agent mailbox never replaces the founder's address as
   *applicant contact* on application forms — applicant identity is contractual.

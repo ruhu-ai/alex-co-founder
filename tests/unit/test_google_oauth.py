@@ -118,10 +118,9 @@ def test_alex_calendar_rejects_founder_account_in_role_slot(monkeypatch):
     assert "founder@ruhu.ai" not in result["message"]
 
 
-def test_alex_drive_rejects_inherited_scope_before_token_persistence(monkeypatch):
+def test_alex_drive_rejects_unrelated_scope_before_token_persistence(monkeypatch):
     scopes = [
         *google_oauth.SCOPE_MAP["alex_drive"],
-        "https://www.googleapis.com/auth/drive",
         "https://www.googleapis.com/auth/gmail.send",
     ]
     oauth2 = _OAuth2Service(scopes, "alex@ruhu.ai")
@@ -139,6 +138,44 @@ def test_alex_drive_rejects_inherited_scope_before_token_persistence(monkeypatch
         "error_code": "scope_excess",
         "message": "Google returned access outside this connector's scope contract",
     }
+
+
+def test_alex_drive_rejects_legacy_narrow_grant(monkeypatch):
+    oauth2 = _OAuth2Service([
+        "https://www.googleapis.com/auth/drive.readonly",
+        "https://www.googleapis.com/auth/drive.file",
+    ], "alex@ruhu.ai")
+    monkeypatch.setattr(
+        "googleapiclient.discovery.build",
+        lambda *_args, **_kwargs: oauth2,
+    )
+
+    result = google_oauth.verify_consent(
+        SimpleNamespace(token="access-token"), "alex_drive")
+
+    assert result["status"] == "error"
+    assert result["error_code"] == "scope_missing"
+
+
+def test_alex_mail_rejects_legacy_read_send_grant(monkeypatch):
+    oauth2 = _OAuth2Service([
+        "https://www.googleapis.com/auth/gmail.readonly",
+        "https://www.googleapis.com/auth/gmail.send",
+        "openid",
+        "https://www.googleapis.com/auth/userinfo.email",
+    ], "alex@ruhu.ai")
+    gmail = _GmailService("alex@ruhu.ai")
+
+    def build(api, _version, **_kwargs):
+        return oauth2 if api == "oauth2" else gmail
+
+    monkeypatch.setattr("googleapiclient.discovery.build", build)
+
+    result = google_oauth.verify_consent(
+        SimpleNamespace(token="access-token"), "alex_mail")
+
+    assert result["status"] == "error"
+    assert result["error_code"] == "scope_missing"
 
 
 def test_calendar_verification_fails_closed_when_userinfo_has_no_email(monkeypatch):

@@ -57,17 +57,17 @@ DESCRIPTORS: list[dict[str, Any]] = [
     },
     {
         "name": "alex_mail", "title": "Alex's Mailbox", "icon": "A", "brand": "#7c5cd6",
-        "blurb": "alex@ruhu.ai — Alex's own inbox: program replies land here and wake the pipeline; sending is approval-gated.",
+        "blurb": "alex@ruhu.ai — Alex's own inbox: read, send, label and archive; account settings and permanent deletion stay unavailable.",
         "auth": "google_oauth", "aliases": ("email", "alex", "mailbox"),
     },
     {
         "name": "alex_calendar", "title": "Alex's Calendar", "icon": "A", "brand": "#0f9d58",
-        "blurb": "alex@ruhu.ai — calendar reads plus exact, Founder-approved event changes.",
+        "blurb": "alex@ruhu.ai — read calendars and manage events; calendar sharing and deletion stay unavailable.",
         "auth": "google_oauth", "aliases": ("calendar", "alex", "interviews", "scheduling"),
     },
     {
         "name": "alex_drive", "title": "Alex's Google Drive", "icon": "A", "brand": "#4285f4",
-        "blurb": "alex@ruhu.ai — Alex's own Drive: selected-file reads and Founder-approved app-created writes.",
+        "blurb": "alex@ruhu.ai — full management of Alex-owned Drive files; application controls still guard consequential sharing and deletion.",
         "auth": "google_oauth", "aliases": ("drive", "alex", "docs", "files"),
     },
     {

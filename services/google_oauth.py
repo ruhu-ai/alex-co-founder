@@ -2,9 +2,10 @@
 
 Two accounts, each with its own refresh token:
   - "founder": bounded Drive + Gmail + Calendar (GOOGLE_OAUTH_REFRESH_TOKEN)
-  - "alex":    the alex@ruhu.ai role mailbox (ALEX_OAUTH_REFRESH_TOKEN) —
-               gmail.readonly + gmail.send; sending is approval-gated in code
-               (services/alex_mailbox.py), never by scope alone.
+  - "alex":    the alex@ruhu.ai role account (ALEX_OAUTH_REFRESH_TOKEN) —
+               normal mailbox management, full Alex-owned Drive access, and
+               event scheduling. Consequences remain controlled in code, never
+               by OAuth scope alone.
 
 Refresh tokens are obtained via the Connectors panel (in-browser loopback
 flow) or scripts/oauth_setup.py, and stored in Secret Manager (prod) or .env
@@ -39,8 +40,9 @@ SCOPE_MAP = {
         "openid", "https://www.googleapis.com/auth/userinfo.email",
     ],
     "alex_mail": [
-        "https://www.googleapis.com/auth/gmail.readonly",
-        "https://www.googleapis.com/auth/gmail.send",  # gated in code, never autonomous
+        # Normal role-mailbox operations, excluding settings/delegation and
+        # immediate permanent deletion. Outbound effects remain code-gated.
+        "https://www.googleapis.com/auth/gmail.modify",
         "openid", "https://www.googleapis.com/auth/userinfo.email",
     ],
     "alex_calendar": [
@@ -49,8 +51,9 @@ SCOPE_MAP = {
         "openid", "https://www.googleapis.com/auth/userinfo.email",
     ],
     "alex_drive": [
-        "https://www.googleapis.com/auth/drive.readonly",
-        "https://www.googleapis.com/auth/drive.file",  # app-created files only
+        # This is a dedicated company role account. Application guards still
+        # control external sharing/deletion and consequence-bearing workflows.
+        "https://www.googleapis.com/auth/drive",
     ],
 }
 
