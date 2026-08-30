@@ -276,6 +276,7 @@ async def _verify_oidc(request: Request) -> bool:
         "/tasks/workflow_timer_recover": "TASKS_TIMERS_SA",
         "/tasks/dispatch_command_outbox": "TASKS_TIMERS_SA",
         "/tasks/browser_expire": "TASKS_BROWSER_SA",
+        "/webhooks/alex_mail": "TASKS_PROVIDER_EVENTS_SA",
         "/tasks/portal_wake": "TASKS_PROVIDER_EVENTS_SA",
         "/tasks/wake_delivery": "TASKS_PROVIDER_EVENTS_SA",
         "/tasks/gmail_scan": "TASKS_PROVIDER_EVENTS_SA",

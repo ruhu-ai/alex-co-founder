@@ -195,6 +195,7 @@ def test_discovery_is_manual_only_and_deadline_monitoring_stays_scheduled():
 def test_alex_mail_push_and_watch_renewal_are_deployment_managed():
     deploy = (ROOT / "scripts/deploy.sh").read_text()
     mailbox = (ROOT / "services/alex_mailbox.py").read_text()
+    main = (ROOT / "app/main.py").read_text()
 
     assert "alex-mail-events" in deploy
     assert "gmail-api-push@system.gserviceaccount.com" in deploy
@@ -202,6 +203,7 @@ def test_alex_mail_push_and_watch_renewal_are_deployment_managed():
     assert "alex-mail-local-dev" in deploy
     assert "alex-mail-watch-renew-daily" in deploy
     assert "/tasks/hiring/renew_mailbox_watch" in deploy
+    assert '"/webhooks/alex_mail": "TASKS_PROVIDER_EVENTS_SA"' in main
     watch = mailbox.split("async def start_watch", 1)[1].split(
         "async def search_messages", 1)[0]
     assert 'body={"topicName": topic}' in watch
