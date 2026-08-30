@@ -574,6 +574,9 @@ async def test_local_public_form_encrypts_and_queues_alex_evidence_job(
     monkeypatch.setattr(
         "services.hiring_public_intake.storage.delete_artifact",
         lambda name: bool(saved.pop(name, None)))
+    monkeypatch.setattr(
+        "services.hiring_public_intake.storage.read_bytes",
+        lambda name: saved[name])
     projection = build_public_intake_projection(role)
     assert projection["form_available"] is True
     assert projection["email_available"] is True
@@ -630,6 +633,12 @@ async def test_local_public_form_encrypts_and_queues_alex_evidence_job(
     assert revealed == {"status": "success", "identity": {
         "name": "Synthetic Applicant", "email": "candidate@example.test",
     }}
+    founder_projection = await service.reveal_restricted_identity(
+        application=application, principal=_founder(), require_fresh=False)
+    assert founder_projection["identity"]["email"] == "candidate@example.test"
+    opened = await service.read_restricted_resume(application=application)
+    assert opened["status"] == "success"
+    assert opened["resume_bytes"] == resume
 
     duplicate = await service.submit(
         role_id=role_id, intake_token=projection["intake_token"],
@@ -870,6 +879,13 @@ async def test_candidate_workspace_reports_coverage_and_alex_never_makes_judgmen
     assert detail["evidence_coverage"][0]["coverage"] == "UNCLEAR"
     assert detail["artifacts"][0]["scope"] == "HIRING_RESTRICTED"
     assert "storage_name" not in detail["artifacts"][0]
+    scoped_context = await service.get_candidate_conversation_context(
+        principal=_founder(), application_id="candidateapp_test")
+    assert scoped_context["status"] == "success"
+    projected = scoped_context["candidate_context"]
+    assert projected["context_kind"] == "HIRING_CANDIDATE_EVIDENCE"
+    assert projected["criterion_coverage"][0]["coverage"] == "UNCLEAR"
+    assert "identity" not in projected and "resume" not in repr(projected).lower()
 
     conversation = HiringCandidateConversationService(store)
     started = await conversation.begin(
@@ -890,6 +906,19 @@ async def test_candidate_workspace_reports_coverage_and_alex_never_makes_judgmen
     assert len(await store.list(
         "hiring_conversation_turns",
         filters={"candidate_application_id": "candidateapp_test"})) == 2
+
+    monkeypatch.delenv("APP_SESSION_SECRET", raising=False)
+    monkeypatch.delenv("K_SERVICE", raising=False)
+    monkeypatch.setenv("APP_AUTH_TOKEN", "documented-local-auth-fallback")
+    local_started = await conversation.begin(
+        principal=_founder(), candidate_application_id="candidateapp_test")
+    assert local_started["status"] == "success"
+
+    monkeypatch.setenv("K_SERVICE", "co-founder")
+    unavailable = await conversation.begin(
+        principal=_founder(), candidate_application_id="candidateapp_test")
+    assert unavailable["error_code"] == "provider_unavailable"
+    assert "conversation_token" not in unavailable
 
 
 def test_hiring_routes_expose_scoped_context_and_non_live_public_page(monkeypatch):
@@ -921,6 +950,60 @@ def test_hiring_routes_expose_scoped_context_and_non_live_public_page(monkeypatc
     public = client.get("/api/public/hiring/roles/role_route_test")
     assert public.status_code == 404
     assert public.json()["error_code"] == "open_role_not_live"
+
+
+def test_founder_can_open_exact_restricted_resume_without_public_url(monkeypatch):
+    import asyncio
+
+    from app import hiring_routes
+
+    store = InMemoryDurableStore()
+    service = _service(store)
+    asyncio.run(store.create("candidate_applications", "candidateapp_abcdef0123456789", {
+        "candidate_application_id": "candidateapp_abcdef0123456789",
+        "candidate_id": "candidate_abcdef0123456789",
+        "candidate_code": "C-12345678",
+        "workspace_id": "workspace_test", "role_id": "role_resume_test",
+        "source_kind": "PUBLIC_FORM", "synthetic": False,
+        "artifact_ids": ["artifact_resume_test"], "version": 1,
+    }))
+
+    async def actor(_request):
+        return ActorPrincipal(
+            actor_id="founder_actor", workspace_id="workspace_test",
+            role=WorkspaceRole.FOUNDER, session_auth_time=int(time.time()),
+            membership_version=1)
+
+    async def opened(_self, *, application):
+        assert application["candidate_application_id"] == "candidateapp_abcdef0123456789"
+        return {
+            "status": "success", "resume_bytes": b"%PDF-safe-test",
+            "extension": ".pdf", "artifact": {
+                "artifact_id": "artifact_resume_test",
+                "content_type": "application/pdf",
+            },
+        }
+
+    monkeypatch.setattr(hiring_routes, "_actor", actor)
+    monkeypatch.setattr(hiring_routes, "_mutation_allowed", lambda _request: {})
+    monkeypatch.setattr(hiring_routes, "production_store", lambda: store)
+    monkeypatch.setattr(hiring_routes, "_services", lambda: (service, object()))
+    monkeypatch.setattr(HiringPublicIntakeService,
+                        "read_restricted_resume", opened)
+    app = FastAPI()
+    hiring_routes.register(app)
+    response = TestClient(app).post(
+        "/api/hiring/applications/candidateapp_abcdef0123456789/resume",
+        json={"client_request_id": "resume_open_test_001"})
+    assert response.status_code == 200
+    assert response.content == b"%PDF-safe-test"
+    assert response.headers["cache-control"] == "no-store, private"
+    assert response.headers["content-disposition"].startswith("inline;")
+    assert response.headers["x-content-type-options"] == "nosniff"
+    audits = asyncio.run(store.list("audit", filters={}))
+    assert len(audits) == 1
+    assert audits[0]["action"] == "hiring.resume.open"
+    assert "candidate@example" not in repr(audits)
 
 
 def test_editable_job_description_saves_proposed_version_and_previews_exact_copy(

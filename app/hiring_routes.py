@@ -15,7 +15,7 @@ from typing import Any, Literal
 from urllib.parse import quote
 
 from fastapi import FastAPI, File, Form, Request, UploadFile
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, ConfigDict, Field
 
 from app import auth
@@ -169,6 +169,10 @@ class PrepareCandidateEvidenceRequest(ClosedRequest):
 
 class IdentityRevealRequest(ClosedRequest):
     client_request_id: str
+
+
+class ResumeOpenRequest(ClosedRequest):
+    client_request_id: str = Field(min_length=3, max_length=128)
 
 
 class CandidateRequest(ClosedRequest):
@@ -340,6 +344,41 @@ async def _actor(request: Request) -> ActorPrincipal | dict[str, Any]:
     return await resolve_actor_from_claims(auth.session_claims(request))
 
 
+async def _founder_candidate_identity(
+        principal: ActorPrincipal,
+        application: dict[str, Any]) -> dict[str, Any] | None:
+    """Decrypt a real public applicant's display identity for Hiring only."""
+    if (application.get("source_kind") != "PUBLIC_FORM"
+            or application.get("synthetic") is not False):
+        return None
+    revealed = await HiringPublicIntakeService(
+        store=production_store()).reveal_restricted_identity(
+            application=application, principal=principal,
+            require_fresh=False)
+    return (dict(revealed["identity"])
+            if not revealed.get("error") else None)
+
+
+async def _candidate_evidence_summary(
+        application: dict[str, Any]) -> dict[str, int]:
+    assessment_id = str(application.get("current_assessment_id") or "")
+    assessment = (await production_store().get(
+        "candidate_assessments", assessment_id) if assessment_id else None)
+    counts = {"present": 0, "missing": 0, "unclear": 0,
+              "contradicted": 0}
+    for item in list((assessment or {}).get("criteria") or []):
+        status = str(item.get("status") or "")
+        if status == "SUPPORTED":
+            counts["present"] += 1
+        elif status == "UNKNOWN":
+            counts["missing"] += 1
+        elif status == "CONTRADICTED":
+            counts["contradicted"] += 1
+        else:
+            counts["unclear"] += 1
+    return counts
+
+
 def _inbox_row_visible(principal: ActorPrincipal, row: dict[str, Any]) -> bool:
     """Defer inbox visibility to the same gate that guards the records.
 
@@ -508,6 +547,23 @@ def register(app: FastAPI) -> None:
                 status_code=503)
         return _response(await services[0].get_role_conversation_context(
             principal=principal, role_id=role_id))
+
+    @app.get("/api/hiring/applications/{application_id}/conversation-context")
+    async def candidate_conversation_context(
+            request: Request, application_id: str):
+        """Return the closed durable evidence context used by canonical Alex."""
+        principal = await _actor(request)
+        if isinstance(principal, dict):
+            return _response(principal)
+        services = _services()
+        if not services:
+            return _response({
+                "status": "error", "error": True,
+                "error_code": "provider_unavailable",
+                "message": "Hiring is temporarily unavailable.",
+            })
+        return _response(await services[0].get_candidate_conversation_context(
+            principal=principal, application_id=application_id))
 
     # -- Internal controlled demo ------------------------------------------
     # This has a separate policy, records and approval domain from H4S. It is
@@ -955,15 +1011,32 @@ def register(app: FastAPI) -> None:
             if not authorize(
                 principal, "read_candidate",
             ).get("error")]
-        candidates = [{
-            **row,
-            "evidence_status": candidate_evidence_status(
-                row, current_policy_version_id=str(
-                    role.get("current_policy_version_id") or "")),
-        } for row in candidates]
+        async def project_candidate(row: dict[str, Any]) -> dict[str, Any]:
+            assessment_id = str(row.get("current_assessment_id") or "")
+            assessment = (await production_store().get(
+                "candidate_assessments", assessment_id)
+                if assessment_id else None)
+            identity, summary = await asyncio.gather(
+                _founder_candidate_identity(principal, row),
+                _candidate_evidence_summary(row))
+            return {
+                **row,
+                "identity": identity,
+                "identity_status": "VISIBLE" if identity else "UNAVAILABLE",
+                "evidence_summary": summary,
+                "evidence_status": candidate_evidence_status(
+                    row, assessment=assessment,
+                    current_policy_version_id=str(
+                        role.get("current_policy_version_id") or "")),
+            }
+
+        candidates = list(await asyncio.gather(*(
+            project_candidate(row) for row in candidates)))
         policies.sort(key=lambda item: int(item.get("sequence", 0)))
-        return {"status": "success", "role": role, "candidates": candidates,
-                "policy_versions": policies, "policy_impacts": impacts}
+        return JSONResponse(
+            {"status": "success", "role": role, "candidates": candidates,
+             "policy_versions": policies, "policy_impacts": impacts},
+            headers={"Cache-Control": "no-store"})
 
     @app.post("/api/hiring/roles/{role_id}/policy-versions")
     async def propose_policy(request: Request, role_id: str,
@@ -1344,8 +1417,75 @@ def register(app: FastAPI) -> None:
         if not services:
             return JSONResponse({"error": "synthetic encryption is not configured"},
                                 status_code=503)
-        return _response(await services[0].candidate_detail(
-            principal=principal, application_id=application_id))
+        detail = await services[0].candidate_detail(
+            principal=principal, application_id=application_id)
+        if detail.get("error"):
+            return _response(detail)
+        identity = await _founder_candidate_identity(
+            principal, detail["application"])
+        detail["identity"] = identity
+        detail["identity_status"] = "VISIBLE" if identity else "UNAVAILABLE"
+        detail["identity_revealed"] = bool(identity)
+        return JSONResponse(detail, headers={"Cache-Control": "no-store"})
+
+    @app.post("/api/hiring/applications/{application_id}/resume")
+    async def open_candidate_resume(
+            request: Request, application_id: str,
+            payload: ResumeOpenRequest):
+        """Stream one audited restricted CV to the authenticated Founder.
+
+        The route never returns a durable public URL and never places CV bytes
+        in general artifacts, search, memory, logs, or model context.
+        """
+        denied = _mutation_allowed(request)
+        if denied.get("error"):
+            return _response(denied)
+        principal = await _actor(request)
+        if isinstance(principal, dict):
+            return _response(principal)
+        gate = authorize(principal, "read_candidate", require_fresh=True)
+        if gate.get("error"):
+            return _response(gate)
+        store = production_store()
+        application = await store.get("candidate_applications", application_id)
+        if (not application
+                or application.get("workspace_id") != principal.workspace_id):
+            return JSONResponse({"status": "error", "error": True,
+                                 "error_code": "application_not_found",
+                                 "message": "Application does not exist."},
+                                status_code=404)
+        opened = await HiringPublicIntakeService(
+            store=store).read_restricted_resume(application=application)
+        if opened.get("error"):
+            return _response(opened)
+        artifact = dict(opened["artifact"])
+        audit_id = stable_id(
+            "audit", principal.workspace_id, "resume_open",
+            application_id, payload.client_request_id)
+        await store.create("audit", audit_id, {
+            "schema_version": 2, "audit_id": audit_id,
+            "founder_id": principal.workspace_id,
+            "workspace_id": principal.workspace_id,
+            "actor": principal.actor_id, "actor_id": principal.actor_id,
+            "action": "hiring.resume.open",
+            "target": f"hiring_candidate_artifacts/{artifact.get('artifact_id')}",
+            "result": "success",
+            "detail": "authorized restricted resume open",
+            "idempotency_key": payload.client_request_id,
+            "created_at": utc_now(), "version": 1,
+        })
+        content_type = str(artifact.get("content_type") or
+                           "application/octet-stream")
+        disposition = "inline" if content_type == "application/pdf" else "attachment"
+        filename = f"candidate-resume{opened['extension']}"
+        return Response(
+            content=opened["resume_bytes"], media_type=content_type,
+            headers={
+                "Cache-Control": "no-store, private",
+                "Content-Disposition": f'{disposition}; filename="{filename}"',
+                "X-Content-Type-Options": "nosniff",
+                "X-Hiring-Audit-Id": audit_id,
+            })
 
     @app.get("/api/hiring/applications/{application_id}/coordination")
     async def hiring_coordination_projection(request: Request, application_id: str):

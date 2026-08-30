@@ -323,11 +323,22 @@ def test_hiring_is_a_dedicated_shared_shell_with_scoped_candidate_work():
         assert f'data-hiring-tab="{tab}"' in HIRING
         assert f'id="hiring-pane-{tab}"' in HIRING
     assert "Candidate workspace" in HIRING
-    assert "identity hidden" in HIRING
-    assert "/applications/${encodeURIComponent(candidateId)}/conversations" in HIRING
-    assert "cannot score, rank, choose the outcome" in HIRING
-    assert "manage the approved applicant email thread and confirmed interview times" in HIRING
-    assert "one bounded coordination consent" in HIRING
+    assert "Founder view" in HIRING
+    assert 'id="candidateIdentityScope"' in HIRING
+    assert "hiring_candidate=" in HIRING
+    assert "/candidate-conversations/answer" not in HIRING
+    assert "/applications/${encodeURIComponent(candidateId)}/conversations" not in HIRING
+    assert "candidate-pane-evidence" in HIRING
+    assert "selectCandidateTab" in HIRING
+    assert "Open CV" in HIRING
+    assert "/api/hiring/applications/${encodeURIComponent(candidateId)}/resume" in HIRING
+    assert 'Cache-Control' not in HIRING  # transport owns the no-store header
+    assert "activeHiringCandidateContext" in INDEX
+    assert "hiring_candidate_id" in INDEX
+    assert "/conversation-context`" in INDEX
+    assert "Candidate communication &amp; interview" in HIRING
+    assert "exact applicant thread and confirmed availability only" in HIRING
+    assert "One Founder approval confirms the candidate" in HIRING
     assert "/coordination/contact" in HIRING
     assert "/coordination/interview" in HIRING
     assert "Approve Alex to coordinate this interview" in HIRING
@@ -376,7 +387,7 @@ def test_founder_hiring_package_is_readable_and_exact_approval_is_primary():
     ):
         assert label in HIRING
     assert "Discuss with Alex" in HIRING
-    assert HIRING.count("Discuss with Alex</a>") == 1
+    assert HIRING.count("Discuss with Alex</a>") == 2
     assert 'id="hiringAlexDock"' not in HIRING
     assert "Applications are not open yet" in HIRING
     for editable in (
@@ -399,8 +410,10 @@ def test_founder_hiring_package_is_readable_and_exact_approval_is_primary():
     assert "decision.append(actions)" in HIRING
     assert "Candidate intake inbox" in HIRING
     assert "present, missing, or unclear" in HIRING
-    assert "/candidate-conversations/answer" in HIRING
-    assert "/applications/${encodeURIComponent(candidateId)}/conversations" in HIRING
+    assert "/candidate-conversations/answer" not in HIRING
+    assert "/applications/${encodeURIComponent(candidateId)}/conversations" not in HIRING
+    assert "complete criterion map, citations, unknowns, contradictions" in HIRING
+    assert "fixed email quota" not in HIRING
     assert "No active synthetic sandbox is scoped to this role" not in HIRING
     assert "Only the Founder can explicitly change a phase or decline" in HIRING
 

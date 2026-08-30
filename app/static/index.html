@@ -4347,14 +4347,22 @@ function md(src) {
 }
 
 // ---------- chat ----------
-let PERSONA = "Alex", WORKFLOW = "", activeHiringRoleContext = null;
+let PERSONA = "Alex", WORKFLOW = "", activeHiringRoleContext = null,
+    activeHiringCandidateContext = null;
 
 function renderHiringRoleContext() {
-    if (!activeHiringRoleContext) return false;
+    const context = activeHiringCandidateContext || activeHiringRoleContext;
+    if (!context) return false;
     $("contextTitle").textContent = "Alex";
-    $("contextScope").textContent = `Hiring · ${activeHiringRoleContext.role_title}`;
-    $("contextScope").setAttribute("aria-label", `Active Hiring role: ${activeHiringRoleContext.role_title} at ${activeHiringRoleContext.company_name}`);
-    $("msg").placeholder = `Discuss ${activeHiringRoleContext.role_title} with Alex…`;
+    if (activeHiringCandidateContext) {
+        $("contextScope").textContent = `Hiring · ${context.candidate_code} · ${context.role_title}`;
+        $("contextScope").setAttribute("aria-label", `Active Hiring candidate evidence: ${context.candidate_code} for ${context.role_title}`);
+        $("msg").placeholder = `Ask Alex about ${context.candidate_code}'s committed evidence…`;
+    } else {
+        $("contextScope").textContent = `Hiring · ${context.role_title}`;
+        $("contextScope").setAttribute("aria-label", `Active Hiring role: ${context.role_title} at ${context.company_name}`);
+        $("msg").placeholder = `Discuss ${context.role_title} with Alex…`;
+    }
     return true;
 }
 
@@ -4362,6 +4370,7 @@ async function loadHiringRoleContext(roleId) {
     if (!/^[a-z][a-z0-9_:-]{2,127}$/.test(roleId || "")) return;
     try {
         const result = await api(`/api/hiring/roles/${encodeURIComponent(roleId)}/conversation-context`);
+        activeHiringCandidateContext = null;
         activeHiringRoleContext = result.role_context || null;
         if (!activeHiringRoleContext) return;
         navigateProduct("alex");
@@ -4370,6 +4379,22 @@ async function loadHiringRoleContext(roleId) {
     } catch (error) {
         activeHiringRoleContext = null;
         toast("That Hiring role is unavailable in this workspace.", "danger");
+    }
+}
+
+async function loadHiringCandidateContext(candidateId) {
+    if (!/^candidateapp_[a-f0-9]{16,64}$/.test(candidateId || "")) return;
+    try {
+        const result = await api(`/api/hiring/applications/${encodeURIComponent(candidateId)}/conversation-context`);
+        activeHiringRoleContext = null;
+        activeHiringCandidateContext = result.candidate_context || null;
+        if (!activeHiringCandidateContext) return;
+        navigateProduct("alex");
+        renderHiringRoleContext();
+        toast(`Discussing committed evidence for ${activeHiringCandidateContext.candidate_code}. Hiring judgment remains yours.`, "ok");
+    } catch (error) {
+        activeHiringCandidateContext = null;
+        toast("That candidate is unavailable in this workspace.", "danger");
     }
 }
 
@@ -4849,7 +4874,8 @@ async function send() {
                 session_id: sessionId,
                 client_request_id: requestId,
                 attachment_refs: readyAttachmentRefs,
-                hiring_role_id: activeHiringRoleContext?.role_id || ""
+                hiring_role_id: activeHiringRoleContext?.role_id || "",
+                hiring_candidate_id: activeHiringCandidateContext?.candidate_application_id || ""
             })
         });
         readyAttachmentRefs = [];
@@ -9522,8 +9548,12 @@ async function startAuthorizedApp() {
         history.replaceState(null, "", location.pathname);
         openConnections();
     }
-    const hiringRoleId = launch.get("hiring_role");
-    if (hiringRoleId) {
+    const hiringRoleId = launch.get("hiring_role"),
+        hiringCandidateId = launch.get("hiring_candidate");
+    if (hiringCandidateId) {
+        history.replaceState(null, "", location.pathname);
+        await loadHiringCandidateContext(hiringCandidateId);
+    } else if (hiringRoleId) {
         history.replaceState(null, "", location.pathname);
         await loadHiringRoleContext(hiringRoleId);
     }

@@ -31,32 +31,41 @@ def _error(code: str, message: str, status: int = 409) -> dict[str, Any]:
             "message": message}
 
 
-def _secret() -> bytes:
+def _secret() -> bytes | None:
     value = os.environ.get("APP_SESSION_SECRET", "")
-    if not value:
-        raise RuntimeError("H4S conversation secret is not configured")
-    return value.encode()
+    if not value and not os.environ.get("K_SERVICE"):
+        # Local auth documents APP_AUTH_TOKEN as its signing fallback.  Reuse
+        # it only outside Cloud Run so a local candidate discussion cannot
+        # fail merely because cookie auth uses the supported development path.
+        value = os.environ.get("APP_AUTH_TOKEN", "")
+    return value.encode() if value else None
 
 
-def _encode(payload: dict[str, Any]) -> str:
+def _encode(payload: dict[str, Any]) -> str | None:
+    secret = _secret()
+    if secret is None:
+        return None
     raw = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
-    signature = hmac.new(_secret(), raw, hashlib.sha256).digest()
+    signature = hmac.new(secret, raw, hashlib.sha256).digest()
     return (base64.urlsafe_b64encode(raw).decode().rstrip("=") + "."
             + base64.urlsafe_b64encode(signature).decode().rstrip("="))
 
 
 def _decode(token: str) -> dict[str, Any] | None:
     try:
+        secret = _secret()
+        if secret is None:
+            return None
         encoded, supplied = token.split(".", 1)
         padded = encoded + "=" * (-len(encoded) % 4)
         raw = base64.urlsafe_b64decode(padded)
-        expected = hmac.new(_secret(), raw, hashlib.sha256).digest()
+        expected = hmac.new(secret, raw, hashlib.sha256).digest()
         actual = base64.urlsafe_b64decode(supplied + "=" * (-len(supplied) % 4))
         payload = json.loads(raw)
         if not hmac.compare_digest(expected, actual) or int(payload["exp"]) < int(time.time()):
             return None
         return payload
-    except (KeyError, TypeError, ValueError, UnicodeDecodeError, RuntimeError):
+    except (KeyError, TypeError, ValueError, UnicodeDecodeError):
         return None
 
 
@@ -99,8 +108,13 @@ class HiringRunAnswerService:
                    "workspace_id": principal.workspace_id, "actor_id": principal.actor_id,
                    "candidate_application_id": candidate_application_id,
                    "exp": int(time.time()) + _TTL_SECONDS}
+        token = _encode(payload)
+        if token is None:
+            return _error(
+                "provider_unavailable",
+                "Candidate discussion is temporarily unavailable.", 503)
         return {"status": "success", "conversation_id": conversation_id,
-                "conversation_token": _encode(payload), "expires_in_seconds": _TTL_SECONDS}
+                "conversation_token": token, "expires_in_seconds": _TTL_SECONDS}
 
     async def answer(self, *, principal: ActorPrincipal, conversation_token: str,
                      question: str, client_turn_id: str = "") -> dict[str, Any]:
@@ -229,8 +243,13 @@ class HiringCandidateConversationService:
             "candidate_application_id": candidate_application_id,
             "exp": int(time.time()) + _TTL_SECONDS,
         }
+        token = _encode(payload)
+        if token is None:
+            return _error(
+                "provider_unavailable",
+                "Candidate discussion is temporarily unavailable.", 503)
         return {"status": "success", "conversation_id": conversation_id,
-                "conversation_token": _encode(payload),
+                "conversation_token": token,
                 "expires_in_seconds": _TTL_SECONDS,
                 "scope": {"role_id": candidate["role_id"],
                           "candidate_code": candidate.get("candidate_code"),

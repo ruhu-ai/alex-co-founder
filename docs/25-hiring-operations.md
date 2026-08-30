@@ -1535,7 +1535,8 @@ Employment **decisions** and external-action **approvals** are different:
 | send/signature request for offer | exact terms/document/recipient approval + fresh authentication at approval and execution |
 | create onboarding run | authoritative accepted-offer event |
 | provision account/access/payroll | separate authoritative adapter and exact approval; disabled in initial build |
-| reveal restricted identity/export candidate data | authenticated `FOUNDER` + fresh authentication + audit |
+| view applicant name/email in Hiring | authenticated current-workspace `FOUNDER`; Hiring-only projection, no search/memory/model copy |
+| open restricted CV/export candidate data | authenticated `FOUNDER` + fresh authentication + audit + no-store response |
 | change membership status | Founder role + fresh authentication + append-only authority audit |
 | close role/cancel active candidates | authenticated human control plus impact confirmation + fresh authentication |
 
@@ -1797,7 +1798,7 @@ this document may not create a separate Hiring product shell.
 
 | Surface | Repository status | Hiring decision |
 |---|---|---|
-| chat and voice | role discussion links into normal Alex; candidate discussion re-authorizes every turn, cannot choose a hiring outcome, and points to the candidate-bound coordination controls after ADVANCE | converge the remaining page-local composition on doc 36's shared scoped conversation component; chat never grants decision/approval/provider authority |
+| chat and voice | role and candidate discussion link into canonical Alex; candidate context is re-read from durable state every turn, contains only committed criterion evidence, refuses hiring judgment, and never grants decision/approval/provider authority | retain one canonical conversation surface; do not add a page-local mini-chat |
 | Pipeline board | exists, funding-specific | reuse shell/tokens only; build Hiring cockpit |
 | Review pane | exists, application-draft-specific | reuse component patterns; new evidence/decision contract |
 | approval modal/inbox | exists | generalize binding/display for hiring run/policy/action refs |
@@ -1809,7 +1810,7 @@ this document may not create a separate Hiring product shell.
 | founder ambiguity inbox | generic event/inbox primitives exist | extend with hiring schemas, actor authorization, and cockpit projections |
 | role/candidate run hierarchy | implemented for real public intake and synthetic fixtures | durable state, evidence preparation, human decision and H4 communication events are candidate-run-bound; H5–H7 remain absent |
 | hiring role cockpit | synthetic H3 now uses the shared token/type/icon/navigation source, a role-index home, focused cockpit, Quiet contextual workspace, and grouped mobile candidate rows; committed role/runtime/mailbox/publication truth remains backend-authoritative | complete the remaining shared component extraction and add the still-missing production workflow fields only behind their reviewed stage gates |
-| candidate intake inbox and evidence passport | synthetic H3 and local staged records render as a role-scoped inbox; candidate detail keeps identity hidden by default, lists restricted CV/application artifacts, maps candidate-provided information to approved criteria as `PRESENT` / `MISSING` / `UNCLEAR`, exposes causal activity, and keeps phase/decline controls Founder-only | qualify extraction and retention with synthetic data, then converge the remaining page-local candidate section composition on the shared contextual-workspace renderer; keep it unranked, identity-separated, and backend-authoritative |
+| candidate intake inbox and evidence passport | the authenticated Founder sees applicant name/email in Hiring, can open the exact restricted CV through a no-store audited route, and reviews `PRESENT` / `MISSING` / `UNCLEAR` criterion evidence without scores or recommendations | keep identity/CV out of general search, memory, logs and model context; retain Founder-only decisions and backend authority |
 | policy version/diff/impact view | implemented for synthetic H2–H3 | approved role brief, scorecard, interview plan, job post, version and impact |
 | interview/reference/offer/onboarding views | live candidate communication and interview create/update/cancel receipts implemented; reference/offer/onboarding missing | keep the bounded H4 consent, exact H5–H7 approvals and provider reconciliation; build H5–H7 separately |
 | application-mailbox operations | normal Alex mailbox push/history is reused; successful Hiring sends persist exact provider thread ids and applicant replies correlate only by that thread plus the server-resolved candidate address; ambiguous mail remains in the Founder inbox | no subject/name/model correlation; automatic/DSN-like mail is receipt-only; every reply message is untrusted and injection-shaped previews are withheld |
@@ -1856,11 +1857,11 @@ switcher rather than retaining a permanent second sidebar.
 No selected role/run means no contextual Alex dock, voice affordance, or empty
 chat card. **Start a hiring run with Alex** is a bounded setup entry that creates
 no role/candidate authority before the durable run exists. After selection, an
-authorized founder may invoke Scoped Alex from the role, one candidate, or one
-Work/Evidence item. The right contextual region switches between that same
-scoped transcript and Work/Evidence/Decisions/Activity as doc 36 specifies; it
-does not render an unrelated mini-chat. Scope switches retire the old binding
-and clear its evidence before the new view is displayed.
+authorized founder may invoke canonical Alex from the role or one candidate.
+Candidate navigation supplies only an opaque application id; the server
+re-authorizes and re-reads the current durable evidence projection on every
+message. The Hiring page does not render an unrelated mini-chat. Scope switches
+retire the old binding and clear its evidence before the new view is displayed.
 
 Role/candidate conversation receives only the minimum projection in doc 36
 §12.6 and the server restrictions in §§4.1–4.3. Generated-document references
@@ -1923,12 +1924,20 @@ the UI must not add a second competing tab system:
 4. **Activity** — application, waits, communications, interviews, references,
    decisions, offer, data-rights events, and receipts in causal order.
 
+The narrow role-workspace **Evidence** pane shows candidate identity, readiness,
+and aggregate present/missing/unclear/contradicted counts. The complete fixed-
+order criterion map, citations, unknowns, contradictions and restricted CV stay
+on the expanded candidate Evidence/Work tabs; compressing them into the
+slide-over would make the evidence harder to audit rather than more accessible.
+
 Domain subsections may use progressive disclosure within the relevant tab, but
 they do not become page-level navigation or a stacked wall of cards.
 
-Identity is collapsed/redacted by default in assessment mode and revealed only
-through an authorized UI action. The evidence and decision panels do not expose
-protected data.
+The authenticated Founder sees the applicant name and email directly in Hiring.
+Those fields remain encrypted at rest and excluded from general search, profile
+memory, logs, and candidate evidence supplied to Alex. The exact restricted CV
+opens only through an audited no-store Founder route with recent authentication.
+The evidence and decision panels do not expose unrelated protected data.
 
 ### 12.6 Role-policy impact screen
 

@@ -331,10 +331,12 @@ class WakePayload(BaseModel):
     # retry. Message text is deliberately not an idempotency key: a founder may
     # intentionally repeat the same request later.
     client_request_id: str | None = None
-    # Optional role-level discussion scope selected in Hiring Operations. The
-    # server re-reads it in the authenticated workspace and projects no
-    # candidate identities, evidence, assessments, approvals, or provider data.
+    # Optional role-level discussion scope selected in Hiring Operations.
     hiring_role_id: str | None = Field(default=None, max_length=128)
+    # Optional candidate evidence scope. The server re-reads the exact durable
+    # application and criterion map on every message. It never projects CV
+    # bytes, decrypted identity, approvals, provider credentials or authority.
+    hiring_candidate_id: str | None = Field(default=None, max_length=128)
 
 
 class SessionCreateRequest(BaseModel):
@@ -439,6 +441,10 @@ _DISCOVER_CONTEXT_MAX = 500
 _HIRING_CONTEXT_MAX = 700
 _INVESTOR_CONTEXT_MAX = 800
 _INGESTION_REF = re.compile(r"^[a-f0-9]{32}$")
+_HIRING_JUDGMENT_REQUEST = re.compile(
+    r"\b(best|better|rank|score|opinion about (?:the|this) candidate|"
+    r"should (?:we|i) (?:hire|reject|advance)|recommend|culture fit|"
+    r"personality)\b", re.I)
 
 
 def _discover_command_enabled() -> bool:
@@ -926,7 +932,24 @@ async def wake(payload: WakePayload, request: Request) -> dict:
     founder_id = principal.workspace_id
     session_id = payload.session_id or f"s-{uuid.uuid4().hex}"
     selected_hiring_context: dict | None = None
-    if payload.hiring_role_id:
+    if payload.hiring_candidate_id:
+        services = hiring_routes._services()
+        if not services:
+            return JSONResponse({
+                "status": "error", "error": True,
+                "error_code": "hiring_unavailable",
+                "message": "The selected Hiring role is temporarily unavailable."
+            }, status_code=503)
+        scoped = await services[0].get_candidate_conversation_context(
+            principal=principal, application_id=payload.hiring_candidate_id)
+        if scoped.get("error"):
+            return JSONResponse({
+                "status": "error", "error": True,
+                "error_code": "hiring_candidate_context_unavailable",
+                "message": "The selected candidate is unavailable in this workspace."
+            }, status_code=404)
+        selected_hiring_context = scoped["candidate_context"]
+    elif payload.hiring_role_id:
         services = hiring_routes._services()
         if not services:
             return JSONResponse({
@@ -957,7 +980,9 @@ async def wake(payload: WakePayload, request: Request) -> dict:
             command_type="conversation.message",
             request={"session_id": session_id, "message": payload.message,
                      "attachment_refs": list(payload.attachment_refs),
-                     "hiring_role_id": str(payload.hiring_role_id or "")},
+                     "hiring_role_id": str(payload.hiring_role_id or ""),
+                     "hiring_candidate_id": str(
+                         payload.hiring_candidate_id or "")},
             origin_session_id=session_id)
         if receipt.get("error"):
             return JSONResponse(receipt, status_code=command_http_status(receipt))
@@ -995,6 +1020,19 @@ async def wake(payload: WakePayload, request: Request) -> dict:
             founder_id=founder_id, session_id=session_id, created=True)
         await _catalog_session_memory_mode(
             session_id, founder_id, durable_memory.MemoryMode.STANDARD.value)
+    if (payload.hiring_candidate_id
+            and _HIRING_JUDGMENT_REQUEST.search(payload.message)):
+        reply = (
+            "That asks for a hiring judgment. I can summarize the committed "
+            "candidate evidence by approved criterion—including what is "
+            "present, missing, unclear, or contradictory—but only you can "
+            "decide whether to advance, hold, request evidence, or decline.")
+        await _append_chat_exchange(
+            session_id, payload.message, reply,
+            f"candidate-judgment-refusal-{uuid.uuid4().hex}", founder_id)
+        return await _respond({
+            "session_id": session_id, "replies": [reply],
+            "hiring_judgment_refused": True})
     session_memory_mode = str(
         (existing.state or {}).get(ss.K_MEMORY_MODE)
         or durable_memory.MemoryMode.STANDARD.value)

@@ -1290,6 +1290,36 @@
       .candidate-section-nav .btn {
         flex: none;
       }
+      .candidate-pane[hidden] {
+        display: none;
+      }
+      .candidate-pane {
+        padding: var(--sp-3) 0 var(--sp-6);
+      }
+      .candidate-identity {
+        display: grid;
+        gap: var(--sp-1);
+        margin-bottom: var(--sp-4);
+      }
+      .candidate-identity strong {
+        font-size: var(--fs-6);
+      }
+      .evidence-summary-list {
+        display: grid;
+        gap: var(--sp-3);
+      }
+      .evidence-summary-card {
+        border: 1px solid var(--divider);
+        border-radius: var(--r-3);
+        padding: var(--sp-3);
+        background: var(--surface-2);
+      }
+      .evidence-counts {
+        display: flex;
+        flex-wrap: wrap;
+        gap: var(--sp-2);
+        margin: var(--sp-2) 0;
+      }
       .loading-state,
       .error-state {
         display: grid;
@@ -1771,7 +1801,7 @@
           >Back to role
         </button>
         <h2 id="candidateTitle">Candidate workspace</h2>
-        <span class="scope-pill">Identity hidden</span>
+        <span class="scope-pill" id="candidateIdentityScope">Founder view</span>
       </div>
       <div class="candidate-record" id="candidateBody"></div>
     </section>
@@ -2314,7 +2344,10 @@
             const evidenceState = c.evidence_status || (c.current_assessment_id ? "READY" : "NOT_STARTED"),
               evidenceLabel = evidenceState === "READY" ? "Ready" : evidenceState === "STALE_POLICY" ? "Refresh required" : evidenceState === "PREPARING" ? "Alex is preparing evidence" : evidenceState === "FAILED" ? "Preparation failed" : evidenceState === "DELAYED" ? "Preparation delayed" : "Waiting for Alex",
               actionLabel = evidenceState === "READY" || evidenceState === "STALE_POLICY" ? "View evidence" : evidenceState === "FAILED" ? "View issue" : "View status";
-            return `<tr><td data-label="Candidate">${esc(c.candidate_code)}</td><td data-label="Policy">${esc(c.current_policy_version_id)}</td><td data-label="Committed state" class="state">${esc(c.candidate_state)}</td><td data-label="Evidence" class="state">${esc(evidenceLabel)}</td><td data-label="Open record"><button onclick="openCandidate('${esc(c.candidate_application_id)}')">${esc(actionLabel)}</button></td></tr>`;
+            const identity = c.identity || {},
+              candidateLabel = identity.name || c.candidate_code,
+              candidateMeta = identity.email ? `<span class="micro">${esc(identity.email)}</span>` : `<span class="micro">${esc(c.candidate_code)}</span>`;
+            return `<tr><td data-label="Candidate"><strong>${esc(candidateLabel)}</strong><br>${candidateMeta}</td><td data-label="Policy">${esc(c.current_policy_version_id)}</td><td data-label="Committed state" class="state">${esc(c.candidate_state)}</td><td data-label="Evidence" class="state">${esc(evidenceLabel)}</td><td data-label="Open record"><button onclick="openCandidate('${esc(c.candidate_application_id)}')">${esc(actionLabel)}</button></td></tr>`;
           }).join("")}</tbody></table>`;
         }
         if (!total) return `<p class="muted">${esc(emptyMessage)}</p>`;
@@ -2421,7 +2454,7 @@
               : "";
           root.innerHTML = `<section class="card role-summary"><div class="role-summary-head"><div><p class="micro">${esc(roleKind)} · ${esc(role.company_name || contract?.company_name || "Company")} · ${esc(role.role_code)}</p><h2>${esc(role.role_title)}</h2></div><a class="btn" data-variant="secondary" href="${esc(discussLink)}"><svg class="ico" aria-hidden="true"><use href="#i-chat"/></svg>Discuss with Alex</a></div><p class="micro">Role-level context only. Candidate identities and restricted evidence stay in Hiring; external actions still require their exact controls.</p><div class="grid"><div class="stat"><span class="muted">Role state</span><strong>${esc(role.role_state)}</strong></div><div class="stat"><span class="muted">Candidates</span><strong>${candidates.length}</strong></div><div class="stat"><span class="muted">${esc(applicationsLabel)}</span><strong>${esc(applicationsStatus)}</strong><span class="micro">${esc(applicationsHelp)}</span>${applicationLink}</div></div><p class="micro next-wake">Next wake: ${esc(role.role_state === "PUBLISHED" ? "trusted application intake" : "founder approval")}</p></section><section class="card role-materials" tabindex="-1"><h3>${needsApproval ? "Proposed" : displayPolicy ? "Approved" : "Saved"} role package</h3>${contract ? `<section><h4>Role brief</h4><p>${esc(contract.role_summary)}</p><p class="micro">${esc(contract.company_name)} · Target ${esc(contract.target_date)} · ${esc((contract.location_envelope || []).join(", "))}</p></section>${roleDescriptionMarkup(role, contract, displayPolicy)}<section><h4>Hiring scorecard</h4><ol>${(contract.criteria || []).map((c) => `<li><strong>${esc(c.label)}</strong> — ${esc(c.description)}</li>`).join("")}</ol></section><section><h4>Interview plan</h4><ol>${(contract.interview_plan || []).map((q) => `<li><strong>${esc(q.criterion_id)}</strong> — ${esc(q.text)}<br><span class="micro">Rubric: ${(q.rubric || []).map(esc).join("; ")}</span></li>`).join("")}</ol></section><p class="micro">${policyMeta}</p>${approveMarkup}` : '<p class="muted">No role contract is available yet.</p>'}</section><section class="card"><h3>Publication receipt</h3>${(role.publication_receipts || []).map((x) => `<p><button data-public-url="${esc(encodeURIComponent(x.public_url))}" onclick="openInAppBrowser(decodeURIComponent(this.dataset.publicUrl))">Open ${esc(x.destination)} receipt in Browser panel</button> · ${esc(x.verification_status)}<br><span class="micro">Recorded by ${esc(x.actor_id)} at ${esc(x.recorded_at)}</span></p>`).join("") || `<p class="muted">${esc(publicationText)}</p>`}${publicationControl}</section><section class="card"><h3>Candidate intake inbox</h3><p class="micro">Role-scoped applications and restricted CV evidence only. Alex does not score, rank, recommend, advance, or reject candidates.</p>${candidateInboxMarkup(groups, candidateEmpty)}</section>`;
           loadedRoleId = id;
-          hydrateUnifiedRoleLayout(role);
+          hydrateUnifiedRoleLayout(role, candidates);
           if (preserveCurrent) restoreHiringScroll(scrollState);
         } catch (e) {
           if (preserveCurrent) {
@@ -2516,6 +2549,9 @@
           '<div class="card loading-state" aria-busy="true"><p>Loading committed evidence…</p></div>';
         d.hidden = false;
         document.body.dataset.candidateOpen = "true";
+        const candidateUrl = new URL(location.href);
+        candidateUrl.searchParams.set("candidate", id);
+        history.replaceState({candidateId: id}, "", candidateUrl);
         document.querySelector("#hiringShell").inert = true;
         document.querySelector("#hiringShell").setAttribute("aria-hidden", "true");
         d.querySelector(".candidate-route-head .btn")?.focus();
@@ -2539,11 +2575,17 @@
             preparationStatus = !p && a.source_kind === "PUBLIC_FORM"
               ? `<p id="mappingStatus" class="micro" aria-live="polite">${evidenceState === "FAILED" ? "Alex could not prepare this evidence safely. The application remains received and no candidate decision was made." : evidenceState === "DELAYED" ? "The application is safe, but Alex's durable evidence job has not started yet." : "Alex owns this preparation. The Founder reviews evidence only after it is ready; Alex cannot score, rank, recommend, advance, decline, or contact the candidate."}</p><button class="btn" data-variant="secondary" onclick='openCandidate(${JSON.stringify(id)})'>Refresh status</button>`
               : "";
+          const identity = j.identity || {},
+            displayName = identity.name || `Candidate ${a.candidate_code}`,
+            discussLink = `/?hiring_candidate=${encodeURIComponent(id)}`;
           document.querySelector("#candidateTitle").textContent =
-            `Candidate ${a.candidate_code}`;
+            `${displayName} · ${a.candidate_code}`;
           document.querySelector("#hiringContextTitle").textContent =
-            `Candidate ${a.candidate_code} · identity hidden`;
-          body.innerHTML = `<p class="micro">${esc(a.candidate_code)} · ${esc(a.candidate_state)} · identity hidden by default</p><p class="state" id="candidateEvidenceStatus">${esc(evidenceLabel)}</p>${preparationStatus}<button onclick='revealIdentity(${JSON.stringify(id)})'>Reveal identity with recent sign-in</button><p id="revealedIdentity" class="micro"></p><h2>Candidate application</h2><p class="micro">${artifacts.length} restricted document${artifacts.length === 1 ? "" : "s"}. CVs and application material stay in this role and are excluded from general search, profile memory, and company knowledge.</p><ul>${artifacts.map((item) => `<li>${esc(item.source_kind || "CV or resume")} · ${esc(item.content_type || "restricted document")} · ${esc(item.scope || "HIRING_RESTRICTED")}</li>`).join("") || "<li>No candidate document record is available yet.</li>"}</ul><h2>Evidence by approved criterion</h2><p class="micro">Policy ${esc(p?.policy_version_id || a.current_policy_version_id || "pending")} · labels report candidate-provided information as present, missing, or unclear. They are not scores or hiring advice.</p><div class="passport">${coverage.map((c) => `<section class="criterion"><strong>${esc(c.criterion_label || c.criterion_id)}</strong> <span class="${c.coverage === "MISSING" ? "unknown" : "supported"}">${esc(c.coverage)}</span><p>${esc(c.summary)}</p><p class="micro">Citations: ${(c.citations || []).map((x) => esc(x.evidence_id)).join(", ") || "none"}<br>Missing or unclear: ${(c.unknowns || []).map(esc).join("; ") || "none"}<br>Contradictions: ${(c.contradictions || []).map(esc).join("; ") || "none"}</p></section>`).join("") || '<p class="muted">Evidence is not ready yet. This is not negative evidence.</p>'}</div><h3>Causal timeline</h3><ol>${(j.timeline || []).map((e) => `<li><strong>${esc(e.event_kind)}</strong> <span class="micro">sequence ${esc(e.sequence)} · ${esc(e.occurred_at)}</span></li>`).join("") || "<li>Application received; no later workflow event is committed.</li>"}</ol><section class="card"><h3>Record a Founder decision</h3><label>Decision<select id="decisionKind"><option>HOLD</option><option>REQUEST_EVIDENCE</option><option>ADVANCE</option><option>DECLINE</option></select></label><label>Job-related reason<select id="decisionReason">${(j.approved_reason_codes || []).map((x) => `<option value="${esc(x)}">${esc(x)}</option>`).join("")}</select></label><label>Optional note<textarea id="decisionNote" maxlength="1000"></textarea></label><button id="decisionSubmit" onclick='submitDecision(${JSON.stringify(id)},${JSON.stringify(p?.assessment_id)},${a.version},${JSON.stringify(cited)})' ${p?.assessment_id ? "" : "disabled"}>Commit Founder decision</button><p class="micro">Only the Founder can explicitly change a phase or decline. ADVANCE permits one bounded interview-coordination consent; within it Alex may manage the approved applicant thread and confirmed time options without asking for every message.</p></section><section class="card" id="hiringCoordination"><h3>Candidate communication &amp; interview</h3><p class="micro">Loading receipt-backed coordination…</p></section><section class="card"><h3>Candidate data rights</h3><button onclick='exportCandidate(${JSON.stringify(id)})'>Export candidate data</button> <button onclick='deleteCandidate(${JSON.stringify(id)})'>Review deletion plan</button><p id="dataRightsStatus" class="micro">Recent sign-in is required. Provider email remains subject to the stated provider limitations.</p></section><p class="micro">Silence, confidence and elapsed time never create a decision.</p>`;
+            `${displayName} · ${a.candidate_code}`;
+          document.querySelector("#candidateIdentityScope").textContent =
+            j.identity ? "Founder view" : "Identity unavailable";
+          body.innerHTML = `<div class="role-summary-head"><div class="candidate-identity"><strong>${esc(displayName)}</strong>${identity.email ? `<span>${esc(identity.email)}</span>` : '<span class="micro">Candidate identity is temporarily unavailable.</span>'}<span class="micro">${esc(a.candidate_code)} · ${esc(a.candidate_state)}</span></div><a class="btn" data-variant="secondary" href="${esc(discussLink)}"><svg class="ico" aria-hidden="true"><use href="#i-chat"/></svg>Discuss with Alex</a></div><nav class="candidate-section-nav" role="tablist" aria-label="Candidate workspace"><button class="btn" data-variant="ghost" role="tab" aria-selected="true" data-candidate-tab="work" onclick="selectCandidateTab('work')">Work</button><button class="btn" data-variant="ghost" role="tab" aria-selected="false" data-candidate-tab="evidence" onclick="selectCandidateTab('evidence')">Evidence</button><button class="btn" data-variant="ghost" role="tab" aria-selected="false" data-candidate-tab="decisions" onclick="selectCandidateTab('decisions')">Decisions</button><button class="btn" data-variant="ghost" role="tab" aria-selected="false" data-candidate-tab="activity" onclick="selectCandidateTab('activity')">Activity</button></nav><section class="candidate-pane" id="candidate-pane-work" role="tabpanel"><h2>Candidate application</h2><p class="micro">${artifacts.length} restricted document${artifacts.length === 1 ? "" : "s"}. CVs and application material stay in this role and are excluded from general search, profile memory, and company knowledge.</p><ul>${artifacts.map((item) => `<li>${esc(item.source_kind || "CV or resume")} · ${esc(item.content_type || "restricted document")} · ${esc(item.scope || "HIRING_RESTRICTED")} <button class="btn" data-variant="secondary" data-size="sm" onclick='openCandidateResume(${JSON.stringify(id)})'>Open CV</button></li>`).join("") || "<li>No candidate document record is available yet.</li>"}</ul><section class="card" id="candidateDocumentViewer" hidden><div class="role-summary-head"><h3>Restricted CV</h3><button class="btn" data-variant="ghost" onclick="closeCandidateResume()">Close</button></div><iframe id="candidateDocumentFrame" title="Restricted candidate CV" style="width:100%;height:70vh;border:1px solid var(--divider)" hidden></iframe><a class="btn" id="candidateDocumentDownload" download hidden>Download CV</a></section><section class="card" id="hiringCoordination"><h3>Candidate communication &amp; interview</h3><p class="micro">Loading receipt-backed coordination…</p></section><section class="card"><h3>Candidate data rights</h3><button onclick='exportCandidate(${JSON.stringify(id)})'>Export candidate data</button> <button onclick='deleteCandidate(${JSON.stringify(id)})'>Review deletion plan</button><p id="dataRightsStatus" class="micro">Recent sign-in is required. Provider email remains subject to the stated provider limitations.</p></section></section><section class="candidate-pane" id="candidate-pane-evidence" role="tabpanel" hidden><p class="state" id="candidateEvidenceStatus">${esc(evidenceLabel)}</p>${preparationStatus}<h2>Evidence by approved criterion</h2><p class="micro">Policy ${esc(p?.policy_version_id || a.current_policy_version_id || "pending")} · labels report candidate-provided information as present, missing, or unclear. They are not scores or hiring advice.</p><div class="passport">${coverage.map((c) => `<section class="criterion"><strong>${esc(c.criterion_label || c.criterion_id)}</strong> <span class="${c.coverage === "MISSING" ? "unknown" : "supported"}">${esc(c.coverage)}</span><p>${esc(c.summary)}</p><p class="micro">Citations: ${(c.citations || []).map((x) => esc(x.evidence_id)).join(", ") || "none"}<br>Missing or unclear: ${(c.unknowns || []).map(esc).join("; ") || "none"}<br>Contradictions: ${(c.contradictions || []).map(esc).join("; ") || "none"}</p></section>`).join("") || '<p class="muted">Evidence is not ready yet. This is not negative evidence.</p>'}</div></section><section class="candidate-pane" id="candidate-pane-decisions" role="tabpanel" hidden><section class="card"><h3>Record a Founder decision</h3><label>Decision<select id="decisionKind"><option>HOLD</option><option>REQUEST_EVIDENCE</option><option>ADVANCE</option><option>DECLINE</option></select></label><label>Job-related reason<select id="decisionReason">${(j.approved_reason_codes || []).map((x) => `<option value="${esc(x)}">${esc(x)}</option>`).join("")}</select></label><label>Optional note<textarea id="decisionNote" maxlength="1000"></textarea></label><button id="decisionSubmit" onclick='submitDecision(${JSON.stringify(id)},${JSON.stringify(p?.assessment_id)},${a.version},${JSON.stringify(cited)})' ${p?.assessment_id ? "" : "disabled"}>Commit Founder decision</button><p class="micro">Only the Founder can explicitly change a phase or decline. ADVANCE permits one bounded interview-coordination consent; within it Alex may manage the approved applicant thread and confirmed time options without asking for every message.</p></section><p class="micro">Silence, confidence and elapsed time never create a decision.</p></section><section class="candidate-pane" id="candidate-pane-activity" role="tabpanel" hidden><h2>Causal timeline</h2><ol>${(j.timeline || []).map((e) => `<li><strong>${esc(e.event_kind)}</strong> <span class="micro">sequence ${esc(e.sequence)} · ${esc(e.occurred_at)}</span></li>`).join("") || "<li>Application received; no later workflow event is committed.</li>"}</ol></section>`;
+          selectCandidateTab("work", false);
           await loadHiringCoordination(id);
         } catch (e) {
           body.innerHTML = `<p class="error">${esc(e.message)}</p>`;
@@ -2573,7 +2615,7 @@
           const replyHtml = replies.length ? `<h4>Applicant replies</h4>${replies.map((reply) => `<article class="criterion"><strong>${esc(reply.status)}</strong><p>${esc(reply.safe_subject || "Applicant reply")}</p><p class="micro">${esc(reply.safe_excerpt || "No safe preview")}</p></article>`).join("")}${mandate ? '<button class="btn" data-variant="secondary" onclick="prepareHiringContact(true)">Ask Alex to continue now</button>' : ""}` : '<p class="micro">No causally linked applicant reply has arrived in Alex’s mailbox yet.</p>';
           const itemHtml = items.length ? `<h4>Drafts and receipts</h4>${items.map((item) => `<article class="criterion"><strong>${esc(item.item_kind)} · ${esc(item.status)}</strong>${item.recipients_masked?.length ? `<p class="micro">To ${item.recipients_masked.map(esc).join(", ")}</p>` : ""}${item.subject ? `<p><b>${esc(item.subject)}</b></p>` : ""}${item.body ? `<pre style="white-space:pre-wrap;max-height:18rem;overflow:auto">${esc(item.body)}</pre>` : ""}${item.start ? `<p>${esc(item.start)} → ${esc(item.end)} · ${esc(item.timezone)}</p>` : ""}${item.status === "AWAITING_APPROVAL" ? `<button class="btn" data-variant="primary" onclick='approveHiringItem(${JSON.stringify(item.coordination_id)},${JSON.stringify(item.approval_id)})'>Approve Alex to coordinate this interview</button>` : ""}${item.status === "UNCERTAIN" ? '<p class="error">Provider outcome is uncertain. Reconcile before any new attempt.</p>' : ""}</article>`).join("")}` : "";
           const slotHtml = latestSlots.length ? `<h4>Founder availability</h4><p class="micro">Read from the Founder’s primary Calendar. Applicant calendars are never inspected.</p>${latestSlots.map((slot) => `<button class="btn" data-variant="secondary" onclick='prepareHiringInterview(${JSON.stringify(slot.start)},${JSON.stringify(slot.end)},${JSON.stringify(slot.timezone)},"")'>Book ${esc(slot.display)}</button>`).join(" ")}` : "";
-          const mandateHtml = mandate ? `<p class="supported"><strong>Alex coordination active</strong> · expires ${esc(mandate.expires_at)} · ${esc(mandate.email_count || 0)}/${esc(mandate.max_emails)} emails · Founder copied ${mandate.copy_founder ? "yes" : "no"}</p>` : "";
+          const mandateHtml = mandate ? `<p class="supported"><strong>Alex coordination active</strong> · expires ${esc(mandate.expires_at)} · exact applicant thread and confirmed availability only · Founder copied ${mandate.copy_founder ? "yes" : "no"}</p>` : "";
           const copyChoice = state.founder_copy_available ? '<label><input type="checkbox" id="copyFounderCoordination"> Copy the Founder on Alex’s applicant emails</label>' : '';
           host.innerHTML = `<h3>Candidate communication &amp; interview</h3><p class="micro">One Founder approval confirms the candidate, the Founder’s proposed availability, whether to copy the Founder, and a bounded coordination window. After that, Alex may continue the existing Alex Mail thread and book the agreed approved slot without asking again. Every provider action still has a durable idempotent receipt and uncertain outcomes stop the workflow.</p>${mandateHtml}${state.eligible && !mandate ? `${copyChoice}<button class="btn" data-variant="primary" onclick="prepareHiringContact(false)">Review one coordination consent</button>` : state.eligible ? '<p class="micro">Alex may now coordinate within this mandate. New recipients, new time options, or an expired mandate require a new Founder consent.</p>' : '<p class="muted">Available after the Founder records ADVANCE on reviewed evidence.</p>'}${replyHtml}${slotHtml}${itemHtml}${activeEvent ? `<h4>Active interview</h4><p class="micro">Calendar receipt ${esc(activeEvent)}</p><label>New start (ISO with offset)<input id="interviewStart" placeholder="2026-09-04T10:00:00+01:00"></label><label>New end (ISO with offset)<input id="interviewEnd" placeholder="2026-09-04T10:45:00+01:00"></label><label>Time zone<input id="interviewTimezone" value="Africa/Lagos"></label><button class="btn" data-variant="secondary" onclick='prepareHiringInterview(document.querySelector("#interviewStart").value,document.querySelector("#interviewEnd").value,document.querySelector("#interviewTimezone").value,${JSON.stringify(activeEvent)})'>Update within mandate</button> <button class="btn" data-variant="danger" onclick='prepareHiringCancellation(${JSON.stringify(activeEvent)})'>Cancel within mandate</button>` : ""}<p id="coordinationStatus" class="micro" aria-live="polite"></p>`;
         } catch (e) {
@@ -2627,6 +2669,7 @@
         return api(`/api/hiring/applications/${encodeURIComponent(currentCandidateId)}/coordination/execute`, {method: "POST", headers: {"Content-Type": "application/json", "X-CSRF-Token": token}, body: JSON.stringify({coordination_id: coordinationId, approval_id: approvalId})});
       }
       function closeCandidate() {
+        closeCandidateResume();
         const route = document.querySelector("#candidate");
         route.hidden = true;
         delete document.body.dataset.candidateOpen;
@@ -2643,37 +2686,6 @@
         document
           .querySelector(`[onclick*="openCandidate"]`)
           ?.focus({ preventScroll: true });
-      }
-      async function revealIdentity(id) {
-        const out = document.querySelector("#revealedIdentity");
-        try {
-          const csrf = (await api("/api/hiring/csrf")).csrf_token,
-            j = await api(
-              `/api/hiring/applications/${encodeURIComponent(id)}/identity-reveal`,
-              {
-                method: "POST",
-                headers: {
-                  "Content-Type": "application/json",
-                  "X-CSRF-Token": csrf,
-                },
-                body: JSON.stringify({
-                  client_request_id: `reveal_${crypto.randomUUID().replaceAll("-", "_")}`,
-                }),
-              },
-            );
-          out.textContent = [
-            j.identity.name,
-            j.identity.email,
-            j.identity.phone,
-          ]
-            .filter(Boolean)
-            .join(" · ");
-          setTimeout(() => {
-            out.textContent = "Identity hidden again.";
-          }, 30000);
-        } catch (e) {
-          out.textContent = e.message;
-        }
       }
       async function submitDecision(id, assessmentId, version, evidenceIds) {
         const b = document.querySelector("#decisionSubmit");
@@ -2848,7 +2860,7 @@
       // Composition adapter: the role API still returns the existing committed
       // projection. This observer moves its renderers into the shared shell without
       // changing authority, data access, or mutation paths.
-      function hydrateUnifiedRoleLayout(role) {
+      function hydrateUnifiedRoleLayout(role, candidates = []) {
         document.querySelector("#hiringShell").dataset.view = "cockpit";
         const root = document.querySelector("#main");
         const panes = {
@@ -2909,9 +2921,20 @@
           panes.decisions.innerHTML =
             '<div class="workspace-empty">No role-level decision is pending. Candidate decisions remain inside one candidate record.</div>';
         }
-        if (!panes.evidence.children.length)
+        if (candidates.length) {
+          const summary = document.createElement("section");
+          summary.className = "evidence-summary-list";
+          summary.innerHTML = `<div><h3>Candidate evidence</h3><p class="micro">Readiness and criterion counts fit here. Open a candidate for the complete criterion map, citations, unknowns, contradictions, and restricted CV.</p></div>${candidates.map((candidate) => {
+            const counts = candidate.evidence_summary || {},
+              identity = candidate.identity || {},
+              name = identity.name || candidate.candidate_code,
+              evidenceState = candidate.evidence_status || "NOT_STARTED";
+            return `<article class="evidence-summary-card"><strong>${esc(name)}</strong>${identity.email ? `<p class="micro">${esc(identity.email)}</p>` : `<p class="micro">${esc(candidate.candidate_code)}</p>`}<span class="state">${esc(evidenceState)}</span><div class="evidence-counts"><span class="badge" data-tone="ok">${esc(counts.present || 0)} present</span><span class="badge" data-tone="attn">${esc(counts.missing || 0)} missing</span><span class="badge" data-tone="info">${esc(counts.unclear || 0)} unclear</span>${counts.contradicted ? `<span class="badge" data-tone="danger">${esc(counts.contradicted)} contradicted</span>` : ""}</div><button class="btn" data-variant="secondary" onclick='openCandidate(${JSON.stringify(candidate.candidate_application_id)})'>View full evidence</button></article>`;
+          }).join("")}`;
+          panes.evidence.replaceChildren(summary);
+        } else if (!panes.evidence.children.length)
           panes.evidence.innerHTML =
-            '<div class="workspace-empty">No additional role evidence is linked yet.</div>';
+            '<div class="workspace-empty">No candidate evidence is available yet.</div>';
         if (!panes.activity.children.length)
           panes.activity.innerHTML =
             '<div class="workspace-empty">Durable role events and receipts appear here.</div>';
@@ -2927,106 +2950,80 @@
         } else selectHiringTab(hiringActiveTab, false);
       }
 
-      function focusCandidateSection(id) {
-        document
-          .querySelector(`#${id}`)
-          ?.scrollIntoView({ behavior: "smooth", block: "start" });
-      }
-      function hydrateCandidateRecord() {
-        const body = document.querySelector("#candidateBody");
-        if (
-          !body.children.length ||
-          body.querySelector(".candidate-section-nav") ||
-          body.querySelector(".error")
-        )
-          return;
-        const headings = [...body.querySelectorAll("h2,h3")];
-        const evidence = headings.find((node) =>
-            node.textContent.includes("Evidence by approved criterion"),
-          ),
-          activity = headings.find((node) =>
-            node.textContent.includes("Causal timeline"),
-          ),
-          decision = headings.find((node) =>
-            node.textContent.includes("human decision"),
-          ),
-          work = headings.find((node) =>
-            node.textContent.includes("Candidate application"),
-          ),
-          rights = headings.find((node) =>
-            node.textContent.includes("data rights"),
-          );
-        if (evidence) evidence.id = "candidate-evidence";
-        if (activity) activity.id = "candidate-activity";
-        if (decision) decision.closest("section").id = "candidate-decisions";
-        if (work) work.id = "candidate-work";
-        else if (rights) rights.closest("section").id = "candidate-work";
-        const submit = body.querySelector("#decisionSubmit"),
-          match = submit
-            ?.getAttribute("onclick")
-            ?.match(/submitDecision\((?:'|")([^'"]+)/),
-          candidateId =
-            new URLSearchParams(location.search).get("candidate") ||
-            match?.[1] ||
-            "";
-        body.insertAdjacentHTML(
-          "afterbegin",
-          `<nav class="candidate-section-nav" aria-label="Candidate sections"><button class="btn" data-variant="ghost" onclick="focusCandidateSection('candidate-work')">Work</button><button class="btn" data-variant="ghost" onclick="focusCandidateSection('candidate-evidence')">Evidence</button><button class="btn" data-variant="ghost" onclick="focusCandidateSection('candidate-decisions')">Decisions</button><button class="btn" data-variant="ghost" onclick="focusCandidateSection('candidate-activity')">Activity</button></nav>${candidateId ? `<section class="card"><div class="scoped-alex-head"><svg class="ico" aria-hidden="true"><use href="#i-chat"/></svg><h3>Discuss with Alex</h3><span class="scope-pill">Candidate scope · identity hidden</span></div><p class="micro">This discussion is bound to this candidate and committed evidence. Alex can explain the evidence and, after an explicit Founder ADVANCE and one bounded coordination consent, manage the approved applicant email thread and confirmed interview times. Alex cannot score, rank, choose the outcome, add recipients or time options, or act after the consent expires.</p><textarea id="candidateQuestion" maxlength="2000" placeholder="Ask about this candidate's committed evidence or next coordination step"></textarea><button class="btn" onclick="askCandidateAlex('${esc(candidateId)}')">Ask Alex in candidate scope</button><div id="candidateAnswer" class="micro" aria-live="polite"></div></section>` : ""}`,
-        );
-        body.querySelectorAll("button").forEach((button) => {
-          if (!button.classList.contains("btn")) button.classList.add("btn");
-          if (!button.dataset.variant) button.dataset.variant = "secondary";
+      function selectCandidateTab(tab, focus = true) {
+        document.querySelectorAll("[data-candidate-tab]").forEach((button) => {
+          const active = button.dataset.candidateTab === tab;
+          button.setAttribute("aria-selected", String(active));
+          button.tabIndex = active ? 0 : -1;
         });
-        if (candidateId) {
-          const url = new URL(location.href);
-          url.searchParams.set("candidate", candidateId);
-          history.replaceState({ candidateId }, "", url);
-        }
+        document.querySelectorAll(".candidate-pane").forEach((pane) => {
+          pane.hidden = pane.id !== `candidate-pane-${tab}`;
+        });
+        if (focus)
+          document.querySelector(`#candidate-pane-${tab}`)?.focus({preventScroll: true});
       }
-      const candidateObserver = new MutationObserver(hydrateCandidateRecord);
-      candidateObserver.observe(document.querySelector("#candidateBody"), {
-        childList: true,
-      });
-      addEventListener("popstate", () => {
-        if (!new URLSearchParams(location.search).get("candidate"))
-          closeCandidate();
-      });
 
-      async function askCandidateAlex(candidateId) {
-        const out = document.querySelector("#candidateAnswer"),
-          question = document.querySelector("#candidateQuestion").value.trim();
-        if (!question) {
-          out.textContent = "Enter a question first.";
-          return;
-        }
+      let candidateResumeBlobUrl = "";
+      async function openCandidateResume(candidateId) {
         try {
-          const token = (
-              await api(`/api/hiring/applications/${encodeURIComponent(candidateId)}/conversations`, {
-                method: "POST",
-                headers: {
-                  "Content-Type": "application/json",
-                  "X-CSRF-Token": await csrf(),
-                },
-                body: JSON.stringify({}),
-              })
-            ).conversation_token,
-            j = await api("/api/hiring/candidate-conversations/answer", {
+          const response = await fetch(
+            `/api/hiring/applications/${encodeURIComponent(candidateId)}/resume`,
+            {
               method: "POST",
+              credentials: "same-origin",
               headers: {
                 "Content-Type": "application/json",
                 "X-CSRF-Token": await csrf(),
               },
               body: JSON.stringify({
-                conversation_token: token,
-                question,
-                client_turn_id: `candidate_turn_${crypto.randomUUID().replaceAll("-", "_")}`,
+                client_request_id: `resume_open_${crypto.randomUUID().replaceAll("-", "_")}`,
               }),
-            });
-          out.innerHTML = `<p>${esc(j.answer)}</p><p>Sources: ${(j.record_refs || []).map(esc).join(", ") || "none"}</p>`;
-        } catch (e) {
-          out.textContent = e.message;
+            },
+          );
+          if (!response.ok) {
+            let error = {};
+            try { error = await response.json(); } catch {}
+            if (error.error_code === "step_up_required") {
+              beginHiringStepUp();
+              return;
+            }
+            throw new Error(error.message || "The CV could not be opened.");
+          }
+          closeCandidateResume();
+          candidateResumeBlobUrl = URL.createObjectURL(await response.blob());
+          const viewer = document.querySelector("#candidateDocumentViewer"),
+            frame = document.querySelector("#candidateDocumentFrame"),
+            download = document.querySelector("#candidateDocumentDownload"),
+            pdf = (response.headers.get("content-type") || "").startsWith("application/pdf");
+          viewer.hidden = false;
+          frame.hidden = !pdf;
+          download.hidden = pdf;
+          if (pdf) frame.src = candidateResumeBlobUrl;
+          else {
+            download.href = candidateResumeBlobUrl;
+            download.download = "candidate-cv.docx";
+          }
+          viewer.scrollIntoView({behavior: "smooth", block: "start"});
+        } catch (error) {
+          alert(error.message);
         }
       }
+
+      function closeCandidateResume() {
+        const viewer = document.querySelector("#candidateDocumentViewer"),
+          frame = document.querySelector("#candidateDocumentFrame"),
+          download = document.querySelector("#candidateDocumentDownload");
+        if (frame) { frame.removeAttribute("src"); frame.hidden = true; }
+        if (download) { download.removeAttribute("href"); download.hidden = true; }
+        if (viewer) viewer.hidden = true;
+        if (candidateResumeBlobUrl) URL.revokeObjectURL(candidateResumeBlobUrl);
+        candidateResumeBlobUrl = "";
+      }
+
+      addEventListener("popstate", () => {
+        if (!new URLSearchParams(location.search).get("candidate"))
+          closeCandidate();
+      });
       loadIdentity();
       load();
     </script>

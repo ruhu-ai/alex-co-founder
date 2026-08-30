@@ -236,6 +236,53 @@ class HiringService:
             },
         }
 
+    async def get_candidate_conversation_context(
+            self, *, principal: ActorPrincipal,
+            application_id: str) -> dict[str, Any]:
+        """Project one candidate's committed evidence into canonical Alex chat.
+
+        The projection contains no decrypted identity, CV text, approval token,
+        provider credential or external-action authority.  Every message re-reads
+        this durable projection, so browser history and chat text never authorize
+        a hiring judgment or workflow transition.
+        """
+        detail = await self.candidate_detail(
+            principal=principal, application_id=application_id)
+        if detail.get("error"):
+            return detail
+        application = detail["application"]
+        role = await self.store.get("hiring_roles", application["role_id"])
+        if not role or role.get("workspace_id") != principal.workspace_id:
+            return _error("role_not_found", "Role does not exist.", 404)
+        return {
+            "status": "success",
+            "candidate_context": {
+                "context_kind": "HIRING_CANDIDATE_EVIDENCE",
+                "role_id": application["role_id"],
+                "role_title": str(role.get("role_title") or ""),
+                "company_name": str(role.get("company_name") or ""),
+                "candidate_application_id": application_id,
+                "candidate_code": str(application.get("candidate_code") or ""),
+                "candidate_state": str(application.get("candidate_state") or ""),
+                "evidence_status": str(detail.get("evidence_status") or ""),
+                "criterion_coverage": [{
+                    "criterion_id": str(item.get("criterion_id") or ""),
+                    "criterion_label": str(item.get("criterion_label") or ""),
+                    "coverage": str(item.get("coverage") or "UNCLEAR"),
+                    "citations": list(item.get("citations") or []),
+                    "unknowns": list(item.get("unknowns") or []),
+                    "contradictions": list(item.get("contradictions") or []),
+                    "summary": str(item.get("summary") or ""),
+                } for item in detail.get("evidence_coverage") or []],
+                "scope_notice": (
+                    "Candidate-scoped committed evidence only. Explain present, "
+                    "missing, unclear and contradictory information with citations. "
+                    "Never score, rank, recommend, choose an outcome, reveal CV "
+                    "content beyond cited committed evidence, commit a decision, or "
+                    "perform an external action from conversation."),
+            },
+        }
+
     async def create_founder_draft_role(
             self, *, principal: ActorPrincipal, contract: RoleContract,
             role_description: dict[str, Any],

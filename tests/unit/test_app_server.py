@@ -1152,6 +1152,34 @@ class TestDiscoverCommandAdapter:
         assert launches == []
         assert "don't recognize" in response.json()["replies"][0]
 
+    def test_candidate_scoped_hiring_judgment_is_refused_before_model(
+            self, appmod, client, monkeypatch):
+        class Hiring:
+            async def get_candidate_conversation_context(self, **_kwargs):
+                return {"status": "success", "candidate_context": {
+                    "context_kind": "HIRING_CANDIDATE_EVIDENCE",
+                    "candidate_application_id": "candidateapp_abcdef0123456789",
+                    "candidate_code": "C-12345678", "role_id": "role_test",
+                    "role_title": "Designer", "criterion_coverage": [],
+                }}
+
+        class _NoRunner:
+            def run_async(self, **_kwargs):
+                raise AssertionError("hiring judgment refusal must not invoke the model")
+
+        monkeypatch.setattr(appmod.hiring_routes, "_services",
+                            lambda: (Hiring(), object()))
+        monkeypatch.setattr(appmod, "webhook_runner", _NoRunner())
+        response = client.post("/wake", json={
+            "message": "What is your opinion about the candidate?",
+            "session_id": f"s-hiring-candidate-{uuid.uuid4().hex}",
+            "client_request_id": "req_hiringjudgment",
+            "hiring_candidate_id": "candidateapp_abcdef0123456789",
+        })
+        assert response.status_code == 200
+        assert response.json()["hiring_judgment_refused"] is True
+        assert "only you can decide" in response.json()["replies"][0]
+
     def test_attachment_reference_is_rejected_without_profile_or_launch_side_effects(
             self, appmod, client, fake_store, monkeypatch):
         monkeypatch.setenv("DISCOVER_COMMAND_ENABLED", "true")

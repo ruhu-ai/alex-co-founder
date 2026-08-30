@@ -562,9 +562,16 @@ class HiringPublicIntakeService:
 
     async def reveal_restricted_identity(
             self, *, application: dict[str, Any],
-            principal: ActorPrincipal) -> dict[str, Any]:
-        """Reveal only name/email after the normal recent-Founder auth gate."""
-        gate = authorize(principal, "read_candidate", require_fresh=True)
+            principal: ActorPrincipal,
+            require_fresh: bool = True) -> dict[str, Any]:
+        """Reveal only name/email to the authenticated Founder.
+
+        ``require_fresh`` remains true for explicit reveal/export operations.
+        Founder-only Hiring projections may set it false after the route has
+        re-authorized the current workspace membership.  The decrypted fields
+        are never written into general search, memory, logs, or model context.
+        """
+        gate = authorize(principal, "read_candidate", require_fresh=require_fresh)
         if gate.get("error"):
             return gate
         if not self._enabled or not self._key:
