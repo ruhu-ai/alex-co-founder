@@ -22,6 +22,7 @@ from .tools import alex_mail as alex_mail_tools
 from .tools import attachments as attachment_tools
 from .tools import browse as browse_tools
 from .tools import calendar as calendar_tools
+from .tools import conversations as conversation_tools
 from .tools import feedback as feedback_tools
 from .tools import followup as followup_tools
 from .tools import hiring as hiring_tools
@@ -88,6 +89,9 @@ def build_root_agent(model, live: bool = False) -> Agent:
             hiring_tools.prepare_hiring_role_brief,
             hiring_tools.create_hiring_draft,
             attachment_tools.search_attachment,
+            conversation_tools.get_conversation_continuity,
+            conversation_tools.search_past_conversations,
+            conversation_tools.open_past_conversation,
             feedback_tools.record_feedback,
             # SUBMITTED → FOLLOW_UP → CLOSED (orchestrator instruction step 7):
             # these were defined but registered on no agent, leaving the
@@ -123,8 +127,12 @@ app = App(
     name="co_founder",
     root_agent=root_agent,
     events_compaction_config=EventsCompactionConfig(
-        compaction_interval=8,  # summarize after every 8 turns (lab uses 3; a real app uses more)
-        overlap_size=2,  # re-read 2 turns either side — never split a Q from its A
+        # The turn cadence keeps normal conversations compact while the token
+        # threshold is the hard safety net for unusually large tool results.
+        compaction_interval=8,
+        overlap_size=2,
+        token_threshold=48_000,
+        event_retention_size=12,
     ),
     # Multi-agent transfers swap instruction+tools per agent; per-agent prompt
     # caching avoids re-sending the whole prefix after each transfer.

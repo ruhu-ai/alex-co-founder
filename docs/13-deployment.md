@@ -20,8 +20,8 @@ APIs to enable:
 `requirements.txt` (mirrors the reference repo's pyproject + our additions):
 
 ```
-google-adk[eval]>=2.6
-google-genai
+google-adk[eval]==2.8.0
+google-genai==2.20.0
 google-cloud-aiplatform[agent-engines,evaluation]
 google-cloud-firestore
 google-cloud-logging

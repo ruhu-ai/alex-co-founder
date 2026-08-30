@@ -211,6 +211,12 @@ async def delete_session(
         await firestore.delete_session_live_media_metadata(founder_id, session_id)
     except Exception:  # noqa: BLE001 - report partial privacy cleanup truthfully
         cleanup_errors.append("live sharing metadata cleanup failed")
+    try:
+        from services import live_resumption
+        await live_resumption.delete(
+            workspace_id=founder_id, session_id=session_id)
+    except Exception:  # noqa: BLE001
+        cleanup_errors.append("live resumption cleanup failed")
     tombstoned = await firestore.tombstone_session_links(founder_id, session_id)
     await firestore.upsert_session_catalog(
         session_id,

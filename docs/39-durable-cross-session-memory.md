@@ -50,8 +50,10 @@ skills system, or workflow architecture. Those remain owned by
 
 ## 1. Executive decision
 
-Alex should gain **optional, scoped, inspectable cross-session memory**, but it
-must not become an omniscient transcript reader.
+Alex should gain **optional, scoped, inspectable cross-session memory** and a
+separate Founder-only read path over canonical past conversations. Historical
+conversation search is not memory: it is an explicit, bounded, cited retrieval
+operation over the authenticated Founder's own non-private ADK sessions.
 
 Four kinds of continuity stay separate:
 
@@ -71,8 +73,13 @@ It is the proposed product name and expansion of the existing **return digest**,
 not a claim that an unrelated brief feature already exists.
 
 Raw chat transcripts remain session history under the session lifecycle. They
-are never automatic cross-session memory, never backfilled into memory, and
-never scanned across sessions for generic recall.
+are never automatic cross-session memory and are never injected wholesale into
+ordinary turns. Alex MAY search non-private Founder-owned transcripts when the
+Founder asks about a prior discussion or when prior discussion is materially
+relevant. Search is read-only, actor/workspace scoped, query- and result-bounded,
+audited without content, and returns immutable session/event citations. Opening
+context requires an exact returned citation and supplies only a small surrounding
+window. Private, deleted, foreign, and domain-restricted sessions are excluded.
 
 Memory is advisory. It may improve phrasing, avoid repeated questions, and
 surface a prior rationale. It can never authorize a transition or action,
@@ -107,7 +114,7 @@ evaluation is a later M3 proposal and is outside the approved M1/M2 boundary.
 |---|---|---|
 | Workspace facts | Compatibility `profiles/{founder_id}` plus newer versioned `profile_facts`; confirmed facts and voice rules are durable. | Finish the workspace-business versus actor-private classification from doc 34. These records remain canonical and are displayed separately from episodic memory. |
 | Runs and receipts | Firestore holds domain/workflow records, waits, approvals, actions, inbox/event records, and receipts. | A server brief assembler reads authorized projections from these sources. No transcript or semantic-memory scan is needed. |
-| ADK sessions | SQLite is the default session backend; production can select Cloud SQL through `SESSION_SERVICE_URI`. Sessions carry events and projection state, and the current ADK `user_id` is normally the workspace/founder id. | Sessions remain conversation-local. A future actor-qualified subject key removes the workspace/actor identity collision before multi-member memory is enabled. |
+| ADK sessions | SQLite is the default session backend; production can select Cloud SQL through `SESSION_SERVICE_URI`. Sessions carry events and projection state, and the current ADK `user_id` is normally the workspace/founder id. | Sessions remain canonical conversation history. The authenticated single Founder may search non-private sessions through a code-owned read-only tool and open only bounded cited windows. Search results remain advisory and cannot authorize any transition or effect. |
 | Optional memory | `services/persistent_memory.py` implements a portable adapter and ADK bridge. `.env.example` defaults `PERSISTENT_MEMORY_BACKEND=disabled`. `add_session_to_memory` is deliberately unsupported. | Keep disabled by default. Add explicit milestone writes, source manifests, actor-aware authorization, user controls, export/deletion verification, and staged backend qualification. |
 | Recall | No memory retrieval tool is registered on the root agent; configuring a service alone does not make recall product behavior. | A server-owned context assembler performs purpose-bound recall only for eligible turns. It returns a typed, bounded advisory context section. |
 | Return digest | The existing UI and code call this the return digest. Most inputs are durable records, but one compatibility reader still derives waits from ADK session `pending_signals`; it is not yet a first-class workspace-scoped durable wait. | Rename and generalize it into “Since you were away,” preserving the derived/no-new-truth rule and adding milestones, safe inbox, exact pending decisions, and recent terminal receipts. M1 must replace or omit the interim `pending_signals` input before claiming fully durable assembly. |
@@ -2012,8 +2019,10 @@ different control and is not waived by this release authorization.
       days; unverified rationale is review-only and capped at 7 days.
 - [ ] Approve the 7-day external-derived TTL, per-recall re-scan, and separation
       of source provenance from summary assurance.
-- [x] Raw transcripts remain session history; there is no transcript backfill,
-      automatic whole-session ingestion, or cross-session transcript scan.
+- [x] Raw transcripts remain session history; there is no transcript backfill or
+      automatic whole-session ingestion. A separate Founder-only canonical
+      conversation search performs bounded, cited, audited cross-session reads;
+      it never writes optional memory or authority.
 - [ ] Approve the strict exclusion of candidate/Hiring-restricted data from
       generic memory.
 - [ ] Approve the initial closed source-registry entries; unknown source types
@@ -2163,7 +2172,8 @@ or data migration was performed as part of this work.
   shapes, authority claims, and instruction/tool-shaped input are rejected.
   Stored text is rescanned on every recall, integrity checked, source reauthorized,
   and admitted only for bounded conversational purposes. Tool callbacks reject
-  every tool call while advisory memory is present, and review, approval, draft,
+  every tool call while advisory memory is present except the three canonical,
+  read-only conversation continuity reads; review, approval, draft,
   document, artifact, attachment, and effect-shaped turns receive no memory.
 - Current confirmed profile facts suppress overlapping optional memory; current
   source run version and terminal state outrank outcome summaries. Memory remains
@@ -2639,3 +2649,33 @@ Once those technical gates pass, standing Founder authorization permits the
 normal one-Founder M2 rollout. No automatic memory write, transcript ingestion,
 memory-authorized connector action, external effect, or M3–M6
 activation is part of this completion.
+
+## 25. Canonical conversation and long-running Live continuity
+
+Implemented on 2026-08-30 as a correction to Alex's false claim that every
+interaction resets memory:
+
+- `DatabaseSessionService` remains the sole canonical store for text events and
+  finalized Live transcripts. Production uses the configured Cloud SQL session
+  URI; local development uses SQLite. No second raw-transcript store exists.
+- The root agent has three code-owned read-only tools: report continuity,
+  search past conversations, and open a small cited window. The server derives
+  the Founder/workspace/current session, excludes private/deleted/foreign
+  sessions, caps query/result/page/context sizes, signs continuation cursors,
+  and emits content-free audits. Returned transcript text is advisory only.
+- Session history APIs page the canonical transcript and the redesigned UI
+  loads older messages on demand. The picker reads the bounded durable session
+  catalog instead of loading every transcript.
+- Text runs load only the latest 100 session events. ADK token-based compaction
+  triggers at 48,000 tokens while retaining 12 recent raw events; the existing
+  event-window compactor remains a secondary bound.
+- Gemini Live enables ADK session resumption and provider context-window
+  compression. Calls are application-bounded to one hour by default (maximum
+  four hours), with a 90-second idle close. A fresh provider handle can bridge a
+  browser-to-app reconnect; it is AES-GCM encrypted, bound to the exact
+  workspace/session, expires after nine minutes, and is never sent to the
+  browser or logged. Explicit hang-up, timeout, or session deletion removes it.
+- Text and voice receive the same server-authored continuity envelope and the
+  same tools. Private sessions stay conversation-local. Durable workflows,
+  approvals, effects, and Spec 40 jobs remain governed solely by their durable
+  records; neither transcript recall nor Live continuity grants authority.

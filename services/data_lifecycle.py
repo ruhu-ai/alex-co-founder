@@ -83,6 +83,8 @@ TOP_LEVEL_LIFECYCLE: dict[str, CollectionLifecycle] = {
         "media_consent_grants", _FIELD, "workspace_id"),
     "live_media_shares": CollectionLifecycle(
         "live_media_shares", _FIELD, "workspace_id"),
+    "live_session_resumptions": CollectionLifecycle(
+        "live_session_resumptions", _FIELD, "workspace_id"),
     "projection_streams": CollectionLifecycle(
         "projection_streams", _FIELD, "workspace_id"),
     "projection_events": CollectionLifecycle(

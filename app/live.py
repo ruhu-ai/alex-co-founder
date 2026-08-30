@@ -26,13 +26,28 @@ from google.adk.agents.run_config import RunConfig, StreamingMode
 from google.adk.apps import App
 from google.adk.models import Gemini
 from google.adk.runners import Runner
+from google.adk.sessions.base_session_service import GetSessionConfig
 from google.genai import types
 
 from agents.co_founder.agent import build_root_agent
 from agents.co_founder.config import LIVE_MODEL_ID
-from services import live_attention, live_media, live_transcript, live_vision_protocol
+from services import (
+    conversation_history,
+    live_attention,
+    live_media,
+    live_resumption,
+    live_transcript,
+    live_vision_protocol,
+)
 
 logger = logging.getLogger(__name__)
+# ADK 2.8 logs provider resumption updates (including the opaque handle) at
+# INFO/DEBUG before yielding them to application code. Keep those two SDK
+# modules at WARNING so provider credentials never enter application logs.
+logging.getLogger(
+    "google_adk.google.adk.flows.llm_flows.base_llm_flow").setLevel(logging.WARNING)
+logging.getLogger(
+    "google_adk.google.adk.models.gemini_llm_connection").setLevel(logging.WARNING)
 
 
 def _bounded_seconds(name: str, default: int, low: int, high: int) -> int:
@@ -42,13 +57,20 @@ def _bounded_seconds(name: str, default: int, low: int, high: int) -> int:
         return default
 
 
-# Stay below Gemini's documented audio-only session horizon and stop a silent
-# microphone from holding a billable provider socket indefinitely. Operators
-# may tune downward, but cannot disable either server-side boundary.
+# Context compression and provider session resumption allow a conversation to
+# outlive one model connection.  The application still applies a hard bounded
+# call budget and a short idle timeout; neither can be disabled by a client.
 LIVE_MAX_SESSION_SECONDS = _bounded_seconds(
-    "ALEX_LIVE_MAX_SESSION_SECONDS", 14 * 60, 60, 14 * 60)
+    "ALEX_LIVE_MAX_SESSION_SECONDS", 60 * 60, 5 * 60, 4 * 60 * 60)
 LIVE_IDLE_SECONDS = _bounded_seconds(
     "ALEX_LIVE_IDLE_SECONDS", 90, 15, 5 * 60)
+LIVE_CONTEXT_TRIGGER_TOKENS = _bounded_seconds(
+    "ALEX_LIVE_CONTEXT_TRIGGER_TOKENS", 64_000, 5_000, 128_000)
+LIVE_CONTEXT_TARGET_TOKENS = min(
+    _bounded_seconds(
+        "ALEX_LIVE_CONTEXT_TARGET_TOKENS", 32_000, 1_000, 120_000),
+    LIVE_CONTEXT_TRIGGER_TOKENS - 1_000,
+)
 
 
 def _pcm16_has_activity(data: bytes, *, threshold: int = 350) -> bool:
@@ -180,7 +202,8 @@ def register_live(app, session_service, founder_id: str) -> None:
             return
         await websocket.accept()
         session = await session_service.get_session(
-            app_name=live_app.name, user_id=workspace_id, session_id=session_id)
+            app_name=live_app.name, user_id=workspace_id, session_id=session_id,
+            config=GetSessionConfig(num_recent_events=100))
         if session is None:
             session = await session_service.create_session(
                 app_name=live_app.name, user_id=workspace_id, session_id=session_id)
@@ -189,13 +212,29 @@ def register_live(app, session_service, founder_id: str) -> None:
         from agents.co_founder import state_schema as ss
         session.state[ss.K_ACTOR_ID] = actor_id
         session.state[ss.K_USER_PROFILE_ID] = workspace_id
+        session_mode = str(session.state.get(ss.K_MEMORY_MODE) or "PRIVATE")
+        session.state[ss.K_CONTINUITY_CONTEXT] = conversation_history.build_envelope(
+            session_id=session_id,
+            session_mode=session_mode,
+            saved_context_available=None,
+        ).instruction()
 
         queue = LatestVisualLiveRequestQueue()
+        resumption_handle = await live_resumption.load(
+            workspace_id=workspace_id, session_id=session_id)
         run_config = RunConfig(
             response_modalities=["AUDIO"],
             streaming_mode=StreamingMode.BIDI,
             input_audio_transcription=types.AudioTranscriptionConfig(),
             output_audio_transcription=types.AudioTranscriptionConfig(),
+            session_resumption=types.SessionResumptionConfig(
+                handle=resumption_handle or None),
+            context_window_compression=types.ContextWindowCompressionConfig(
+                trigger_tokens=LIVE_CONTEXT_TRIGGER_TOKENS,
+                sliding_window=types.SlidingWindow(
+                    target_tokens=LIVE_CONTEXT_TARGET_TOKENS),
+            ),
+            get_session_config=GetSessionConfig(num_recent_events=100),
         )
         media = live_media.LiveMediaConnection(
             workspace_id=workspace_id, actor_id=actor_id,
@@ -209,6 +248,7 @@ def register_live(app, session_service, founder_id: str) -> None:
         caption_revisions = {"user": 0, "agent": 0}
         activity_revision = 0
         voice_paused = False
+        explicit_close = False
         attention_held = False
         attention_hold_enabled = False
         downstream_armed = True
@@ -285,7 +325,8 @@ def register_live(app, session_service, founder_id: str) -> None:
             """Re-resolve membership and session authority at every share start."""
             current = await session_service.get_session(
                 app_name=live_app.name, user_id=workspace_id,
-                session_id=session_id)
+                session_id=session_id,
+                config=GetSessionConfig(num_recent_events=1))
             if current is None:
                 return False
             if not os.environ.get("K_SERVICE"):
@@ -325,7 +366,7 @@ def register_live(app, session_service, founder_id: str) -> None:
         async def upstream() -> None:
             """Browser frames -> LiveRequestQueue."""
             nonlocal voice_paused, attention_held, attention_hold_enabled
-            nonlocal downstream_armed, pause_revision
+            nonlocal downstream_armed, pause_revision, explicit_close
             application_frames = 0
             negotiated_v2 = False
             enabled_visual_sources: set[str] = set()
@@ -559,6 +600,7 @@ def register_live(app, session_service, founder_id: str) -> None:
                             "USER_TURN_FINAL", "typed_turn_received",
                             turn_id=turn_id)
                     elif frame.get("close"):
+                        explicit_close = True
                         queue.close()
                         return
                     elif negotiated_v2 and frame_type:
@@ -572,22 +614,35 @@ def register_live(app, session_service, founder_id: str) -> None:
                 await media.stop("protocol_error")
                 queue.close()
 
+        last_resumption_handle = resumption_handle
+
         async def downstream() -> None:
             """ADK live events -> browser frames."""
             nonlocal activity_revision, attention_held, downstream_armed
-            nonlocal pause_revision
+            nonlocal pause_revision, last_resumption_handle
             try:
                 async for event in runner.run_live(
                         session=session,
                         live_request_queue=queue, run_config=run_config):
+                    resumption = getattr(
+                        event, "live_session_resumption_update", None)
+                    new_handle = str(getattr(resumption, "new_handle", "") or "")
+                    if new_handle and new_handle != last_resumption_handle:
+                        await live_resumption.save(
+                            workspace_id=workspace_id,
+                            session_id=session_id,
+                            handle=new_handle,
+                        )
+                        last_resumption_handle = new_handle
                     if getattr(event, "go_away", None):
                         clear_visual_frames()
                         stopped = await media.stop("provider_unavailable")
                         await send(stopped)
                         await send(live_vision_protocol.protocol_error(
                             "provider_go_away",
-                            "Live vision stopped before provider rotation; voice may end. "
-                            "Sharing will not resume automatically.",
+                            "The provider is rotating this Live connection. Voice context "
+                            "will resume when available; screen sharing stays stopped until "
+                            "you explicitly start it again.",
                             scope="media"))
                     hold_transcription = getattr(event, "input_transcription", None)
                     hold_text = str(getattr(hold_transcription, "text", "") or "")
@@ -665,6 +720,7 @@ def register_live(app, session_service, founder_id: str) -> None:
                             "TURN_INTERRUPTED", "provider_interrupted",
                             turn_id=completed_turn_id)
                         await send({"interrupted": True})
+                        session.state[ss.K_CONVERSATION_RECALL_ACTIVE] = False
                     if getattr(event, "turn_complete", False):
                         completed_turn_id = transcript.current_turn_id
                         await flush_transcript_turn()
@@ -672,6 +728,7 @@ def register_live(app, session_service, founder_id: str) -> None:
                             "TURN_COMPLETE", "turn_complete",
                             turn_id=completed_turn_id)
                         await send({"turn_complete": True})
+                        session.state[ss.K_CONVERSATION_RECALL_ACTIVE] = False
             except Exception as exc:
                 logger.warning("live downstream error: %s", exc)
                 try:
@@ -683,6 +740,7 @@ def register_live(app, session_service, founder_id: str) -> None:
 
         async def enforce_session_budget() -> None:
             """Close silent or overlong provider sessions regardless of client state."""
+            nonlocal explicit_close
             while True:
                 now = loop.time()
                 max_remaining = LIVE_MAX_SESSION_SECONDS - (now - connection_started)
@@ -696,6 +754,7 @@ def register_live(app, session_service, founder_id: str) -> None:
                     await asyncio.sleep(remaining)
                     continue
                 reason = "max_duration" if max_remaining <= 0 else "idle_timeout"
+                explicit_close = True
                 message = (
                     "This live conversation reached its time limit. Start a new call "
                     "when you're ready."
@@ -723,6 +782,15 @@ def register_live(app, session_service, founder_id: str) -> None:
             if not task.cancelled() and task.exception():
                 logger.warning("live task failed: %s", task.exception())
         await media.stop("socket_lost")
+        if explicit_close:
+            try:
+                await live_resumption.delete(
+                    workspace_id=workspace_id, session_id=session_id)
+            except Exception:  # noqa: BLE001 - disconnect remains available
+                logger.warning(
+                    "live resumption cleanup failed for explicit close",
+                    extra={"workspace_id": workspace_id, "session_id": session_id},
+                )
         from services import live_visual_context
         live_visual_context.clear(
             workspace_id=workspace_id, session_id=session_id,

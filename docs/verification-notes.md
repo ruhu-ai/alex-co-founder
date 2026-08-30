@@ -1,16 +1,18 @@
-# Verification notes — ADK 2.7.1 (installed 2026-08-18)
+# Verification notes — ADK 2.8.0 (verified 2026-08-30)
 
 Day-2 first-hour verify pass, run early on Day 1. Environment: macOS (x86_64),
-Python 3.11.9, `google-adk==2.7.1`.
+Python 3.11, `google-adk==2.8.0`, `google-genai==2.20.0`.
 
 ## Verified against the installed SDK
 
 | Item | Result |
 |---|---|
-| `google.adk` version | **2.7.1** (spec pinned ≥2.6 ✓) |
+| `google.adk` version | **2.8.0** (exact production pin ✓) |
 | `Runner.run_async` signature | `(self, user_id, session_id, invocation_id, new_message, state_delta, run_config, yield_user_message)` — **`state_delta` present ✓** (top open question, closed) |
 | `App` | `google.adk.apps.App` ✓ |
 | `EventsCompactionConfig` | `google.adk.apps.app.EventsCompactionConfig` ✓ (emits `[EXPERIMENTAL]` warning at construction — expected per docs/04) |
+| `RunConfig.get_session_config` | `GetSessionConfig(num_recent_events=...)` ✓ |
+| Gemini Live continuity | `RunConfig.session_resumption` and `context_window_compression` ✓ |
 | `Gemini` model class | `google.adk.models.Gemini` ✓ |
 | `ToolContext` | `google.adk.tools.ToolContext` ✓ |
 | `CallbackContext` | `google.adk.agents.callback_context.CallbackContext` ✓ |

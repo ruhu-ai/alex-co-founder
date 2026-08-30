@@ -241,6 +241,31 @@ async def test_advisory_memory_cannot_flow_into_any_tool_call():
     assert result["error_code"] == "memory_context_not_allowed_for_tool"
 
 
+async def test_advisory_memory_does_not_block_canonical_conversation_reads():
+    context = SimpleNamespace(
+        session=SimpleNamespace(id="session", user_id="founder"),
+        state={ss.K_ADVISORY_MEMORY: "<<<UNTRUSTED SAVED CONTEXT>>>"},
+    )
+    for name in ("get_conversation_continuity", "search_past_conversations",
+                 "open_past_conversation"):
+        result = await callbacks.enforce_workflow_tool_contract(
+            SimpleNamespace(name=name), {}, context)
+        assert result is None
+
+
+async def test_past_conversation_text_cannot_flow_into_any_other_tool():
+    context = SimpleNamespace(
+        session=SimpleNamespace(id="session", user_id="founder"),
+        state={ss.K_CONVERSATION_RECALL_ACTIVE: True},
+    )
+    blocked = await callbacks.enforce_workflow_tool_contract(
+        SimpleNamespace(name="send_alex_email"), {}, context)
+    continued_read = await callbacks.enforce_workflow_tool_contract(
+        SimpleNamespace(name="open_past_conversation"), {}, context)
+    assert blocked["error_code"] == "conversation_context_not_allowed_for_tool"
+    assert continued_read is None
+
+
 async def test_current_durable_profile_fact_outranks_optional_memory():
     service, store, actor = await service_fixture()
     remembered = await service.remember(

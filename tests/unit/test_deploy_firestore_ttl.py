@@ -12,9 +12,12 @@ def test_ttl_manifest_builds_blocking_idempotent_commands():
         project="example-project", database="(default)",
         manifest=ROOT / "infra/firestore.ttl.json", dry_run=True)
 
-    assert result["status"] == "success" and result["declared"] == 3
+    assert result["status"] == "success" and result["declared"] == 4
     assert any("--collection-group=memory_items" in command
                and command[5] == "expires_at_ts"
+               for command in result["commands"])
+    assert any("--collection-group=live_session_resumptions" in command
+               and command[5] == "expires_at"
                for command in result["commands"])
     for command in result["commands"]:
         assert command[:5] == [

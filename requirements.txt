@@ -1,10 +1,10 @@
 # Co-Founder — requirements (see docs/13-deployment.md)
 # Pinned to the exact versions in the project venv (`uv pip freeze`) for
 # reproducible builds through the judging period. Bump deliberately, not by drift.
-google-adk[eval]==2.7.1
+google-adk[eval]==2.8.0
 python-dotenv==1.2.3
 a2a-sdk==1.1.2
-google-genai==2.18.1
+google-genai==2.20.0
 google-cloud-aiplatform[agent-engines,evaluation]==1.164.0
 google-cloud-firestore==2.28.1
 google-cloud-logging==3.16.2

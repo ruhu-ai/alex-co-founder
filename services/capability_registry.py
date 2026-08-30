@@ -61,6 +61,8 @@ MODEL_TOOL_BINDINGS: dict[str, VisualToolBinding] = {
         "dedupe_check", "extract_records", "search_programs", "fetch_source",
         "ask_portal_agent",
         "prepare_hiring_role_brief",
+        "get_conversation_continuity", "search_past_conversations",
+        "open_past_conversation",
     }},
     **{name: _vb(f"model.{name}", "INTERNAL_REVERSIBLE",
                  "DURABLE_TARGET_PREPARATION") for name in {

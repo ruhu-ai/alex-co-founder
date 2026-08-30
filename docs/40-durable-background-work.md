@@ -82,6 +82,15 @@ A background job is **not a new execution authority**:
 > `job_id == run_id`. A detached job is a constrained `WorkflowRun` profile,
 > not a second jobs engine, an ADK transfer left running, or an agent swarm.
 
+**Long-running continuity amendment (2026-08-30):** a long conversation and a
+long-running job remain separate lifecycles. Text/voice continuity may use ADK
+session persistence, bounded compaction, Gemini Live resumption, and Live
+context-window compression. Work that must survive beyond the interactive call
+MUST cross this document's durable acceptance boundary and continue through the
+run/step/outbox/lease/cancellation machinery. A WebSocket, Live resumption handle,
+compacted transcript, or historical conversation search result never becomes a
+job lease, approval, effect authority, or completion receipt.
+
 The reviewed implementation proves native generic-run/step execution for
 investor outreach and current hiring runtime paths, plus Cloud Tasks delivery,
 CAS, leases, idempotency, waits, cancellation fencing, projection events,

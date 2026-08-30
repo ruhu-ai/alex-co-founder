@@ -170,6 +170,12 @@ _RISKY_TURN = re.compile(
     r"review|draft|artifact|document|proposal)\b",
     re.I,
 )
+_HISTORICAL_CONVERSATION_TURN = re.compile(
+    r"\b(?:past|previous|older|another)\s+(?:conversation|session|chat)\b|"
+    r"\bwhat\s+did\s+we\s+(?:discuss|talk\s+about)\b|"
+    r"\b(?:discussed|talked\s+about)\s+(?:before|earlier)\b",
+    re.I,
+)
 
 
 def _error(code: str, message: str, *, retryable: bool = False) -> dict[str, Any]:
@@ -2696,6 +2702,7 @@ class DurableMemoryService:
             and not has_attachments
             and bool(_terms(message))
             and not _RISKY_TURN.search(message)
+            and not _HISTORICAL_CONVERSATION_TURN.search(message)
         )
 
     async def recall(

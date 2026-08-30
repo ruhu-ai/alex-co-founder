@@ -29,9 +29,11 @@ os.environ.setdefault("OAUTHLIB_RELAX_TOKEN_SCOPE", "1")
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
+from google.adk.agents.run_config import RunConfig
 from google.adk.apps import App
 from google.adk.cli.fast_api import get_fast_api_app
 from google.adk.runners import Runner
+from google.adk.sessions.base_session_service import GetSessionConfig
 from google.adk.sessions.database_session_service import DatabaseSessionService
 from google.genai import types
 from pydantic import BaseModel, Field
@@ -52,6 +54,7 @@ from app.resume_handler import SYSTEM_NOTICE_MARKER, ResumeHandler
 from services import (
     activity,
     approval_service,
+    conversation_history,
     discovery_service,
     distill_service,
     durable_memory,
@@ -162,6 +165,15 @@ webhook_runner = Runner(
     # remains disabled even when the bounded M2 product routes are enabled.
     memory_service=None)
 resume_handler = ResumeHandler(runner=webhook_runner)
+conversation_history.configure(
+    session_service=db_session_service, app_name=agent_app.name)
+try:
+    _turn_recent_events = int(os.environ.get("ALEX_TURN_RECENT_EVENTS", "100"))
+except (TypeError, ValueError):
+    _turn_recent_events = 100
+TURN_RUN_CONFIG = RunConfig(
+    get_session_config=GetSessionConfig(
+        num_recent_events=max(20, min(_turn_recent_events, 500))))
 
 # Surface 3: the distiller (inline, synchronous)
 distill_app = App(name="co_founder_distill", root_agent=distiller_subagent.agent)
@@ -1017,6 +1029,8 @@ async def wake(payload: WakePayload, request: Request) -> dict:
                 ss.K_MEMORY_MODE: durable_memory.MemoryMode.STANDARD.value,
                 ss.K_PRIVATE_ORIGIN: False,
                 ss.K_ADVISORY_MEMORY: "none",
+                ss.K_CONTINUITY_CONTEXT: "Current session continuity is available.",
+                ss.K_CONVERSATION_RECALL_ACTIVE: False,
             })
         await session_resources.catalog_session_event(
             founder_id=founder_id, session_id=session_id, created=True)
@@ -1242,6 +1256,8 @@ async def wake(payload: WakePayload, request: Request) -> dict:
         # Rewrite on every turn so a prior admitted hit cannot bleed into a
         # later action/review turn or a newly private session.
         ss.K_ADVISORY_MEMORY: "none",
+        ss.K_CONTINUITY_CONTEXT: "Current session continuity is available.",
+        ss.K_CONVERSATION_RECALL_ACTIVE: False,
     }
     if refs or previous:
         state_delta[ss.K_ACTIVE_ATTACHMENTS] = attachments
@@ -1268,6 +1284,14 @@ async def wake(payload: WakePayload, request: Request) -> dict:
             memory_hits = list(memory_result.get("hits") or [])
             state_delta[ss.K_ADVISORY_MEMORY] = durable_memory.advisory_context(
                 memory_hits)
+    envelope = conversation_history.build_envelope(
+        session_id=session_id,
+        session_mode=session_memory_mode,
+        saved_context_available=(
+            not memory_result.get("error")
+            and memory_result.get("status") not in {"skipped", None}),
+    )
+    state_delta[ss.K_CONTINUITY_CONTEXT] = envelope.instruction()
 
     replies: list[str] = []
     # Founder-voice narration of what this turn did (docs/24 §7.2). The loop
@@ -1277,6 +1301,7 @@ async def wake(payload: WakePayload, request: Request) -> dict:
     async for event in webhook_runner.run_async(
             user_id=founder_id, session_id=session_id,
             state_delta=state_delta,
+            run_config=TURN_RUN_CONFIG,
             new_message=types.Content(role="user", parts=[types.Part.from_text(text=payload.message)])):
         trace.observe(event)
         if event.content and event.content.parts:
@@ -1362,6 +1387,8 @@ async def new_session(request: Request) -> dict:
             ss.K_MEMORY_MODE: payload.memory_mode,
             ss.K_PRIVATE_ORIGIN: payload.memory_mode == "PRIVATE",
             ss.K_ADVISORY_MEMORY: "none",
+            ss.K_CONTINUITY_CONTEXT: "Current session continuity is available.",
+            ss.K_CONVERSATION_RECALL_ACTIVE: False,
         })
     await session_resources.catalog_session_event(
         founder_id=founder_id, session_id=session_id, created=True)
@@ -1379,9 +1406,12 @@ async def new_session(request: Request) -> dict:
 
 @app.get("/api/v1/sessions/{session_id}/messages")
 @app.get("/api/chat/{session_id}", include_in_schema=False)
-async def chat_history(session_id: str, request: Request) -> dict:
-    """Full chat transcript so agent-initiated messages (proactive reports)
-    render without the founder sending anything. System wake notices are
+async def chat_history(session_id: str, request: Request, limit: int = 200,
+                       before: int | None = None) -> dict:
+    """A bounded transcript page so agent-initiated messages render.
+
+    Pages run newest-first by window but preserve chronological message order.
+    System wake notices are
     hidden — only the agent's replies to them surface. Notices are recognised
     by an invisible marker (resume_handler.SYSTEM_NOTICE_MARKER), never by a
     visible text prefix, so a founder message starting with 'System:' shows."""
@@ -1418,10 +1448,18 @@ async def chat_history(session_id: str, request: Request) -> dict:
             message["invocation_id"] = str(
                 getattr(event, "invocation_id", "") or "")
         messages.append(message)
+    total_messages = len(messages)
+    page_limit = max(1, min(int(limit or 200), 500))
+    end = total_messages if before is None else max(
+        0, min(int(before), total_messages))
+    start = max(0, end - page_limit)
+    messages = messages[start:end]
     memory_mode = str((session.state or {}).get(ss.K_MEMORY_MODE)
                       or durable_memory.MemoryMode.STANDARD.value)
     return {"status": "success", "messages": messages,
-            "memory_mode": memory_mode}
+            "memory_mode": memory_mode,
+            "total_messages": total_messages,
+            "next_before": start if start > 0 else None}
 
 
 @app.get("/api/v1/waits")
@@ -1735,11 +1773,28 @@ async def api_sessions(request: Request, limit: int = 30):
         return JSONResponse(principal, status_code=401)
     founder_id = principal.workspace_id
 
+    page_limit = max(1, min(limit, 100))
+    try:
+        catalog = await firestore.list_recent_session_catalog(
+            founder_id, limit=page_limit)
+    except Exception:  # noqa: BLE001 - catalog is an advisory projection
+        catalog = []
+    if catalog:
+        return {
+            "status": "success",
+            "sessions": [{
+                "id": str(row.get("session_id") or row.get("id") or ""),
+                "updated_at": str(row.get("updated_at") or ""),
+                "preview": str(row.get("preview") or "")[:140],
+                "messages": int(row.get("message_count") or 0),
+            } for row in catalog if row.get("session_id") or row.get("id")],
+        }
+
     listing = await db_session_service.list_sessions(
         app_name=agent_app.name, user_id=founder_id)
     sessions = sorted(getattr(listing, "sessions", None) or [],
                       key=lambda s: s.last_update_time or 0,
-                      reverse=True)[:max(1, min(limit, 100))]
+                      reverse=True)[:page_limit]
     out = []
     for s in sessions:
         # list_sessions returns shells; events need the full read. Founder

@@ -1375,6 +1375,12 @@
         gap: var(--sp-3);
         padding: var(--sp-1) 2px;
       }
+      .history-load {
+        align-self: center;
+        display: flex;
+        justify-content: center;
+        padding-block: var(--sp-2);
+      }
       .msg {
         max-width: min(82%, var(--measure));
         padding: var(--sp-3) var(--sp-4);
@@ -4085,7 +4091,7 @@ let viewingSession = null, sessionResources = [], sessionResourcesTruncated = fa
 
 let refreshGeneration = 0;
 
-let chatCount = 0;
+let chatCount = 0, chatPageMessages = [], chatNextBefore = null;
 
 let browserSnapshot = null;
 
@@ -4490,6 +4496,48 @@ function addMsg(who, text, meta = {}) {
     return d;
 }
 
+function renderChatMessages(messages, nextBefore = null) {
+    const log = $("chatlog");
+    log.innerHTML = "";
+    chatPageMessages = messages || [];
+    chatNextBefore = Number.isInteger(nextBefore) ? nextBefore : null;
+    if (chatNextBefore !== null) {
+        const wrap = document.createElement("div");
+        wrap.className = "history-load";
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "btn";
+        button.dataset.variant = "ghost";
+        button.dataset.size = "sm";
+        button.textContent = "Load older messages";
+        button.onclick = () => loadOlderChatMessages(button);
+        wrap.appendChild(button);
+        log.appendChild(wrap);
+    }
+    if (!chatPageMessages.length) chatPlaceholder();
+    for (const message of chatPageMessages) {
+        addMsg(message.role, message.text, message);
+    }
+}
+
+async function loadOlderChatMessages(button) {
+    const sid = contextSessionId();
+    if (!sid || chatNextBefore === null) return;
+    button.disabled = true;
+    const log = $("chatlog");
+    const priorHeight = log.scrollHeight;
+    const priorTop = log.scrollTop;
+    try {
+        const page = await api(`/api/v1/sessions/${sid}/messages?limit=200&before=${chatNextBefore}`);
+        const combined = [...(page.messages || []), ...chatPageMessages];
+        renderChatMessages(combined, page.next_before);
+        log.scrollTop = priorTop + (log.scrollHeight - priorHeight);
+    } catch (error) {
+        button.disabled = false;
+        toast(error.message || "Older messages could not be loaded.", "danger");
+    }
+}
+
 // Cloud TTS read-aloud (docs/19 §P1.8) — one message at a time; clicking the
 // speaking message again stops it.
 let speakAudio = null;
@@ -4777,6 +4825,8 @@ async function newSession(memoryMode = "STANDARD") {
         await loadMemoryPanel();
     }
     chatCount = 0;
+    chatPageMessages = [];
+    chatNextBefore = null;
     sessionWorkExpanded = false;
     $("sessionWork").hidden = true;
     updateContextControl();
@@ -4821,17 +4871,16 @@ async function syncChat() {
     sessionMemoryMode = h.memory_mode || "STANDARD";
     renderSessionMemoryMode();
     const msgs = h.messages || [];
-    if (msgs.length === chatCount) {
+    const total = Number.isInteger(h.total_messages) ? h.total_messages : msgs.length;
+    if (total === chatCount) {
         renderSessionDocCards();
         return;
     }
     const log = $("chatlog");
     const atLatest = conversationAtLatest();
     const priorTop = log.scrollTop;
-    chatCount = msgs.length;
-    log.innerHTML = "";
-    if (!msgs.length) chatPlaceholder();
-    for (const m of msgs) addMsg(m.role, m.text, m);
+    chatCount = total;
+    renderChatMessages(msgs, h.next_before);
     renderSessionDocCards();
     if (!atLatest) {
         log.scrollTop = priorTop;
@@ -7089,11 +7138,10 @@ async function viewSession(sid) {
     $("sessionTag").innerHTML = `Viewing past conversation —\n    <button class="doc-tag" id="resumeViewedBtn">Resume this session</button>\n    · <a href="#" class="doc-tag" onclick="backToSession();return false">back to active</a>`;
     $("resumeViewedBtn").onclick = () => resumeSession(sid);
     const log = $("chatlog");
-    log.innerHTML = "";
+    renderChatMessages(h.messages || [], h.next_before);
     if (!(h.messages || []).length) {
         log.innerHTML = emptyState("chat", "No transcript in this session", "Its linked work still appears across Runs, Browser, Work, and Evidence.");
     }
-    for (const m of h.messages || []) addMsg(m.role, m.text);
     await refresh();
     await refreshWaiting();
 }

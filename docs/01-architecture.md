@@ -111,7 +111,7 @@ co-founder/
 | Choice | Value | Notes |
 |---|---|---|
 | Language | Python ≥ 3.11 | enforced in setup.sh |
-| Agent framework | `google-adk` ≥ 2.6 | needs `App`, `EventsCompactionConfig`, `DatabaseSessionService` — we resume via `state_delta`, NOT `ResumabilityConfig` (deliberate, see 03) |
+| Agent framework | `google-adk==2.8.0` | `DatabaseSessionService` is the canonical transcript; `EventsCompactionConfig` bounds text history, while Gemini Live uses `RunConfig.session_resumption` plus context-window compression. Durable `state_delta` remains the workflow-resumption authority (see 03). |
 | Model | env `ADK_MODEL`, default `gemini-3.6-flash` | rules require Gemini 3.5+; one env var, per-agent override allowed. `REASONING_MODEL` (orchestrator + drafter) also defaults to `gemini-3.6-flash` |
 | Model access | Vertex AI with Application Default Credentials | never API keys — the Gemma Evidence Checker (20) calls managed Vertex MaaS under the project's Google Cloud credentials and data-governance controls |
 | Server | FastAPI + uvicorn via `google.adk.cli.fast_api.get_fast_api_app` | custom routes added on top |

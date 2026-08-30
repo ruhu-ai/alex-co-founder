@@ -38,6 +38,8 @@ _DEFAULTS = {
     ss.K_MEMORY_MODE: "STANDARD",
     ss.K_PRIVATE_ORIGIN: False,
     ss.K_ADVISORY_MEMORY: "none",
+    ss.K_CONTINUITY_CONTEXT: "Current session continuity is available.",
+    ss.K_CONVERSATION_RECALL_ACTIVE: False,
     ss.K_HIRING_ROLE_CONTEXT: "none",
 }
 
@@ -121,7 +123,22 @@ async def enforce_workflow_tool_contract(
     # refuses before the tool executes. Current durable records remain the only
     # authority and review/approval artifacts receive no optional memory.
     advisory = str(tool_context.state.get(ss.K_ADVISORY_MEMORY) or "none")
-    if advisory != "none":
+    continuity_reads = {
+        "get_conversation_continuity",
+        "search_past_conversations",
+        "open_past_conversation",
+    }
+    if (tool_context.state.get(ss.K_CONVERSATION_RECALL_ACTIVE)
+            and tool.name not in continuity_reads):
+        return {
+            "status": "error", "error": True,
+            "error_code": "conversation_context_not_allowed_for_tool",
+            "message": (
+                "Past conversation text is advisory and cannot influence a "
+                "tool, workflow, source query, review artifact, or external action."
+            ),
+        }
+    if advisory != "none" and tool.name not in continuity_reads:
         return {
             "status": "error", "error": True,
             "error_code": "memory_context_not_allowed_for_tool",

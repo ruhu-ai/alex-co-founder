@@ -52,6 +52,7 @@ TOP_LEVEL_COLLECTIONS: frozenset[str] = frozenset({
     "resource_index",
     "session_resource_links",
     "session_catalog",
+    "live_session_resumptions",
     # docs/24 data-source reliability safety records
     "data_connections",
     "source_grants",
@@ -3055,6 +3056,55 @@ async def get_session_catalog(session_id: str) -> Optional[dict[str, Any]]:
     snap = await get_client().collection("session_catalog").document(
         session_id).get()
     return snap.to_dict() if snap.exists else None
+
+
+def _live_resumption_id(workspace_id: str, session_id: str) -> str:
+    return hashlib.sha256(
+        f"live-resumption-v1\x1f{workspace_id}\x1f{session_id}".encode()
+    ).hexdigest()
+
+
+async def upsert_live_session_resumption(
+    workspace_id: str,
+    session_id: str,
+    *,
+    ciphertext: str,
+    expires_at: Any,
+) -> None:
+    """Store only encrypted Live resumption material."""
+    await get_client().collection("live_session_resumptions").document(
+        _live_resumption_id(workspace_id, session_id)
+    ).set({
+        "schema_version": 1,
+        "workspace_id": workspace_id,
+        "session_id": session_id,
+        "ciphertext": ciphertext,
+        "expires_at": expires_at,
+        "updated_at": _now(),
+    })
+
+
+async def get_live_session_resumption(
+    workspace_id: str, session_id: str
+) -> Optional[dict[str, Any]]:
+    snap = await get_client().collection("live_session_resumptions").document(
+        _live_resumption_id(workspace_id, session_id)
+    ).get()
+    if not snap.exists:
+        return None
+    row = snap.to_dict() or {}
+    if (row.get("workspace_id") != workspace_id
+            or row.get("session_id") != session_id):
+        return None
+    return row
+
+
+async def delete_live_session_resumption(
+    workspace_id: str, session_id: str
+) -> None:
+    await get_client().collection("live_session_resumptions").document(
+        _live_resumption_id(workspace_id, session_id)
+    ).delete()
 
 
 async def bump_session_catalog_resources(session_id: str, resource_type: str,

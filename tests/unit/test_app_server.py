@@ -1563,8 +1563,9 @@ class TestSessionHistory:
             self.text = text
 
     class _Event:
-        def __init__(self, author, text):
+        def __init__(self, author, text, event_id=""):
             from types import SimpleNamespace
+            self.id = event_id
             self.author = author
             self.content = SimpleNamespace(parts=[TestSessionHistory._Part(text)])
 
@@ -1573,6 +1574,7 @@ class TestSessionHistory:
             self.id = sid
             self.last_update_time = ts
             self.events = events or []
+            self.state = {"platform:memory_mode": "STANDARD"}
 
     def test_newest_first_with_marker_hidden_previews(self, appmod, client, monkeypatch):
         from types import SimpleNamespace
@@ -1609,6 +1611,50 @@ class TestSessionHistory:
         assert by_id["s-empty"]["preview"] == ""
         assert by_id["s-empty"]["messages"] == 0
         assert by_id["s-new"]["updated_at"].startswith("1970-01-01T00:33:20")
+
+    def test_message_history_is_bounded_and_loads_older_chronologically(
+            self, appmod, client, monkeypatch):
+        events = [self._Event("user", f"message-{index}", f"e-{index}")
+                  for index in range(5)]
+        session = self._Sess("s-long", 1000, events)
+
+        class _Svc:
+            async def get_session(self, *, app_name, user_id, session_id):
+                assert user_id == appmod.FOUNDER_ID
+                return session if session_id == "s-long" else None
+
+        monkeypatch.setattr(appmod, "db_session_service", _Svc())
+        latest = client.get("/api/chat/s-long?limit=2")
+        older = client.get(
+            f"/api/chat/s-long?limit=2&before={latest.json()['next_before']}")
+
+        assert latest.status_code == 200
+        assert [row["text"] for row in latest.json()["messages"]] == [
+            "message-3", "message-4"]
+        assert latest.json()["total_messages"] == 5
+        assert latest.json()["next_before"] == 3
+        assert [row["text"] for row in older.json()["messages"]] == [
+            "message-1", "message-2"]
+        assert older.json()["next_before"] == 1
+
+    def test_catalog_projection_avoids_loading_every_transcript(
+            self, appmod, client, monkeypatch):
+        async def _catalog(founder_id, *, limit):
+            assert founder_id == appmod.FOUNDER_ID
+            return [{"session_id": "s-indexed", "updated_at": "2026-08-30Z",
+                     "preview": "Indexed preview", "message_count": 420}]
+
+        class _NoTranscriptReads:
+            async def list_sessions(self, **_kwargs):
+                raise AssertionError("catalog listing must avoid transcript scan")
+
+        monkeypatch.setattr(appmod.firestore, "list_recent_session_catalog", _catalog)
+        monkeypatch.setattr(appmod, "db_session_service", _NoTranscriptReads())
+        result = client.get("/api/sessions")
+        assert result.status_code == 200
+        assert result.json()["sessions"] == [{
+            "id": "s-indexed", "updated_at": "2026-08-30Z",
+            "preview": "Indexed preview", "messages": 420}]
 
 
 class TestSessionScopedPipeline:

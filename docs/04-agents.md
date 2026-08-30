@@ -53,10 +53,13 @@ REASONING_MODEL = Gemini(
 )
 ```
 
-Version notes: pin `google-adk>=2.6`. `EventsCompactionConfig` (which we use)
-is pre-GA in 2.6.x — `[EXPERIMENTAL]` log warnings are expected and harmless
-(the reference lab ships with them). We do **not** use `ResumabilityConfig` —
-see 03 for the deliberate `state_delta` deviation. The
+Version notes: pin `google-adk==2.8.0`. `EventsCompactionConfig` (which we use)
+is pre-GA — `[EXPERIMENTAL]` log warnings are expected. Text compaction is
+token- and event-bounded. Gemini Live separately uses the 2.8
+`RunConfig.session_resumption` and `context_window_compression` contracts;
+opaque resumption handles are encrypted server-side and never sent to the
+browser. Neither mechanism replaces durable workflow `state_delta` authority.
+The
 `GoogleCloudPlatform/generative-ai` onboarding sample pins ADK 1.x; where its
 patterns and ADK 2 differ, ADK 2 wins.
 

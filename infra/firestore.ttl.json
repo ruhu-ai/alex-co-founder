@@ -12,6 +12,11 @@
       "ttl": true
     },
     {
+      "collectionGroup": "live_session_resumptions",
+      "fieldPath": "expires_at",
+      "ttl": true
+    },
+    {
       "collectionGroup": "memory_items",
       "fieldPath": "expires_at_ts",
       "ttl": true

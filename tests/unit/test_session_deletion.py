@@ -24,7 +24,8 @@ class _SessionService:
 
 
 def _base_wiring(monkeypatch, *, links, catalog=None):
-    writes = {"catalog": [], "audit": [], "stopped": [], "live_media": []}
+    writes = {"catalog": [], "audit": [], "stopped": [], "live_media": [],
+              "live_resumption": []}
 
     async def _catalog(_sid):
         return catalog or {"founder_id": "founder", "status": "active"}
@@ -46,6 +47,9 @@ def _base_wiring(monkeypatch, *, links, catalog=None):
         writes["live_media"].append((founder, session))
         return 0
 
+    async def _delete_live_resumption(*, workspace_id, session_id):
+        writes["live_resumption"].append((workspace_id, session_id))
+
     async def _audit(*args, **kwargs):
         writes["audit"].append((args, kwargs))
         return "audit-1"
@@ -60,6 +64,8 @@ def _base_wiring(monkeypatch, *, links, catalog=None):
     monkeypatch.setattr(deletion.firestore, "audit", _audit)
     monkeypatch.setattr(deletion.firestore, "now_iso", lambda: "2026-08-26T00:00:00+00:00")
     monkeypatch.setattr(deletion.browser_service, "stop_browser", _stop)
+    monkeypatch.setattr(
+        "services.live_resumption.delete", _delete_live_resumption)
     return writes
 
 
@@ -197,6 +203,24 @@ async def test_cleanup_failure_is_explicit_and_does_not_fake_full_success(monkey
     assert result["deleted_files"] == 0
     assert result["cleanup_errors"] == ["file cleanup failed for r-art"]
     assert sessions.deleted
+    assert writes["audit"][0][0][3] == "partial"
+
+
+@pytest.mark.asyncio
+async def test_live_resumption_cleanup_failure_is_reported(monkeypatch):
+    writes = _base_wiring(monkeypatch, links=[])
+
+    async def _failed_delete(*, workspace_id, session_id):
+        raise RuntimeError("resumption store unavailable")
+
+    monkeypatch.setattr(
+        "services.live_resumption.delete", _failed_delete)
+    result = await deletion.delete_session(
+        founder_id="founder", session_id="s-1", app_name="co_founder",
+        session_service=_SessionService())
+
+    assert result["status"] == "success"
+    assert result["cleanup_errors"] == ["live resumption cleanup failed"]
     assert writes["audit"][0][0][3] == "partial"
 
 
