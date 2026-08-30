@@ -48,7 +48,6 @@ async def retire_legacy_google_credential(
                 "message": "No workspace Google connection requires migration."}
 
     now = utc_now()
-    scoped_ref = google_oauth.credential_ref(account, workspace_id)
     mutations: list[AtomicMutation] = []
     for row in affected:
         if row.get("workspace_id") != workspace_id \
@@ -64,7 +63,8 @@ async def retire_legacy_google_credential(
         mutations.append(AtomicMutation(
             "data_connections", document_id, int(row.get("version") or 0),
             updates={
-                "credential_ref": scoped_ref,
+                "credential_ref": google_oauth.credential_ref(
+                    account, workspace_id, str(row.get("connector_id") or "")),
                 "status": dsc.ConnectionStatus.REAUTH_REQUIRED.value,
                 "credential_migration_status": "RECONNECT_REQUIRED",
                 "last_error_code": dsc.SafeErrorCode.AUTH_REQUIRED.value,

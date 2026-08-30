@@ -58,7 +58,7 @@ def _service(workspace_id: str = "", connector_id: str = "drive"):
     if _service_factory is not None:
         return _service_factory()
     account = google_oauth.CONNECTOR_ACCOUNT.get(connector_id, "founder")
-    creds = (google_oauth.get_credentials(account, workspace_id)
+    creds = (google_oauth.get_credentials(account, workspace_id, connector_id)
              if workspace_id else
              google_oauth.get_credentials() if account == "founder" else
              google_oauth.get_credentials(account))

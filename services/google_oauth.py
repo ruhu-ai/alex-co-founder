@@ -1,11 +1,11 @@
 """Founder-scoped Google OAuth (docs/12) + Alex's mailbox account (adr/001 v2).
 
-Two accounts, each with its own refresh token:
+Two accounts, with workspace-scoped refresh-token storage:
   - "founder": bounded Drive + Gmail + Calendar (GOOGLE_OAUTH_REFRESH_TOKEN)
-  - "alex":    the alex@ruhu.ai role account (ALEX_OAUTH_REFRESH_TOKEN) —
-               normal mailbox management, full Alex-owned Drive access, and
-               event scheduling. Consequences remain controlled in code, never
-               by OAuth scope alone.
+  - "alex":    the alex@ruhu.ai role account, with one credential slot per
+               connector because its exact Mail, Drive, and Calendar consents
+               must never overwrite one another. Consequences remain controlled
+               in code, never by OAuth scope alone.
 
 Refresh tokens are obtained via the Connectors panel (in-browser loopback
 flow) or scripts/oauth_setup.py, and stored in Secret Manager (prod) or .env
@@ -117,8 +117,8 @@ SCOPES = [scope for connector, group in SCOPE_MAP.items()
 # oauthlib's scope check never trips on an Alex-account consent.
 ALL_SCOPES = [s for group in SCOPE_MAP.values() for s in group]
 
-_creds: dict = {}          # per-workspace/account credential, refreshed on expiry
-_granted: dict = {}        # per-workspace/account frozenset of granted scopes
+_creds: dict = {}          # per-workspace/account[/connector] credential
+_granted: dict = {}        # per-workspace/account[/connector] granted scopes
 
 # Refresh this far ahead of stated expiry so a token cannot lapse mid-call.
 _TOKEN_REFRESH_SKEW = timedelta(seconds=120)
@@ -156,27 +156,48 @@ def runtime_value(key: str) -> str:
         return ""
 
 
-def credential_ref(account: str = "founder", workspace_id: str = "") -> str:
-    """Opaque secret/.env key for one workspace's provider account.
+def credential_ref(account: str = "founder", workspace_id: str = "",
+                   connector_id: str = "") -> str:
+    """Opaque secret/.env key for one workspace's provider grant.
 
     The legacy unscoped key remains available to local compatibility callers.
     Platform requests always supply ``workspace_id`` and therefore cannot read
-    another workspace's OAuth grant, even for the same provider account role.
+    another workspace's OAuth grant.  Alex-owned connectors additionally use
+    one slot per connector: each consent is intentionally exact-scope, so a
+    Mail consent must never overwrite Drive or Calendar's refresh token.
     """
     base = ACCOUNT_ENV.get(account, ACCOUNT_ENV["founder"])
     if not workspace_id:
         return base
+    isolated_connector = (
+        connector_id if account == "alex"
+        and CONNECTOR_ACCOUNT.get(connector_id) == "alex" else ""
+    )
+    if isolated_connector:
+        digest = hashlib.sha256(
+            f"google-oauth-v2\x1e{workspace_id}\x1e{account}\x1e{isolated_connector}"
+            .encode()
+        ).hexdigest()[:40]
+        return f"{base}_C_{isolated_connector.upper()}_W_{digest}"
+    # Preserve the established v1 slot for Founder grants and explicit legacy
+    # Alex compatibility callers.  A deployment must not strand a working
+    # Founder connection merely because Alex's connectors became isolated.
     digest = hashlib.sha256(
-        f"google-oauth-v1\x1e{workspace_id}\x1e{account}".encode()).hexdigest()[:40]
+        f"google-oauth-v1\x1e{workspace_id}\x1e{account}".encode()
+    ).hexdigest()[:40]
     return f"{base}_W_{digest}"
 
 
-def _cache_key(account: str, workspace_id: str) -> tuple[str, str]:
+def _cache_key(account: str, workspace_id: str,
+               connector_id: str = "") -> tuple[str, str] | tuple[str, str, str]:
+    if account == "alex" and CONNECTOR_ACCOUNT.get(connector_id) == "alex":
+        return (workspace_id, account, connector_id)
     return (workspace_id, account)
 
 
-def _refresh_token(account: str = "founder", workspace_id: str = "") -> str:
-    slot = credential_ref(account, workspace_id)
+def _refresh_token(account: str = "founder", workspace_id: str = "",
+                   connector_id: str = "") -> str:
+    slot = credential_ref(account, workspace_id, connector_id)
     token = runtime_value(slot)
     if token:
         return token
@@ -208,21 +229,23 @@ def configured(connector: str | None = None, account: str = "founder",
     if not (
         os.environ.get("GOOGLE_OAUTH_CLIENT_ID")
         and os.environ.get("GOOGLE_OAUTH_CLIENT_SECRET")
-        and _refresh_token(account, workspace_id)
+        and _refresh_token(account, workspace_id, connector or "")
     ):
         return False
     if connector is None:
         return True
     required = STATUS_SCOPES.get(connector, SCOPE_MAP.get(connector, ()))
-    return set(required) <= set(granted_scopes(account, workspace_id))
+    return set(required) <= set(granted_scopes(
+        account, workspace_id, connector or ""))
 
 
-def granted_scopes(account: str = "founder", workspace_id: str = "") -> frozenset:
+def granted_scopes(account: str = "founder", workspace_id: str = "",
+                   connector_id: str = "") -> frozenset:
     """Scopes the stored token really carries (tokeninfo), cached per token."""
-    cache_key = _cache_key(account, workspace_id)
+    cache_key = _cache_key(account, workspace_id, connector_id)
     if cache_key in _granted:
         return _granted[cache_key]
-    creds = get_credentials(account, workspace_id)
+    creds = get_credentials(account, workspace_id, connector_id)
     if creds is None or not creds.token:
         return frozenset()
     try:
@@ -236,13 +259,14 @@ def granted_scopes(account: str = "founder", workspace_id: str = "") -> frozense
     return _granted[cache_key]
 
 
-def get_credentials(account: str = "founder", workspace_id: str = ""):
+def get_credentials(account: str = "founder", workspace_id: str = "",
+                    connector_id: str = ""):
     """User credentials minted from the account's stored refresh token, or
     None when OAuth is not configured for that account."""
     if not (
         os.environ.get("GOOGLE_OAUTH_CLIENT_ID")
         and os.environ.get("GOOGLE_OAUTH_CLIENT_SECRET")
-        and _refresh_token(account, workspace_id)
+        and _refresh_token(account, workspace_id, connector_id)
     ):
         return None
     import google.auth.transport.requests
@@ -253,8 +277,8 @@ def get_credentials(account: str = "founder", workspace_id: str = ""):
     # token-endpoint round trip every time (docs/25 §7.8). The cache is keyed by
     # the refresh token in use, so rotating or revoking a grant — or switching
     # accounts — can never hand back the previous grant's access token.
-    refresh_token = _refresh_token(account, workspace_id)
-    cache_key = _cache_key(account, workspace_id)
+    refresh_token = _refresh_token(account, workspace_id, connector_id)
+    cache_key = _cache_key(account, workspace_id, connector_id)
     cached = _creds.get(cache_key)
     if (cached is not None and cached.refresh_token == refresh_token
             and cached.token and not _expires_within(cached, _TOKEN_REFRESH_SKEW)):
@@ -280,16 +304,17 @@ def reset_for_tests() -> None:
     _account_emails.clear()
 
 
-def clear_account_cache(account: str, workspace_id: str = "") -> None:
+def clear_account_cache(account: str, workspace_id: str = "",
+                        connector_id: str = "") -> None:
     """Drop every in-process credential/status cache for one Google account."""
-    key = _cache_key(account, workspace_id)
+    key = _cache_key(account, workspace_id, connector_id)
     _creds.pop(key, None)
     _granted.pop(key, None)
-    _sm_missing.discard(credential_ref(account, workspace_id))
+    _sm_missing.discard(credential_ref(account, workspace_id, connector_id))
     _account_emails.pop(key, None)
 
 
-_account_emails: dict[tuple[str, str], str] = {}
+_account_emails: dict[tuple[str, ...], str] = {}
 
 
 def account_email(account: str = "founder", workspace_id: str = "") -> str:
@@ -384,12 +409,13 @@ def save_env_var(key: str, value: str) -> dict:
 
 
 def save_refresh_token(token: str, account: str = "founder",
-                       workspace_id: str = "") -> dict:
+                       workspace_id: str = "", connector_id: str = "") -> dict:
     """Persist a newly-consented refresh token — no restart needed (cached
     creds and account identity are reset)."""
-    result = save_env_var(credential_ref(account, workspace_id), token)
+    result = save_env_var(
+        credential_ref(account, workspace_id, connector_id), token)
     if result.get("status") == "success":
-        clear_account_cache(account, workspace_id)
+        clear_account_cache(account, workspace_id, connector_id)
     return result
 
 
@@ -469,7 +495,7 @@ def verify_consent(credentials, connector: str) -> dict:
 
 
 def revoke_account_grant(account: str = "founder", timeout_seconds: int = 10,
-                         workspace_id: str = ""
+                         workspace_id: str = "", connector_id: str = ""
                          ) -> dict:
     """Revoke the account-wide refresh-token grant at Google.
 
@@ -477,7 +503,7 @@ def revoke_account_grant(account: str = "founder", timeout_seconds: int = 10,
     A missing token is uncertain, not success: local absence does not prove the
     provider grant was revoked.
     """
-    token = _refresh_token(account, workspace_id)
+    token = _refresh_token(account, workspace_id, connector_id)
     if not token:
         return {"status": "error", "error": True,
                 "error_code": "remote_revocation_uncertain",
@@ -498,14 +524,16 @@ def revoke_account_grant(account: str = "founder", timeout_seconds: int = 10,
 
 
 def delete_account_credential(account: str = "founder",
-                              workspace_id: str = "") -> dict:
+                              workspace_id: str = "",
+                              connector_id: str = "") -> dict:
     """Delete the named refresh-token secret and invalidate live caches."""
-    key = credential_ref(account, workspace_id) if account in ACCOUNT_ENV else ""
+    key = (credential_ref(account, workspace_id, connector_id)
+           if account in ACCOUNT_ENV else "")
     if not key:
         return {"status": "error", "error": True,
                 "error_code": "invalid_contract",
                 "message": "unknown Google account"}
     result = save_env_var(key, "")
     if result.get("status") == "success":
-        clear_account_cache(account, workspace_id)
+        clear_account_cache(account, workspace_id, connector_id)
     return result

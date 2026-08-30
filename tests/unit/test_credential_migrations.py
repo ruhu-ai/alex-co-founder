@@ -45,3 +45,30 @@ async def test_credential_migration_refuses_cross_workspace_owner():
     result = await retire_legacy_google_credential(
         store, workspace_id="workspace_a", account="founder")
     assert result["error_code"] == "migration_owner_ambiguous"
+
+
+async def test_alex_migration_projects_distinct_reconnect_slots(monkeypatch):
+    store = InMemoryDurableStore()
+    for connector_id in ("alex_mail", "alex_calendar"):
+        await store.create("data_connections", f"conn_{connector_id}", {
+            "connection_id": f"conn_{connector_id}",
+            "workspace_id": "workspace_a", "founder_id": "workspace_a",
+            "connector_id": connector_id, "auth_kind": "google_oauth",
+            "credential_ref": "ALEX_OAUTH_REFRESH_TOKEN", "status": "CONNECTED",
+            "version": 1,
+        })
+    monkeypatch.setattr(google_oauth, "runtime_value", lambda _key: pytest.fail(
+        "migration must not read credential values"))
+
+    result = await retire_legacy_google_credential(
+        store, workspace_id="workspace_a", account="alex")
+
+    mail = await store.get("data_connections", "conn_alex_mail")
+    calendar = await store.get("data_connections", "conn_alex_calendar")
+    assert result["status"] == "success"
+    assert mail["status"] == calendar["status"] == "REAUTH_REQUIRED"
+    assert mail["credential_ref"] == google_oauth.credential_ref(
+        "alex", "workspace_a", "alex_mail")
+    assert calendar["credential_ref"] == google_oauth.credential_ref(
+        "alex", "workspace_a", "alex_calendar")
+    assert mail["credential_ref"] != calendar["credential_ref"]

@@ -17,7 +17,7 @@ _ACCOUNT_REF = {"founder": "default", "alex": "alex-role-mailbox"}
 
 
 def _scope_contract_current(connector_id: str, row: dict[str, Any]) -> bool:
-    """True when durable scope evidence still satisfies the code contract.
+    """True when durable grant evidence still satisfies the code contract.
 
     Alex's role-account grants are connector-isolated and therefore exact.
     Founder grants can contain the union of several founder connectors, so
@@ -31,7 +31,9 @@ def _scope_contract_current(connector_id: str, row: dict[str, Any]) -> bool:
     if not granted:
         return True
     if account_for_connector(connector_id) == "alex":
-        return granted == required
+        expected_ref = google_oauth.credential_ref(
+            "alex", str(row.get("workspace_id") or ""), connector_id)
+        return granted == required and row.get("credential_ref") == expected_ref
     return required.issubset(granted)
 
 
@@ -74,7 +76,8 @@ async def project_verified_consent(
         row = await firestore.upsert_data_connection(
             founder_id, connector_id, account_ref=_ACCOUNT_REF[account],
             account_hint=account_hint, auth_kind="google_oauth",
-            credential_ref=google_oauth.credential_ref(account, founder_id),
+            credential_ref=google_oauth.credential_ref(
+                account, founder_id, connector_id),
             granted_scopes=sorted(granted),
             provider_account_hash=provider_account_hash, status="CONNECTED")
         if row.get("error"):
@@ -134,7 +137,8 @@ async def record_connector_success(founder_id: str, connector_id: str,
         row = await firestore.upsert_data_connection(
             founder_id, connector_id, account_ref=_ACCOUNT_REF[account],
             auth_kind="google_oauth",
-            credential_ref=google_oauth.credential_ref(account, founder_id),
+            credential_ref=google_oauth.credential_ref(
+                account, founder_id, connector_id),
             status="CONNECTED")
         if row.get("error"):
             return row
@@ -254,6 +258,8 @@ async def list_connection_status(founder_id: str) -> dict[str, Any]:
             and other.get("status") not in {"DISCONNECTED"}
             and other.get("auth_kind") == "google_oauth"
             and account_for_connector(other.get("connector_id", "")) == account)
+        if account == "alex":
+            enabled_others = []
         by_connector[connector_id] = {
             "connection_id": row.get("connection_id"),
             "connector_id": connector_id,
@@ -272,7 +278,9 @@ async def list_connection_status(founder_id: str) -> dict[str, Any]:
                                                     "REAUTH_REQUIRED"},
             "can_disconnect": row.get("status") not in {"DISCONNECTED",
                                                           "DISCONNECTING"},
-            "disconnect_mode": ("local_only" if enabled_others else "account_wide"),
+            "disconnect_mode": (
+                "connector_only" if account == "alex" else
+                "local_only" if enabled_others else "account_wide"),
             "disconnect_impacts": enabled_others,
             "permissions_url": GOOGLE_PERMISSIONS_URL,
         }
@@ -302,6 +310,8 @@ async def disconnect_connection(founder_id: str, connection_id: str, *,
         and candidate.get("status") not in {"DISCONNECTED"}
         and candidate.get("auth_kind") == "google_oauth"
         and account_for_connector(candidate.get("connector_id", "")) == account)
+    if account == "alex":
+        other_enabled = []
 
     if other_enabled:
         transitioned = await firestore.transition_data_connection(
@@ -331,9 +341,11 @@ async def disconnect_connection(founder_id: str, connection_id: str, *,
     if disconnecting.get("error"):
         return disconnecting
     remote = await asyncio.to_thread(
-        google_oauth.revoke_account_grant, account, 10, founder_id)
+        google_oauth.revoke_account_grant, account, 10, founder_id,
+        row["connector_id"])
     local = await asyncio.to_thread(
-        google_oauth.delete_account_credential, account, founder_id)
+        google_oauth.delete_account_credential, account, founder_id,
+        row["connector_id"])
     grants = await firestore.revoke_connection_source_grants(founder_id, connection_id)
     certain = remote.get("status") == "success" and local.get("status") == "success"
     final = await firestore.transition_data_connection(

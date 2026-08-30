@@ -55,6 +55,22 @@ async def test_alex_calendar_is_a_separate_role_account_connector(fake_store):
     assert calendar["connected"] is True
 
 
+async def test_shared_legacy_alex_credential_requires_connector_reconnect(fake_store):
+    connection = await _connection("founder", "alex_calendar")
+
+    projection = await connection_registry.list_connection_status("founder")
+    calendar = projection["connections"]["alex_calendar"]
+    gate = await connection_registry.authorize_connector_operation(
+        "founder", "alex_calendar")
+
+    assert connection["credential_ref"] == "ALEX_OAUTH_REFRESH_TOKEN"
+    assert calendar["status"] == "REAUTH_REQUIRED"
+    assert calendar["status_line"] == "Reconnect required"
+    assert calendar["disconnect_mode"] == "connector_only"
+    assert gate["status"] == "error"
+    assert gate["error_code"] == "scope_missing"
+
+
 async def test_legacy_alex_drive_scope_is_reauth_and_cannot_execute(fake_store):
     await _connection("founder", "alex_drive", scopes=[
         "https://www.googleapis.com/auth/drive.readonly",
@@ -129,6 +145,43 @@ async def test_shared_account_disconnect_is_local_only_and_revokes_sources(
     assert result["provider_revoked"] is False
     assert result["other_connectors"] == ["founder_gmail"]
     assert fake_store.source_grants[grant["source_grant_id"]]["status"] == "REVOKED"
+
+
+async def test_isolated_alex_disconnect_revokes_only_exact_connector(
+        fake_store, monkeypatch):
+    mail = await firestore.upsert_data_connection(
+        "founder", "alex_mail", account_ref="alex-role-mailbox",
+        auth_kind="google_oauth",
+        credential_ref=google_oauth.credential_ref(
+            "alex", "founder", "alex_mail"),
+        granted_scopes=google_oauth.SCOPE_MAP["alex_mail"], status="CONNECTED")
+    await firestore.upsert_data_connection(
+        "founder", "alex_calendar", account_ref="alex-role-mailbox",
+        auth_kind="google_oauth",
+        credential_ref=google_oauth.credential_ref(
+            "alex", "founder", "alex_calendar"),
+        granted_scopes=google_oauth.SCOPE_MAP["alex_calendar"], status="CONNECTED")
+    calls = []
+    monkeypatch.setattr(
+        google_oauth, "revoke_account_grant",
+        lambda *args: calls.append(("revoke", args)) or {"status": "success"})
+    monkeypatch.setattr(
+        google_oauth, "delete_account_credential",
+        lambda *args: calls.append(("delete", args)) or {"status": "success"})
+
+    result = await connection_registry.disconnect_connection(
+        "founder", mail["connection_id"], expected_version=mail["version"])
+
+    assert result["outcome"] == "SUCCEEDED"
+    assert result["other_connectors"] == []
+    assert calls == [
+        ("revoke", ("alex", 10, "founder", "alex_mail")),
+        ("delete", ("alex", "founder", "alex_mail")),
+    ]
+    calendar = await firestore.get_data_connection(
+        "founder", connection_registry.connection_id_for(
+            "founder", "alex_calendar"))
+    assert calendar["status"] == "CONNECTED"
 
 
 async def test_last_connector_uncertain_is_honest_and_locally_disabled(

@@ -99,8 +99,9 @@ def set_service_factory(fn: Callable[[], Any] | None) -> None:
 def _service(workspace_id: str = "", account: str = "alex"):
     if _service_factory is not None:
         return _service_factory()
-    creds = (google_oauth.get_credentials(account, workspace_id)
-             if workspace_id else google_oauth.get_credentials(account))
+    creds = (google_oauth.get_credentials(
+        account, workspace_id, "alex_mail") if workspace_id
+        else google_oauth.get_credentials(account))
     if creds is None:
         return None
     from googleapiclient.discovery import build

@@ -105,7 +105,7 @@ class GoogleHiringProviderAdapter:
             return _error("scope_missing", f"Reconnect {connector_id} with its exact scopes.")
         account = connection_registry.account_for_connector(connector_id)
         credentials = await asyncio.to_thread(
-            google_oauth.get_credentials, account, workspace_id)
+            google_oauth.get_credentials, account, workspace_id, connector_id)
         if credentials is None:
             return _error("auth_required", f"Reconnect {connector_id} before continuing.")
         return {"status": "success", "connection_id": connection["connection_id"]}
@@ -140,7 +140,7 @@ class GoogleHiringProviderAdapter:
     async def _credentials(workspace_id: str, connector_id: str):
         account = connection_registry.account_for_connector(connector_id)
         credentials = await asyncio.to_thread(
-            google_oauth.get_credentials, account, workspace_id)
+            google_oauth.get_credentials, account, workspace_id, connector_id)
         if credentials is None:
             raise PermissionError("connector credential unavailable")
         return credentials

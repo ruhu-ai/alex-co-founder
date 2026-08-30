@@ -7372,7 +7372,7 @@ async function disconnectConnector(key) {
         const c = connectorCatalog.find(item => item.name === id);
         return c ? c.title : id;
     });
-    const warning = row.disconnect_mode === "local_only" ? `Disconnect ${key} from Co-Founder? The shared Google grant will remain active for ${names.join(", ") || "the other connectors"}. You can revoke the whole grant later in Google Account permissions.` : `Disconnect ${key}? This is the last active connector on this Google account, so Co-Founder will revoke the account-wide Google grant and remove its local credential.`;
+    const warning = row.disconnect_mode === "connector_only" ? `Disconnect ${key}? Co-Founder will revoke only this connector's isolated Google grant and remove its credential. Other Alex connectors will remain connected.` : row.disconnect_mode === "local_only" ? `Disconnect ${key} from Co-Founder? The shared Google grant will remain active for ${names.join(", ") || "the other connectors"}. You can revoke the whole grant later in Google Account permissions.` : `Disconnect ${key}? This is the last active connector on this Google account, so Co-Founder will revoke the account-wide Google grant and remove its local credential.`;
     if (!window.confirm(warning)) return;
     const command = await api(`/api/v1/integrations/${encodeURIComponent(row.connection_id)}`, {
         method: "DELETE",

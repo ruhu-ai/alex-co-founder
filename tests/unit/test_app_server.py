@@ -363,6 +363,8 @@ class TestDriveExportReceipts:
         connection = asyncio.run(firestore.upsert_data_connection(
             appmod.FOUNDER_ID, "alex_drive", account_ref="alex-role-mailbox",
             auth_kind="google_oauth",
+            credential_ref=google_oauth.credential_ref(
+                "alex", appmod.FOUNDER_ID, "alex_drive"),
             granted_scopes=google_oauth.SCOPE_MAP["alex_drive"],
             status="CONNECTED"))
         listed = []

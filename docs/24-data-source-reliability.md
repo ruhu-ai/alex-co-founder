@@ -800,14 +800,15 @@ under the word "revoke" is not acceptable — it tells the founder a lie about w
 still holds access. Remote revocation is then a named follow-up with an owner,
 not an implicit someday (§22 Q6).
 
-**Granularity constraint.** Remote revocation is not per-connector today and
-cannot be made so by this route alone. Drive, founder Gmail, and Calendar are
-incremental scopes on **one** refresh token per Google account
-(`GOOGLE_OAUTH_REFRESH_TOKEN` for the founder, `ALEX_OAUTH_REFRESH_TOKEN` for
-Alex); `configured(connector)` distinguishes them by comparing required scopes
-against the scopes that single token carries. Revoking at Google therefore
-revokes every connector on that account at once. Disconnect MUST NOT paper over
-this. Either:
+**Granularity constraint.** Founder Drive, Gmail, and Calendar retain one
+workspace-scoped Founder refresh-token grant, so revoking it at Google revokes
+every Founder connector on that account at once. Alex's role-account connectors
+instead use one workspace- and connector-scoped credential slot for each exact
+Mail, Calendar, and Drive consent; reconnecting or revoking one Alex connector
+must never overwrite or revoke another. `configured(connector)` distinguishes
+every grant by comparing its required scopes with provider-verified durable
+scope evidence. Disconnect MUST NOT paper over either model. For Founder grants,
+either:
 
 - the route revokes remotely only when it is disconnecting the **last** enabled
   connector on that account, and otherwise performs a local, scope-level
@@ -818,6 +819,12 @@ this. Either:
 
 Whichever is chosen, the founder MUST be told which other connectors a
 disconnect will take down with it before it runs.
+
+For an Alex connector, the route revokes and deletes only that connector's
+isolated grant, reports the other Alex connectors as unaffected, and fails
+closed when a legacy shared Alex credential reference is encountered. Legacy
+shared rows require fresh connector-specific consent; credential material is
+never copied or guessed during migration.
 
 ## 11. ActionDestination and ExternalAction contract
 
@@ -1415,10 +1422,10 @@ build; the sections they touch have been updated to match.
    connector has a disconnect path and nothing calls Google's revoke endpoint.
    Implement real revocation with UNCERTAIN on failure, or ship the
    local-access-only interim under UI wording that says exactly that (§10).
-   Note the granularity constraint recorded in §10: one refresh token per Google
-   account backs all of that account's connectors, so remote revocation is
-   account-wide, not per-connector. The question is therefore not only *whether*
-   to revoke remotely but *at what granularity* — decide that before WI-2.
+   Note the granularity constraint recorded in §10: the Founder connectors share
+   one workspace-scoped grant, while Alex's role-account connectors have isolated
+   exact-scope grants. Remote revocation must match the relevant model and the UI
+   must state its impact before WI-2 runs it.
 7. **No provider gives free idempotency; derive the keys.** Calendar takes a
    client-supplied event id, and `iCalUID` identifies the event afterwards.
    Gmail has no idempotency key, so the send carries a deterministic RFC822

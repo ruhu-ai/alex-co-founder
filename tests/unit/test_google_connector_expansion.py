@@ -51,14 +51,14 @@ def test_alex_drive_is_a_separate_account_bound_closed_connector():
 def test_alex_drive_adapter_selects_only_the_alex_credential(monkeypatch):
     observed = []
 
-    def credentials(account, workspace_id):
-        observed.append((account, workspace_id))
+    def credentials(account, workspace_id, connector_id):
+        observed.append((account, workspace_id, connector_id))
         return None
 
     monkeypatch.setattr(google_oauth, "get_credentials", credentials)
     drive_adapter.set_service_factory(None)
     assert drive_adapter._service("workspace-a", "alex_drive") is None
-    assert observed == [("alex", "workspace-a")]
+    assert observed == [("alex", "workspace-a", "alex_drive")]
 
 
 @pytest.mark.asyncio

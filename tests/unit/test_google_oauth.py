@@ -209,6 +209,39 @@ def test_workspace_credential_slots_are_distinct_and_opaque(monkeypatch):
     assert "workspace-b" not in writes[1][0]
 
 
+def test_alex_connector_credential_slots_are_distinct_and_founder_slot_is_stable():
+    alex_mail = google_oauth.credential_ref(
+        "alex", "workspace-a", "alex_mail")
+    alex_calendar = google_oauth.credential_ref(
+        "alex", "workspace-a", "alex_calendar")
+    alex_drive = google_oauth.credential_ref(
+        "alex", "workspace-a", "alex_drive")
+
+    assert len({alex_mail, alex_calendar, alex_drive}) == 3
+    assert "ALEX_MAIL" in alex_mail
+    assert "ALEX_CALENDAR" in alex_calendar
+    assert "ALEX_DRIVE" in alex_drive
+    assert google_oauth.credential_ref(
+        "founder", "workspace-a", "calendar") == google_oauth.credential_ref(
+            "founder", "workspace-a")
+
+
+def test_alex_connector_refresh_tokens_are_saved_to_separate_slots(monkeypatch):
+    writes = []
+    monkeypatch.setattr(
+        google_oauth, "save_env_var",
+        lambda key, value: writes.append((key, value)) or {"status": "success"})
+
+    assert google_oauth.save_refresh_token(
+        "mail-token", "alex", "workspace-a", "alex_mail")["status"] == "success"
+    assert google_oauth.save_refresh_token(
+        "drive-token", "alex", "workspace-a", "alex_drive")["status"] == "success"
+
+    assert writes[0][0] != writes[1][0]
+    assert writes[0][1] == "mail-token"
+    assert writes[1][1] == "drive-token"
+
+
 def test_scoped_credential_never_falls_back_to_legacy_global_token(monkeypatch):
     monkeypatch.setenv("GOOGLE_OAUTH_CLIENT_ID", "client")
     monkeypatch.setenv("GOOGLE_OAUTH_CLIENT_SECRET", "secret")

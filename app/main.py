@@ -4268,7 +4268,7 @@ async def api_google_callback(code: str = "", state: str = ""):
     if verified.get("status") != "success":
         return JSONResponse(verified, status_code=400)
     saved = await asyncio.to_thread(
-        google_oauth.save_refresh_token, token, account, workspace_id)
+        google_oauth.save_refresh_token, token, account, workspace_id, connector)
     if saved.get("status") != "success":
         return JSONResponse(saved, status_code=503)
     from services import connection_registry
