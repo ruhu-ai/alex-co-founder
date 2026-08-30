@@ -1,0 +1,81 @@
+.env.example
+  s_16e75b10efee22::t_22ef8a324fec0f 122-127
+services/capability_registry.py
+  s_16e75b10efee22::t_bacc61ab53551b 325-339
+tests/unit/test_hiring_live_coordination.py
+  s_16e75b10efee22::t_fcf667b69f29df 340-387
+  s_16e75b10efee22::t_ea6a16062fe87a 233-235,244-251,253-259,261-298,339
+  s_16e75b10efee22::t_22ef8a324fec0f 252,260
+  s_16e75b10efee22::t_54ec4c199344a8 508
+  s_16e75b10efee22::t_7a1cdd049c4d91 106-127,153-156,326,329,417-418,422-424,427,435,442-443,447-449,457,461,465-466,471-472,479,499
+  s_16e75b10efee22::t_41a70e99494bd0 6
+  s_16e75b10efee22::t_a9e67252a15978 299-300
+services/data_lifecycle.py
+  s_16e75b10efee22::t_c0a1d0554bf69e 233-234
+services/hiring_approval_service.py
+  s_16e75b10efee22::t_4c07a3eba7947d 31-32
+tests/unit/test_unified_product_ui_contract.py
+  s_16e75b10efee22::t_3b9cc7754cd842 333-334
+  s_16e75b10efee22::t_61317c215899f5 329-330
+services/firestore.py
+  s_16e75b10efee22::t_c0a1d0554bf69e 156
+app/static/hiring.html
+  s_16e75b10efee22::t_8761827b75635c 2565,2573-2574,2576,2588-2590,2598-2599,2608-2609,2619,2625-2627
+  s_16e75b10efee22::t_290c75b7b5630d 2577-2578
+  s_16e75b10efee22::t_22ef8a324fec0f 2546,2606,2974
+  s_16e75b10efee22::t_673de635adb242 2628
+services/hiring_coordination.py
+  s_16e75b10efee22::t_d5a3d5d51ffaa7 782,791-794,799-853
+  s_16e75b10efee22::t_df6997eb94c985 975-995,1000,1011-1019,1190-1202
+  s_16e75b10efee22::t_656405597fe8ab 1262-1266
+  s_16e75b10efee22::t_c34cae162b3dd7 545
+  s_16e75b10efee22::t_dc9237fce3f2dd 587-595
+  s_16e75b10efee22::t_935158f35f7e9e 859-862,886-928,938-939,958-961
+  s_16e75b10efee22::t_e9ac145b1e839c 1143-1189,1203-1207,1218-1228
+  s_16e75b10efee22::t_ffbbf0a284ea48 741-743
+  s_16e75b10efee22::t_f938917dd15611 154-156
+  s_16e75b10efee22::t_1673eee891d172 381-382
+  s_16e75b10efee22::t_f75df25ac696aa 571-586,596-600,621-622,631,637-669,674-687
+  s_16e75b10efee22::t_06fd2696779a8f 26
+  s_16e75b10efee22::t_926c99fcd6dfc1 362
+  s_16e75b10efee22::t_290c75b7b5630d 385
+  s_16e75b10efee22::t_3d2c69bca654d6 366-370
+  s_16e75b10efee22::t_f952c16629c475 388-392
+  s_16e75b10efee22::t_ad59be97d1e065 397-400,405-433,466-468,472,474-478,485-486,491-496,518,532
+  s_16e75b10efee22::t_4a409a709b495c 510-513,1121-1141
+  s_16e75b10efee22::t_329e0a54f38bcb 40,45-47,59-61
+  s_16e75b10efee22::t_22ef8a324fec0f 550-556,1208-1217
+  s_16e75b10efee22::t_b4bb040e5e6699 62-63
+  s_16e75b10efee22::t_f9899f7534ad6f 1142
+tests/unit/test_external_event_service.py
+  s_16e75b10efee22::t_61317c215899f5 277-280
+app/hiring_routes.py
+  s_16e75b10efee22::t_abe5d77a6806b8 201,215,1374
+  s_16e75b10efee22::t_61317c215899f5 3-6
+policies/hiring/h4-live-policy.json
+  s_16e75b10efee22::t_22ef8a324fec0f 14-18
+services/durable_store.py
+  s_16e75b10efee22::t_c0a1d0554bf69e 150
+docs/25-hiring-operations.md
+  s_16e75b10efee22::t_66f83bcf36a906 2154-2155,2160-2165,2168-2173,2176,2178,2181,2658-2659,2661-2663
+  s_16e75b10efee22::t_971c736e110d8c 21-24,135-138
+  s_16e75b10efee22::t_2e3dbf4bdff38f 320-323,1813,1818-1819
+  s_16e75b10efee22::t_425e438b54fe59 1333-1341,1347-1348,1350-1355,1529-1531
+  s_16e75b10efee22::t_144c885cd0b4cd 1546-1549
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "d0088b48ced1354c4f6c6ade28e327b287b99b10",
+  "prompts": {},
+  "sessions": {
+    "s_16e75b10efee22": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0484d-a6bd-7182-90ae-527ccfd2a966",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Ijidai Lassa <ijidai@cued.app>"
+    }
+  }
+}
