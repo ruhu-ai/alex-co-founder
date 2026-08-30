@@ -1,0 +1,63 @@
+services/durable_store.py
+  s_16e75b10efee22::t_62bef1cba04622 149
+services/hiring_approval_service.py
+  s_16e75b10efee22::t_62bef1cba04622 22,29-31,60-68,71-72
+services/external_event_service.py
+  s_16e75b10efee22::t_02ab3d1dbc8f2b 81-95,268-282,315-319
+services/firestore.py
+  s_16e75b10efee22::t_62bef1cba04622 155
+services/capability_registry.py
+  s_16e75b10efee22::t_62bef1cba04622 310-313
+tests/unit/test_external_event_service.py
+  s_16e75b10efee22::t_363334e3489b00 255-305
+.env.example
+  s_16e75b10efee22::t_8867374a235e1e 121-126
+app/hiring_routes.py
+  s_16e75b10efee22::t_02ab3d1dbc8f2b 197-215,1348-1422
+  s_16e75b10efee22::t_8453e40be4b5ee 1-6
+  s_16e75b10efee22::t_027720da1b3810 36,1423
+services/hiring_service.py
+  s_16e75b10efee22::t_02ab3d1dbc8f2b 1048-1049
+policies/hiring/h4-live-policy.json
+  s_16e75b10efee22::t_ea943cb9d0f152 1-22
+services/data_lifecycle.py
+  s_16e75b10efee22::t_1cef41c56777c8 231-232
+app/static/hiring.html
+  s_16e75b10efee22::t_3ad29a7539fb1f 2963
+  s_16e75b10efee22::t_d54d345b23d380 1804,2512,2546-2547,2552-2617
+tests/unit/test_hiring_live_coordination.py
+  s_16e75b10efee22::t_614b37efbe13af 1-5,7-43,50-145,149-192,260-266,270-286,327-351
+  s_16e75b10efee22::t_a5a2ee2896922c 6,146-148,267-269
+  s_16e75b10efee22::t_ffc74e92898250 44-49,193-259
+  s_16e75b10efee22::t_4118f3ef925cfc 287-326
+docs/25-hiring-operations.md
+  s_16e75b10efee22::t_81658f5d107f5b 2137-2166
+  s_16e75b10efee22::t_8867374a235e1e 16-26,128-139,151-153
+  s_16e75b10efee22::t_5a5436e08108de 1786,1796,1800-1801,1804-1807,2626,2628-2630,2632-2639
+services/hiring_coordination.py
+  s_16e75b10efee22::t_ea943cb9d0f152 1-158,163-165,167-199,201-295,310-356,359-386,407-422,426-481,485-605,613-620,624,629-633,644-651,654-656,658-907,911-960
+  s_16e75b10efee22::t_a34950a1426e01 159-162,166,200,357-358,387-406,423-425,625-628
+  s_16e75b10efee22::t_914dfb27281c32 606-612,621-623
+  s_16e75b10efee22::t_8c6880e9c795ba 652-653
+  s_16e75b10efee22::t_1fad956a77a354 634-643,657,908-910
+  s_16e75b10efee22::t_e6e4359ea3930e 482-484
+  s_16e75b10efee22::t_db3903969cbd93 296-309
+tests/unit/test_unified_product_ui_contract.py
+  s_16e75b10efee22::t_1cef41c56777c8 328-332
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "9e1abdce79da5eda2f6f953ad7f31d9d24927a27",
+  "prompts": {},
+  "sessions": {
+    "s_16e75b10efee22": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0484d-a6bd-7182-90ae-527ccfd2a966",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Ijidai Lassa <ijidai@cued.app>"
+    }
+  }
+}
