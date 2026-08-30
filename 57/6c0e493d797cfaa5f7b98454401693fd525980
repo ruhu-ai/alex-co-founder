@@ -1,0 +1,44 @@
+.env.example
+  s_bf598a20bfcdaa::t_33fc019d4e9e1f 196
+scripts/alex_mail_local_subscriber.py
+  s_bf598a20bfcdaa::t_33fc019d4e9e1f 1-93
+scripts/run_local.sh
+  s_bf598a20bfcdaa::t_33fc019d4e9e1f 61-65,68,102,109,158-168,175-177,187-190
+tests/unit/test_alex_mailbox_durability.py
+  s_bf598a20bfcdaa::t_7c73726d780a8a 93,106-109,125-144
+  s_bf598a20bfcdaa::t_f0aff06e88d040 145-146
+docs/13-deployment.md
+  s_bf598a20bfcdaa::t_edf5a41afae1be 75-79,137-138
+tests/unit/test_local_launcher.py
+  s_bf598a20bfcdaa::t_7c73726d780a8a 58-70
+app/main.py
+  s_bf598a20bfcdaa::t_33fc019d4e9e1f 274,4520-4550
+  s_bf598a20bfcdaa::t_43325b1ad0375f 4551-4552
+tests/unit/test_app_server.py
+  s_bf598a20bfcdaa::t_7c73726d780a8a 1021-1064
+tests/unit/test_findings_hardening.py
+  s_bf598a20bfcdaa::t_7c73726d780a8a 195-207,210-211
+  s_bf598a20bfcdaa::t_f130b04e723a3c 208-209
+services/alex_mailbox.py
+  s_bf598a20bfcdaa::t_33fc019d4e9e1f 429-435,440-441
+scripts/deploy.sh
+  s_bf598a20bfcdaa::t_6dd0e24dcbcdab 181,184-193,253-254,346-348,368-381,391-401
+requirements.txt
+  s_bf598a20bfcdaa::t_33fc019d4e9e1f 11
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "576c0e493d797cfaa5f7b98454401693fd525980",
+  "prompts": {},
+  "sessions": {
+    "s_bf598a20bfcdaa": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a04860-dde3-79c3-b2bd-2987b04adc68",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Ijidai Lassa <ijidai@cued.app>"
+    }
+  }
+}
