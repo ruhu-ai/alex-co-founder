@@ -1,0 +1,132 @@
+agents/co_founder/callbacks.py
+  s_16e75b10efee22::t_7ed9440b651ad5 42
+  s_16e75b10efee22::t_7c37727a357a0b 126-130,141
+  s_16e75b10efee22::t_bedd4898e872eb 131-140
+  s_16e75b10efee22::t_19813667db4df5 41
+docs/01-architecture.md
+  s_16e75b10efee22::t_319201e95c8cdd 114
+services/firestore.py
+  s_16e75b10efee22::t_19813667db4df5 55,3061-3071,3073-3107
+  s_16e75b10efee22::t_94d7f4abcee5b7 3072
+  s_bf598a20bfcdaa::t_d6d9f5edbb327c 3108-3109
+app/static/index.html
+  s_16e75b10efee22::t_7a0f35a1f22477 1378-1383,4094,4499-4540,4828-4829,4874-4875,4882-4883,7141
+docs/verification-notes.md
+  s_16e75b10efee22::t_319201e95c8cdd 1,4,10
+  s_16e75b10efee22::t_8baf5fc3ac854e 14-15
+services/durable_memory.py
+  s_16e75b10efee22::t_a2cb4800beff43 173-178,2705
+app/live.py
+  s_16e75b10efee22::t_a2cb4800beff43 219
+  s_16e75b10efee22::t_93d00fbe14c113 205-206,328-329
+  s_16e75b10efee22::t_49e039c286b779 29,44-50,237
+  s_16e75b10efee22::t_b12197b0dcae16 723,731
+  s_16e75b10efee22::t_a7002d9fdcd8de 786-793
+  s_16e75b10efee22::t_e66d40f7bd85ec 67-73,233-235
+  s_16e75b10efee22::t_41b129bccbf698 34-41,215-218,220,223-224,230-232,236,251,369,603,627-629,631-635,785
+  s_16e75b10efee22::t_f0847bd8629e95 60-62,64,617-618,622,630,636,643-645,743,757
+docs/04-agents.md
+  s_16e75b10efee22::t_319201e95c8cdd 56-62
+tests/unit/test_durable_memory_m2.py
+  s_16e75b10efee22::t_bedd4898e872eb 256-268
+  s_16e75b10efee22::t_7c37727a357a0b 244-255
+tests/unit/test_deploy_firestore_ttl.py
+  s_16e75b10efee22::t_58e7d3378b92ab 15,19-20
+  s_16e75b10efee22::t_3a03594095f72f 21
+docs/13-deployment.md
+  s_16e75b10efee22::t_319201e95c8cdd 23-24
+docs/39-durable-cross-session-memory.md
+  s_16e75b10efee22::t_956a5b7067b5ab 53-56,76-82,117
+  s_16e75b10efee22::t_dacada76b43ad2 2022-2025,2175-2176,2652-2681
+docs/40-durable-background-work.md
+  s_16e75b10efee22::t_70aff6606a4f56 85-93
+tests/unit/test_live_resumption.py
+  s_16e75b10efee22::t_7375689f2108c2 6,95-100
+  s_16e75b10efee22::t_fa260c90c74fa7 1-5,7-90,92-93
+  s_16e75b10efee22::t_49e039c286b779 91,94
+  s_16e75b10efee22::t_62eae1cf939539 101
+app/main.py
+  s_16e75b10efee22::t_49e039c286b779 36,174,1304
+  s_16e75b10efee22::t_f0847bd8629e95 1409-1414,1451-1456,1460-1462,1776-1792,1797
+  s_16e75b10efee22::t_7ed9440b651ad5 32,1033,1260,1391
+  s_16e75b10efee22::t_af2dc275d5d723 170-173,175-176
+  s_16e75b10efee22::t_d510db1d0cf2a1 57,168-169,1032,1259,1287-1294,1390
+agents/co_founder/agent.py
+  s_16e75b10efee22::t_389f7744a4f083 25,92-94,130-135
+tests/unit/test_conversation_ui_contract.py
+  s_16e75b10efee22::t_8db09f4226716e 1-17
+services/session_deletion.py
+  s_16e75b10efee22::t_971bf2a782ac8c 214-219
+services/data_lifecycle.py
+  s_16e75b10efee22::t_9c8216241c3da5 86-87
+infra/firestore.ttl.json
+  s_16e75b10efee22::t_7375689f2108c2 15-18
+  s_16e75b10efee22::t_72268f5289b69b 14
+agents/co_founder/tools/conversations.py
+  s_16e75b10efee22::t_389f7744a4f083 1-46,48-51,56-73,75-79
+  s_16e75b10efee22::t_bedd4898e872eb 47,52-55,74,80-83
+requirements.txt
+  s_16e75b10efee22::t_389f7744a4f083 4,7
+tests/unit/test_conversation_history.py
+  s_16e75b10efee22::t_9648417dcadee0 9,26
+  s_16e75b10efee22::t_6c90aaab8feaab 50
+  s_16e75b10efee22::t_fa260c90c74fa7 1-8,10-25,27-49,51-125,130-136,158-172,191-195
+  s_16e75b10efee22::t_9c8216241c3da5 126-129
+  s_16e75b10efee22::t_f28aba8c6d8c3a 173-190
+  s_16e75b10efee22::t_1c2c211cfef34d 137-157
+services/conversation_history.py
+  s_16e75b10efee22::t_389f7744a4f083 1-43,45-53,61-155,157-163,166-202,204-206,210-241,245-251,260,280,283-284,291-296,298-336,344-351
+  s_16e75b10efee22::t_a2cb4800beff43 44,54-60,156,164-165
+  s_16e75b10efee22::t_f560ac5ebc779a 208
+  s_16e75b10efee22::t_6c90aaab8feaab 203,207,209,285-290,337-343
+  s_16e75b10efee22::t_1c2c211cfef34d 242-244,252,281-282,297
+  s_16e75b10efee22::t_9611daa51aeb3d 253-259,261-279
+agents/co_founder/instructions.py
+  s_16e75b10efee22::t_389f7744a4f083 39,154-163
+tests/unit/test_session_deletion.py
+  s_16e75b10efee22::t_a7002d9fdcd8de 210-226
+  s_16e75b10efee22::t_fa260c90c74fa7 27-28,50-52,67-68
+  s_16e75b10efee22::t_f2cb23e5acebe7 209
+tests/unit/test_app_server.py
+  s_16e75b10efee22::t_8db09f4226716e 1566,1568,1577,1615-1626,1628,1630-1652,1654-1657
+  s_16e75b10efee22::t_f30f05539e8bc5 1627,1629,1653
+  s_16e75b10efee22::t_8ae32700f69c36 1658
+services/live_resumption.py
+  s_16e75b10efee22::t_f0847bd8629e95 56-59,61-64
+  s_16e75b10efee22::t_19813667db4df5 1-55,65-76,80-98
+  s_16e75b10efee22::t_94d7f4abcee5b7 60,77-79
+  s_16e75b10efee22::t_a7002d9fdcd8de 99
+services/capability_registry.py
+  s_16e75b10efee22::t_0b25e31a7657cf 64-65
+agents/co_founder/state_schema.py
+  s_16e75b10efee22::t_bedd4898e872eb 69
+  s_16e75b10efee22::t_389f7744a4f083 68
+.env.example
+  s_16e75b10efee22::t_e66d40f7bd85ec 39-40
+  s_16e75b10efee22::t_49e039c286b779 41
+  s_16e75b10efee22::t_f0847bd8629e95 37
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "e68deb262a931be5353d145d265db5d80a612ce2",
+  "prompts": {},
+  "sessions": {
+    "s_16e75b10efee22": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0484d-a6bd-7182-90ae-527ccfd2a966",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Ijidai Lassa <ijidai@cued.app>"
+    },
+    "s_bf598a20bfcdaa": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a04860-dde3-79c3-b2bd-2987b04adc68",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Ijidai Lassa <ijidai@cued.app>"
+    }
+  }
+}
