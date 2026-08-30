@@ -1,0 +1,56 @@
+tests/unit/test_connection_registry.py
+  s_bf598a20bfcdaa::t_63d553b0980776 175
+  s_bf598a20bfcdaa::t_dbd7b0988af878 58-73,150-174,176-184
+  s_bf598a20bfcdaa::t_9a61e486e76500 185-186
+app/main.py
+  s_bf598a20bfcdaa::t_d33ca14a5b2a45 4271
+tests/unit/test_google_connector_expansion.py
+  s_bf598a20bfcdaa::t_c7cd707a670c91 54-55,61
+services/google_oauth.py
+  s_bf598a20bfcdaa::t_c7cd707a670c91 3,5-8,120-121,176-184,186,192-194,317
+  s_bf598a20bfcdaa::t_a84e909c29bcc6 159-161,165-167,172-175,187,191,198-200,232,238-239,242-243,245,248,262-263,269,280-281,307-308,310,313,412,415-416,418,498,506,527-528,530-531,538
+tests/unit/test_google_oauth.py
+  s_bf598a20bfcdaa::t_c7cd707a670c91 212-244
+app/static/index.html
+  s_bf598a20bfcdaa::t_c7cd707a670c91 7375
+docs/24-data-source-reliability.md
+  s_bf598a20bfcdaa::t_63d553b0980776 1425-1428
+  s_bf598a20bfcdaa::t_dbd7b0988af878 803-811,823-827
+  s_bf598a20bfcdaa::t_2a9dc5f34f8297 828
+docs/12-security.md
+  s_bf598a20bfcdaa::t_47b1914fb9e388 23
+tests/unit/test_credential_migrations.py
+  s_bf598a20bfcdaa::t_dbd7b0988af878 48-74
+services/drive_adapter.py
+  s_bf598a20bfcdaa::t_d33ca14a5b2a45 61
+services/connection_registry.py
+  s_bf598a20bfcdaa::t_dbd7b0988af878 20,34-36
+  s_bf598a20bfcdaa::t_8b67b7cfe5ea6a 261-262,281-283,313-314,344-345,347-348
+  s_bf598a20bfcdaa::t_d33ca14a5b2a45 79-80,140-141
+services/hiring_coordination.py
+  s_bf598a20bfcdaa::t_d33ca14a5b2a45 108,143
+services/calendar_adapter.py
+  s_bf598a20bfcdaa::t_d33ca14a5b2a45 62
+tests/unit/test_app_server.py
+  s_bf598a20bfcdaa::t_63d553b0980776 366-367
+services/alex_mailbox.py
+  s_bf598a20bfcdaa::t_d33ca14a5b2a45 102-104
+services/credential_migrations.py
+  s_bf598a20bfcdaa::t_17c894d6218d6f 66-67
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "c30f573676ef22e0857385b3e43cbd156b3e894e",
+  "prompts": {},
+  "sessions": {
+    "s_bf598a20bfcdaa": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a04860-dde3-79c3-b2bd-2987b04adc68",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Ijidai Lassa <ijidai@cued.app>"
+    }
+  }
+}
