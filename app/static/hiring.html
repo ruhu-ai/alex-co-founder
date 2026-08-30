@@ -1281,14 +1281,40 @@
         position: sticky;
         top: 56px;
         z-index: 4;
-        background: var(--surface-0);
-        padding: var(--sp-2) 0;
+        width: fit-content;
+        max-width: 100%;
+        margin: var(--sp-2) 0;
+        padding: 2px;
         display: flex;
-        gap: var(--sp-2);
+        gap: 2px;
         overflow-x: auto;
+        border: 1px solid var(--border);
+        border-radius: var(--r-3);
+        background: var(--surface-2);
       }
       .candidate-section-nav .btn {
         flex: none;
+        min-width: 108px;
+        height: 36px;
+        border: 0;
+        border-radius: var(--r-2);
+        background: transparent;
+        color: var(--ink-2);
+        box-shadow: none;
+        font: 500 var(--fs-2) / 1 var(--font-ui);
+      }
+      .candidate-section-nav .btn:hover {
+        background: var(--surface-3);
+        color: var(--ink-1);
+      }
+      .candidate-section-nav .btn[aria-selected="true"] {
+        background: var(--surface-1);
+        color: var(--ink-1);
+        box-shadow: var(--e-1);
+        font-weight: 600;
+      }
+      .candidate-section-nav .btn[aria-selected="true"]:hover {
+        background: var(--surface-1);
       }
       .candidate-pane[hidden] {
         display: none;

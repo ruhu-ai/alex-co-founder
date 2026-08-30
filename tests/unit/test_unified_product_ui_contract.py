@@ -330,6 +330,9 @@ def test_hiring_is_a_dedicated_shared_shell_with_scoped_candidate_work():
     assert "/applications/${encodeURIComponent(candidateId)}/conversations" not in HIRING
     assert "candidate-pane-evidence" in HIRING
     assert "selectCandidateTab" in HIRING
+    assert '.candidate-section-nav .btn[aria-selected="true"]' in HIRING
+    assert "background: var(--surface-1);" in HIRING
+    assert "box-shadow: var(--e-1);" in HIRING
     assert "Open CV" in HIRING
     assert "/api/hiring/applications/${encodeURIComponent(candidateId)}/resume" in HIRING
     assert 'Cache-Control' not in HIRING  # transport owns the no-store header
