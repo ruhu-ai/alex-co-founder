@@ -12,7 +12,7 @@ pytestmark = pytest.mark.asyncio
 
 
 async def _connection(founder: str, connector: str, scopes=None):
-    is_alex = connector in {"alex_mail", "alex_calendar"}
+    is_alex = connector in {"alex_mail", "alex_calendar", "alex_drive"}
     return await firestore.upsert_data_connection(
         founder, connector,
         account_ref=("alex-role-mailbox" if is_alex
@@ -53,6 +53,25 @@ async def test_alex_calendar_is_a_separate_role_account_connector(fake_store):
     catalog = connectors.catalog(projection["connections"])
     calendar = next(row for row in catalog if row["name"] == "alex_calendar")
     assert calendar["connected"] is True
+
+
+async def test_legacy_alex_drive_scope_is_reauth_and_cannot_execute(fake_store):
+    await _connection("founder", "alex_drive", scopes=[
+        "https://www.googleapis.com/auth/drive.readonly",
+        "https://www.googleapis.com/auth/drive.file",
+    ])
+
+    projection = await connection_registry.list_connection_status("founder")
+    drive = projection["connections"]["alex_drive"]
+    assert drive["status"] == "REAUTH_REQUIRED"
+    assert drive["status_line"] == "Reconnect required"
+    assert drive["last_error_code"] == "scope_missing"
+    assert drive["can_connect"] is True
+
+    gate = await connection_registry.authorize_connector_operation(
+        "founder", "alex_drive")
+    assert gate["status"] == "error"
+    assert gate["error_code"] == "scope_missing"
 
 
 async def test_stale_failure_cannot_overwrite_later_reconnect(fake_store):

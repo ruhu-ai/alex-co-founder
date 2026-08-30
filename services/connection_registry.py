@@ -16,6 +16,25 @@ GOOGLE_PERMISSIONS_URL = "https://myaccount.google.com/permissions"
 _ACCOUNT_REF = {"founder": "default", "alex": "alex-role-mailbox"}
 
 
+def _scope_contract_current(connector_id: str, row: dict[str, Any]) -> bool:
+    """True when durable scope evidence still satisfies the code contract.
+
+    Alex's role-account grants are connector-isolated and therefore exact.
+    Founder grants can contain the union of several founder connectors, so
+    those remain a required-subset check.
+    """
+    required = set(google_oauth.SCOPE_MAP.get(connector_id, ()))
+    granted = set(row.get("granted_scopes") or ())
+    # Pre-registry rows have no durable scope evidence. Preserve the explicit
+    # legacy migration path; once a consent has recorded scopes, drift is
+    # enforced fail-closed and can never fall back to this compatibility case.
+    if not granted:
+        return True
+    if account_for_connector(connector_id) == "alex":
+        return granted == required
+    return required.issubset(granted)
+
+
 def account_for_connector(connector_id: str) -> str:
     """Return the fixed Google account slot for a closed connector."""
     dsc.require_closed(connector_id, dsc.ConnectorId)
@@ -95,6 +114,10 @@ async def authorize_connector_operation(founder_id: str,
         return {"status": "error", "error": True,
                 "error_code": "auth_required",
                 "message": "connector is disconnected; reconnect it first"}
+    if not _scope_contract_current(connector_id, row):
+        return {"status": "error", "error": True,
+                "error_code": "scope_missing",
+                "message": "connector permissions changed; reconnect it first"}
     return {"status": "success", "connection": row,
             "connection_id": connection_id}
 
@@ -219,6 +242,10 @@ async def list_connection_status(founder_id: str) -> dict[str, Any]:
         connector_id = row.get("connector_id", "")
         if connector_id not in dsc.values(dsc.ConnectorId):
             continue
+        scope_current = _scope_contract_current(connector_id, row)
+        effective_status = row.get("status")
+        if effective_status in {"CONNECTED", "DEGRADED"} and not scope_current:
+            effective_status = "REAUTH_REQUIRED"
         account = account_for_connector(connector_id)
         enabled_others = sorted(
             other.get("connector_id", "") for other in rows
@@ -230,17 +257,18 @@ async def list_connection_status(founder_id: str) -> dict[str, Any]:
             "connection_id": row.get("connection_id"),
             "connector_id": connector_id,
             "roles": list(row.get("roles") or []),
-            "status": row.get("status"),
-            "status_line": _status_line(row),
+            "status": effective_status,
+            "status_line": _status_line({**row, "status": effective_status}),
             "account_hint": row.get("account_hint") or "",
             "granted_scope_count": len(row.get("granted_scopes") or []),
             "selected_source_count": active_counts.get(row.get("connection_id"), 0),
             "last_success_at": row.get("last_success_at"),
-            "last_error_code": row.get("last_error_code"),
+            "last_error_code": ("scope_missing" if not scope_current
+                                else row.get("last_error_code")),
             "version": row.get("version"),
-            "can_connect": row.get("status") in {"DISCONNECTED", "REAUTH_REQUIRED"},
-            "can_reconnect": row.get("status") in {"CONNECTED", "DEGRADED",
-                                                     "REAUTH_REQUIRED"},
+            "can_connect": effective_status in {"DISCONNECTED", "REAUTH_REQUIRED"},
+            "can_reconnect": effective_status in {"CONNECTED", "DEGRADED",
+                                                    "REAUTH_REQUIRED"},
             "can_disconnect": row.get("status") not in {"DISCONNECTED",
                                                           "DISCONNECTING"},
             "disconnect_mode": ("local_only" if enabled_others else "account_wide"),
