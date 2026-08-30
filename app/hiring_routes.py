@@ -1,4 +1,9 @@
-"""Founder and workload HTTP surfaces for synthetic-only hiring H0-H3."""
+"""Founder and workload HTTP surfaces for Hiring H0–H4.
+
+H4 live provider actions remain server-bound to a real advanced application,
+fresh Founder authentication, and an exact single-use approval.  The separate
+H4S routes retain their synthetic-only contract.
+"""
 
 from __future__ import annotations
 
@@ -28,6 +33,7 @@ from services.hiring_contracts import (
     stable_id,
     utc_now,
 )
+from services.hiring_coordination import HiringCoordinationService
 from services.hiring_data_rights import HiringDataRightsService
 from services.hiring_h4s_effects import H4SEffectService
 from services.hiring_h4s_google import H4SGoogleEffectAdapter
@@ -186,6 +192,25 @@ class CandidateLegalHoldRequest(ClosedRequest):
     reason_code: Literal["LITIGATION", "REGULATORY", "QUALIFIED_REVIEW"]
     expected_identity_version: int = Field(ge=1)
     client_request_id: str = Field(min_length=3, max_length=128)
+
+
+class HiringContactRequest(ClosedRequest):
+    client_request_id: str = Field(min_length=8, max_length=128)
+    reply: bool = False
+
+
+class HiringInterviewRequest(ClosedRequest):
+    client_request_id: str = Field(min_length=8, max_length=128)
+    start: str = Field(default="", max_length=80)
+    end: str = Field(default="", max_length=80)
+    timezone: str = Field(default="Africa/Lagos", min_length=1, max_length=80)
+    target_event_id: str = Field(default="", max_length=512)
+    cancel: bool = False
+
+
+class HiringEffectExecutionRequest(ClosedRequest):
+    coordination_id: str = Field(min_length=3, max_length=128)
+    approval_id: str = Field(min_length=3, max_length=128)
 
 
 class H4SConversationStartRequest(ClosedRequest):
@@ -1319,6 +1344,82 @@ def register(app: FastAPI) -> None:
                                 status_code=503)
         return _response(await services[0].candidate_detail(
             principal=principal, application_id=application_id))
+
+    @app.get("/api/hiring/applications/{application_id}/coordination")
+    async def hiring_coordination_projection(request: Request, application_id: str):
+        """Receipt-backed live communication/interview state for one candidate."""
+        principal = await _actor(request)
+        if isinstance(principal, dict):
+            return _response(principal)
+        return _response(await HiringCoordinationService(
+            production_store()).projection(
+                principal=principal, application_id=application_id))
+
+    @app.post("/api/hiring/applications/{application_id}/coordination/contact")
+    async def prepare_hiring_contact(request: Request, application_id: str,
+                                     payload: HiringContactRequest):
+        """Prepare, but never send, one candidate-bound Alex email."""
+        denied = _mutation_allowed(request)
+        if denied.get("error"):
+            return _response(denied)
+        principal = await _actor(request)
+        if isinstance(principal, dict):
+            return _response(principal)
+        return _response(await HiringCoordinationService(
+            production_store()).prepare_contact(
+                principal=principal, application_id=application_id,
+                client_request_id=payload.client_request_id,
+                reply=payload.reply))
+
+    @app.post("/api/hiring/applications/{application_id}/coordination/interview")
+    async def prepare_hiring_interview(request: Request, application_id: str,
+                                       payload: HiringInterviewRequest):
+        """Prepare an exact create/update/cancel for a Hiring-owned interview."""
+        denied = _mutation_allowed(request)
+        if denied.get("error"):
+            return _response(denied)
+        principal = await _actor(request)
+        if isinstance(principal, dict):
+            return _response(principal)
+        return _response(await HiringCoordinationService(
+            production_store()).prepare_interview(
+                principal=principal, application_id=application_id,
+                start=payload.start, end=payload.end,
+                timezone_name=payload.timezone,
+                client_request_id=payload.client_request_id,
+                target_event_id=payload.target_event_id,
+                cancel=payload.cancel))
+
+    @app.post("/api/hiring/applications/{application_id}/coordination/execute")
+    async def execute_hiring_coordination(request: Request, application_id: str,
+                                          payload: HiringEffectExecutionRequest):
+        """Consume one fresh exact approval and execute its one provider action."""
+        denied = _mutation_allowed(request)
+        if denied.get("error"):
+            return _response(denied)
+        principal = await _actor(request)
+        if isinstance(principal, dict):
+            return _response(principal)
+        return _response(await HiringCoordinationService(
+            production_store()).execute(
+                principal=principal, application_id=application_id,
+                coordination_id=payload.coordination_id,
+                approval_id=payload.approval_id))
+
+    @app.post("/api/hiring/applications/{application_id}/coordination/actions/{action_id}/reconcile")
+    async def reconcile_hiring_coordination(request: Request, application_id: str,
+                                            action_id: str):
+        """Read provider evidence for one uncertain action; never repeats it."""
+        denied = _mutation_allowed(request)
+        if denied.get("error"):
+            return _response(denied)
+        principal = await _actor(request)
+        if isinstance(principal, dict):
+            return _response(principal)
+        return _response(await HiringCoordinationService(
+            production_store()).reconcile(
+                principal=principal, application_id=application_id,
+                action_id=action_id))
 
     @app.post("/api/hiring/applications/{application_id}/conversations")
     async def start_candidate_conversation(request: Request, application_id: str,

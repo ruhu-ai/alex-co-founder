@@ -1045,7 +1045,8 @@ class HiringService:
             "request_hash": request_hash,
             "actor_membership_version": principal.membership_version,
             "supersedes_decision_id": decision_input.supersedes_decision_id,
-            "communication_required": decision_input.decision is DecisionKind.DECLINE,
+            "communication_required": decision_input.decision in {
+                DecisionKind.ADVANCE, DecisionKind.DECLINE},
             "communication_action_id": None, "commit_status": "PREPARED",
             "created_at": now,
             "synthetic": application.get("synthetic") is True,

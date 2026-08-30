@@ -146,6 +146,7 @@ def _collection_ref(name: str):
         "hiring_conversation_turns": client.collection("hiring_conversation_turns"),
         "hiring_process_retrospectives": client.collection("hiring_process_retrospectives"),
         "hiring_reply_correlations": client.collection("hiring_reply_correlations"),
+        "hiring_coordination_items": client.collection("hiring_coordination_items"),
         "internal_demo_runs": client.collection("internal_demo_runs"),
         "internal_demo_approvals": client.collection("internal_demo_approvals"),
         "internal_demo_actions": client.collection("internal_demo_actions"),

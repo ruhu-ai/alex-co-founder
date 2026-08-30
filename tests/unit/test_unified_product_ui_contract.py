@@ -325,7 +325,11 @@ def test_hiring_is_a_dedicated_shared_shell_with_scoped_candidate_work():
     assert "Candidate workspace" in HIRING
     assert "identity hidden" in HIRING
     assert "/applications/${encodeURIComponent(candidateId)}/conversations" in HIRING
-    assert "cannot score, rank, advise a hiring outcome, commit a decision, or perform an external action" in HIRING
+    assert "cannot score, rank, choose the outcome" in HIRING
+    assert "prepare applicant emails, coordinate availability, and prepare interview changes" in HIRING
+    assert "/coordination/contact" in HIRING
+    assert "/coordination/interview" in HIRING
+    assert "Approve &amp;" in HIRING
     assert "SYNTHETIC FIXTURE · BOUNDED INTERNAL DEMO" not in HIRING
     assert "Synthetic fixture · bounded internal demo" not in HIRING
     assert "Founder-controlled drafts" not in HIRING

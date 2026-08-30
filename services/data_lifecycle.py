@@ -228,6 +228,8 @@ TOP_LEVEL_LIFECYCLE: dict[str, CollectionLifecycle] = {
         "hiring_process_retrospectives", _FIELD, "workspace_id"),
     "hiring_reply_correlations": CollectionLifecycle(
         "hiring_reply_correlations", _FIELD, "workspace_id"),
+    "hiring_coordination_items": CollectionLifecycle(
+        "hiring_coordination_items", _FIELD, "workspace_id"),
     "internal_demo_runs": CollectionLifecycle(
         "internal_demo_runs", _FIELD, "workspace_id"),
     "internal_demo_approvals": CollectionLifecycle(

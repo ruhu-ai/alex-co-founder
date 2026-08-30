@@ -19,14 +19,16 @@ def _error(code: str, message: str, http_status: int = 409) -> dict[str, Any]:
 def _requires_fresh(approval: dict[str, Any], requested: bool) -> bool:
     """Step-up is decided by the action, not by the client.
 
-    An approval that authorizes an outbound H4S effect always needs a recent
+    An approval that authorizes an outbound Hiring effect always needs a recent
     sign-in. The caller's flag can only tighten this, never relax it: the same
     actor both requests and resolves an approval in a single-founder workspace,
     so proof of a live human at the keyboard is the control that remains.
     """
     return bool(requested) or str(approval.get("action_kind", "")) in {
         "H4S_SEND_EMAIL", "H4S_CREATE_CALENDAR_EVENT",
-        "H4S_UPDATE_CALENDAR_EVENT", "H4S_CANCEL_CALENDAR_EVENT"}
+        "H4S_UPDATE_CALENDAR_EVENT", "H4S_CANCEL_CALENDAR_EVENT",
+        "HIRING_SEND_EMAIL", "HIRING_CREATE_INTERVIEW",
+        "HIRING_UPDATE_INTERVIEW", "HIRING_CANCEL_INTERVIEW"}
 
 
 async def request_approval(*, principal: ActorPrincipal, run_id: str,
@@ -55,13 +57,21 @@ async def request_approval(*, principal: ActorPrincipal, run_id: str,
     capability_id = None
     capability_version = None
     connector_id = None
-    if action_kind in {"H4S_SEND_EMAIL", "H4S_CREATE_CALENDAR_EVENT"}:
+    connector_by_action = {
+        "H4S_SEND_EMAIL": "h4s_google",
+        "H4S_CREATE_CALENDAR_EVENT": "h4s_google",
+        "HIRING_SEND_EMAIL": "alex_mail",
+        "HIRING_CREATE_INTERVIEW": "calendar",
+        "HIRING_UPDATE_INTERVIEW": "calendar",
+        "HIRING_CANCEL_INTERVIEW": "calendar",
+    }
+    if action_kind in connector_by_action:
         from services.capability_registry import require_controlled_action
 
-        capability = require_controlled_action(action_kind, "h4s_google")
+        connector_id = connector_by_action[action_kind]
+        capability = require_controlled_action(action_kind, connector_id)
         capability_id = capability.capability_id
         capability_version = capability.semantic_version
-        connector_id = "h4s_google"
     now = datetime.now(timezone.utc)
     row = {
         "schema_version": 2, "approval_id": approval_id,

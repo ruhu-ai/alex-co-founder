@@ -78,6 +78,21 @@ async def _causal_candidates(founder_id: str, event: dict[str, Any],
             if (action.get("status") == "SUCCEEDED"
                     and str(result_ref.get("provider_thread_id") or "") == thread_id):
                 domain_ref = str(action.get("domain_ref") or "")
+                if (action.get("approval_domain") == "HIRING"
+                        and action.get("action_kind") == "HIRING_SEND_EMAIL"
+                        and action.get("application_id")
+                        and action.get("run_id")):
+                    item = {
+                        "application_id": str(action["application_id"]),
+                        "session_id": str(action["run_id"]),
+                        "resource_id": str(action["application_id"]),
+                        "resource_kind": "hiring_candidate",
+                        "action_id": str(action["action_id"]),
+                        "basis": dsc.CorrelationBasis.CAUSAL_ACTION.value,
+                    }
+                    candidates[(item["application_id"], item["session_id"],
+                                item["basis"])] = item
+                    continue
                 if (domain_ref
                         and action.get("approval_domain") == "INVESTOR_OUTREACH"):
                     from services.durable_store import production_store
@@ -250,7 +265,21 @@ async def process_mail_event(founder_id: str, connector_id: str,
     exact = await _causal_candidates(founder_id, current, provider_event)
     if len(exact) == 1:
         match = exact[0]
-        if match.get("resource_kind") == "investor_outreach":
+        if match.get("resource_kind") == "hiring_candidate":
+            from services.durable_store import production_store
+            from services.hiring_coordination import HiringCoordinationService
+
+            correlated = await HiringCoordinationService(
+                production_store()).correlate_reply(
+                    workspace_id=founder_id, provider_event=provider_event)
+            if correlated.get("error"):
+                return correlated
+            applied = await firestore.apply_external_event_signal(
+                founder_id, event_id, claim["lease_owner"],
+                session_id=match["session_id"],
+                correlation_basis=match["basis"],
+                resource_id=match["application_id"])
+        elif match.get("resource_kind") == "investor_outreach":
             from services.durable_store import production_store
             from services.investor_outreach_service import InvestorOutreachService
 
@@ -283,10 +312,11 @@ async def process_mail_event(founder_id: str, connector_id: str,
                 session_id=match["session_id"], correlation_basis=match["basis"])
         if applied.get("error"):
             return applied
-        delivered = await _deliver(
-            founder_id, event_id, match["session_id"],
-            "A provider message arrived for the exact work item linked to this session.",
-            wake)
+        delivered = (True if match.get("resource_kind") == "hiring_candidate" else
+                     await _deliver(
+                         founder_id, event_id, match["session_id"],
+                         "A provider message arrived for the exact work item linked to this session.",
+                         wake))
         data_source_metrics.record(
             "external_event_correlated", connector_id=connector_id,
             correlation_status="EXACT", status="APPLIED",

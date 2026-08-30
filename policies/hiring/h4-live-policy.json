@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "policy_id": "hiring-h4-live-v1",
+  "status": "ACTIVE",
+  "candidate_scope": "NON_SYNTHETIC_PUBLIC_APPLICATION_AFTER_FOUNDER_ADVANCE",
+  "connectors": ["alex_mail", "calendar"],
+  "action_kinds": [
+    "HIRING_SEND_EMAIL",
+    "HIRING_CREATE_INTERVIEW",
+    "HIRING_UPDATE_INTERVIEW",
+    "HIRING_CANCEL_INTERVIEW"
+  ],
+  "controls": {
+    "exact_fresh_founder_approval_per_provider_mutation": true,
+    "server_resolved_candidate_identity": true,
+    "candidate_run_and_policy_binding": true,
+    "provider_idempotency_and_reconciliation": true,
+    "sandbox_identity_required": false,
+    "automatic_hiring_decisions": false,
+    "blind_provider_retry": false
+  }
+}

@@ -252,3 +252,54 @@ async def test_exact_provider_thread_wakes_and_advances_investor_vertical(
     assert event["correlation_status"] == "EXACT"
     assert event["session_id"] == "session-investor-origin"
     assert len(wakes) == 1 and wakes[0][1] == "session-investor-origin"
+
+
+async def test_exact_hiring_thread_records_candidate_reply_without_chat_wake(
+        fake_store, monkeypatch):
+    """Alex-mail replies enter the candidate run, never generic conversation."""
+    durable = InMemoryDurableStore()
+    run_id = "run_hiring_reply"
+    application_id = "candidateapp_" + "b" * 28
+    await durable.create("workflow_runs", run_id, {
+        "schema_version": 2, "run_id": run_id, "workspace_id": "founder",
+        "journey_id": "journey_hiring", "run_kind": "CANDIDATE",
+        "domain_ref": application_id, "runtime_status": "WAITING",
+        "next_event_sequence": 1, "provenance": {}, "version": 1,
+    })
+    action = {
+        "schema_version": 2, "action_id": "hiring_action_reply",
+        "workspace_id": "founder", "founder_id": "founder",
+        "approval_domain": "HIRING", "action_domain": "HIRING",
+        "application_id": application_id,
+        "candidate_application_id": application_id,
+        "session_id": run_id, "run_id": run_id,
+        "action_kind": "HIRING_SEND_EMAIL", "status": "SUCCEEDED",
+        "exact_action": {"recipients": ["ada@example.test"]},
+        "result_ref": {"provider_thread_id": "gmail-thread-hiring"},
+        "created_at": "2026-08-30T10:00:00+00:00", "version": 1,
+    }
+    await durable.create("external_actions", action["action_id"], action)
+    fake_store.external_actions[action["action_id"]] = dict(action)
+
+    from services import durable_store
+
+    monkeypatch.setattr(durable_store, "production_store", lambda: durable)
+    wakes = []
+
+    async def wake(*args):
+        wakes.append(args)
+
+    result = await external_event_service.process_mail_event(
+        "founder", "alex_mail", _event(
+            message_id="gmail-hiring-reply", thread_id="gmail-thread-hiring",
+            sender="Ada Candidate <ada@example.test>",
+            subject="Re: Interview availability", excerpt="Option two works.",
+            kind="update"), wake=wake)
+
+    assert result["settled"] is True
+    replies = await durable.list(
+        "hiring_reply_correlations", filters={"workspace_id": "founder"})
+    assert len(replies) == 1
+    assert replies[0]["candidate_application_id"] == application_id
+    assert replies[0]["status"] == "REPLY_RECEIVED"
+    assert wakes == []

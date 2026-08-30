@@ -13,10 +13,17 @@ tool-less Hiring Evidence Analyst receives only the closed role/criterion/
 evidence envelope and produces criterion-linked `PRESENT` / `MISSING` /
 `UNCLEAR` coverage. The UI reports **Alex is preparing evidence** until the
 validated passport is committed, then offers the Founder **View evidence**.
-The Founder never starts evidence preparation. Provider writes, third-party
-job posting/outreach, scoring, ranking, recommendation, automatic hiring
-decisions, advance, decline, offer, and onboarding effects remain disabled and
-unauthorized.
+The Founder never starts evidence preparation. After the Founder reviews the
+committed Evidence Passport and records an attributed `ADVANCE`, the real H4
+lane may use the connected Alex Mail and Founder Calendar accounts to prepare
+candidate communication, read Founder free/busy, correlate candidate replies,
+negotiate bounded availability, and create/update/cancel one candidate-bound
+interview. Every exact outbound message and Calendar mutation remains a fresh,
+single-use Founder approval with a `PREPARED` receipt before provider contact;
+`UNCERTAIN` blocks retry until reconciliation. This is not H4S and does not
+require synthetic identities. Third-party job posting, scoring, ranking,
+recommendation, automatic hiring decisions, offer, and onboarding effects
+remain disabled and unauthorized.
 
 **Evidence preparation boundary:** intake and evidence preparation are separate
 durable boundaries. The public request commits encrypted identity/CV records,
@@ -118,18 +125,18 @@ reason those implementations exist and are not authorization for H4–H7:
    `StepAttempt`, lease, pause/resume, parent/child run, and cancellation
    contracts independent of chat history.
 2. Gmail push and generic durable mail receipts/inbox routing remain
-   insufficient alone; H3 adds synthetic trusted-route/label identity,
-   fetch-batch checkpointing, and candidate-domain correlation. Real Gmail and
-   attachment activation remain blocked. Subject/excerpt matches remain
-   suggestions only and are never safe candidate correlation.
-3. Email sending and Calendar creation already implement useful exact-binding,
-   deterministic idempotency, `UNCERTAIN`, and provider reconciliation
-   semantics. Doc 24's generic `external_events`, `founder_inbox`, and
-   `external_actions` storage primitives now exist, but Gmail/Calendar effects
-   are not yet executed through the shared `PREPARED`-before-provider ledger.
-   These foundations are therefore partial, not absent or ready for hiring.
-4. Calendar read/create exists; inbound Calendar watch/change processing for a
-   candidate wait does not.
+   insufficient alone; H3 adds trusted intake identity and H4 now adds exact
+   outbound-thread plus server-resolved candidate-address correlation for the
+   normal Alex mailbox. Subject/excerpt matches remain non-authoritative and
+   are never safe candidate correlation.
+3. H4 reuses the reviewed email/Calendar provider primitives behind a separate
+   candidate-run-bound consequence service. Exact payload, current ADVANCE,
+   role policy, connector identity/scopes and fresh Founder approval are all
+   rechecked before the shared `external_actions` receipt enters `PREPARED`.
+4. Founder free/busy, interview create/update/cancel and receipt/reconciliation
+   tracking are implemented for events created by Hiring. Candidate calendars
+   are never queried; Alex proposes Founder slots and the applicant accepts or
+   counters by email.
 5. The Browser panel and containment runtime exist and remain reusable for
    read-only inspection. They are not authorization to automate LinkedIn or an
    unsupported job board. LinkedIn publication is a founder handoff in v1; the
@@ -141,8 +148,9 @@ reason those implementations exist and are not authorization for H4–H7:
 7. The existing general surfaces supplied reusable components, not a hiring
    product surface. H3 adds the role cockpit, candidate board, evidence
    passport, human-decision controls, policy impact, inbox, causal timeline,
-   and data-rights controls. Interview, reference, offer, and onboarding views
-   remain H4–H7 work and are intentionally absent.
+   and data-rights controls. H4 adds candidate-scoped live communication,
+   reply, availability and interview receipts. Reference, offer and onboarding
+   views remain later work and are intentionally absent.
 8. A passing current test suite demonstrates current primitives, not hiring
    correctness, fairness, privacy, event correlation, or months-long recovery.
 9. The former authentication path answered only “is this an allowed founder?”
@@ -1775,7 +1783,7 @@ this document may not create a separate Hiring product shell.
 
 | Surface | Repository status | Hiring decision |
 |---|---|---|
-| chat and voice | role discussion links into normal Alex with a role-only projection; the candidate workspace has a deterministic candidate/evidence-scoped discussion that re-authorizes every turn and cannot change state or advise a hiring outcome; live voice remains the shared voice-only surface | converge the remaining page-local composition on doc 36's shared scoped conversation component; never decision/approval authority and never show a static assistant object outside active voice |
+| chat and voice | role discussion links into normal Alex; candidate discussion re-authorizes every turn, cannot choose a hiring outcome, and points to the candidate-bound coordination controls after ADVANCE | converge the remaining page-local composition on doc 36's shared scoped conversation component; chat never grants decision/approval/provider authority |
 | Pipeline board | exists, funding-specific | reuse shell/tokens only; build Hiring cockpit |
 | Review pane | exists, application-draft-specific | reuse component patterns; new evidence/decision contract |
 | approval modal/inbox | exists | generalize binding/display for hiring run/policy/action refs |
@@ -1785,18 +1793,18 @@ this document may not create a separate Hiring product shell.
 | document preview/download | exists | reuse with candidate authorization and search isolation |
 | session resources/global search | exists | role/run only; candidate data excluded in v1 |
 | founder ambiguity inbox | generic event/inbox primitives exist | extend with hiring schemas, actor authorization, and cockpit projections |
-| role/candidate run hierarchy | implemented for synthetic H1–H3 | durable state, pause/resume, waits, recursive cancellation; H4–H7 transitions remain gated |
+| role/candidate run hierarchy | implemented for real public intake and synthetic fixtures | durable state, evidence preparation, human decision and H4 communication events are candidate-run-bound; H5–H7 remain absent |
 | hiring role cockpit | synthetic H3 now uses the shared token/type/icon/navigation source, a role-index home, focused cockpit, Quiet contextual workspace, and grouped mobile candidate rows; committed role/runtime/mailbox/publication truth remains backend-authoritative | complete the remaining shared component extraction and add the still-missing production workflow fields only behind their reviewed stage gates |
 | candidate intake inbox and evidence passport | synthetic H3 and local staged records render as a role-scoped inbox; candidate detail keeps identity hidden by default, lists restricted CV/application artifacts, maps candidate-provided information to approved criteria as `PRESENT` / `MISSING` / `UNCLEAR`, exposes causal activity, and keeps phase/decline controls Founder-only | qualify extraction and retention with synthetic data, then converge the remaining page-local candidate section composition on the shared contextual-workspace renderer; keep it unranked, identity-separated, and backend-authoritative |
 | policy version/diff/impact view | implemented for synthetic H2–H3 | approved role brief, scorecard, interview plan, job post, version and impact |
-| interview/reference/offer/onboarding views | missing | build |
-| application-mailbox operations | synthetic trusted-route/cursor flow implemented; no normal Founder/Alex mailbox is read automatically and no normal role binding is active | production requires one explicit role alias plus server-owned route/label binding, positive and forged-header-negative probes, scoped inbound sync, and separately exact-approved outbound effects; real Gmail, attachments, DSN handling, and H4 communication remain disabled |
+| interview/reference/offer/onboarding views | live candidate communication and interview create/update/cancel receipts implemented; reference/offer/onboarding missing | keep exact approvals and provider reconciliation; build H5–H7 separately |
+| application-mailbox operations | normal Alex mailbox push/history is reused; successful Hiring sends persist exact provider thread ids and applicant replies correlate only by that thread plus the server-resolved candidate address; ambiguous mail remains in the Founder inbox | no subject/name/model correlation; automatic/DSN-like mail is receipt-only; every reply message is untrusted and injection-shaped previews are withheld |
 | candidate-facing application portal | a receipt-gated public job description and encrypted role-scoped form exist; the form is default-off until a dedicated intake key is configured, exact role approval and a separate Founder publish click are committed; synthetic fixtures are never eligible | production rollout preserves bounded uploads, encrypted identity/artifact storage, explicit privacy consent, deletion/export controls, and monitoring; no third-party post, contact, ranking, recommendation, or employment decision is enabled |
 
-**Answer:** H0–H3 now have the surfaces required for an honest synthetic
-application-to-human-decision demonstration. The product still does not have
-the H4–H7 communication, interview, reference, offer, and onboarding surfaces
-required for the complete hiring operation.
+**Answer:** H0–H4 now cover real app-owned application intake, automatic
+evidence preparation, human decision, exact-approved candidate email,
+reply/availability coordination, and exact-approved interview lifecycle.
+Reference, offer and onboarding remain H5–H7 work and are not implied by H4.
 
 ### 12.2 Backend-authoritative surface contract
 
@@ -2126,21 +2134,36 @@ not determine applicability for a specific deployment:
 - access and model traces use minimum context and configured retention;
 - no public demo uses real candidate PII.
 
-### 14.2 Release gates
+### 14.2 Live H4 technical admission controls
 
-External effects stay disabled until:
+H4 email and interview effects are real provider operations; they are not
+blocked on the synthetic H4S lane or on a separate reviewer ceremony. The
+server admits an individual operation only when all of these technical facts
+are true at action time:
 
-1. qualified policy review accepts the role/candidate lifecycle and notices;
-2. a documented data protection/security review accepts storage and vendors;
-3. the role-mailbox routing mechanism passes feasibility review, positive and
-   forged-header negative probes, unfiltered-watch tests, complete expired-
-   cursor recovery, and cursor/receipt crash-boundary tests;
-4. accessibility review covers founder surfaces, the static public notice, and
-   candidate-facing email/document templates;
-5. labelled redaction, evidence, consistency, and adverse-impact evals pass;
-6. candidate export/deletion/withdrawal and retention jobs are proven;
-7. a production incident/rollback/kill-switch procedure is rehearsed;
-8. the deployment's jurisdiction matrix allows the requested feature set.
+1. the application is non-synthetic, belongs to the authenticated Founder
+   workspace, entered through the app-owned public form, and its current
+   committed human decision is `ADVANCE`;
+2. the current role-policy version, candidate run, server-resolved candidate
+   identity, connector account and exact action payload are bound into the
+   approval and provider-action receipt;
+3. the Founder has a recent authenticated session and grants the displayed
+   single-use approval for that exact email or Calendar mutation;
+4. Alex Mail or Founder Calendar is `CONNECTED` with the connector's exact
+   minimum scopes, and credentials resolve only for the bound workspace/account;
+5. `external_actions` is durably `PREPARED` before provider contact, the
+   operation has a deterministic provider id, and duplicates return the
+   original receipt;
+6. a timeout or ambiguous provider result becomes `UNCERTAIN`; it is never
+   retried until read-only provider reconciliation establishes the outcome;
+7. inbound applicant mail matches the successful Alex message's exact provider
+   thread and the server-resolved applicant address; automatic mail is
+   receipt-only and instruction-shaped content is withheld;
+8. the emergency kill switch, candidate export/deletion/retention coverage,
+   content-free monitoring and traffic rollback remain operational.
+
+H5–H7 reference, offer and onboarding effects remain disabled until their own
+closed provider contracts and equivalent technical controls are implemented.
 
 ### 14.3 Email-intake trust and threat model
 
@@ -2600,20 +2623,20 @@ headers/labels, injection, restart, deletion, and no email/Calendar write. UI
 state is reproducible from committed ledgers after browser/process reset, never
 advances optimistically, and the deterministic plus golden-eval suites pass.
 
-### Phase H4 — communications and interviews
+### Phase H4 — communications and interviews (implemented)
 
-**Sandbox sequencing decision:** before considering this phase for live hiring,
-the bounded synthetic H4S contract in
-[doc 30](30-hiring-h4-sandbox-and-run-intelligence.md) may be reviewed and
-implemented. H4S is additive, requires distinct test identities/destinations
-and its own policy gate, and does not relax this document's H4/H7 production
-authorization boundary.
+H4S in [doc 30](30-hiring-h4-sandbox-and-run-intelligence.md) remains an
+independent test-account regression lane. Live H4 does not inherit H4S's
+synthetic identity/destination gate and H4S cannot authorize a live effect.
 
-- exact causal Gmail role-token/thread correlation and inbox;
-- external-action ledger migration for email/Calendar;
-- deterministic permanent/temporary DSN and vacation/automatic-reply handling;
-- slot proposal, invite, change events, interview artifacts and scorecards;
-- approval/uncertainty/reconciliation UI.
+- exact causal Alex Gmail thread + server-resolved applicant-address
+  correlation and inbox receipt;
+- candidate-run-bound email/Calendar action ledger with PREPARED-before-provider;
+- deterministic DSN/automatic-reply receipt classification and untrusted-content
+  withholding;
+- Founder free/busy slot proposal, applicant email negotiation, interview
+  create/update/cancel and receipt tracking;
+- exact approval, uncertainty and reconciliation controls in candidate scope.
 
 **Exit:** shortlist → approved contact → reply wake → approved interview →
 evidence → human decision passes end to end.
