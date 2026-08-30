@@ -1,0 +1,50 @@
+app/static/hiring.html
+  s_bf598a20bfcdaa::t_e36636b4530e88 2314-2315,2536-2538,2544
+app/hiring_routes.py
+  s_bf598a20bfcdaa::t_f3d2cf0ef91925 159-162,427-437,443-445,451-455,1146-1163,1166-1173
+  s_bf598a20bfcdaa::t_0de43492c05be0 438-442,446-450
+tests/unit/test_hiring_h0_h3.py
+  s_bf598a20bfcdaa::t_1b391f712f9d34 358-364,414-418
+services/hiring_public_intake.py
+  s_bf598a20bfcdaa::t_27eda07f018f7f 33-36,38-39,235,239-240,242-243,341-347,381-404,409-410,416-421,483,491-497,500-501,504-509
+  s_bf598a20bfcdaa::t_9777be64ab869e 6-9
+services/workload_identity.py
+  s_bf598a20bfcdaa::t_431221c65524bf 96-97
+docs/25-hiring-operations.md
+  s_bf598a20bfcdaa::t_9777be64ab869e 9-32
+services/hiring_service.py
+  s_bf598a20bfcdaa::t_044168e573585e 84,86-87,708-711,713-716,719,729-760,773,843,864,866-867,881-882,899-901,907,911-912,916,918,922
+  s_bf598a20bfcdaa::t_1a55f95e527019 761-768,780-783,791-795,802-803,807-810,874-878,884-888,929-951
+  s_bf598a20bfcdaa::t_ee0313c51f8cb2 952
+tests/unit/test_unified_product_ui_contract.py
+  s_bf598a20bfcdaa::t_05f3ed1b96d06b 426,428-429,431-433
+  s_bf598a20bfcdaa::t_0ddea490ff445c 430
+services/hiring_workflow_adapter.py
+  s_bf598a20bfcdaa::t_dd613b21a94414 33-37,40-41
+tests/unit/test_hiring_founder_draft.py
+  s_bf598a20bfcdaa::t_0ddea490ff445c 1020-1022
+  s_bf598a20bfcdaa::t_c22e387e708377 554-555
+  s_bf598a20bfcdaa::t_3dc8b2c08f032a 548-550
+  s_bf598a20bfcdaa::t_1b391f712f9d34 755-764
+  s_bf598a20bfcdaa::t_05f3ed1b96d06b 524,612-614,653,723,733-740,752-754,1026-1027,1047-1049,1074,1077
+  s_bf598a20bfcdaa::t_8ff2ccb63279e8 551
+  s_bf598a20bfcdaa::t_84bd605342efbf 1023
+services/task_queue.py
+  s_bf598a20bfcdaa::t_c142a43e146092 34-102,271-274
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "74fa5f62ae1b17387711159e9062ce216c4fb66f",
+  "prompts": {},
+  "sessions": {
+    "s_bf598a20bfcdaa": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a04860-dde3-79c3-b2bd-2987b04adc68",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Ijidai Lassa <ijidai@cued.app>"
+    }
+  }
+}
