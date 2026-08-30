@@ -355,6 +355,13 @@ def test_hiring_task_dispatch_uses_exact_route_audience(monkeypatch):
     assert result["status"] == "success"
     assert captured["audience"] == (
         "https://co-founder.example/tasks/hiring/process_mailbox_batch")
+    candidate = task_queue.enqueue_hiring(
+        "/tasks/hiring/prepare_candidate_evidence",
+        {"application_id": "candidateapp_1234567890abcdef"},
+        "hiring-evidence:candidateapp_1234567890abcdef")
+    assert candidate["status"] == "success"
+    assert captured["audience"] == (
+        "https://co-founder.example/tasks/hiring/prepare_candidate_evidence")
     assert task_queue.enqueue_hiring("/tasks/portal_wake", {}, "bad")[
         "error_code"] == "invalid_contract"
 
@@ -404,6 +411,11 @@ def test_hiring_http_requires_signed_actor_session_and_csrf(monkeypatch):
         headers={"Content-Type": "application/json"})
     assert internal.status_code == 401
     assert internal.json()["error_code"] == "workload_unauthorized"
+    evidence_worker = client.post(
+        "/tasks/hiring/prepare_candidate_evidence", content=b"not-json",
+        headers={"Content-Type": "application/json"})
+    assert evidence_worker.status_code == 401
+    assert evidence_worker.json()["error_code"] == "workload_unauthorized"
 
 
 @pytest.mark.asyncio

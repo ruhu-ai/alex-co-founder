@@ -31,6 +31,75 @@ QUEUE_IDENTITY_ENV = {
 LOGGER = logging.getLogger("background_pilot.local_dispatch")
 
 
+def _enqueue_local_hiring(
+        path: str, payload: dict, dedupe_key: str, *,
+        schedule_at: str | None) -> dict | None:
+    """Deliver the closed Hiring evidence worker on loopback in local dev.
+
+    The adapter is explicit, route-pinned, signed, and impossible to enable in
+    Cloud Run. It gives the local product the same event-driven behavior as
+    Cloud Tasks without turning a public request into inline candidate work.
+    """
+    if (os.environ.get("K_SERVICE")
+            or os.environ.get("HIRING_ALLOW_TEST_DISPATCH") != "1"):
+        return None
+    if path != "/tasks/hiring/prepare_candidate_evidence" or schedule_at:
+        return None
+    base_url = os.environ.get("AGENT_BASE_URL", "").rstrip("/")
+    parsed = urllib.parse.urlparse(base_url)
+    if (parsed.scheme != "http"
+            or parsed.hostname not in {"127.0.0.1", "localhost", "::1"}
+            or parsed.path or parsed.query or parsed.fragment):
+        return {"status": "error", "error": True,
+                "error_code": "local_dispatch_target_denied",
+                "message": "Hiring test delivery requires an exact loopback origin."}
+    secret = os.environ.get("HIRING_TEST_DISPATCH_SECRET", "")
+    if len(secret) < 32:
+        return {"status": "error", "error": True,
+                "error_code": "local_dispatch_secret_invalid",
+                "message": "Hiring test delivery secret is not configured."}
+    audience = f"{base_url}{path}"
+    delivery_id = hashlib.sha256(dedupe_key.encode()).hexdigest()[:32]
+    claims = {
+        "principal_kind": "CLOUD_TASKS",
+        "service_account": "local-hiring-evidence-worker",
+        "issuer": "local-test-dispatcher", "audience": audience,
+        "delivery_id": delivery_id, "exp": int(time.time()) + 120,
+    }
+    encoded = base64.urlsafe_b64encode(
+        json.dumps(claims, separators=(",", ":")).encode()
+    ).decode().rstrip("=")
+    signature = hmac.new(
+        secret.encode(), encoded.encode(), hashlib.sha256).hexdigest()
+    body = json.dumps(payload, separators=(",", ":")).encode()
+
+    def deliver() -> None:
+        for attempt in range(1, 4):
+            request = urllib.request.Request(
+                audience, data=body, method="POST", headers={
+                    "Content-Type": "application/json",
+                    "X-Hiring-Test-Principal": encoded,
+                    "X-Hiring-Test-Signature": signature,
+                })
+            try:
+                with urllib.request.urlopen(request, timeout=45) as response:
+                    if 200 <= response.status < 300:
+                        return
+            except (urllib.error.URLError, TimeoutError):
+                pass
+            if attempt < 3:
+                time.sleep(0.25 * attempt)
+        LOGGER.error(json.dumps({
+            "metric": "hiring_evidence_local_delivery_exhausted",
+            "status": "failed", "delivery_id": delivery_id,
+        }, sort_keys=True))
+
+    threading.Thread(
+        target=deliver, name=f"hiring-evidence-{delivery_id[:8]}",
+        daemon=True).start()
+    return {"status": "success", "local_test_delivery": True}
+
+
 def _enqueue_local_background_pilot(
         path: str, payload: dict, dedupe_key: str, *,
         queue_name: str, audience: str | None,
@@ -199,6 +268,10 @@ def enqueue_hiring(path: str, payload: dict, dedupe_key: str, *,
         return {"status": "error", "error": True,
                 "error_code": "invalid_contract",
                 "message": "Invalid hiring worker route."}
+    local = _enqueue_local_hiring(
+        path, payload, dedupe_key, schedule_at=schedule_at)
+    if local is not None:
+        return local
     base_url = os.environ.get("AGENT_BASE_URL", "").rstrip("/")
     if not base_url:
         return {"status": "error", "error": True,

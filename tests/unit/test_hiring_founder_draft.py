@@ -521,7 +521,7 @@ def _resume_pdf() -> bytes:
 
 
 @pytest.mark.asyncio
-async def test_local_public_form_encrypts_and_queues_without_automatic_processing(
+async def test_local_public_form_encrypts_and_queues_alex_evidence_job(
         monkeypatch):
     store = InMemoryDurableStore()
     package = _package()
@@ -545,9 +545,14 @@ async def test_local_public_form_encrypts_and_queues_without_automatic_processin
             package["role_description"]),
         "contract": contract.model_dump(mode="json"), "version": 1,
     })
+    await store.create("workflow_runs", "run_role_intake_test", {
+        "run_id": "run_role_intake_test", "workspace_id": "workspace_test",
+        "journey_id": "journey_intake_test", "run_kind": "ROLE", "version": 1,
+    })
     role = {
         "role_id": role_id, "workspace_id": "workspace_test",
-        "journey_id": "journey_intake_test", "role_state": "PUBLISHED",
+        "journey_id": "journey_intake_test",
+        "run_id": "run_role_intake_test", "role_state": "PUBLISHED",
         "current_policy_version_id": policy_id, "current_policy_hash": policy_hash,
         "role_description": package["role_description"],
         "publication_allowed": True, "candidate_processing_allowed": True,
@@ -604,7 +609,9 @@ async def test_local_public_form_encrypts_and_queues_without_automatic_processin
         "candidate_applications", filters={"role_id": role_id}))[0]
     assert application["candidate_state"] == "RECEIVED"
     assert application["automatic_assessment_allowed"] is False
-    assert application["external_actions"] == [] and application["run_id"] is None
+    assert application["automatic_evidence_preparation_allowed"] is True
+    assert application["processing_status"] == "EVIDENCE_QUEUED"
+    assert application["external_actions"] == [] and application["run_id"]
     identity = (await store.list(
         "candidate_identities", filters={"role_id": role_id}))[0]
     artifact = (await store.list(
@@ -643,7 +650,7 @@ async def test_local_public_form_encrypts_and_queues_without_automatic_processin
 
 
 @pytest.mark.asyncio
-async def test_founder_click_maps_public_resume_without_ranking_or_deciding(
+async def test_alex_worker_maps_public_resume_without_ranking_or_deciding(
         monkeypatch):
     store = InMemoryDurableStore()
     service = _service(store)
@@ -713,7 +720,7 @@ async def test_founder_click_maps_public_resume_without_ranking_or_deciding(
         application_id=application["candidate_application_id"])
     assert pending["status"] == "success"
     assert pending["assessment"] is None
-    assert pending["evidence_status"] == "NOT_STARTED"
+    assert pending["evidence_status"] == "PREPARING"
     assert all(item["summary"] == "Evidence mapping pending."
                for item in pending["evidence_coverage"])
     monkeypatch.setattr(
@@ -723,10 +730,14 @@ async def test_founder_click_maps_public_resume_without_ranking_or_deciding(
                 "Owned customer deployment delivery and accountable production launches."),
             "locator": {"page": 1},
         }]})
-    mapped = await service.assess_public_application(
-        principal=_founder(), application_id=application["candidate_application_id"],
-        expected_application_version=application["version"],
-        client_request_id="map_public_assessment_001")
+    mapped = await service.prepare_public_application_evidence(
+        application_id=application["candidate_application_id"], workload={
+            "workload_kind": "CLOUD_TASKS",
+            "workload_service_account": "hiring-worker@example.test",
+            "workload_audience": (
+                "https://example.test/tasks/hiring/prepare_candidate_evidence"),
+            "delivery_id": "delivery_public_assessment_001",
+        })
     assert mapped["status"] == "success"
     assert mapped["candidate_state"] == "AWAITING_HUMAN_DECISION"
     assessment = await store.get("candidate_assessments", mapped["assessment_id"])
@@ -738,6 +749,19 @@ async def test_founder_click_maps_public_resume_without_ranking_or_deciding(
     assert committed["role_id"] == role["role_id"]
     assert committed["current_decision_id"] is None
     assert committed["external_actions"] == []
+    assert assessment["operator_agent"] == "hiring_operator"
+    assert assessment["analyst_agent"] == "hiring_evidence_analyst"
+    assert assessment["tool_calls"] == 0 and assessment["model_calls"] == 0
+    duplicate = await service.prepare_public_application_evidence(
+        application_id=application["candidate_application_id"], workload={
+            "workload_kind": "CLOUD_TASKS",
+            "workload_service_account": "hiring-worker@example.test",
+            "workload_audience": (
+                "https://example.test/tasks/hiring/prepare_candidate_evidence"),
+            "delivery_id": "delivery_public_assessment_001",
+        })
+    assert duplicate["status"] == "success" and duplicate["duplicate"] is True
+    assert duplicate["assessment_id"] == mapped["assessment_id"]
     ready = await service.candidate_detail(
         principal=_founder(),
         application_id=application["candidate_application_id"])
@@ -993,9 +1017,14 @@ def test_public_application_route_converges_on_restricted_candidate_queue(monkey
             package["role_description"]),
         "contract": contract.model_dump(mode="json"), "version": 1,
     }))
+    asyncio.run(store.create("workflow_runs", "run_role_route_intake", {
+        "run_id": "run_role_route_intake", "workspace_id": "workspace_test",
+        "journey_id": "journey_route_intake", "run_kind": "ROLE", "version": 1,
+    }))
     asyncio.run(store.create("hiring_roles", role_id, {
         "role_id": role_id, "workspace_id": "workspace_test",
-        "journey_id": "journey_route_intake", "role_state": "PUBLISHED",
+        "journey_id": "journey_route_intake",
+        "run_id": "run_role_route_intake", "role_state": "PUBLISHED",
         "current_policy_version_id": policy_id, "current_policy_hash": policy_hash,
         "role_description": package["role_description"],
         "publication_allowed": True, "candidate_processing_allowed": True,
@@ -1015,6 +1044,9 @@ def test_public_application_route_converges_on_restricted_candidate_queue(monkey
         lambda name: bool(saved.pop(name, None)))
     monkeypatch.setattr(hiring_routes, "production_store", lambda: store)
     monkeypatch.setattr(hiring_routes, "_services", lambda: (service, object()))
+    monkeypatch.setattr(
+        hiring_routes.task_queue, "enqueue_hiring",
+        lambda *_args, **_kwargs: {"status": "success"})
 
     async def actor(_request):
         return _founder()
@@ -1039,7 +1071,7 @@ def test_public_application_route_converges_on_restricted_candidate_queue(monkey
     assert response.json()["application_status"] == "RECEIVED"
     rows = asyncio.run(store.list(
         "candidate_applications", filters={"role_id": role_id}))
-    assert len(rows) == 1 and rows[0]["processing_status"] == "FOUNDER_REVIEW_REQUIRED"
+    assert len(rows) == 1 and rows[0]["processing_status"] == "EVIDENCE_QUEUED"
     role_response = client.get(f"/api/hiring/roles/{role_id}")
     assert role_response.status_code == 200
-    assert role_response.json()["candidates"][0]["evidence_status"] == "NOT_STARTED"
+    assert role_response.json()["candidates"][0]["evidence_status"] == "PREPARING"

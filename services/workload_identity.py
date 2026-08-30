@@ -93,6 +93,8 @@ def _test_principal(request, audience: str,
         "/tasks/background-artifact-pilot": "local-background-pilot-worker",
         "/tasks/background-artifact-grounded-brief":
             "local-background-skill-worker",
+        "/tasks/hiring/prepare_candidate_evidence":
+            "local-hiring-evidence-worker",
     }.get(route_path)
     if expected_test_account and claims.get("service_account") != expected_test_account:
         return _error()

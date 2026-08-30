@@ -125,11 +125,6 @@ class PublishRoleRequest(ClosedRequest):
     client_request_id: str = Field(min_length=3, max_length=200)
 
 
-class AssessApplicationRequest(ClosedRequest):
-    expected_application_version: int = Field(ge=1)
-    client_request_id: str = Field(min_length=3, max_length=200)
-
-
 class BindingRequest(SyntheticGuardRequest):
     connection_id: str
     provider_route_id: str
@@ -159,6 +154,10 @@ class FetchBatchRequest(SyntheticGuardRequest):
 
 class ProcessBatchRequest(ClosedRequest):
     batch_id: str
+
+
+class PrepareCandidateEvidenceRequest(ClosedRequest):
+    application_id: str = Field(pattern=r"^candidateapp_[a-f0-9]{16,64}$")
 
 
 class IdentityRevealRequest(ClosedRequest):
@@ -425,6 +424,35 @@ def register(app: FastAPI) -> None:
         if result.get("error"):
             return JSONResponse(result, status_code=int(result.get(
                 "http_status") or 400))
+        dispatch_spec = dict(result.pop("_dispatch", {}) or {})
+        application_id = str(dispatch_spec.get("application_id") or "")
+        if application_id:
+            dispatch = await asyncio.to_thread(
+                task_queue.enqueue_hiring,
+                "/tasks/hiring/prepare_candidate_evidence",
+                {"application_id": application_id},
+                str(dispatch_spec.get("dedupe_key") or
+                    f"hiring-evidence:{application_id}"))
+            current = await production_store().get(
+                "candidate_applications", application_id)
+            dispatch_ok = dispatch.get("status") == "success"
+            if (not dispatch_ok and current
+                    and current.get("current_assessment_id") is None
+                    and current.get("processing_status") in {
+                        "EVIDENCE_QUEUED", "EVIDENCE_PREPARATION_DELAYED"}):
+                await production_store().compare_and_set(
+                    "candidate_applications", application_id,
+                    int(current["version"]), {
+                        "evidence_dispatch_status": "DELAYED",
+                        "evidence_dispatch_error_code": str(
+                            dispatch.get("error_code") or
+                            "delivery_unavailable")[:120],
+                        "processing_status": "EVIDENCE_PREPARATION_DELAYED",
+                        "updated_at": utc_now(),
+                    })
+            result["evidence_preparation_status"] = (
+                "PREPARING" if dispatch.get("status") == "success"
+                else "DELAYED")
         return result
 
     @app.get("/api/hiring/csrf")
@@ -1115,25 +1143,34 @@ def register(app: FastAPI) -> None:
             expected_version=payload.expected_role_version,
             client_request_id=payload.client_request_id))
 
-    @app.post("/api/hiring/applications/{application_id}/assess")
-    async def assess_application(request: Request, application_id: str,
-                                 payload: AssessApplicationRequest):
-        """Founder-clicked criterion mapping; never scores or decides."""
-        denied = _mutation_allowed(request)
-        if denied.get("error"):
-            return _response(denied)
-        principal = await _actor(request)
+    @app.post("/tasks/hiring/prepare_candidate_evidence")
+    async def prepare_candidate_evidence(request: Request):
+        """Authenticated Alex worker: prepare evidence, never make a decision."""
+        workload = await workload_identity.verify_request(
+            request, "/tasks/hiring/prepare_candidate_evidence")
+        if isinstance(workload, dict):
+            return _response(workload)
+        try:
+            if int(request.headers.get("content-length", "0") or 0) > 8_192:
+                raise ValueError("task body too large")
+            payload = PrepareCandidateEvidenceRequest.model_validate(
+                await request.json())
+        except Exception:
+            return JSONResponse({
+                "status": "error", "error": True,
+                "error_code": "invalid_contract",
+                "message": "Invalid internal delivery.",
+            }, status_code=400)
         services = _services()
-        if isinstance(principal, dict):
-            return _response(principal)
         if not services:
-            return _response({"status": "error", "error": True,
-                              "error_code": "hiring_unavailable",
-                              "message": "Hiring is temporarily unavailable."})
-        return _response(await services[0].assess_public_application(
-            principal=principal, application_id=application_id,
-            expected_application_version=payload.expected_application_version,
-            client_request_id=payload.client_request_id))
+            return JSONResponse({
+                "status": "error", "error": True,
+                "error_code": "hiring_unavailable",
+                "message": "Hiring is temporarily unavailable.",
+            }, status_code=503)
+        return _response(await services[0].prepare_public_application_evidence(
+            application_id=payload.application_id,
+            workload=workload.audit_fields()))
 
     @app.post("/api/hiring/roles/{role_id}/mailbox-binding")
     async def configure_binding(request: Request, role_id: str,

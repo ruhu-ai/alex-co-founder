@@ -35,7 +35,6 @@ from services.hiring_identity_vault import CandidateIdentityVault
 from services.hiring_role_draft import validate_role_description
 from services.hiring_workflow_adapter import (
     HiringWorkflowAdapter,
-    founder_application_provenance,
     founder_draft_provenance,
     hiring_provenance,
 )
@@ -82,8 +81,10 @@ def candidate_evidence_status(
             return "STALE_POLICY"
         return "READY"
     processing = str(application.get("processing_status") or "")
-    if processing == "EVIDENCE_MAPPING_IN_PROGRESS":
+    if processing in {"EVIDENCE_QUEUED", "EVIDENCE_MAPPING_IN_PROGRESS"}:
         return "PREPARING"
+    if processing in {"EVIDENCE_PREPARATION_DELAYED", "FOUNDER_REVIEW_REQUIRED"}:
+        return "DELAYED"
     if processing == "EVIDENCE_MAPPING_FAILED":
         return "FAILED"
     return "NOT_STARTED"
@@ -704,22 +705,18 @@ class HiringService:
                 "assessment_id": assessment_id,
                 "withheld_inbox_item_ids": inbox_items}
 
-    async def assess_public_application(
-            self, *, principal: ActorPrincipal, application_id: str,
-            expected_application_version: int,
-            client_request_id: str) -> dict[str, Any]:
-        """Map a public-form resume to criteria after an explicit Founder click.
+    async def prepare_public_application_evidence(
+            self, *, application_id: str,
+            workload: dict[str, Any]) -> dict[str, Any]:
+        """Run one bounded Alex-owned evidence-preparation attempt.
 
-        The result is identity-free evidence coverage. It contains no score,
-        ranking, recommendation, automatic state decision, communication, or
-        external action.
+        The Hiring Operator owns durable orchestration and the identity-isolated
+        Evidence Analyst receives only the closed AnalystInput envelope. The
+        worker has no identity-reveal, score, rank, recommendation, decision,
+        communication, connector, approval, or external-effect authority.
         """
-        gate = authorize(principal, "read_candidate")
-        if gate.get("error"):
-            return gate
         application = await self.store.get("candidate_applications", application_id)
-        if (not application
-                or application.get("workspace_id") != principal.workspace_id):
+        if not application:
             return _error("application_not_found", "Application does not exist.", 404)
         if (application.get("source_kind") != "PUBLIC_FORM"
                 or application.get("synthetic") is not False):
@@ -729,21 +726,61 @@ class HiringService:
             return {"status": "success", "duplicate": True,
                     "assessment_id": application["current_assessment_id"],
                     "candidate_state": application["candidate_state"]}
-        if int(application.get("version", 0)) != expected_application_version:
-            return _error("version_conflict", "Application changed; reload before mapping.")
+        if application.get("automatic_evidence_preparation_allowed") is not True:
+            return _error(
+                "evidence_preparation_not_authorized",
+                "This application was not admitted to automatic evidence preparation.")
+        delivery_id = str(workload.get("delivery_id") or "")
+        if not delivery_id:
+            return _error("workload_unauthorized", "Evidence delivery is not authorized.")
+        processing = str(application.get("processing_status") or "")
+        if processing == "EVIDENCE_MAPPING_IN_PROGRESS":
+            if application.get("evidence_lease_owner") != delivery_id:
+                return {"status": "success", "duplicate": True,
+                        "preparation_status": "PREPARING"}
+            claimed = application
+        elif processing in {
+                "EVIDENCE_QUEUED", "EVIDENCE_PREPARATION_DELAYED",
+                "EVIDENCE_MAPPING_FAILED"}:
+            claimed = await self.store.compare_and_set(
+                "candidate_applications", application_id,
+                int(application.get("version", 0)), {
+                    "processing_status": "EVIDENCE_MAPPING_IN_PROGRESS",
+                    "evidence_lease_owner": delivery_id,
+                    "evidence_preparation_started_at": utc_now(),
+                    "evidence_dispatch_status": "DELIVERED",
+                    "evidence_dispatch_error_code": None,
+                    "updated_at": utc_now(),
+                })
+            if not claimed:
+                return _error("concurrency_conflict",
+                              "Evidence preparation changed concurrently.")
+        else:
+            return _error("evidence_preparation_state_invalid",
+                          "The application is not queued for evidence preparation.")
+        await self.runtime.append_event(
+            str(application["run_id"]),
+            event_kind="EVIDENCE_PREPARATION_STARTED",
+            idempotency_key=f"evidence-start:{delivery_id}",
+            safe_payload={
+                "operator_agent": "hiring_operator",
+                "analyst_agent": "hiring_evidence_analyst",
+            }, workload=workload)
         role = await self.store.get("hiring_roles", str(application.get("role_id") or ""))
         policy = await self.store.get(
             "hiring_policy_versions", str((role or {}).get(
                 "current_policy_version_id") or ""))
-        if (not role or role.get("workspace_id") != principal.workspace_id
+        if (not role or role.get("workspace_id") != application.get("workspace_id")
                 or role.get("role_state") != RoleState.PUBLISHED.value
                 or role.get("candidate_processing_allowed") is not True
                 or not policy or policy.get("status") != "APPROVED"
                 or policy.get("canonical_hash") != role.get("current_policy_hash")
                 or application.get("current_policy_version_id") !=
                 policy.get("policy_version_id")):
-            return _error("policy_not_active",
-                          "The application is not bound to the current published role.")
+            return await self._fail_public_evidence_preparation(
+                application_id=application_id, delivery_id=delivery_id,
+                run_id=str(application["run_id"]), workload=workload,
+                error_code="policy_not_active")
 
         from services import document_ingestion
         from services.hiring_public_intake import HiringPublicIntakeService
@@ -751,18 +788,26 @@ class HiringService:
         restricted = await HiringPublicIntakeService(
             store=self.store).read_restricted_resume(application=application)
         if restricted.get("error"):
-            return restricted
+            return await self._fail_public_evidence_preparation(
+                application_id=application_id, delivery_id=delivery_id,
+                run_id=str(application["run_id"]), workload=workload,
+                error_code=str(restricted.get("error_code") or
+                               "application_evidence_unavailable"))
         suffix = str(restricted["extension"])
         try:
             with tempfile.NamedTemporaryFile(suffix=suffix) as handle:
                 handle.write(restricted["resume_bytes"])
                 handle.flush()
                 extracted = document_ingestion.extract_chunks(handle.name, suffix)
+        except Exception:
+            extracted = {"status": "error"}
         finally:
             restricted.pop("resume_bytes", None)
         if extracted.get("status") != "success":
-            return _error("resume_extraction_failed",
-                          "The resume could not be read as searchable text.")
+            return await self._fail_public_evidence_preparation(
+                application_id=application_id, delivery_id=delivery_id,
+                run_id=str(application["run_id"]), workload=workload,
+                error_code="resume_extraction_failed")
 
         criteria = [Criterion.model_validate(item)
                     for item in policy["contract"]["criteria"]]
@@ -795,7 +840,7 @@ class HiringService:
             locator = dict(chunk.get("locator") or {})
             page = locator.get("page")
             item = EvidenceItem(
-                evidence_id=evidence_id, workspace_id=principal.workspace_id,
+                evidence_id=evidence_id, workspace_id=str(application["workspace_id"]),
                 role_id=role["role_id"], candidate_application_id=application_id,
                 source_artifact_id=str(artifact["artifact_id"]), source_kind="RESUME",
                 criterion_ids=matched, locator=EvidenceLocator(
@@ -816,22 +861,31 @@ class HiringService:
                 withheld_ids.append(evidence_id)
 
         invocation_id = stable_id(
-            "invoke", application_id, policy["canonical_hash"], client_request_id)
+            "invoke", application_id, policy["canonical_hash"], source_hash)
         analyst_input = hiring_evidence.build_analyst_input(
-            invocation_id=invocation_id, workspace_id=principal.workspace_id,
+            invocation_id=invocation_id,
+            workspace_id=str(application["workspace_id"]),
             role_id=role["role_id"], candidate_application_id=application_id,
             candidate_code=application["candidate_code"],
             policy_version_id=policy["policy_version_id"],
             policy_hash=policy["canonical_hash"], criteria=criteria,
             evidence=evidence_items)
         if isinstance(analyst_input, dict):
-            return analyst_input
+            return await self._fail_public_evidence_preparation(
+                application_id=application_id, delivery_id=delivery_id,
+                run_id=str(application["run_id"]), workload=workload,
+                error_code=str(analyst_input.get("error_code") or
+                               "invalid_analyst_input"))
         validated = hiring_evidence.validate_analyst_output(
             _fixture_analyst_output(analyst_input), expected=analyst_input,
-            model_id="deterministic-founder-triggered-v1",
-            prompt_version="hiring-evidence-v1")
+            model_id="identity-isolated-evidence-analyst-v1",
+            prompt_version="hiring-evidence-v2")
         if validated.get("error"):
-            return validated
+            return await self._fail_public_evidence_preparation(
+                application_id=application_id, delivery_id=delivery_id,
+                run_id=str(application["run_id"]), workload=workload,
+                error_code=str(validated.get("error_code") or
+                               "invalid_analyst_output"))
         output = validated["output"]
         assessment_id = stable_id("assessment", application_id,
                                   validated["assessment_hash"])
@@ -842,41 +896,59 @@ class HiringService:
                                              for item in evidence_items),
             "model_id": validated["model_id"],
             "prompt_version": validated["prompt_version"],
+            "operator_agent": "hiring_operator",
+            "analyst_agent": "hiring_evidence_analyst",
+            "tool_calls": 0, "model_calls": 0,
             "staleness": "CURRENT", "created_at": utc_now(),
             "synthetic": False, "version": 1,
         })
-        run = await self.runtime.create_run(
-            workspace_id=principal.workspace_id,
-            journey_id=str(application.get("journey_id") or role["journey_id"]),
-            run_kind=RunKind.CANDIDATE,
-            idempotency_key=f"public-assessment:{application_id}",
-            domain_ref=application_id, parent_run_id=role["run_id"],
-            provenance=founder_application_provenance(),
-            originating_actor_id=principal.actor_id)
-        if run.get("error"):
-            return run
         committed = await self.store.compare_and_set(
             "candidate_applications", application_id,
-            expected_application_version, {
-                "run_id": run["run_id"],
+            int(claimed["version"]), {
                 "candidate_state": CandidateState.AWAITING_HUMAN_DECISION.value,
                 "current_assessment_id": assessment_id,
                 "processing_status": "EVIDENCE_MAPPED_FOR_FOUNDER",
+                "evidence_lease_owner": None,
+                "evidence_preparation_completed_at": utc_now(),
                 "updated_at": utc_now(),
             })
         if not committed:
-            return _error("version_conflict", "Application changed; mapping was not attached.")
+            return _error("version_conflict", "Evidence changed before it could be attached.")
         await self.runtime.append_event(
-            run["run_id"], event_kind="EVIDENCE_PASSPORT_COMMITTED",
+            str(application["run_id"]), event_kind="EVIDENCE_PASSPORT_COMMITTED",
             idempotency_key=f"assessment:{assessment_id}",
             safe_payload={"assessment_id": assessment_id,
                           "withheld_blocks": len(withheld_ids)},
-            actor_id=principal.actor_id)
+            workload=workload)
         return {"status": "success", "duplicate": False,
                 "assessment_id": assessment_id,
                 "candidate_state": committed["candidate_state"],
                 "criteria_count": len(criteria),
                 "evidence_count": len(evidence_items)}
+
+    async def _fail_public_evidence_preparation(
+            self, *, application_id: str, delivery_id: str, run_id: str,
+            workload: dict[str, Any], error_code: str) -> dict[str, Any]:
+        """Commit a content-free terminal preparation failure for Founder UI."""
+        current = await self.store.get("candidate_applications", application_id)
+        if (current and current.get("current_assessment_id") is None
+                and current.get("evidence_lease_owner") == delivery_id):
+            await self.store.compare_and_set(
+                "candidate_applications", application_id,
+                int(current["version"]), {
+                    "processing_status": "EVIDENCE_MAPPING_FAILED",
+                    "evidence_lease_owner": None,
+                    "evidence_preparation_error_code": error_code[:120],
+                    "evidence_preparation_completed_at": utc_now(),
+                    "updated_at": utc_now(),
+                })
+        await self.runtime.append_event(
+            run_id, event_kind="EVIDENCE_PREPARATION_FAILED",
+            idempotency_key=f"evidence-failed:{delivery_id}:{error_code}",
+            safe_payload={"error_code": error_code[:120]}, workload=workload)
+        return {"status": "success", "duplicate": False,
+                "preparation_status": "FAILED", "error_code": error_code,
+                "terminal": True}
 
     async def record_human_decision(self, *, principal: ActorPrincipal,
                                     application_id: str,

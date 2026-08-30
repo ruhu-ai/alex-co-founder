@@ -6,12 +6,30 @@
 `/hiring` intake creates a real, editable Founder role draft from the supplied
 description; the former Ruhu FDE package is an optional synthetic demo fixture
 only. The app-owned role page and encrypted role-scoped application form may be
-enabled with a dedicated deployment secret. Intake remains dormant in
-`FOUNDER_REVIEW_REQUIRED`; resume evidence mapping is a separate
-Founder-clicked operation and produces only criterion-linked
-`PRESENT` / `MISSING` / `UNCLEAR` coverage. Provider writes, third-party job
-posting/outreach, automatic assessment, ranking, recommendation, advance,
-decline, offer, and onboarding effects remain disabled and unauthorized.
+enabled with a dedicated deployment secret. A valid submission atomically
+creates one candidate run and dispatches an authenticated, idempotent Alex
+evidence job. The Hiring Operator owns the durable step; the identity-isolated,
+tool-less Hiring Evidence Analyst receives only the closed role/criterion/
+evidence envelope and produces criterion-linked `PRESENT` / `MISSING` /
+`UNCLEAR` coverage. The UI reports **Alex is preparing evidence** until the
+validated passport is committed, then offers the Founder **View evidence**.
+The Founder never starts evidence preparation. Provider writes, third-party
+job posting/outreach, scoring, ranking, recommendation, automatic hiring
+decisions, advance, decline, offer, and onboarding effects remain disabled and
+unauthorized.
+
+**Evidence preparation boundary:** intake and evidence preparation are separate
+durable boundaries. The public request commits encrypted identity/CV records,
+the candidate run, and `EVIDENCE_QUEUED` atomically, then returns. Cloud Tasks
+(or the signed exact-loopback local adapter) wakes only
+`/tasks/hiring/prepare_candidate_evidence`. The worker authenticates its
+workload principal before reading the application id, re-resolves the exact
+published role and approved policy, claims one version-fenced lease, decrypts
+only the bound restricted CV, uses the document-ingestion tool, redacts unsafe
+blocks, validates the closed analyst envelope, and commits one idempotent
+Evidence Passport. Delivery or preparation failure is a visible content-free
+`DELAYED`/`FAILED` state; it never becomes a candidate decision. Duplicate
+delivery reuses the same run, evidence ids, assessment id, and event keys.
 
 **Role-package writing boundary:** normal `/hiring` drafting uses the configured
 Gemini model through an injectable, tool-less service boundary. The model sees

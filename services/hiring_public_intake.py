@@ -3,8 +3,10 @@
 The form path is available only when explicitly enabled with a dedicated
 256-bit intake key, for a non-synthetic role whose exact policy and publication
 receipt are current. Applicant name, email, optional message, and resume bytes are
-encrypted before they enter the durable candidate queue or artifact store. No
-assessment, ranking, contact, or provider action is started by intake.
+encrypted before they enter the durable candidate queue or artifact store.
+Intake creates one idempotent evidence-only candidate run and dispatches it to
+the authenticated Hiring worker. No ranking, recommendation, decision,
+identity reveal, contact, connector, or provider action is authorized.
 """
 
 from __future__ import annotations
@@ -28,7 +30,13 @@ from services import document_ingestion, storage
 from services.actor_identity import ActorPrincipal, authorize
 from services.durable_store import AtomicMutation, DurableStore, production_store
 from services.hiring_contracts import CandidateState, RoleState, stable_id, utc_now
+from services.hiring_workflow_adapter import (
+    HiringWorkflowAdapter,
+    founder_application_provenance,
+)
 from services.resource_sensitivity import registration_policy
+from services.workflow_contracts import RunKind
+from services.workflow_runtime import WorkflowRuntime
 
 MAX_RESUME_BYTES = 5 * 1024 * 1024
 TOKEN_TTL_SECONDS = 15 * 60
@@ -224,12 +232,15 @@ def build_public_intake_projection(role: dict[str, Any]) -> dict[str, Any]:
 
 
 class HiringPublicIntakeService:
-    """Validate and enqueue one local-staged public application."""
+    """Validate and durably admit one role-scoped public application."""
 
     def __init__(self, *, store: DurableStore | None = None,
                  local_key: bytes | None = None,
-                 local_enabled: bool | None = None):
+                 local_enabled: bool | None = None,
+                 runtime: WorkflowRuntime | None = None):
         self.store = store or production_store()
+        self.runtime = runtime or WorkflowRuntime(
+            self.store, domain_adapter=HiringWorkflowAdapter())
         self._key = local_key if local_key is not None else _configured_intake_key()
         self._enabled = bool(self._key) if local_enabled is None else local_enabled
         if self._key is not None and len(self._key) != 32:
@@ -327,7 +338,13 @@ class HiringPublicIntakeService:
                               "This application request names different content.", 409)
             return {"status": "success", "duplicate": True,
                     "application_reference": existing.get("candidate_code"),
-                    "application_status": existing.get("candidate_state")}
+                    "application_status": existing.get("candidate_state"),
+                    "evidence_status": str(
+                        existing.get("processing_status") or "EVIDENCE_QUEUED"),
+                    "_dispatch": {
+                        "application_id": application_id,
+                        "dedupe_key": f"hiring-evidence:{application_id}",
+                    }}
 
         now = utc_now()
         candidate_number = int(hashlib.sha256(
@@ -361,18 +378,47 @@ class HiringPublicIntakeService:
             storage.delete_artifact(storage_name)
             return resource_policy
         consent_receipt_id = stable_id("consent", application_id, "public-intake-v1")
+        prepared_run = await self.runtime.prepare_run_creation(
+            workspace_id=str(role["workspace_id"]),
+            journey_id=str(role.get("journey_id") or ""),
+            run_kind=RunKind.CANDIDATE,
+            idempotency_key=f"public-application:{application_id}",
+            domain_ref=application_id,
+            parent_run_id=str(role.get("run_id") or ""),
+            provenance=founder_application_provenance(),
+            workflow_kind="hiring_candidate:v1",
+            priority="NORMAL",
+            budgets={
+                "max_steps": 1, "max_model_calls": 0,
+                "max_provider_calls": 0, "max_tokens": 0,
+                "max_active_seconds": 120, "max_wall_seconds": 600,
+                "max_artifact_bytes": MAX_RESUME_BYTES,
+                "max_artifact_chunks": 100,
+                "max_output_bytes": 262_144, "max_retries": 3,
+                "max_concurrent": 1,
+            })
+        if prepared_run.get("error"):
+            storage.delete_artifact(storage_name)
+            return _error(
+                "evidence_run_unavailable",
+                "The application could not enter the review queue. Try again.", 503)
         application = {
             "schema_version": 1, "candidate_application_id": application_id,
             "workspace_id": role["workspace_id"], "role_id": role_id,
             "candidate_id": candidate_id, "candidate_code": candidate_code,
-            "run_id": None, "journey_id": role.get("journey_id"),
+            "run_id": prepared_run["run_id"],
+            "journey_id": role.get("journey_id"),
             "source_kind": "PUBLIC_FORM", "inbound_channel": "PUBLIC_FORM",
             "candidate_state": CandidateState.RECEIVED.value,
             "current_policy_version_id": role["current_policy_version_id"],
             "current_assessment_id": None, "current_decision_id": None,
             "artifact_ids": [artifact_id], "withdrawal": None,
-            "retention_status": "ACTIVE", "processing_status": "FOUNDER_REVIEW_REQUIRED",
-            "automatic_assessment_allowed": False, "external_actions": [],
+            "retention_status": "ACTIVE", "processing_status": "EVIDENCE_QUEUED",
+            "automatic_assessment_allowed": False,
+            "automatic_evidence_preparation_allowed": True,
+            "evidence_dispatch_status": "PENDING",
+            "evidence_dispatch_error_code": None,
+            "external_actions": [],
             "request_fingerprint": request_fingerprint,
             "consent_receipt_id": consent_receipt_id,
             "intake_mode": "PUBLIC_FORM", "synthetic": False,
@@ -434,6 +480,7 @@ class HiringPublicIntakeService:
             AtomicMutation("hiring_candidate_artifacts", artifact_id, None,
                            record=artifact),
             AtomicMutation("audit", audit_id, None, record=audit),
+            *prepared_run["mutations"],
         ])
         if not committed:
             storage.delete_artifact(storage_name)
@@ -441,12 +488,25 @@ class HiringPublicIntakeService:
             if existing and existing.get("request_fingerprint") == request_fingerprint:
                 return {"status": "success", "duplicate": True,
                         "application_reference": existing.get("candidate_code"),
-                        "application_status": existing.get("candidate_state")}
+                        "application_status": existing.get("candidate_state"),
+                        "evidence_status": str(existing.get(
+                            "processing_status") or "EVIDENCE_QUEUED"),
+                        "_dispatch": {
+                            "application_id": application_id,
+                            "dedupe_key": f"hiring-evidence:{application_id}",
+                        }}
             return _error("intake_concurrency_conflict",
                           "The application could not be committed. Try again.", 409)
+        await self.runtime.publish_created_run(
+            committed[("workflow_runs", str(prepared_run["run_id"]))])
         return {"status": "success", "duplicate": False,
                 "application_reference": candidate_code,
-                "application_status": CandidateState.RECEIVED.value}
+                "application_status": CandidateState.RECEIVED.value,
+                "evidence_status": "EVIDENCE_QUEUED",
+                "_dispatch": {
+                    "application_id": application_id,
+                    "dedupe_key": f"hiring-evidence:{application_id}",
+                }}
 
     async def read_restricted_resume(
             self, *, application: dict[str, Any]) -> dict[str, Any]:

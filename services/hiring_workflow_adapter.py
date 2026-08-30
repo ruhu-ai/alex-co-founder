@@ -30,11 +30,15 @@ def founder_draft_provenance() -> dict[str, str]:
 
 
 def founder_application_provenance() -> dict[str, str]:
-    """Production provenance for explicit Founder-triggered evidence mapping."""
+    """Production provenance for Alex-owned, evidence-only preparation.
+
+    This provenance grants compute authority only. It never grants a human
+    decision, identity reveal, communication, or external-effect authority.
+    """
     return {
         "provenance_class": "FOUNDER_APPLICATION",
-        "processing_mode": "FOUNDER_TRIGGERED_EVIDENCE_ONLY",
-        "policy_version": "founder-public-application-v1",
+        "processing_mode": "ALEX_AUTOMATIC_EVIDENCE_ONLY",
+        "policy_version": "founder-public-application-v2",
     }
 
 
