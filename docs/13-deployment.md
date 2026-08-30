@@ -77,6 +77,8 @@ cp .env.example .env   # fill values
 # acknowledges only after the local webhook succeeds.
 # ALEX_MAIL_PUBSUB_TOPIC=projects/<project>/topics/alex-mail-events
 # ALEX_MAIL_LOCAL_SUBSCRIPTION=projects/<project>/subscriptions/alex-mail-local-dev
+# Isolated clean-main worktrees may reuse the saved project's environment:
+# LOCAL_ENV_FILE=/path/to/project/.env LOCAL_VENV_DIR=/path/to/project/.venv ./scripts/run_local.sh
 # terminal 1
 ./scripts/run_local.sh
 # terminal 2

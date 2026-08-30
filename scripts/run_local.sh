@@ -15,6 +15,7 @@ PORT="8090"
 PORTAL_PORT="8091"
 START_PORTAL=true
 RELOAD=false
+VENV_DIR="${LOCAL_VENV_DIR:-.venv}"
 
 usage() {
   cat <<'EOF'
@@ -35,11 +36,11 @@ while [[ $# -gt 0 ]]; do
   shift
 done
 
-if [[ ! -x .venv/bin/uvicorn ]]; then
-  echo "Missing .venv/bin/uvicorn. Run ./scripts/setup.sh first." >&2
+if [[ ! -x "$VENV_DIR/bin/uvicorn" ]]; then
+  echo "Missing ${VENV_DIR}/bin/uvicorn. Run ./scripts/setup.sh first." >&2
   exit 2
 fi
-if ! .venv/bin/python -c \
+if ! "$VENV_DIR/bin/python" -c \
     'from cryptography.hazmat.backends.openssl.backend import backend; backend.openssl_version_text()' \
     >/dev/null 2>&1; then
   echo "The local cryptography/OpenSSL installation is incompatible." >&2
@@ -91,9 +92,9 @@ fi
 
 run_uvicorn() {
   if [[ "$RELOAD" == true ]]; then
-    .venv/bin/uvicorn "$@" --reload
+    "$VENV_DIR/bin/uvicorn" "$@" --reload
   else
-    .venv/bin/uvicorn "$@"
+    "$VENV_DIR/bin/uvicorn" "$@"
   fi
 }
 
@@ -127,7 +128,7 @@ wait_for_health() {
       wait "$pid" || true
       return 1
     fi
-    if .venv/bin/python - "$url" >/dev/null 2>&1 <<'PY'
+    if "$VENV_DIR/bin/python" - "$url" >/dev/null 2>&1 <<'PY'
 import sys
 import urllib.request
 
@@ -156,7 +157,7 @@ APP_PID=$!
 wait_for_health "Founder app" "${AGENT_BASE_URL}/health" "$APP_PID"
 
 if [[ -n "${ALEX_MAIL_LOCAL_SUBSCRIPTION:-}" ]]; then
-  .venv/bin/python scripts/alex_mail_local_subscriber.py &
+  "$VENV_DIR/bin/python" scripts/alex_mail_local_subscriber.py &
   MAIL_SUBSCRIBER_PID=$!
   sleep 0.5
   if ! kill -0 "$MAIL_SUBSCRIBER_PID" >/dev/null 2>&1; then

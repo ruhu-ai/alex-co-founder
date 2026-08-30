@@ -60,6 +60,7 @@ def test_launcher_supports_external_env_and_event_driven_alex_mail():
     subscriber = (ROOT / "scripts" / "alex_mail_local_subscriber.py").read_text()
 
     assert 'LOCAL_ENV_FILE="${LOCAL_ENV_FILE:-.env}"' in source
+    assert 'VENV_DIR="${LOCAL_VENV_DIR:-.venv}"' in source
     assert "ALEX_MAIL_LOCAL_SUBSCRIPTION" in source
     assert "alex_mail_local_subscriber.py" in source
     assert "SubscriberClient" in subscriber
