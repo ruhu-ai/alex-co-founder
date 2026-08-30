@@ -85,6 +85,11 @@ def test_connector_mutations_use_workspace_scoped_receipted_v1_apis():
     assert "client_request_id" in HTML
 
 
+def test_connector_catalog_uses_the_cloud_safe_versioned_route():
+    assert 'await api("/api/v1/connectors")' in HTML
+    assert 'await api("/api/connectors")' not in HTML
+
+
 def test_alex_drive_is_separate_and_generated_documents_target_it():
     assert 'id="connAlexDrive"' in HTML
     assert 'alex_drive: "connAlexDrive"' in HTML

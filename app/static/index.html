@@ -7181,7 +7181,7 @@ function showConn(which) {
 }
 
 // Registry-driven list (pattern: andrewyng/openworker ConnectorsList): the
-// catalog comes from GET /api/connectors; adding a connector is backend data.
+// catalog comes from GET /api/v1/connectors; adding a connector is backend data.
 let connectorCatalog = [], connShowAll = false;
 
 const CONN_FOLD = 8;
@@ -7309,7 +7309,7 @@ const KIND_TONE = {
 };
 
 async function loadConnections({ probeCalendar = true } = {}) {
-    const cat = await api("/api/connectors");
+    const cat = await api("/api/v1/connectors");
     connectorCatalog = (cat || {}).connectors || [];
     renderConnectorList();
     connState = await api("/api/v1/integrations");
