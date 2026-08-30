@@ -203,6 +203,11 @@ class HiringContactRequest(ClosedRequest):
     client_request_id: str = Field(min_length=8, max_length=128)
     reply: bool = False
     copy_founder: bool = False
+    duration_minutes: int = Field(default=60, ge=30, le=90)
+    subject: str | None = Field(default=None, max_length=240)
+    body: str | None = Field(default=None, max_length=12_000)
+    availability_hash: str = Field(default="", max_length=80)
+    preview_only: bool = False
 
 
 class HiringInterviewRequest(ClosedRequest):
@@ -1511,7 +1516,11 @@ def register(app: FastAPI) -> None:
             production_store()).prepare_contact(
                 principal=principal, application_id=application_id,
                 client_request_id=payload.client_request_id,
-                reply=payload.reply, copy_founder=payload.copy_founder))
+                reply=payload.reply, copy_founder=payload.copy_founder,
+                duration_minutes=payload.duration_minutes,
+                subject=payload.subject, body=payload.body,
+                availability_hash=payload.availability_hash,
+                preview_only=payload.preview_only))
 
     @app.post("/api/hiring/applications/{application_id}/coordination/interview")
     async def prepare_hiring_interview(request: Request, application_id: str,

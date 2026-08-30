@@ -358,6 +358,16 @@ def test_hiring_is_a_dedicated_shared_shell_with_scoped_candidate_work():
     assert "One Founder approval confirms the candidate" in HIRING
     assert "/coordination/contact" in HIRING
     assert "/coordination/interview" in HIRING
+    assert 'id="interviewDuration"' in HIRING
+    assert '<option value="60" selected>60 minutes</option>' in HIRING
+    assert "Review and edit invitation" in HIRING
+    assert 'id="initialContactSubject"' in HIRING
+    assert 'id="initialContactBody"' in HIRING
+    assert "Create approval for this exact invitation" in HIRING
+    assert "preview_only: !reply && !submitDraft" in HIRING
+    assert "availability_hash" in HIRING
+    assert 'item.status === "AWAITING_APPROVAL"' in HIRING
+    assert "Edit sent invitation" not in HIRING
     assert "Approve Alex to coordinate this interview" in HIRING
     assert "Copy the Founder on Alex’s applicant emails" in HIRING
     assert "SYNTHETIC FIXTURE · BOUNDED INTERNAL DEMO" not in HIRING

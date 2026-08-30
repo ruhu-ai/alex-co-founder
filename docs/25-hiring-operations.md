@@ -1540,6 +1540,16 @@ Employment **decisions** and external-action **approvals** are different:
 | change membership status | Founder role + fresh authentication + append-only authority audit |
 | close role/cancel active candidates | authenticated human control plus impact confirmation + fresh authentication |
 
+The initial applicant invitation has a read-only preparation step before any
+approval exists. The Founder chooses 30, 45, 60, or 90 minutes (60 by default),
+reviews duration-aware free ranges, and may edit the subject and body. Creating
+the coordination approval freezes the exact edited message, recipient/copy
+policy, duration, availability hash and proposed ranges. A changed calendar
+invalidates the preview and requires review of refreshed ranges. Once sent, the
+initial invitation is an immutable receipt; it cannot be edited or silently
+replaced. Later thread replies remain covered only by the active bounded
+coordination mandate.
+
 ### 10.2 Approval binding
 
 Hiring approvals extend doc 21/doc 24 binding with `role_id`,

@@ -43,6 +43,8 @@ _MAX_SUBJECT = 240
 _MAX_BODY = 12_000
 _ALEX_ADDRESS = "alex@ruhu.ai"
 _MANDATE_DAYS = 14
+_DEFAULT_INTERVIEW_MINUTES = 60
+_INTERVIEW_DURATION_OPTIONS = frozenset({30, 45, 60, 90})
 
 
 def _error(code: str, message: str, http_status: int = 409) -> dict[str, Any]:
@@ -359,7 +361,8 @@ class HiringCoordinationService:
             "coordination_id", "item_kind", "status", "action_kind", "approval_id",
             "mandate_id",
             "subject", "body", "recipients_masked", "slot_options", "start", "end",
-            "timezone", "target_event_id", "action_id", "error_code", "created_at",
+            "timezone", "duration_minutes", "target_event_id", "action_id",
+            "error_code", "created_at",
             "updated_at")} for row in items]
         for safe, source in zip(safe_items, items, strict=True):
             if (not source.get("mandate_id")
@@ -385,15 +388,20 @@ class HiringCoordinationService:
                 "candidate_state": application.get("candidate_state"),
                 "mandate": ({key: active.get(key) for key in (
                     "mandate_id", "status", "copy_founder", "confirmed_slots",
-                    "email_count", "calendar_action_count", "activated_at",
-                    "expires_at")}
+                    "duration_minutes", "email_count", "calendar_action_count",
+                    "activated_at", "expires_at")}
                     if active else None),
                 "items": safe_items, "replies": safe_replies, "actions": safe_actions}
 
     async def prepare_contact(self, *, principal: ActorPrincipal,
                               application_id: str, client_request_id: str,
                               reply: bool = False,
-                              copy_founder: bool = False) -> dict[str, Any]:
+                              copy_founder: bool = False,
+                              duration_minutes: int = _DEFAULT_INTERVIEW_MINUTES,
+                              subject: str | None = None,
+                              body: str | None = None,
+                              availability_hash: str = "",
+                              preview_only: bool = False) -> dict[str, Any]:
         context = await self._context(
             principal, application_id, require_advanced=True)
         if context.get("error"):
@@ -411,7 +419,13 @@ class HiringCoordinationService:
             candidate_name = str(mandate.get("candidate_first_name") or "there")
             slots = list(mandate["confirmed_slots"])
             copy_founder = bool(mandate.get("copy_founder"))
+            duration_minutes = int(
+                mandate.get("duration_minutes") or _DEFAULT_INTERVIEW_MINUTES)
         else:
+            if duration_minutes not in _INTERVIEW_DURATION_OPTIONS:
+                return _error(
+                    "invalid_contract",
+                    "Interview duration must be 30, 45, 60, or 90 minutes.", 400)
             fresh = await self._context(
                 principal, application_id, require_advanced=True,
                 require_fresh=True)
@@ -421,7 +435,8 @@ class HiringCoordinationService:
             identity = context["identity"]
             candidate_email = str(identity["email"]).strip().casefold()
             candidate_name = str(identity["name"]).strip().split()[0]
-            availability = await self._available_slots(principal.workspace_id)
+            availability = await self._available_slots(
+                principal.workspace_id, duration_minutes=duration_minutes)
             if availability.get("error"):
                 return availability
             slots = availability["slots"]
@@ -430,10 +445,11 @@ class HiringCoordinationService:
                     "founder_copy_unconfigured",
                     "Configure the Founder copy address before including it.", 409)
         role = context["role"]
-        subject = f"Interview availability — {role.get('role_title', 'your application')}"
+        default_subject = (
+            f"Interview availability — {role.get('role_title', 'your application')}")
         provider_thread_id = ""
         if reply:
-            subject = f"Re: {subject}"
+            default_subject = f"Re: {default_subject}"
             prior_sends = [
                 row for row in await self._workspace_rows(
                     "external_actions", principal.workspace_id,
@@ -454,13 +470,49 @@ class HiringCoordinationService:
             f"{index + 1}. {slot['display']}" for index, slot in enumerate(slots))
         opening = ("Thank you for your reply." if reply else
                    "Thank you for applying and for the evidence you shared.")
-        body = (
+        default_body = (
             f"Hi {candidate_name},\n\n{opening} The Founder has reviewed your application "
             "and asked me to advance you to an interview conversation.\n\n"
+            f"The interview is expected to last approximately {duration_minutes} minutes.\n\n"
             "The Founder is currently available at these times:\n"
             f"{rendered}\n\nPlease reply with the option that works best, or suggest alternatives "
             "in the same time zone. I will coordinate the final invitation with the Founder.\n\n"
             "Alex\nAI co-founder, Ruhu")
+        current_availability_hash = canonical_hash({
+            "duration_minutes": duration_minutes,
+            "slots": slots,
+        })
+        if preview_only:
+            if reply or mandate:
+                return _error(
+                    "invalid_contract",
+                    "Only a new initial invitation can be previewed.", 409)
+            recipients = [candidate_email]
+            if copy_founder:
+                recipients.append(_founder_copy_address())
+            return {
+                "status": "success", "preview_only": True,
+                "availability_hash": current_availability_hash,
+                "item": {
+                    "item_kind": "INITIAL_CONTACT",
+                    "subject": default_subject, "body": default_body,
+                    "recipients_masked": [
+                        self._mask_email(value) for value in recipients],
+                    "slot_options": slots,
+                    "duration_minutes": duration_minutes,
+                },
+            }
+        custom_draft = subject is not None or body is not None
+        if custom_draft:
+            if (reply or mandate or not availability_hash
+                    or availability_hash != current_availability_hash):
+                return _error(
+                    "founder_availability_changed",
+                    "Founder availability changed; review the refreshed invitation.", 409)
+            final_subject = str(subject or "").strip()
+            final_body = str(body or "").strip()
+        else:
+            final_subject, final_body = default_subject, default_body
         recipients = [candidate_email]
         if copy_founder:
             recipients.append(_founder_copy_address())
@@ -468,12 +520,13 @@ class HiringCoordinationService:
             principal=principal, context=context, client_request_id=client_request_id,
             item_kind="AVAILABILITY_REPLY" if reply else "INITIAL_CONTACT",
             action_kind="HIRING_SEND_EMAIL", recipients=recipients,
-            payload={"subject": subject, "body": body,
+            payload={"subject": final_subject, "body": final_body,
                      "provider_thread_id": provider_thread_id,
                      "candidate_recipient": candidate_email},
             slot_options=slots, mandate=mandate,
             candidate_first_name=candidate_name,
-            copy_founder=copy_founder)
+            copy_founder=copy_founder,
+            duration_minutes=duration_minutes)
 
     async def prepare_interview(self, *, principal: ActorPrincipal,
                                 application_id: str, start: str, end: str,
@@ -857,7 +910,8 @@ class HiringCoordinationService:
                             slot_options: list[dict[str, str]],
                             mandate: dict[str, Any] | None = None,
                             candidate_first_name: str = "",
-                            copy_founder: bool = False) -> dict[str, Any]:
+                            copy_founder: bool = False,
+                            duration_minutes: int | None = None) -> dict[str, Any]:
         application = context["application"]
         role = context["role"]
         connector_id = "alex_mail" if action_kind == "HIRING_SEND_EMAIL" else "calendar"
@@ -904,6 +958,10 @@ class HiringCoordinationService:
                 "candidate_email": str(payload["candidate_recipient"]),
                 "candidate_first_name": candidate_first_name,
                 "confirmed_slots": slot_options,
+                "duration_minutes": (
+                    duration_minutes or _DEFAULT_INTERVIEW_MINUTES),
+                "initial_message_hash": canonical_hash({
+                    "recipients": recipients, "payload": payload}),
                 "copy_founder": copy_founder,
                 "founder_copy_email": (_founder_copy_address()
                                        if copy_founder else ""),
@@ -936,6 +994,7 @@ class HiringCoordinationService:
             "exact_action": exact, "subject": payload.get("subject"),
             "body": payload.get("body"), "recipients_masked": masked,
             "slot_options": slot_options,
+            "duration_minutes": duration_minutes,
             "start": payload.get("start"), "end": payload.get("end"),
             "timezone": payload.get("timezone"),
             "target_event_id": payload.get("target_event_id"),
@@ -957,7 +1016,8 @@ class HiringCoordinationService:
                 "mandate_active": bool(mandate),
                 "item": {key: row.get(key) for key in (
                     "item_kind", "action_kind", "subject", "body", "recipients_masked",
-                    "slot_options", "start", "end", "timezone", "target_event_id")}}
+                    "slot_options", "duration_minutes", "start", "end", "timezone",
+                    "target_event_id")}}
 
     async def _finish(self, *, item_id: str, action: dict[str, Any],
                       result: dict[str, Any]) -> dict[str, Any]:
@@ -1071,7 +1131,13 @@ class HiringCoordinationService:
             result["identity"] = revealed["identity"]
         return result
 
-    async def _available_slots(self, workspace_id: str) -> dict[str, Any]:
+    async def _available_slots(
+            self, workspace_id: str, *,
+            duration_minutes: int = _DEFAULT_INTERVIEW_MINUTES) -> dict[str, Any]:
+        if duration_minutes not in _INTERVIEW_DURATION_OPTIONS:
+            return _error(
+                "invalid_contract",
+                "Interview duration must be 30, 45, 60, or 90 minutes.", 400)
         preflight = await self.adapter.preflight(
             workspace_id=workspace_id, connector_id="calendar")
         if preflight.get("status") != "success":
@@ -1101,13 +1167,15 @@ class HiringCoordinationService:
                 continue
             for hour in (10, 14, 16):
                 start = datetime.combine(day, time(hour=hour), zone)
-                end = start + timedelta(minutes=45)
+                end = start + timedelta(minutes=duration_minutes)
                 start_utc, end_utc = start.astimezone(timezone.utc), end.astimezone(timezone.utc)
                 if all(end_utc <= blocked_start or start_utc >= blocked_end
                        for blocked_start, blocked_end in busy):
                     slots.append({"start": start.isoformat(), "end": end.isoformat(),
                                   "timezone": timezone_name,
-                                  "display": start.strftime("%a %d %b, %H:%M %Z")})
+                                  "display": (
+                                      f"{start.strftime('%a %d %b, %H:%M')}–"
+                                      f"{end.strftime('%H:%M %Z')}")})
                 if len(slots) == 3:
                     return {"status": "success", "slots": slots,
                             "timezone": timezone_name}
@@ -1186,6 +1254,12 @@ class HiringCoordinationService:
                 return _error(
                     "coordination_mandate_invalid",
                     "The first message cannot join an unrelated thread.", 409)
+            if (int(mandate.get("email_count") or 0) == 0
+                    and mandate.get("initial_message_hash") != canonical_hash({
+                        "recipients": recipients, "payload": payload})):
+                return _error(
+                    "coordination_mandate_invalid",
+                    "The initial invitation changed after Founder approval.", 409)
             if (int(mandate.get("email_count") or 0) > 0
                     and (not expected_thread_id
                          or actual_thread_id != expected_thread_id)):

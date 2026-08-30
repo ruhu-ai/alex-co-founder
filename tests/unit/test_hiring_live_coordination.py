@@ -163,6 +163,143 @@ async def test_advance_prepares_exact_real_email_and_executes_once(
 
 
 @pytest.mark.asyncio
+async def test_initial_invitation_preview_is_editable_duration_bound_and_read_only(
+        founder, monkeypatch):
+    store, provider = InMemoryDurableStore(), _Provider()
+    application_id = await _seed(store)
+
+    async def availability(*args, **kwargs):
+        return {"status": "success", "busy": [], "window": {}}
+
+    monkeypatch.setattr("services.calendar_adapter.check_availability", availability)
+    service = _service(store, provider)
+    preview = await service.prepare_contact(
+        principal=founder, application_id=application_id,
+        client_request_id="contact_preview_0001", duration_minutes=60,
+        copy_founder=False, preview_only=True)
+
+    assert preview["status"] == "success"
+    assert preview["preview_only"] is True
+    assert preview["item"]["duration_minutes"] == 60
+    assert "approximately 60 minutes" in preview["item"]["body"]
+    assert all(
+        int((datetime.fromisoformat(slot["end"]) -
+             datetime.fromisoformat(slot["start"])).total_seconds()) == 3600
+        for slot in preview["item"]["slot_options"])
+    assert all("–" in slot["display"] for slot in preview["item"]["slot_options"])
+    assert await store.list("approvals", filters={}) == []
+    assert await store.list("hiring_coordination_items", filters={}) == []
+    assert provider.calls == []
+
+    custom_subject = "Your Ruhu interview — choose a one-hour time"
+    custom_body = preview["item"]["body"].replace(
+        "interview conversation", "one-hour interview conversation")
+    prepared = await service.prepare_contact(
+        principal=founder, application_id=application_id,
+        client_request_id="contact_submit_0001", duration_minutes=60,
+        subject=custom_subject, body=custom_body,
+        availability_hash=preview["availability_hash"])
+
+    assert prepared["item"]["subject"] == custom_subject
+    assert prepared["item"]["body"] == custom_body
+    assert prepared["item"]["duration_minutes"] == 60
+    assert len(await store.list("approvals", filters={})) == 1
+    stored = await store.get(
+        "hiring_coordination_items", prepared["coordination_id"])
+    assert stored["status"] == "AWAITING_APPROVAL"
+    assert stored["exact_action"]["payload"]["subject"] == custom_subject
+    assert stored["mandate_exact"]["duration_minutes"] == 60
+    assert stored["mandate_exact"]["initial_message_hash"]
+    conflict = await service.prepare_contact(
+        principal=founder, application_id=application_id,
+        client_request_id="contact_submit_0001", duration_minutes=60,
+        subject="Changed after approval creation", body=custom_body,
+        availability_hash=preview["availability_hash"])
+    assert conflict["error_code"] == "idempotency_conflict"
+    unchanged = await store.get(
+        "hiring_coordination_items", prepared["coordination_id"])
+    assert unchanged["subject"] == custom_subject
+
+    await resolve_approval(
+        principal=founder, approval_id=prepared["approval_id"],
+        decision="GRANT", store=store)
+    sent = await service.execute(
+        principal=founder, application_id=application_id,
+        coordination_id=prepared["coordination_id"],
+        approval_id=prepared["approval_id"])
+    assert sent["receipt_status"] == "SUCCEEDED"
+    receipt = await store.get(
+        "hiring_coordination_items", prepared["coordination_id"])
+    assert receipt["status"] == "SUCCEEDED"
+    assert receipt["subject"] == custom_subject
+    assert receipt["body"] == custom_body
+
+
+@pytest.mark.asyncio
+async def test_changed_availability_or_unsupported_duration_creates_no_approval(
+        founder, monkeypatch):
+    store, provider = InMemoryDurableStore(), _Provider()
+    application_id = await _seed(store)
+
+    async def availability(*args, **kwargs):
+        return {"status": "success", "busy": [], "window": {}}
+
+    monkeypatch.setattr("services.calendar_adapter.check_availability", availability)
+    service = _service(store, provider)
+    stale = await service.prepare_contact(
+        principal=founder, application_id=application_id,
+        client_request_id="contact_stale_0001", duration_minutes=60,
+        subject="Interview", body="A complete edited invitation.",
+        availability_hash="sha256:stale")
+    invalid = await service.prepare_contact(
+        principal=founder, application_id=application_id,
+        client_request_id="contact_duration_0001", duration_minutes=75,
+        preview_only=True)
+
+    assert stale["error_code"] == "founder_availability_changed"
+    assert invalid["error_code"] == "invalid_contract"
+    assert await store.list("approvals", filters={}) == []
+    assert await store.list("hiring_coordination_items", filters={}) == []
+    assert provider.calls == []
+
+
+@pytest.mark.asyncio
+async def test_approved_initial_invitation_rejects_payload_tampering(
+        founder, monkeypatch):
+    store, provider = InMemoryDurableStore(), _Provider()
+    application_id = await _seed(store)
+
+    async def availability(*args, **kwargs):
+        return {"status": "success", "busy": [], "window": {}}
+
+    monkeypatch.setattr("services.calendar_adapter.check_availability", availability)
+    service = _service(store, provider)
+    prepared = await service.prepare_contact(
+        principal=founder, application_id=application_id,
+        client_request_id="contact_tamper_0001")
+    await resolve_approval(
+        principal=founder, approval_id=prepared["approval_id"],
+        decision="GRANT", store=store)
+    item = await store.get(
+        "hiring_coordination_items", prepared["coordination_id"])
+    changed_exact = dict(item["exact_action"])
+    changed_exact["payload"] = {
+        **changed_exact["payload"], "body": "Tampered after approval"}
+    await store.compare_and_set(
+        "hiring_coordination_items", prepared["coordination_id"],
+        item["version"], {"exact_action": changed_exact})
+
+    denied = await service.execute(
+        principal=founder, application_id=application_id,
+        coordination_id=prepared["coordination_id"],
+        approval_id=prepared["approval_id"])
+
+    assert denied["error_code"] == "coordination_mandate_invalid"
+    assert provider.calls == []
+    assert await store.list("external_actions", filters={}) == []
+
+
+@pytest.mark.asyncio
 async def test_non_advanced_synthetic_cross_tenant_and_kill_switch_fail_closed(
         founder, monkeypatch):
     store, provider = InMemoryDurableStore(), _Provider()
