@@ -72,6 +72,11 @@ form is what Cloud Run mounts with `--add-cloudsql-instances`.
 ```bash
 ./scripts/setup.sh && source .venv/bin/activate
 cp .env.example .env   # fill values
+# For automatic local Alex Mail wakeups, use the deployed Gmail topic and the
+# dedicated pull subscription. The launcher starts a streaming subscriber and
+# acknowledges only after the local webhook succeeds.
+# ALEX_MAIL_PUBSUB_TOPIC=projects/<project>/topics/alex-mail-events
+# ALEX_MAIL_LOCAL_SUBSCRIPTION=projects/<project>/subscriptions/alex-mail-local-dev
 # terminal 1
 ./scripts/run_local.sh
 # terminal 2
@@ -129,8 +134,8 @@ not alter any other collection. Bootstrap the one-role workspace after reset.
 | Cloud SQL | Postgres 16, `db-f1-micro`, private IP optional | ADK sessions in prod |
 | GCS bucket | `gs://<project>-artifacts` | artifact service URI |
 | Secret Manager | `mock-portal-creds`, `portal-webhook-token` | |
-| Pub/Sub topics | `deadline-tick` | Discovery is founder-invoked through Cloud Tasks; **no discovery or distill topic** |
-| Scheduler jobs | `deadline-scan-6h` (`0 */6 * * *`), legacy-named `command-outbox-recovery-1m` (`*/15 * * * *`) | The first publishes the deadline tick. The second is a low-frequency crash-window safety net for the primary event-driven dispatch; it invokes the bounded outbox worker as `timers-worker@` and never runs a model or provider effect. Discovery is never scheduled. |
+| Pub/Sub topics | `deadline-tick`, `alex-mail-events` | Gmail publishes content-free history notifications to `alex-mail-events`. Authenticated Cloud Run push and the dedicated local streaming-pull subscription consume the same idempotent event stream. Discovery is founder-invoked through Cloud Tasks; **no discovery or distill topic**. |
+| Scheduler jobs | `deadline-scan-6h` (`0 */6 * * *`), legacy-named `command-outbox-recovery-1m` (`*/15 * * * *`), `alex-mail-watch-renew-daily` (`17 3 * * *`) | The first publishes the deadline tick. The second is a low-frequency crash-window safety net for the primary event-driven dispatch. The third renews the expiring unfiltered Gmail watch through the timers workload identity; it does not poll mail or run a model. Discovery is never scheduled. |
 | Cloud Tasks queue | `co-founder-events` | Durable HTTP dispatch for portal-event/agent wakes; OIDC-authenticated as `scheduler-invoker@`, max concurrency 1, max attempts 5. Browser expiry does not share this queue. |
 | Cloud Tasks queue | `co-founder-browser-expiry` | Generation-safe `/tasks/browser_expire` dispatch only (22); OIDC-authenticated, max concurrency 4, max attempts 3. Separating it prevents an agent wake or retry from delaying resource release. |
 | Cloud Tasks queue | `co-founder-timers` | Generation-fenced workflow timer checkpoints only; max concurrency 8, max attempts 5. Long waits roll through bounded 28-day checkpoints and the durable wait remains authority. |

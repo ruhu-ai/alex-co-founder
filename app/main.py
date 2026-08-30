@@ -271,6 +271,7 @@ async def _verify_oidc(request: Request) -> bool:
         "/tasks/investor_outreach_prepare": "TASKS_DISCOVERY_INGESTION_SA",
         "/tasks/reconcile_ingestion_orphans": "TASKS_DISCOVERY_INGESTION_SA",
         "/tasks/deadline_scan": "TASKS_TIMERS_SA",
+        "/tasks/hiring/renew_mailbox_watch": "TASKS_TIMERS_SA",
         "/tasks/workflow_timer_checkpoint": "TASKS_TIMERS_SA",
         "/tasks/workflow_timer_recover": "TASKS_TIMERS_SA",
         "/tasks/dispatch_command_outbox": "TASKS_TIMERS_SA",
@@ -4514,6 +4515,39 @@ async def api_v1_alex_mail_watch(payload: ConnectorCommandV1, request: Request):
         error_code=str(result.get("error_code") or "watch_registration_failed"))
     return JSONResponse(terminal, status_code=(
         200 if not result.get("error") else command_http_status(terminal)))
+
+
+@app.post("/tasks/hiring/renew_mailbox_watch")
+async def tasks_hiring_renew_mailbox_watch(request: Request):
+    """Renew Alex's Gmail watch for the single Founder workspace.
+
+    This is connector maintenance, not candidate polling or model authority.
+    Production accepts only the timers workload identity, and the connector
+    registry must still authorize the exact Alex Mail binding before Gmail is
+    called.  Provider errors remain typed data and update connector health.
+    """
+    if not await _verify_task_caller(request):
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    from services import alex_mailbox, connection_registry
+
+    topic = os.environ.get("ALEX_MAIL_PUBSUB_TOPIC", "")
+    if not topic:
+        return JSONResponse(
+            {"status": "error", "error": True,
+             "error_code": "connector_not_configured",
+             "message": "Alex mail push topic is not configured."},
+            status_code=503)
+    gate = await connection_registry.authorize_connector_operation(
+        FOUNDER_ID, "alex_mail")
+    if gate.get("error"):
+        return JSONResponse(gate, status_code=503)
+    result = await alex_mailbox.start_watch(topic, workspace_id=FOUNDER_ID)
+    await connection_registry.record_operation_result(
+        FOUNDER_ID, "alex_mail", "gmail_watch_renewal", result)
+    if result.get("error"):
+        return JSONResponse(result, status_code=503)
+    return {"status": "success", "watch": "renewed",
+            "expiration": result.get("expiration")}
 
 
 @app.post("/api/integrations/drive/files")

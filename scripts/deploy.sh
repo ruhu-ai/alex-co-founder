@@ -178,9 +178,19 @@ sys.exit(0 if ok else 1)' \
   || { echo "browser frame lifecycle verification failed (need Delete @ age 7 on browserframe_)"; exit 1; }
 
 echo "==> Pub/Sub topics"
-for TOPIC in deadline-tick; do
+for TOPIC in deadline-tick alex-mail-events; do
   gcloud pubsub topics describe "$TOPIC" >/dev/null 2>&1 || gcloud pubsub topics create "$TOPIC"
 done
+# Gmail, not the application's runtime identity, publishes mailbox history
+# notifications. This grant is topic-scoped and carries no mailbox-read access.
+gcloud pubsub topics add-iam-policy-binding alex-mail-events \
+  --member="serviceAccount:gmail-api-push@system.gserviceaccount.com" \
+  --role=roles/pubsub.publisher --format=none >/dev/null
+# A durable pull subscription lets the local 8090 launcher receive the same
+# event stream without exposing a loopback server to the internet.
+gcloud pubsub subscriptions describe alex-mail-local-dev >/dev/null 2>&1 \
+  || gcloud pubsub subscriptions create alex-mail-local-dev \
+       --topic=alex-mail-events --ack-deadline=60
 
 echo "==> Deploy mock-portal"
 gcloud run deploy mock-portal --source ./mock_portal --region="$REGION" \
@@ -240,6 +250,8 @@ for key in ("TASKS_PROVIDER_EVENTS_SA", "TASKS_DISCOVERY_INGESTION_SA",
     vals[key] = os.environ[key]
 vals["MOCK_PORTAL_URL"] = os.environ["MOCK_PORTAL_URL"]  # override with live URL
 vals["GOOGLE_CLOUD_REGION"] = os.environ["GOOGLE_CLOUD_REGION"]
+vals["ALEX_MAIL_PUBSUB_TOPIC"] = (
+    f"projects/{os.environ.get('GOOGLE_CLOUD_PROJECT', '')}/topics/alex-mail-events")
 vals["HIRING_WORKLOAD_ALLOWLIST_JSON"] = json.dumps({
     "/tasks/hiring/process_mailbox_batch": [os.environ["TASKS_INVOKER_SA"]],
 }, separators=(",", ":"))
@@ -331,6 +343,9 @@ PROJECT_NUMBER="$(gcloud projects describe "$GOOGLE_CLOUD_PROJECT" --format='val
 gcloud iam service-accounts add-iam-policy-binding "$SA" \
   --member="serviceAccount:service-${PROJECT_NUMBER}@gcp-sa-pubsub.iam.gserviceaccount.com" \
   --role=roles/iam.serviceAccountTokenCreator --format=none >/dev/null
+gcloud iam service-accounts add-iam-policy-binding "$PROVIDER_EVENTS_SA" \
+  --member="serviceAccount:service-${PROJECT_NUMBER}@gcp-sa-pubsub.iam.gserviceaccount.com" \
+  --role=roles/iam.serviceAccountTokenCreator --format=none >/dev/null
 # The scheduler service agent mints the audience-bound token as the timers
 # worker. The app then verifies both token audience and exact caller email.
 gcloud iam service-accounts add-iam-policy-binding "$TIMERS_SA" \
@@ -350,6 +365,20 @@ else
     --oidc-token-audience="$APP_URL" --headers="Content-Type=application/json" \
     --message-body='{}'
 fi
+echo "==> Alex Mail watch renewal scheduler (idempotent)"
+if gcloud scheduler jobs describe alex-mail-watch-renew-daily --location="$REGION" >/dev/null 2>&1; then
+  gcloud scheduler jobs update http alex-mail-watch-renew-daily --location="$REGION" \
+    --schedule="17 3 * * *" --uri="$APP_URL/tasks/hiring/renew_mailbox_watch" \
+    --http-method=POST --oidc-service-account-email="$TIMERS_SA" \
+    --oidc-token-audience="$APP_URL" --headers="Content-Type=application/json" \
+    --message-body='{}'
+else
+  gcloud scheduler jobs create http alex-mail-watch-renew-daily --location="$REGION" \
+    --schedule="17 3 * * *" --uri="$APP_URL/tasks/hiring/renew_mailbox_watch" \
+    --http-method=POST --oidc-service-account-email="$TIMERS_SA" \
+    --oidc-token-audience="$APP_URL" --headers="Content-Type=application/json" \
+    --message-body='{}'
+fi
 gcloud pubsub subscriptions describe deadline-tick-push >/dev/null 2>&1 \
   || gcloud pubsub subscriptions create deadline-tick-push --topic=deadline-tick \
        --push-endpoint="$APP_URL/webhooks/deadline" \
@@ -359,6 +388,17 @@ gcloud pubsub subscriptions describe deadline-tick-push >/dev/null 2>&1 \
 # Correct drift on existing subscriptions. The webhook only performs a durable
 # enqueue, but 600 seconds also covers a cold start without duplicate delivery.
 gcloud pubsub subscriptions update deadline-tick-push --ack-deadline=600 >/dev/null
+if gcloud pubsub subscriptions describe alex-mail-cloud-run >/dev/null 2>&1; then
+  gcloud pubsub subscriptions update alex-mail-cloud-run \
+    --push-endpoint="$APP_URL/webhooks/alex_mail" \
+    --push-auth-service-account="$PROVIDER_EVENTS_SA" \
+    --push-auth-token-audience="$APP_URL" --ack-deadline=600 >/dev/null
+else
+  gcloud pubsub subscriptions create alex-mail-cloud-run --topic=alex-mail-events \
+    --push-endpoint="$APP_URL/webhooks/alex_mail" \
+    --push-auth-service-account="$PROVIDER_EVENTS_SA" \
+    --push-auth-token-audience="$APP_URL" --ack-deadline=600
+fi
 
 echo "==> Done. Verify: docs/13 §verification checklist."
 echo "    APP:  $APP_URL"

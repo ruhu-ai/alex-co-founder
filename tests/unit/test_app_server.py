@@ -1018,6 +1018,50 @@ class TestFounderInboxApi:
         assert client.post("/webhooks/portal_event",
                            json={"kind": "ping"}).status_code == 401
 
+    def test_alex_mail_watch_renewal_is_workload_only_and_unfiltered(
+            self, appmod, client, monkeypatch):
+        from services import alex_mailbox, connection_registry
+
+        monkeypatch.setenv("K_SERVICE", "co-founder")
+        monkeypatch.setenv(
+            "ALEX_MAIL_PUBSUB_TOPIC",
+            "projects/project-1/topics/alex-mail-events")
+        assert client.post("/tasks/hiring/renew_mailbox_watch").status_code == 401
+
+        async def _allow(_request):
+            return True
+
+        async def _gate(workspace_id, connector_id):
+            assert (workspace_id, connector_id) == (appmod.FOUNDER_ID, "alex_mail")
+            return {"status": "success"}
+
+        seen = []
+
+        async def _watch(topic, workspace_id=""):
+            seen.append((topic, workspace_id))
+            return {"status": "success", "expiration": "9999999999999"}
+
+        async def _record(*args):
+            seen.append(args)
+            return {"status": "success"}
+
+        monkeypatch.setattr(appmod, "_verify_task_caller", _allow)
+        monkeypatch.setattr(connection_registry,
+                            "authorize_connector_operation", _gate)
+        monkeypatch.setattr(alex_mailbox, "start_watch", _watch)
+        monkeypatch.setattr(connection_registry, "record_operation_result", _record)
+
+        response = client.post("/tasks/hiring/renew_mailbox_watch")
+
+        assert response.status_code == 200
+        assert response.json() == {
+            "status": "success", "watch": "renewed",
+            "expiration": "9999999999999"}
+        assert seen[0] == (
+            "projects/project-1/topics/alex-mail-events", appmod.FOUNDER_ID)
+        assert seen[1][:3] == (
+            appmod.FOUNDER_ID, "alex_mail", "gmail_watch_renewal")
+
 
 class TestDiscoverCommandAdapter:
     @pytest.mark.asyncio

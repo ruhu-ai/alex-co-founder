@@ -426,15 +426,19 @@ async def fetch_history_events(workspace_id: str = "") -> dict:
 
 
 async def start_watch(topic: str, workspace_id: str = "") -> dict:
-    """Register Gmail push notifications for Alex's inbox on a Pub/Sub topic
-    (projects/<p>/topics/<t>). Gmail requires re-registration every 7 days —
-    the deadline tick re-arms it."""
+    """Register an unfiltered Gmail history watch for Alex's role mailbox.
+
+    Gmail watches expire and are renewed by the authenticated maintenance
+    route.  Deliberately omit ``labelIds``: an applicant reply may be archived
+    or labelled before the history fetch, and mailbox organization must never
+    make a durable hiring event disappear.
+    """
     svc = await asyncio.to_thread(_service, workspace_id)
     if svc is None:
         return _no_oauth()
     try:
-        resp = await asyncio.to_thread(lambda: svc.users().watch(userId="me", body={
-            "labelIds": ["INBOX"], "topicName": topic}).execute())
+        resp = await asyncio.to_thread(lambda: svc.users().watch(
+            userId="me", body={"topicName": topic}).execute())
     except Exception as exc:
         return {"status": "error", "error": True, "message": f"watch failed: {exc}"}
     if resp.get("historyId"):

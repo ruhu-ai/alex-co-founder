@@ -58,11 +58,14 @@ elif ! gcloud auth application-default print-access-token >/dev/null 2>&1; then
 fi
 
 # Load non-secret local settings if present, then deliberately make the app
-# origin authoritative for this process. Do not edit .env at runtime.
-if [[ -f .env ]]; then
+# origin authoritative for this process. An explicit file lets an isolated
+# clean-main checkout reuse the developer's local settings without copying or
+# mutating them. Do not edit either file at runtime.
+LOCAL_ENV_FILE="${LOCAL_ENV_FILE:-.env}"
+if [[ -f "$LOCAL_ENV_FILE" ]]; then
   set -a
   # shellcheck disable=SC1091
-  source .env
+  source "$LOCAL_ENV_FILE"
   set +a
 fi
 export AGENT_BASE_URL="http://${HOST}:${PORT}"
@@ -96,12 +99,14 @@ run_uvicorn() {
 
 APP_PID=""
 PORTAL_PID=""
+MAIL_SUBSCRIBER_PID=""
 
 cleanup() {
   trap - EXIT INT TERM
   local pids=()
   [[ -n "$APP_PID" ]] && pids+=("$APP_PID")
   [[ -n "$PORTAL_PID" ]] && pids+=("$PORTAL_PID")
+  [[ -n "$MAIL_SUBSCRIBER_PID" ]] && pids+=("$MAIL_SUBSCRIBER_PID")
   if [[ ${#pids[@]} -gt 0 ]]; then
     kill -TERM "${pids[@]}" >/dev/null 2>&1 || true
     wait "${pids[@]}" 2>/dev/null || true
@@ -150,11 +155,25 @@ run_uvicorn app.main:app --host "$HOST" --port "$PORT" &
 APP_PID=$!
 wait_for_health "Founder app" "${AGENT_BASE_URL}/health" "$APP_PID"
 
+if [[ -n "${ALEX_MAIL_LOCAL_SUBSCRIPTION:-}" ]]; then
+  .venv/bin/python scripts/alex_mail_local_subscriber.py &
+  MAIL_SUBSCRIBER_PID=$!
+  sleep 0.5
+  if ! kill -0 "$MAIL_SUBSCRIBER_PID" >/dev/null 2>&1; then
+    echo "Alex Mail local event subscriber failed to start." >&2
+    wait "$MAIL_SUBSCRIBER_PID" || true
+    exit 1
+  fi
+fi
+
 echo
 echo "Local stack is ready:"
 echo "  Founder app: ${AGENT_BASE_URL}"
 if [[ "$START_PORTAL" == true ]]; then
   echo "  Mock portal: ${MOCK_PORTAL_URL}"
+fi
+if [[ -n "$MAIL_SUBSCRIBER_PID" ]]; then
+  echo "  Alex Mail: automatic Pub/Sub wake enabled"
 fi
 echo "Press Ctrl-C to stop."
 
@@ -163,6 +182,10 @@ echo "Press Ctrl-C to stop."
 while kill -0 "$APP_PID" >/dev/null 2>&1; do
   if [[ -n "$PORTAL_PID" ]] && ! kill -0 "$PORTAL_PID" >/dev/null 2>&1; then
     echo "Mock portal stopped; shutting down the local stack." >&2
+    exit 1
+  fi
+  if [[ -n "$MAIL_SUBSCRIBER_PID" ]] && ! kill -0 "$MAIL_SUBSCRIBER_PID" >/dev/null 2>&1; then
+    echo "Alex Mail local event subscriber stopped; shutting down the local stack." >&2
     exit 1
   fi
   sleep 1

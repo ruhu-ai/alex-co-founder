@@ -192,6 +192,23 @@ def test_discovery_is_manual_only_and_deadline_monitoring_stays_scheduled():
     assert "this route is not scheduled" in main_source
 
 
+def test_alex_mail_push_and_watch_renewal_are_deployment_managed():
+    deploy = (ROOT / "scripts/deploy.sh").read_text()
+    mailbox = (ROOT / "services/alex_mailbox.py").read_text()
+
+    assert "alex-mail-events" in deploy
+    assert "gmail-api-push@system.gserviceaccount.com" in deploy
+    assert "alex-mail-cloud-run" in deploy
+    assert "alex-mail-local-dev" in deploy
+    assert "alex-mail-watch-renew-daily" in deploy
+    assert "/tasks/hiring/renew_mailbox_watch" in deploy
+    watch = mailbox.split("async def start_watch", 1)[1].split(
+        "async def search_messages", 1)[0]
+    assert 'body={"topicName": topic}' in watch
+    provider_call = watch.split("svc.users().watch", 1)[1]
+    assert "labelIds" not in provider_call
+
+
 def test_agent_engine_deploy_reuses_one_scale_to_zero_resource():
     deploy = (ROOT / "scripts/deploy_agent_engine.sh").read_text()
     config = json.loads(

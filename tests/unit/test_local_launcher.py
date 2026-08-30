@@ -55,6 +55,19 @@ def test_launcher_has_valid_shell_syntax():
     assert result.returncode == 0, result.stderr
 
 
+def test_launcher_supports_external_env_and_event_driven_alex_mail():
+    source = LAUNCHER.read_text()
+    subscriber = (ROOT / "scripts" / "alex_mail_local_subscriber.py").read_text()
+
+    assert 'LOCAL_ENV_FILE="${LOCAL_ENV_FILE:-.env}"' in source
+    assert "ALEX_MAIL_LOCAL_SUBSCRIPTION" in source
+    assert "alex_mail_local_subscriber.py" in source
+    assert "SubscriberClient" in subscriber
+    assert "message.ack()" in subscriber
+    assert "message.nack()" in subscriber
+    assert "127.0.0.1:8090/webhooks/alex_mail" not in subscriber
+
+
 def test_launcher_fails_before_start_when_environment_is_missing(tmp_path):
     script = _copy_launcher(tmp_path, with_uvicorn=False)
     result = _run(script, path="/usr/bin:/bin")

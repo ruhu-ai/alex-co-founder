@@ -90,6 +90,7 @@ class _FakeHistory:
 class _FakeUsers:
     def __init__(self, messages, history=None, profile=None):
         self._m, self._h, self._profile = messages, history, profile
+        self.watch_requests = []
 
     def messages(self):
         return self._m
@@ -101,6 +102,10 @@ class _FakeUsers:
         if self._profile is None:
             raise RuntimeError("getProfile unavailable")
         return _Req(self._profile)
+
+    def watch(self, *, userId, body):
+        self.watch_requests.append({"userId": userId, "body": body})
+        return _Req({"historyId": "901", "expiration": "9999999999999"})
 
 
 class _FakeGmail:
@@ -115,6 +120,28 @@ def _use(messages, history=None, profile=None):
     users = _FakeUsers(messages, history=history, profile=profile)
     alex_mailbox.set_service_factory(lambda: _FakeGmail(users))
     return messages
+
+
+@pytest.mark.asyncio
+async def test_watch_is_unfiltered_and_persists_exact_provider_cursor(monkeypatch):
+    users = _FakeUsers(_FakeMessages())
+    alex_mailbox.set_service_factory(lambda: _FakeGmail(users))
+    writes = []
+
+    async def _set(history_id, workspace_id):
+        writes.append((history_id, workspace_id))
+
+    monkeypatch.setattr(firestore, "set_alex_history_id", _set)
+    result = await alex_mailbox.start_watch(
+        "projects/project-1/topics/alex-mail-events", "founder")
+
+    assert result == {"status": "success", "history_id": "901",
+                      "expiration": "9999999999999"}
+    assert users.watch_requests == [{
+        "userId": "me",
+        "body": {"topicName": "projects/project-1/topics/alex-mail-events"},
+    }]
+    assert writes == [("901", "founder")]
 
 
 def _expired_404():
