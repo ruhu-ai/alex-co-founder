@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import datetime
 
 import pytest
 
@@ -103,6 +103,28 @@ def _service(store, provider):
     return HiringCoordinationService(store=store, adapter=provider, intake=_Identity())
 
 
+async def _activate_mandate(service, store, founder, application_id, monkeypatch):
+    async def availability(*args, **kwargs):
+        return {"status": "success", "busy": [], "window": {}}
+
+    monkeypatch.setattr("services.calendar_adapter.check_availability", availability)
+    prepared = await service.prepare_contact(
+        principal=founder, application_id=application_id,
+        client_request_id="mandate_activation_contact")
+    await resolve_approval(
+        principal=founder, approval_id=prepared["approval_id"],
+        decision="GRANT", store=store)
+    sent = await service.execute(
+        principal=founder, application_id=application_id,
+        coordination_id=prepared["coordination_id"],
+        approval_id=prepared["approval_id"])
+    assert sent["receipt_status"] == "SUCCEEDED"
+    mandates = await store.list(
+        "hiring_coordination_mandates", filters={"workspace_id": "founder"})
+    assert len(mandates) == 1
+    return mandates[0]
+
+
 @pytest.mark.asyncio
 async def test_advance_prepares_exact_real_email_and_executes_once(
         founder, monkeypatch):
@@ -128,6 +150,10 @@ async def test_advance_prepares_exact_real_email_and_executes_once(
         coordination_id=prepared["coordination_id"],
         approval_id=prepared["approval_id"])
     assert sent["receipt_status"] == "SUCCEEDED"
+    mandate = await store.get(
+        "hiring_coordination_mandates", prepared["mandate_id"])
+    assert mandate["status"] == "ACTIVE"
+    assert mandate["email_count"] == 1
     duplicate = await _service(store, provider).execute(
         principal=founder, application_id=application_id,
         coordination_id=prepared["coordination_id"],
@@ -204,12 +230,72 @@ async def test_reply_requires_exact_thread_and_candidate_sender(founder, monkeyp
             "from": "Ada Candidate <ada@example.test>", "subject": "Re: interview",
             "excerpt": "Option two works for me.", "kind": "update"})
     assert reply["candidate_application_id"] == application_id
+    assert reply["continuation_status"] == "success"
+    assert [call["action_kind"] for call in provider.calls] == [
+        "HIRING_SEND_EMAIL", "HIRING_CREATE_INTERVIEW"]
     duplicate = await service.correlate_reply(
         workspace_id="founder", provider_event={
             "id": "message_exact", "thread_id": "thread_hiring_1",
             "from": "Ada Candidate <ada@example.test>", "subject": "Re: interview",
             "excerpt": "Option two works for me.", "kind": "update"})
     assert duplicate["duplicate"] is True
+
+
+@pytest.mark.asyncio
+async def test_ambiguous_reply_gets_bounded_alex_followup_without_new_approval(
+        founder, monkeypatch):
+    store, provider = InMemoryDurableStore(), _Provider()
+    application_id = await _seed(store)
+    service = _service(store, provider)
+    mandate = await _activate_mandate(
+        service, store, founder, application_id, monkeypatch)
+    approval_count = len(await store.list("approvals", filters={}))
+    reply = await service.correlate_reply(
+        workspace_id="founder", provider_event={
+            "id": "message_ambiguous", "thread_id": "thread_hiring_1",
+            "from": "Ada Candidate <ada@example.test>",
+            "subject": "Re: Interview availability",
+            "excerpt": "Could you remind me of the available times?", "kind": "update"})
+    assert reply["continuation_status"] == "success"
+    assert len(await store.list("approvals", filters={})) == approval_count == 1
+    assert [call["action_kind"] for call in provider.calls] == [
+        "HIRING_SEND_EMAIL", "HIRING_SEND_EMAIL"]
+    refreshed = await store.get(
+        "hiring_coordination_mandates", mandate["mandate_id"])
+    assert refreshed["email_count"] == 2
+
+
+@pytest.mark.asyncio
+async def test_founder_copy_is_fixed_by_mandate_and_never_candidate_authority(
+        founder, monkeypatch):
+    monkeypatch.setenv("HIRING_FOUNDER_COPY_EMAIL", "founder@example.test")
+    store, provider = InMemoryDurableStore(), _Provider()
+    application_id = await _seed(store)
+
+    async def availability(*args, **kwargs):
+        return {"status": "success", "busy": [], "window": {}}
+
+    monkeypatch.setattr("services.calendar_adapter.check_availability", availability)
+    service = _service(store, provider)
+    prepared = await service.prepare_contact(
+        principal=founder, application_id=application_id,
+        client_request_id="contact_copy_founder", copy_founder=True)
+    item = await store.get("hiring_coordination_items", prepared["coordination_id"])
+    assert item["exact_action"]["recipients"] == [
+        "ada@example.test", "founder@example.test"]
+    await resolve_approval(principal=founder, approval_id=prepared["approval_id"],
+                           decision="GRANT", store=store)
+    await service.execute(
+        principal=founder, application_id=application_id,
+        coordination_id=prepared["coordination_id"],
+        approval_id=prepared["approval_id"])
+    denied = await service.correlate_reply(
+        workspace_id="founder", provider_event={
+            "id": "founder_thread_reply", "thread_id": "thread_hiring_1",
+            "from": "Founder <founder@example.test>",
+            "subject": "Re: Interview availability", "excerpt": "Option one",
+            "kind": "update"})
+    assert denied["error_code"] == "reply_not_correlatable"
 
 
 @pytest.mark.asyncio
@@ -237,11 +323,10 @@ async def test_reply_email_continues_verified_thread_and_reply_stays_correlatabl
     item = await store.get("hiring_coordination_items", reply["coordination_id"])
     assert item["exact_action"]["payload"]["provider_thread_id"] == "thread_hiring_1"
     assert item["subject"].startswith("Re:")
-    await resolve_approval(principal=founder, approval_id=reply["approval_id"],
-                           decision="GRANT", store=store)
+    assert reply["mandate_active"] is True
     await service.execute(principal=founder, application_id=application_id,
                           coordination_id=reply["coordination_id"],
-                          approval_id=reply["approval_id"])
+                          approval_id="")
     correlated = await service.correlate_reply(
         workspace_id="founder", provider_event={
             "id": "message_after_two_sends", "thread_id": "thread_hiring_1",
@@ -249,6 +334,55 @@ async def test_reply_email_continues_verified_thread_and_reply_stays_correlatabl
             "subject": "Re: Interview availability", "excerpt": "Option one works.",
             "kind": "update"})
     assert correlated["candidate_application_id"] == application_id
+
+
+@pytest.mark.asyncio
+async def test_active_mandate_rejects_other_thread_expiry_and_message_limit(
+        founder, monkeypatch):
+    store, provider = InMemoryDurableStore(), _Provider()
+    application_id = await _seed(store)
+    service = _service(store, provider)
+    mandate = await _activate_mandate(
+        service, store, founder, application_id, monkeypatch)
+    prepared = await service.prepare_contact(
+        principal=founder, application_id=application_id,
+        client_request_id="contact_wrong_thread", reply=True)
+    item = await store.get(
+        "hiring_coordination_items", prepared["coordination_id"])
+    exact = dict(item["exact_action"])
+    exact["payload"] = {
+        **exact["payload"], "provider_thread_id": "unrelated_thread"}
+    await store.compare_and_set(
+        "hiring_coordination_items", item["coordination_id"],
+        item["version"], {"exact_action": exact})
+    denied = await service.execute(
+        principal=founder, application_id=application_id,
+        coordination_id=prepared["coordination_id"], approval_id="")
+    assert denied["error_code"] == "coordination_mandate_invalid"
+    assert len(provider.calls) == 1
+
+    current = await store.get(
+        "hiring_coordination_mandates", mandate["mandate_id"])
+    await store.compare_and_set(
+        "hiring_coordination_mandates", mandate["mandate_id"],
+        current["version"], {"email_count": current["max_emails"]})
+    limited = await service.prepare_contact(
+        principal=founder, application_id=application_id,
+        client_request_id="contact_limit", reply=True)
+    denied = await service.execute(
+        principal=founder, application_id=application_id,
+        coordination_id=limited["coordination_id"], approval_id="")
+    assert denied["error_code"] == "coordination_message_limit"
+
+    current = await store.get(
+        "hiring_coordination_mandates", mandate["mandate_id"])
+    await store.compare_and_set(
+        "hiring_coordination_mandates", mandate["mandate_id"],
+        current["version"], {"expires_at": "2000-01-01T00:00:00+00:00"})
+    expired = await service.prepare_contact(
+        principal=founder, application_id=application_id,
+        client_request_id="contact_expired", reply=True)
+    assert expired["error_code"] == "coordination_mandate_required"
 
 
 @pytest.mark.asyncio
@@ -280,16 +414,17 @@ async def test_uncertain_email_never_retries_without_reconciliation(founder, mon
 
 
 @pytest.mark.asyncio
-async def test_interview_binds_candidate_and_alex_and_rejects_unowned_change(founder):
+async def test_interview_binds_candidate_and_alex_and_rejects_unowned_change(
+        founder, monkeypatch):
     store, provider = InMemoryDurableStore(), _Provider()
     application_id = await _seed(store)
     service = _service(store, provider)
-    start_dt = datetime.now(timezone.utc) + timedelta(days=7)
-    future = start_dt.isoformat()
-    end = (start_dt + timedelta(minutes=45)).isoformat()
+    mandate = await _activate_mandate(
+        service, store, founder, application_id, monkeypatch)
+    slot = mandate["confirmed_slots"][0]
     prepared = await service.prepare_interview(
         principal=founder, application_id=application_id,
-        start=future, end=end, timezone_name="Africa/Lagos",
+        start=slot["start"], end=slot["end"], timezone_name=slot["timezone"],
         client_request_id="interview_request_0001")
     assert prepared["item"]["action_kind"] == "HIRING_CREATE_INTERVIEW"
     exact = (await store.get("hiring_coordination_items",
@@ -297,18 +432,21 @@ async def test_interview_binds_candidate_and_alex_and_rejects_unowned_change(fou
     assert exact["recipients"] == ["ada@example.test", "alex@ruhu.ai"]
     denied = await service.prepare_interview(
         principal=founder, application_id=application_id,
-        start=future, end=end, timezone_name="Africa/Lagos",
+        start=slot["start"], end=slot["end"], timezone_name=slot["timezone"],
         client_request_id="interview_request_0002",
         target_event_id="not_owned")
     assert denied["error_code"] == "interview_not_found"
 
 
 @pytest.mark.asyncio
-async def test_interview_create_update_and_cancel_each_need_exact_approval(founder):
+async def test_one_mandate_covers_create_update_and_cancel_without_more_approvals(
+        founder, monkeypatch):
     store, provider = InMemoryDurableStore(), _Provider()
     application_id = await _seed(store)
     service = _service(store, provider)
-    start_dt = datetime.now(timezone.utc) + timedelta(days=8)
+    mandate = await _activate_mandate(
+        service, store, founder, application_id, monkeypatch)
+    slots = mandate["confirmed_slots"]
 
     async def prepare_execute(*, request_id, start, end, target="", cancel=False):
         prepared = await service.prepare_interview(
@@ -316,29 +454,29 @@ async def test_interview_create_update_and_cancel_each_need_exact_approval(found
             start=start.isoformat() if start else "",
             end=end.isoformat() if end else "", timezone_name="Africa/Lagos",
             client_request_id=request_id, target_event_id=target, cancel=cancel)
-        await resolve_approval(
-            principal=founder, approval_id=prepared["approval_id"],
-            decision="GRANT", store=store)
+        assert prepared["mandate_active"] is True
         return await service.execute(
             principal=founder, application_id=application_id,
             coordination_id=prepared["coordination_id"],
-            approval_id=prepared["approval_id"])
+            approval_id="")
 
     created = await prepare_execute(
         request_id="interview_create_exact",
-        start=start_dt, end=start_dt + timedelta(minutes=45))
+        start=datetime.fromisoformat(slots[0]["start"]),
+        end=datetime.fromisoformat(slots[0]["end"]))
     assert created["receipt_status"] == "SUCCEEDED"
     event_id = created["result_ref"]["event_id"]
     updated = await prepare_execute(
         request_id="interview_update_exact",
-        start=start_dt + timedelta(hours=2),
-        end=start_dt + timedelta(hours=2, minutes=45), target=event_id)
+        start=datetime.fromisoformat(slots[1]["start"]),
+        end=datetime.fromisoformat(slots[1]["end"]), target=event_id)
     assert updated["receipt_status"] == "SUCCEEDED"
     cancelled = await prepare_execute(
         request_id="interview_cancel_exact", start=None, end=None,
         target=event_id, cancel=True)
     assert cancelled["receipt_status"] == "SUCCEEDED"
     assert [call["action_kind"] for call in provider.calls] == [
+        "HIRING_SEND_EMAIL",
         "HIRING_CREATE_INTERVIEW", "HIRING_UPDATE_INTERVIEW",
         "HIRING_CANCEL_INTERVIEW"]
 
@@ -358,7 +496,7 @@ async def test_tampered_draft_cannot_consume_approval(founder, monkeypatch):
         client_request_id="contact_request_0005")
     item = await store.get("hiring_coordination_items", prepared["coordination_id"])
     exact = dict(item["exact_action"])
-    exact["payload"] = {**exact["payload"], "body": "tampered"}
+    exact["recipients"] = ["attacker@example.test"]
     await store.compare_and_set("hiring_coordination_items", item["coordination_id"],
                                 item["version"], {"exact_action": exact})
     await resolve_approval(principal=founder, approval_id=prepared["approval_id"],
@@ -367,5 +505,5 @@ async def test_tampered_draft_cannot_consume_approval(founder, monkeypatch):
         principal=founder, application_id=application_id,
         coordination_id=prepared["coordination_id"],
         approval_id=prepared["approval_id"])
-    assert result["error_code"] == "approval_binding_mismatch"
+    assert result["error_code"] == "invalid_contract"
     assert provider.calls == []

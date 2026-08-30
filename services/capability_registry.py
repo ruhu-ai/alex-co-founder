@@ -322,6 +322,21 @@ CONTROLLED_ACTION_CAPABILITIES: dict[str, CapabilityDescriptor] = {
     )
 }
 
+# Live Hiring communication is authorized once per candidate by a bounded
+# Founder coordination mandate, rather than by a new approval per message.
+CONTROLLED_ACTION_CAPABILITIES.update({
+    kind: _effect(
+        kind, binding,
+        approval="bounded_founder_coordination_mandate.v1",
+        reconciliation=reconciliation)
+    for kind, binding, reconciliation in (
+        ("HIRING_SEND_EMAIL", "alex_mail", "gmail_rfc822_message_id.v1"),
+        ("HIRING_CREATE_INTERVIEW", "calendar", "calendar_event_id.v1"),
+        ("HIRING_UPDATE_INTERVIEW", "calendar", "calendar_event_id.v1"),
+        ("HIRING_CANCEL_INTERVIEW", "calendar", "calendar_event_id.v1"),
+    )
+})
+
 
 def require_external_action(action_kind: str,
                             connector_id: str) -> CapabilityDescriptor:

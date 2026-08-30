@@ -23,7 +23,7 @@ from typing import Any, Protocol
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from services import calendar_adapter, connection_registry, google_oauth
-from services.actor_identity import ActorPrincipal, authorize
+from services.actor_identity import ActorPrincipal, WorkspaceRole, authorize
 from services.capability_registry import require_controlled_action
 from services.durable_store import AtomicMutation, DurableStore, production_store
 from services.hiring_approval_service import request_approval, validate_approval_claim
@@ -37,10 +37,14 @@ LIVE_ACTIONS = frozenset({
     "HIRING_UPDATE_INTERVIEW",
     "HIRING_CANCEL_INTERVIEW",
 })
+MANDATE_ACTION = "HIRING_COORDINATE_INTERVIEW"
 _EMAIL = re.compile(r"^[^\s@]{1,64}@[^\s@]{1,190}\.[^\s@]{2,63}$")
 _MAX_SUBJECT = 240
 _MAX_BODY = 12_000
 _ALEX_ADDRESS = "alex@ruhu.ai"
+_MAX_MANDATE_EMAILS = 12
+_MAX_MANDATE_CALENDAR_ACTIONS = 4
+_MANDATE_DAYS = 14
 
 
 def _error(code: str, message: str, http_status: int = 409) -> dict[str, Any]:
@@ -50,6 +54,11 @@ def _error(code: str, message: str, http_status: int = 409) -> dict[str, Any]:
 
 def _kill_switch() -> bool:
     return os.environ.get("HIRING_LIVE_OPERATIONS_KILL_SWITCH", "0") == "1"
+
+
+def _founder_copy_address() -> str:
+    value = os.environ.get("HIRING_FOUNDER_COPY_EMAIL", "").strip().casefold()
+    return value if _EMAIL.fullmatch(value) else ""
 
 
 def _provider_error(exc: Exception) -> dict[str, Any]:
@@ -142,7 +151,9 @@ class GoogleHiringProviderAdapter:
         recipients = list(exact["recipients"])
         payload = dict(exact["payload"])
         message = EmailMessage()
-        message["To"] = ", ".join(recipients)
+        message["To"] = recipients[0]
+        if len(recipients) == 2:
+            message["Cc"] = recipients[1]
         message["From"] = "Alex (Ruhu AI co-founder) <alex@ruhu.ai>"
         message["Subject"] = str(payload["subject"])
         rfc822_id = (
@@ -348,9 +359,15 @@ class HiringCoordinationService:
         ][:500]
         safe_items = [{key: row.get(key) for key in (
             "coordination_id", "item_kind", "status", "action_kind", "approval_id",
+            "mandate_id",
             "subject", "body", "recipients_masked", "slot_options", "start", "end",
             "timezone", "target_event_id", "action_id", "error_code", "created_at",
             "updated_at")} for row in items]
+        for safe, source in zip(safe_items, items, strict=True):
+            if (not source.get("mandate_id")
+                    and source.get("status") in {
+                        "AWAITING_APPROVAL", "APPROVED", "EXECUTING"}):
+                safe["status"] = "SUPERSEDED_BY_COORDINATION_CONSENT"
         safe_replies = [{key: row.get(key) for key in (
             "correlation_id", "status", "message_kind", "safe_subject",
             "safe_excerpt", "auto_submitted", "provider_thread_id",
@@ -361,27 +378,60 @@ class HiringCoordinationService:
             "error_code", "uncertainty_reason", "result_ref", "created_at", "updated_at")}
             for row in actions]
         application = context["application"]
+        active = await self._active_mandate(
+            principal.workspace_id, application_id, context=context)
         return {"status": "success", "live": True,
                 "kill_switch": _kill_switch(),
+                "founder_copy_available": bool(_founder_copy_address()),
                 "eligible": application.get("candidate_state") == "ADVANCED",
                 "candidate_state": application.get("candidate_state"),
+                "mandate": ({key: active.get(key) for key in (
+                    "mandate_id", "status", "copy_founder", "confirmed_slots",
+                    "email_count", "max_emails", "calendar_action_count",
+                    "max_calendar_actions", "activated_at", "expires_at")}
+                    if active else None),
                 "items": safe_items, "replies": safe_replies, "actions": safe_actions}
 
     async def prepare_contact(self, *, principal: ActorPrincipal,
                               application_id: str, client_request_id: str,
-                              reply: bool = False) -> dict[str, Any]:
-        context = await self._context(principal, application_id, require_advanced=True,
-                                      require_fresh=True)
+                              reply: bool = False,
+                              copy_founder: bool = False) -> dict[str, Any]:
+        context = await self._context(
+            principal, application_id, require_advanced=True)
         if context.get("error"):
             return context
         if _kill_switch():
             return _error("hiring_operations_killed", "Hiring external operations are disabled.", 503)
-        identity = context["identity"]
-        availability = await self._available_slots(principal.workspace_id)
-        if availability.get("error"):
-            return availability
+        mandate = await self._active_mandate(
+            principal.workspace_id, application_id, context=context)
+        if reply and not mandate:
+            return _error(
+                "coordination_mandate_required",
+                "The Founder must approve interview coordination once.", 409)
+        if mandate:
+            candidate_email = str(mandate["candidate_email"])
+            candidate_name = str(mandate.get("candidate_first_name") or "there")
+            slots = list(mandate["confirmed_slots"])
+            copy_founder = bool(mandate.get("copy_founder"))
+        else:
+            fresh = await self._context(
+                principal, application_id, require_advanced=True,
+                require_fresh=True)
+            if fresh.get("error"):
+                return fresh
+            context = fresh
+            identity = context["identity"]
+            candidate_email = str(identity["email"]).strip().casefold()
+            candidate_name = str(identity["name"]).strip().split()[0]
+            availability = await self._available_slots(principal.workspace_id)
+            if availability.get("error"):
+                return availability
+            slots = availability["slots"]
+            if copy_founder and not _founder_copy_address():
+                return _error(
+                    "founder_copy_unconfigured",
+                    "Configure the Founder copy address before including it.", 409)
         role = context["role"]
-        candidate_name = str(identity["name"]).strip().split()[0]
         subject = f"Interview availability — {role.get('role_title', 'your application')}"
         provider_thread_id = ""
         if reply:
@@ -402,7 +452,6 @@ class HiringCoordinationService:
                     "No verified applicant email thread is available.", 409)
             provider_thread_id = str(
                 (prior_sends[0].get("result_ref") or {})["provider_thread_id"])
-        slots = availability["slots"]
         rendered = "\n".join(
             f"{index + 1}. {slot['display']}" for index, slot in enumerate(slots))
         opening = ("Thank you for your reply." if reply else
@@ -414,25 +463,37 @@ class HiringCoordinationService:
             f"{rendered}\n\nPlease reply with the option that works best, or suggest alternatives "
             "in the same time zone. I will coordinate the final invitation with the Founder.\n\n"
             "Alex\nAI co-founder, Ruhu")
+        recipients = [candidate_email]
+        if copy_founder:
+            recipients.append(_founder_copy_address())
         return await self._prepare_item(
             principal=principal, context=context, client_request_id=client_request_id,
             item_kind="AVAILABILITY_REPLY" if reply else "INITIAL_CONTACT",
-            action_kind="HIRING_SEND_EMAIL", recipients=[identity["email"]],
+            action_kind="HIRING_SEND_EMAIL", recipients=recipients,
             payload={"subject": subject, "body": body,
-                     "provider_thread_id": provider_thread_id},
-            slot_options=slots)
+                     "provider_thread_id": provider_thread_id,
+                     "candidate_recipient": candidate_email},
+            slot_options=slots, mandate=mandate,
+            candidate_first_name=candidate_name,
+            copy_founder=copy_founder)
 
     async def prepare_interview(self, *, principal: ActorPrincipal,
                                 application_id: str, start: str, end: str,
                                 timezone_name: str, client_request_id: str,
                                 target_event_id: str = "",
                                 cancel: bool = False) -> dict[str, Any]:
-        context = await self._context(principal, application_id, require_advanced=True,
-                                      require_fresh=True)
+        context = await self._context(
+            principal, application_id, require_advanced=True)
         if context.get("error"):
             return context
         if _kill_switch():
             return _error("hiring_operations_killed", "Hiring external operations are disabled.", 503)
+        mandate = await self._active_mandate(
+            principal.workspace_id, application_id, context=context)
+        if not mandate:
+            return _error(
+                "coordination_mandate_required",
+                "The Founder must approve interview coordination once.", 409)
         prior = await self._owned_event(principal.workspace_id, application_id,
                                         target_event_id) if target_event_id else None
         if target_event_id and not prior:
@@ -446,12 +507,15 @@ class HiringCoordinationService:
             parsed = self._validate_interval(start, end, timezone_name)
             if parsed.get("error"):
                 return parsed
-            identity = context["identity"]
+            available = await self._slot_still_available(
+                principal.workspace_id, parsed["start"], parsed["end"])
+            if available.get("error"):
+                return available
             role_title = str(context["role"].get("role_title") or "Role")
             action_kind = ("HIRING_UPDATE_INTERVIEW" if target_event_id
                            else "HIRING_CREATE_INTERVIEW")
             item_kind = ("INTERVIEW_UPDATE" if target_event_id else "INTERVIEW_BOOKING")
-            recipients = [str(identity["email"]), _ALEX_ADDRESS]
+            recipients = [str(mandate["candidate_email"]), _ALEX_ADDRESS]
             payload = {
                 "summary": f"Interview — {role_title}",
                 "description": ("Founder-approved interview for candidate "
@@ -465,7 +529,7 @@ class HiringCoordinationService:
         return await self._prepare_item(
             principal=principal, context=context, client_request_id=client_request_id,
             item_kind=item_kind, action_kind=action_kind, recipients=recipients,
-            payload=payload, slot_options=[])
+            payload=payload, slot_options=[], mandate=mandate)
 
     async def execute(self, *, principal: ActorPrincipal, application_id: str,
                       coordination_id: str, approval_id: str) -> dict[str, Any]:
@@ -478,11 +542,18 @@ class HiringCoordinationService:
         if (not item or item.get("workspace_id") != principal.workspace_id
                 or item.get("candidate_application_id") != application_id
                 or item.get("status") not in {
-                    "AWAITING_APPROVAL", "APPROVED", "EXECUTING",
+                    "AWAITING_APPROVAL", "AUTHORIZED", "APPROVED", "EXECUTING",
                     "SUCCEEDED", "FAILED", "UNCERTAIN"}):
             return _error("coordination_not_found", "Coordination item is unavailable.", 404)
         exact = dict(item["exact_action"])
         connector_id = str(exact["connector_id"])
+        checked = self._validate_payload(
+            str(exact.get("action_kind") or ""),
+            list(exact.get("recipients") or []),
+            dict(exact.get("payload") or {}),
+        )
+        if checked.get("error"):
+            return checked
         preflight = await self.adapter.preflight(
             workspace_id=principal.workspace_id, connector_id=connector_id)
         if preflight.get("status") != "success":
@@ -497,15 +568,36 @@ class HiringCoordinationService:
         current = await self.store.get("external_actions", action_id)
         if current:
             return await self._existing_action(current, principal.workspace_id, exact)
-        validated = await validate_approval_claim(
-            principal=principal, approval_id=approval_id,
-            run_id=str(context["application"]["run_id"]),
-            policy_version_id=str(context["role"]["current_policy_version_id"]),
-            action_kind=action_kind, exact_action=exact, store=self.store,
-            require_fresh=True)
-        if validated.get("error"):
-            return validated
-        approval = validated["approval"]
+        mandate_id = str(item.get("mandate_id") or "")
+        mandate = await self.store.get(
+            "hiring_coordination_mandates", mandate_id) if mandate_id else None
+        activating = mandate is None
+        approval = None
+        mandate_exact = dict(item.get("mandate_exact") or {})
+        if activating:
+            validated = await validate_approval_claim(
+                principal=principal, approval_id=approval_id,
+                run_id=str(context["application"]["run_id"]),
+                policy_version_id=str(context["role"]["current_policy_version_id"]),
+                action_kind=MANDATE_ACTION, exact_action=mandate_exact,
+                store=self.store, require_fresh=True)
+            if validated.get("error"):
+                return validated
+            approval = validated["approval"]
+            preview = {
+                **mandate_exact, "status": "ACTIVE",
+                "expires_at": (datetime.now(timezone.utc) + timedelta(
+                    days=int(mandate_exact["valid_days"]))).isoformat(),
+                "email_count": 0, "calendar_action_count": 0,
+            }
+            allowed = self._mandate_allows_action(preview, action_kind, exact)
+            if allowed.get("error"):
+                return allowed
+        else:
+            approval_id = str(mandate.get("approval_id") or "")
+            allowed = self._mandate_allows_action(mandate, action_kind, exact)
+            if allowed.get("error"):
+                return allowed
         now = utc_now()
         claim_id = stable_id("claim", approval_id, action_id)
         provider_request_id = stable_id("providerrequest", action_id, "1")
@@ -526,6 +618,8 @@ class HiringCoordinationService:
             "capability_version": capability.semantic_version,
             "idempotency_key": action_id, "request_hash": canonical_hash(exact),
             "approval_id": approval_id, "claim_id": claim_id,
+            "authorization_kind": "HIRING_COORDINATION_MANDATE",
+            "mandate_id": mandate_id,
             "coordination_id": coordination_id, "exact_action": exact,
             "status": "PREPARED", "provider_started_at": None,
             "provider_request_id": provider_request_id,
@@ -534,34 +628,63 @@ class HiringCoordinationService:
             "synthetic": False, "created_at": now, "updated_at": now,
             "version": 1,
         }
-        committed = await self.store.atomic_compare_and_set((
-            AtomicMutation("approvals", approval_id, int(approval["version"]),
-                           updates={"status": "CLAIMED", "claim_id": claim_id,
-                                    "claimed_action_id": action_id,
-                                    "claimed_by_actor_id": principal.actor_id,
-                                    "claimed_at": now, "updated_at": now}),
+        mutations = [
             AtomicMutation("external_actions", action_id, None, record=row),
             AtomicMutation("hiring_coordination_items", coordination_id,
                            int(item["version"]),
                            updates={"status": "APPROVED", "approval_id": approval_id,
                                     "action_id": action_id, "updated_at": now}),
-        ))
+        ]
+        if activating:
+            expires_at = (datetime.now(timezone.utc) + timedelta(
+                days=int(mandate_exact["valid_days"]))).isoformat()
+            mandate_record = {
+                **mandate_exact,
+                "schema_version": 1, "approval_id": approval_id,
+                "status": "ACTIVE", "email_count": (
+                    1 if action_kind == "HIRING_SEND_EMAIL" else 0),
+                "calendar_action_count": (
+                    0 if action_kind == "HIRING_SEND_EMAIL" else 1),
+                "activated_by_actor_id": principal.actor_id,
+                "activated_at": now, "expires_at": expires_at,
+                "created_at": now, "updated_at": now, "version": 1,
+            }
+            mutations.extend((
+                AtomicMutation("approvals", approval_id, int(approval["version"]),
+                               updates={"status": "CLAIMED", "claim_id": claim_id,
+                                        "claimed_action_id": action_id,
+                                        "claimed_by_actor_id": principal.actor_id,
+                                        "claimed_at": now, "updated_at": now}),
+                AtomicMutation("hiring_coordination_mandates", mandate_id,
+                               None, record=mandate_record),
+            ))
+        else:
+            count_field = ("email_count" if action_kind == "HIRING_SEND_EMAIL"
+                           else "calendar_action_count")
+            mutations.append(AtomicMutation(
+                "hiring_coordination_mandates", mandate_id,
+                int(mandate["version"]),
+                updates={count_field: int(mandate.get(count_field) or 0) + 1,
+                         "updated_at": now}))
+        committed = await self.store.atomic_compare_and_set(tuple(mutations))
         if not committed:
             return _error("concurrency_conflict", "Approval or coordination changed concurrently.")
         action = committed[("external_actions", action_id)]
-        approval_now = committed[("approvals", approval_id)]
         started_at = utc_now()
-        started = await self.store.atomic_compare_and_set((
-            AtomicMutation("approvals", approval_id, int(approval_now["version"]),
-                           updates={"status": "CONSUMED", "consumed_at": started_at,
-                                    "terminal_action_id": action_id,
-                                    "updated_at": started_at}),
-            AtomicMutation("external_actions", action_id, int(action["version"]),
-                           updates={"status": "EXECUTING",
-                                    "provider_started_at": started_at,
-                                    "consequence_start_committed_at": started_at,
-                                    "updated_at": started_at}),
-        ))
+        start_mutations = [AtomicMutation(
+            "external_actions", action_id, int(action["version"]),
+            updates={"status": "EXECUTING",
+                     "provider_started_at": started_at,
+                     "consequence_start_committed_at": started_at,
+                     "updated_at": started_at})]
+        if activating:
+            approval_now = committed[("approvals", approval_id)]
+            start_mutations.append(AtomicMutation(
+                "approvals", approval_id, int(approval_now["version"]),
+                updates={"status": "CONSUMED", "consumed_at": started_at,
+                         "terminal_action_id": action_id,
+                         "updated_at": started_at}))
+        started = await self.store.atomic_compare_and_set(tuple(start_mutations))
         if not started:
             return _error("concurrency_conflict", "Action start changed concurrently.")
         action = started[("external_actions", action_id)]
@@ -615,9 +738,9 @@ class HiringCoordinationService:
             and row.get("action_kind") == "HIRING_SEND_EMAIL"
             and row.get("status") == "SUCCEEDED"
             and str((row.get("result_ref") or {}).get("provider_thread_id") or "") == thread_id
-            and (auto or sender in {str(value).casefold()
-                                    for value in (row.get("exact_action") or {}).get(
-                                        "recipients", [])})
+            and (auto or sender == str(
+                ((row.get("exact_action") or {}).get("payload") or {}).get(
+                    "candidate_recipient") or "").casefold())
         ]
         application_ids = {
             str(row.get("application_id") or "") for row in candidates
@@ -656,6 +779,7 @@ class HiringCoordinationService:
         }
         created = await self.store.create(
             "hiring_reply_correlations", correlation_id, row)
+        continuation: dict[str, Any] | None = None
         if created:
             await self.runtime.append_event(
                 str(action.get("run_id") or ""),
@@ -664,17 +788,78 @@ class HiringCoordinationService:
                 idempotency_key=f"hiring-reply:{correlation_id}",
                 safe_payload={"correlation_id": correlation_id,
                               "message_kind": row["message_kind"]})
+            if not auto and not injection_suspected:
+                continuation = await self._continue_from_reply(
+                    workspace_id=workspace_id, application_id=application_id,
+                    correlation_id=correlation_id, excerpt=excerpt)
         return {"status": "success", "duplicate": not created,
                 "correlation_id": correlation_id,
                 "candidate_application_id": application_id,
                 "candidate_run_id": row["candidate_run_id"],
-                "automated": auto}
+                "automated": auto,
+                "continuation_status": (
+                    continuation.get("status") if continuation else None),
+                "continuation_error_code": (
+                    continuation.get("error_code") if continuation else None)}
+
+    async def _continue_from_reply(
+            self, *, workspace_id: str, application_id: str,
+            correlation_id: str, excerpt: str) -> dict[str, Any]:
+        """Continue one candidate thread under its active Founder mandate."""
+        application = await self.store.get("candidate_applications", application_id)
+        role = (await self.store.get("hiring_roles", str(
+            application.get("role_id") or "")) if application else None)
+        if (not application or not role
+                or application.get("workspace_id") != workspace_id
+                or application.get("candidate_state") != "ADVANCED"):
+            return _error("coordination_mandate_invalid",
+                          "The candidate is no longer in interview coordination.")
+        context = {"status": "success", "application": application, "role": role}
+        mandate = await self._active_mandate(
+            workspace_id, application_id, context=context)
+        if not mandate:
+            return _error("coordination_mandate_required",
+                          "The Founder coordination mandate is not active.")
+        principal = ActorPrincipal(
+            actor_id="agent:alex", workspace_id=workspace_id,
+            role=WorkspaceRole.FOUNDER, session_auth_time=0,
+            membership_version=0, principal_kind="WORKLOAD")
+        selected = self._selected_slot(excerpt, mandate.get("confirmed_slots") or [])
+        if selected:
+            prepared = await self.prepare_interview(
+                principal=principal, application_id=application_id,
+                start=str(selected["start"]), end=str(selected["end"]),
+                timezone_name=str(selected["timezone"]),
+                client_request_id=f"reply_book:{correlation_id}")
+        else:
+            prepared = await self.prepare_contact(
+                principal=principal, application_id=application_id,
+                client_request_id=f"reply_continue:{correlation_id}", reply=True)
+        if prepared.get("error"):
+            return prepared
+        return await self.execute(
+            principal=principal, application_id=application_id,
+            coordination_id=str(prepared["coordination_id"]), approval_id="")
+
+    @staticmethod
+    def _selected_slot(excerpt: str, slots: list[dict[str, str]]) -> dict[str, str] | None:
+        text = re.sub(r"\s+", " ", excerpt).casefold()
+        patterns = (
+            (0, r"\b(?:option|slot)\s*(?:1|one|first)\b|\bfirst\s+(?:option|slot)\b"),
+            (1, r"\b(?:option|slot)\s*(?:2|two|second)\b|\bsecond\s+(?:option|slot)\b"),
+            (2, r"\b(?:option|slot)\s*(?:3|three|third)\b|\bthird\s+(?:option|slot)\b"),
+        )
+        matches = [index for index, pattern in patterns if re.search(pattern, text)]
+        return slots[matches[0]] if len(matches) == 1 and matches[0] < len(slots) else None
 
     async def _prepare_item(self, *, principal: ActorPrincipal,
                             context: dict[str, Any], client_request_id: str,
                             item_kind: str, action_kind: str,
                             recipients: list[str], payload: dict[str, Any],
-                            slot_options: list[dict[str, str]]) -> dict[str, Any]:
+                            slot_options: list[dict[str, str]],
+                            mandate: dict[str, Any] | None = None,
+                            candidate_first_name: str = "",
+                            copy_founder: bool = False) -> dict[str, Any]:
         application = context["application"]
         role = context["role"]
         connector_id = "alex_mail" if action_kind == "HIRING_SEND_EMAIL" else "calendar"
@@ -698,15 +883,49 @@ class HiringCoordinationService:
             "action_kind": action_kind, "connector_id": connector_id,
             "recipients": recipients, "payload": payload,
         }
-        approval = await request_approval(
-            principal=principal, run_id=str(application["run_id"]),
-            role_id=str(application["role_id"]),
-            policy_version_id=str(role["current_policy_version_id"]),
-            action_kind=action_kind, exact_action=exact,
-            client_request_id=f"{client_request_id}:approval", store=self.store,
-            ttl_minutes=30)
-        if approval.get("error"):
-            return approval
+        mandate_id = (str(mandate["mandate_id"]) if mandate else stable_id(
+            "hiringmandate", principal.workspace_id,
+            application["candidate_application_id"],
+            application["current_decision_id"],
+            role["current_policy_version_id"]))
+        mandate_exact = None
+        if mandate:
+            approval_id = str(mandate["approval_id"])
+            approval_status = "MANDATE_ACTIVE"
+            item_status = "AUTHORIZED"
+        else:
+            mandate_exact = {
+                "schema_version": 1,
+                "mandate_id": mandate_id,
+                "workspace_id": principal.workspace_id,
+                "role_id": application["role_id"],
+                "candidate_application_id": application["candidate_application_id"],
+                "candidate_run_id": application["run_id"],
+                "decision_id": application["current_decision_id"],
+                "policy_version_id": role["current_policy_version_id"],
+                "candidate_email": str(payload["candidate_recipient"]),
+                "candidate_first_name": candidate_first_name,
+                "confirmed_slots": slot_options,
+                "copy_founder": copy_founder,
+                "founder_copy_email": (_founder_copy_address()
+                                       if copy_founder else ""),
+                "allowed_action_kinds": sorted(LIVE_ACTIONS),
+                "max_emails": _MAX_MANDATE_EMAILS,
+                "max_calendar_actions": _MAX_MANDATE_CALENDAR_ACTIONS,
+                "valid_days": _MANDATE_DAYS,
+            }
+            approval = await request_approval(
+                principal=principal, run_id=str(application["run_id"]),
+                role_id=str(application["role_id"]),
+                policy_version_id=str(role["current_policy_version_id"]),
+                action_kind=MANDATE_ACTION, exact_action=mandate_exact,
+                client_request_id=f"{client_request_id}:mandate", store=self.store,
+                ttl_minutes=1440)
+            if approval.get("error"):
+                return approval
+            approval_id = str(approval["approval_id"])
+            approval_status = str(approval["approval_status"])
+            item_status = "AWAITING_APPROVAL"
         masked = [self._mask_email(value) for value in recipients]
         row = {
             "schema_version": 1, "coordination_id": coordination_id,
@@ -716,7 +935,8 @@ class HiringCoordinationService:
             "candidate_run_id": application["run_id"],
             "decision_id": application["current_decision_id"],
             "item_kind": item_kind, "action_kind": action_kind,
-            "status": "AWAITING_APPROVAL", "approval_id": approval["approval_id"],
+            "status": item_status, "approval_id": approval_id,
+            "mandate_id": mandate_id, "mandate_exact": mandate_exact,
             "exact_action": exact, "subject": payload.get("subject"),
             "body": payload.get("body"), "recipients_masked": masked,
             "slot_options": slot_options,
@@ -735,8 +955,10 @@ class HiringCoordinationService:
                 return _error("idempotency_conflict", "Request id names different coordination.")
         return {"status": "success", "duplicate": not created,
                 "coordination_id": coordination_id,
-                "approval_id": approval["approval_id"],
-                "approval_status": approval["approval_status"],
+                "approval_id": approval_id,
+                "approval_status": approval_status,
+                "mandate_id": mandate_id,
+                "mandate_active": bool(mandate),
                 "item": {key: row.get(key) for key in (
                     "item_kind", "action_kind", "subject", "body", "recipients_masked",
                     "slot_options", "start", "end", "timezone", "target_event_id")}}
@@ -750,12 +972,32 @@ class HiringCoordinationService:
         item = await self.store.get("hiring_coordination_items", item_id)
         if not action_now or not item:
             return _error("action_receipt_missing", "Action receipt is unavailable.", 503)
-        committed = await self.store.atomic_compare_and_set((
+        safe_result = self._safe_ref(result.get("result_ref"))
+        mandate = None
+        provider_thread_id = ""
+        if status == "SUCCEEDED" and action_now.get(
+                "action_kind") == "HIRING_SEND_EMAIL":
+            mandate = await self.store.get(
+                "hiring_coordination_mandates",
+                str(action_now.get("mandate_id") or ""))
+            provider_thread_id = str(safe_result.get("provider_thread_id") or "")
+            existing_thread_id = str(
+                (mandate or {}).get("provider_thread_id") or "")
+            if (not mandate or not provider_thread_id
+                    or (existing_thread_id
+                        and existing_thread_id != provider_thread_id)):
+                status = "UNCERTAIN"
+                result = {
+                    "error_code": "provider_thread_unconfirmed",
+                    "uncertainty_reason": "provider_thread_unconfirmed",
+                }
+                safe_result = {}
+        mutations = [
             AtomicMutation("external_actions", action_now["action_id"],
                            int(action_now["version"]), updates={
                                "status": status,
                                "provider_effect_id": result.get("provider_effect_id"),
-                               "result_ref": self._safe_ref(result.get("result_ref")),
+                               "result_ref": safe_result,
                                "error_code": result.get("error_code"),
                                "uncertainty_reason": result.get("uncertainty_reason"),
                                "completed_at": utc_now(), "updated_at": utc_now(),
@@ -766,7 +1008,15 @@ class HiringCoordinationService:
                                "error_code": result.get("error_code"),
                                "updated_at": utc_now(),
                            }),
-        ))
+        ]
+        if (status == "SUCCEEDED" and mandate is not None
+                and not mandate.get("provider_thread_id")):
+            mutations.append(AtomicMutation(
+                "hiring_coordination_mandates", str(mandate["mandate_id"]),
+                int(mandate["version"]),
+                updates={"provider_thread_id": provider_thread_id,
+                         "updated_at": utc_now()}))
+        committed = await self.store.atomic_compare_and_set(tuple(mutations))
         if not committed:
             return _error("concurrency_conflict", "Action receipt changed concurrently.")
         finished = committed[("external_actions", action_now["action_id"])]
@@ -868,6 +1118,114 @@ class HiringCoordinationService:
         return _error("availability_exhausted",
                       "No bounded Founder availability was found in the next 14 days.")
 
+    async def _slot_still_available(
+            self, workspace_id: str, start: str, end: str) -> dict[str, Any]:
+        available = await calendar_adapter.check_availability(
+            days_ahead=14, workspace_id=workspace_id)
+        if available.get("status") != "success":
+            return _error("calendar_unavailable",
+                          "Founder availability could not be confirmed.", 503)
+        start_dt, end_dt = datetime.fromisoformat(start), datetime.fromisoformat(end)
+        for block in available.get("busy", []):
+            try:
+                busy_start = datetime.fromisoformat(
+                    str(block["start"]).replace("Z", "+00:00"))
+                busy_end = datetime.fromisoformat(
+                    str(block["end"]).replace("Z", "+00:00"))
+            except (KeyError, ValueError):
+                continue
+            if not (end_dt <= busy_start or start_dt >= busy_end):
+                return _error(
+                    "founder_slot_no_longer_available",
+                    "The Founder calendar changed; new options require consent.", 409)
+        return {"status": "success"}
+
+    async def _active_mandate(
+            self, workspace_id: str, application_id: str, *,
+            context: dict[str, Any] | None = None) -> dict[str, Any] | None:
+        rows = await self._workspace_rows(
+            "hiring_coordination_mandates", workspace_id, descending=True)
+        mandate = next((row for row in rows
+                        if row.get("candidate_application_id") == application_id
+                        and row.get("status") == "ACTIVE"), None)
+        if not mandate or str(mandate.get("expires_at") or "") <= utc_now():
+            return None
+        if context and (
+                mandate.get("decision_id") != context["application"].get(
+                    "current_decision_id")
+                or mandate.get("policy_version_id") != context["role"].get(
+                    "current_policy_version_id")):
+            return None
+        return mandate
+
+    @staticmethod
+    def _mandate_allows_action(
+            mandate: dict[str, Any], action_kind: str,
+            exact: dict[str, Any]) -> dict[str, Any]:
+        if (mandate.get("status") != "ACTIVE"
+                or str(mandate.get("expires_at") or "") <= utc_now()
+                or action_kind not in set(mandate.get("allowed_action_kinds") or [])
+                or mandate.get("candidate_application_id") != exact.get(
+                    "candidate_application_id")
+                or mandate.get("decision_id") != exact.get("decision_id")
+                or mandate.get("policy_version_id") != exact.get(
+                    "policy_version_id")):
+            return _error(
+                "coordination_mandate_invalid",
+                "The interview coordination mandate is no longer valid.", 409)
+        payload = dict(exact.get("payload") or {})
+        recipients = list(exact.get("recipients") or [])
+        candidate = str(mandate.get("candidate_email") or "")
+        if action_kind == "HIRING_SEND_EMAIL":
+            allowed = [candidate]
+            if mandate.get("copy_founder"):
+                allowed.append(str(mandate.get("founder_copy_email") or ""))
+            if recipients != allowed or payload.get("candidate_recipient") != candidate:
+                return _error("coordination_mandate_invalid",
+                              "Email recipients are outside the mandate.", 409)
+            if int(mandate.get("email_count") or 0) >= int(
+                    mandate.get("max_emails") or 0):
+                return _error("coordination_message_limit",
+                              "The bounded email exchange is complete.", 409)
+            expected_thread_id = str(mandate.get("provider_thread_id") or "")
+            actual_thread_id = str(payload.get("provider_thread_id") or "")
+            if (int(mandate.get("email_count") or 0) == 0
+                    and actual_thread_id):
+                return _error(
+                    "coordination_mandate_invalid",
+                    "The first message cannot join an unrelated thread.", 409)
+            if (int(mandate.get("email_count") or 0) > 0
+                    and (not expected_thread_id
+                         or actual_thread_id != expected_thread_id)):
+                return _error(
+                    "coordination_mandate_invalid",
+                    "Email continuation must use the approved applicant thread.", 409)
+        else:
+            if int(mandate.get("calendar_action_count") or 0) >= int(
+                    mandate.get("max_calendar_actions") or 0):
+                return _error("coordination_calendar_limit",
+                              "The bounded Calendar action limit is reached.", 409)
+            if action_kind == "HIRING_CANCEL_INTERVIEW":
+                if recipients:
+                    return _error(
+                        "coordination_mandate_invalid",
+                        "Interview cancellation cannot add recipients.", 409)
+            else:
+                if recipients != [candidate, _ALEX_ADDRESS]:
+                    return _error(
+                        "coordination_mandate_invalid",
+                        "Calendar attendees are outside the mandate.", 409)
+                slot = {"start": payload.get("start"), "end": payload.get("end"),
+                        "timezone": payload.get("timezone")}
+                allowed_slots = [{key: row.get(key) for key in (
+                    "start", "end", "timezone")}
+                    for row in mandate.get("confirmed_slots") or []]
+                if slot not in allowed_slots:
+                    return _error(
+                        "slot_outside_mandate",
+                        "The interview time was not in the Founder-approved options.", 409)
+        return {"status": "success"}
+
     async def _owned_event(self, workspace_id: str, application_id: str,
                            event_id: str) -> dict[str, Any] | None:
         if not event_id:
@@ -901,7 +1259,11 @@ class HiringCoordinationService:
             return _error("invalid_contract", "Recipient address is invalid.", 400)
         if action_kind == "HIRING_SEND_EMAIL":
             subject, body = str(payload.get("subject") or ""), str(payload.get("body") or "")
-            if (len(recipients) != 1 or not subject or len(subject) > _MAX_SUBJECT
+            candidate = str(payload.get("candidate_recipient") or "")
+            if (len(recipients) not in {1, 2} or recipients[0] != candidate
+                    or (len(recipients) == 2
+                        and recipients[1] != _founder_copy_address())
+                    or not subject or len(subject) > _MAX_SUBJECT
                     or not body or len(body) > _MAX_BODY
                     or any(token in subject for token in ("\r", "\n"))):
                 return _error("invalid_contract", "Email draft is invalid.", 400)

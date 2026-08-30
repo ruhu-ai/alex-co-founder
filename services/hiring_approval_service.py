@@ -28,7 +28,8 @@ def _requires_fresh(approval: dict[str, Any], requested: bool) -> bool:
         "H4S_SEND_EMAIL", "H4S_CREATE_CALENDAR_EVENT",
         "H4S_UPDATE_CALENDAR_EVENT", "H4S_CANCEL_CALENDAR_EVENT",
         "HIRING_SEND_EMAIL", "HIRING_CREATE_INTERVIEW",
-        "HIRING_UPDATE_INTERVIEW", "HIRING_CANCEL_INTERVIEW"}
+        "HIRING_UPDATE_INTERVIEW", "HIRING_CANCEL_INTERVIEW",
+        "HIRING_COORDINATE_INTERVIEW"}
 
 
 async def request_approval(*, principal: ActorPrincipal, run_id: str,

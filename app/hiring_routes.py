@@ -1,8 +1,9 @@
 """Founder and workload HTTP surfaces for Hiring H0–H4.
 
-H4 live provider actions remain server-bound to a real advanced application,
-fresh Founder authentication, and an exact single-use approval.  The separate
-H4S routes retain their synthetic-only contract.
+H4 live provider actions remain server-bound to a real advanced application and
+one fresh, bounded Founder coordination consent. Every later provider effect is
+durably receipt-backed and constrained to that candidate, thread and confirmed
+availability. The separate H4S routes retain their synthetic-only contract.
 """
 
 from __future__ import annotations
@@ -197,6 +198,7 @@ class CandidateLegalHoldRequest(ClosedRequest):
 class HiringContactRequest(ClosedRequest):
     client_request_id: str = Field(min_length=8, max_length=128)
     reply: bool = False
+    copy_founder: bool = False
 
 
 class HiringInterviewRequest(ClosedRequest):
@@ -210,7 +212,7 @@ class HiringInterviewRequest(ClosedRequest):
 
 class HiringEffectExecutionRequest(ClosedRequest):
     coordination_id: str = Field(min_length=3, max_length=128)
-    approval_id: str = Field(min_length=3, max_length=128)
+    approval_id: str = Field(default="", max_length=128)
 
 
 class H4SConversationStartRequest(ClosedRequest):
@@ -1369,7 +1371,7 @@ def register(app: FastAPI) -> None:
             production_store()).prepare_contact(
                 principal=principal, application_id=application_id,
                 client_request_id=payload.client_request_id,
-                reply=payload.reply))
+                reply=payload.reply, copy_founder=payload.copy_founder))
 
     @app.post("/api/hiring/applications/{application_id}/coordination/interview")
     async def prepare_hiring_interview(request: Request, application_id: str,

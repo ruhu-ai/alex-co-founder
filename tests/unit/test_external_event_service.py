@@ -274,7 +274,10 @@ async def test_exact_hiring_thread_records_candidate_reply_without_chat_wake(
         "candidate_application_id": application_id,
         "session_id": run_id, "run_id": run_id,
         "action_kind": "HIRING_SEND_EMAIL", "status": "SUCCEEDED",
-        "exact_action": {"recipients": ["ada@example.test"]},
+        "exact_action": {
+            "recipients": ["ada@example.test"],
+            "payload": {"candidate_recipient": "ada@example.test"},
+        },
         "result_ref": {"provider_thread_id": "gmail-thread-hiring"},
         "created_at": "2026-08-30T10:00:00+00:00", "version": 1,
     }

@@ -18,8 +18,10 @@ committed Evidence Passport and records an attributed `ADVANCE`, the real H4
 lane may use the connected Alex Mail and Founder Calendar accounts to prepare
 candidate communication, read Founder free/busy, correlate candidate replies,
 negotiate bounded availability, and create/update/cancel one candidate-bound
-interview. Every exact outbound message and Calendar mutation remains a fresh,
-single-use Founder approval with a `PREPARED` receipt before provider contact;
+interview. One fresh Founder consent binds the candidate, current decision and
+policy, confirmed time options, optional Founder copy, expiry, and action limits.
+Alex may then continue that exact thread and schedule within those bounds without
+per-message approval. Every provider effect still has a `PREPARED` receipt;
 `UNCERTAIN` blocks retry until reconciliation. This is not H4S and does not
 require synthetic identities. Third-party job posting, scoring, ranking,
 recommendation, automatic hiring decisions, offer, and onboarding effects
@@ -130,9 +132,10 @@ reason those implementations exist and are not authorization for H4–H7:
    normal Alex mailbox. Subject/excerpt matches remain non-authoritative and
    are never safe candidate correlation.
 3. H4 reuses the reviewed email/Calendar provider primitives behind a separate
-   candidate-run-bound consequence service. Exact payload, current ADVANCE,
-   role policy, connector identity/scopes and fresh Founder approval are all
-   rechecked before the shared `external_actions` receipt enters `PREPARED`.
+   candidate-run-bound consequence service. Current ADVANCE, role policy,
+   connector identity/scopes, payload bounds and the active Founder coordination
+   consent are rechecked before the shared `external_actions` receipt enters
+   `PREPARED`.
 4. Founder free/busy, interview create/update/cancel and receipt/reconciliation
    tracking are implemented for events created by Hiring. Candidate calendars
    are never queried; Alex proposes Founder slots and the applicant accepts or
@@ -314,9 +317,10 @@ an open agent invocation—must survive all of those conditions.
   extraction from that mailbox;
 - identity-separated, criterion-by-criterion candidate evidence passports;
 - founder screen decisions: `ADVANCE`, `HOLD`, `REQUEST_EVIDENCE`, `DECLINE`;
-- exact-approved candidate email and exact correlation of replies;
-- founder availability, proposed slots, exact-approved Calendar invitations,
-  rescheduling, cancellation, and interview completion events;
+- one bounded Founder consent for candidate email coordination plus exact reply
+  correlation;
+- Founder availability, consent-bound proposed slots, receipt-backed Calendar
+  invitations, rescheduling, cancellation, and interview completion events;
 - consented interview notes/transcripts and structured scorecards;
 - candidate-authorized reference checks with exact-approved questions/outreach;
 - founder final decision, exact offer preparation/send, and acceptance event;
@@ -1326,24 +1330,29 @@ model call may satisfy this contract.
 
 ### 8.5 Communication and scheduling
 
-The Hiring Operator prepares the message. The founder approves exact recipient,
-subject, body, attachments, sender identity, candidate/run, and policy version.
-The send capability creates an `external_actions` row before calling Gmail.
-Successful provider message/thread ids become the correlation authority for
-replies.
+The Hiring Operator prepares the initial message and confirmed Founder time
+options. The Founder gives one fresh coordination consent binding the exact
+candidate/run, current decision and policy, Alex sender identity, server-resolved
+recipient, optional server-configured Founder copy, proposed slots, 14-day
+expiry, and bounded email/Calendar action counts. The send capability creates an
+`external_actions` row before every Gmail call. Successful provider
+message/thread ids become the correlation authority for replies. Within the
+active consent Alex may continue only that exact candidate thread without a new
+approval for each message.
 
 Inbound mail is classified deterministically for DSN/deferred-delivery and
 automatic-reply semantics before ordinary reply correlation. A permanent DSN
 must correlate to the original RFC822 Message-ID/external action, supersede its
 reply wait, and open contact correction without deciding the candidate. A
-temporary DSN or vacation reply leaves the candidate-reply wait open. Corrected
-contact requires a new exact payload approval and action receipt.
+temporary DSN or vacation reply leaves the candidate-reply wait open. A changed
+candidate address is outside the existing consent and requires a new consent.
 
-Scheduling reads founder free/busy, applies working-hour/time-zone constraints,
-and proposes slots. Candidate choice or founder selection produces an exact
-meeting proposal. Calendar creation approval binds title, start/end, timezone,
-attendees, description, conferencing, and candidate/run. Calendar changes wake
-the exact wait using stored provider event identity.
+Scheduling reads Founder free/busy, applies working-hour/time-zone constraints,
+and proposes slots. The consent binds the exact options. Candidate choice or
+Founder selection may create/update the interview only within those options,
+after a fresh availability check; new options require a new consent. Calendar
+changes target only the Hiring-owned event and wake the exact wait using stored
+provider event identity.
 
 **Completion:** provider receipt plus open wait with exact causal thread/event
 keys. Sending a message or invite does not imply candidate receipt, agreement,
@@ -1517,8 +1526,9 @@ Employment **decisions** and external-action **approvals** are different:
 | publish through future official provider API | exact approval + external-action receipt; disabled in v1 |
 | advance/hold/request evidence/decline | authenticated `FOUNDER` human decision |
 | submit interview scorecard | authenticated `FOUNDER`; own attributed scorecard only |
-| send any candidate/reference message | exact single-use approval in v1 |
-| create/change/cancel interview invitation | exact single-use approval in v1 |
+| coordinate applicant email after `ADVANCE` | one fresh, bounded candidate/thread/slot consent; every effect receipt-backed; new recipient, policy, decision, slots or expiry require new consent |
+| create/change/cancel applicant interview | active bounded coordination consent + exact confirmed slot or Hiring-owned event; fresh availability check before create/update |
+| send reference message | exact single-use outreach approval in v1 |
 | begin reference check | human advance + candidate permission + exact outreach approval |
 | prepare offer | human final decision |
 | send/signature request for offer | exact terms/document/recipient approval + fresh authentication at approval and execution |
@@ -1533,7 +1543,10 @@ Employment **decisions** and external-action **approvals** are different:
 Hiring approvals extend doc 21/doc 24 binding with `role_id`,
 `candidate_application_id`, `run_id`, `step_id`, `policy_version_id`, plan hash,
 capability version, normalized payload hash, destination/account, expiry, and
-single-use rules. Any material drift invalidates approval.
+single-use rules. The H4 coordination approval is itself single-use: consuming
+it activates one durable bounded mandate; later H4 effects consume mandate
+counters rather than new approvals. Any material drift invalidates the approval
+or mandate.
 
 Hiring approvals are workspace/run scoped, not chat-session scoped. The session
 where a request originated is retained as provenance only. The pending inbox is
@@ -1797,13 +1810,13 @@ this document may not create a separate Hiring product shell.
 | hiring role cockpit | synthetic H3 now uses the shared token/type/icon/navigation source, a role-index home, focused cockpit, Quiet contextual workspace, and grouped mobile candidate rows; committed role/runtime/mailbox/publication truth remains backend-authoritative | complete the remaining shared component extraction and add the still-missing production workflow fields only behind their reviewed stage gates |
 | candidate intake inbox and evidence passport | synthetic H3 and local staged records render as a role-scoped inbox; candidate detail keeps identity hidden by default, lists restricted CV/application artifacts, maps candidate-provided information to approved criteria as `PRESENT` / `MISSING` / `UNCLEAR`, exposes causal activity, and keeps phase/decline controls Founder-only | qualify extraction and retention with synthetic data, then converge the remaining page-local candidate section composition on the shared contextual-workspace renderer; keep it unranked, identity-separated, and backend-authoritative |
 | policy version/diff/impact view | implemented for synthetic H2–H3 | approved role brief, scorecard, interview plan, job post, version and impact |
-| interview/reference/offer/onboarding views | live candidate communication and interview create/update/cancel receipts implemented; reference/offer/onboarding missing | keep exact approvals and provider reconciliation; build H5–H7 separately |
+| interview/reference/offer/onboarding views | live candidate communication and interview create/update/cancel receipts implemented; reference/offer/onboarding missing | keep the bounded H4 consent, exact H5–H7 approvals and provider reconciliation; build H5–H7 separately |
 | application-mailbox operations | normal Alex mailbox push/history is reused; successful Hiring sends persist exact provider thread ids and applicant replies correlate only by that thread plus the server-resolved candidate address; ambiguous mail remains in the Founder inbox | no subject/name/model correlation; automatic/DSN-like mail is receipt-only; every reply message is untrusted and injection-shaped previews are withheld |
 | candidate-facing application portal | a receipt-gated public job description and encrypted role-scoped form exist; the form is default-off until a dedicated intake key is configured, exact role approval and a separate Founder publish click are committed; synthetic fixtures are never eligible | production rollout preserves bounded uploads, encrypted identity/artifact storage, explicit privacy consent, deletion/export controls, and monitoring; no third-party post, contact, ranking, recommendation, or employment decision is enabled |
 
 **Answer:** H0–H4 now cover real app-owned application intake, automatic
-evidence preparation, human decision, exact-approved candidate email,
-reply/availability coordination, and exact-approved interview lifecycle.
+evidence preparation, human decision, one-consent candidate email and
+reply/availability coordination, and receipt-backed interview lifecycle.
 Reference, offer and onboarding remain H5–H7 work and are not implied by H4.
 
 ### 12.2 Backend-authoritative surface contract
@@ -2138,28 +2151,34 @@ not determine applicability for a specific deployment:
 
 H4 email and interview effects are real provider operations; they are not
 blocked on the synthetic H4S lane or on a separate reviewer ceremony. The
-server admits an individual operation only when all of these technical facts
-are true at action time:
+server admits the initial consent and every later operation only when all of
+these technical facts are true at action time:
 
 1. the application is non-synthetic, belongs to the authenticated Founder
    workspace, entered through the app-owned public form, and its current
    committed human decision is `ADVANCE`;
-2. the current role-policy version, candidate run, server-resolved candidate
-   identity, connector account and exact action payload are bound into the
-   approval and provider-action receipt;
-3. the Founder has a recent authenticated session and grants the displayed
-   single-use approval for that exact email or Calendar mutation;
+2. the current role-policy version, decision, candidate run, server-resolved
+   candidate identity, connector account, exact time options, optional Founder
+   copy and action limits are bound into one durable coordination consent;
+3. the Founder has a recent authenticated session when granting that consent;
+   later sends and scheduling actions require the same active consent but no
+   additional per-message approval;
 4. Alex Mail or Founder Calendar is `CONNECTED` with the connector's exact
    minimum scopes, and credentials resolve only for the bound workspace/account;
-5. `external_actions` is durably `PREPARED` before provider contact, the
+5. the consent is active for at most 14 days, permits no more than 12 email and
+   4 Calendar actions, and is invalidated by candidate, decision or policy drift;
+6. email recipients remain exactly the server-resolved candidate plus the
+   optional server-configured Founder copy, while Calendar attendees remain the
+   candidate and Alex; applicant content can never add recipients or actions;
+7. `external_actions` is durably `PREPARED` before provider contact, the
    operation has a deterministic provider id, and duplicates return the
    original receipt;
-6. a timeout or ambiguous provider result becomes `UNCERTAIN`; it is never
+8. a timeout or ambiguous provider result becomes `UNCERTAIN`; it is never
    retried until read-only provider reconciliation establishes the outcome;
-7. inbound applicant mail matches the successful Alex message's exact provider
+9. inbound applicant mail matches the successful Alex message's exact provider
    thread and the server-resolved applicant address; automatic mail is
    receipt-only and instruction-shaped content is withheld;
-8. the emergency kill switch, candidate export/deletion/retention coverage,
+10. the emergency kill switch, candidate export/deletion/retention coverage,
    content-free monitoring and traffic rollback remain operational.
 
 H5–H7 reference, offer and onboarding effects remain disabled until their own
@@ -2636,10 +2655,12 @@ synthetic identity/destination gate and H4S cannot authorize a live effect.
   withholding;
 - Founder free/busy slot proposal, applicant email negotiation, interview
   create/update/cancel and receipt tracking;
-- exact approval, uncertainty and reconciliation controls in candidate scope.
+- one fresh, bounded Founder coordination consent plus per-effect durable
+  receipts, uncertainty and reconciliation controls in candidate scope.
 
-**Exit:** shortlist → approved contact → reply wake → approved interview →
-evidence → human decision passes end to end.
+**Exit:** shortlist → one approved coordination mandate → reply wake →
+interview within confirmed availability → evidence → human decision passes
+end to end.
 
 ### Phase H5 — references and offers
 
