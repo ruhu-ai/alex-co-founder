@@ -641,11 +641,31 @@ class TestDriveAdapter:
         drive_adapter.set_service_factory(None)
 
     def test_list_files(self):
-        drive_adapter.set_service_factory(lambda: _FakeDrive(
-            {"name": "deck.pdf", "mimeType": "application/pdf"}, b""))
+        service = _FakeDrive(
+            {"name": "deck.pdf", "mimeType": "application/pdf"}, b"")
+        drive_adapter.set_service_factory(lambda: service)
         result = drive_adapter.list_files("folder1")
         assert result["status"] == "success"
         assert result["files"][0]["name"] == "deck.pdf"
+
+    def test_list_files_defaults_to_root_and_escapes_explicit_parent(self):
+        class RecordingDrive(_FakeDrive):
+            queries = []
+
+            def list(self, **kwargs):
+                self.queries.append(kwargs["q"])
+                return super().list(**kwargs)
+
+        service = RecordingDrive(
+            {"name": "deck.pdf", "mimeType": "application/pdf"}, b"")
+        drive_adapter.set_service_factory(lambda: service)
+
+        assert drive_adapter.list_files("")["status"] == "success"
+        assert drive_adapter.list_files("folder'one")["status"] == "success"
+        assert service.queries == [
+            "'root' in parents and trashed = false",
+            "'folder\\'one' in parents and trashed = false",
+        ]
 
     def test_fetch_google_doc_exports_text(self, tmp_path, monkeypatch):
         monkeypatch.setattr("services.storage._root", lambda: str(tmp_path))

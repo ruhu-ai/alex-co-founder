@@ -76,14 +76,25 @@ def list_files(folder_id: str, limit: int = 25, workspace_id: str = "",
     if svc is None:
         return {"status": "error", "error": True,
                 "message": "Google OAuth not configured (run scripts/oauth_setup.py)"}
+    parent_id = _escape_drive_query(str(folder_id or "").strip() or "root")
     try:
         resp = svc.files().list(
-            q=f"'{folder_id}' in parents and trashed = false",
+            q=f"'{parent_id}' in parents and trashed = false",
             fields="files(id,name,mimeType,modifiedTime)",
             pageSize=limit,
         ).execute()
     except Exception as exc:
-        return {"status": "error", "error": True, "message": f"drive list failed: {exc}"}
+        status = _http_status(exc)
+        if status == 401:
+            code, message = "auth_required", "Reconnect Google Drive first."
+        elif status == 403:
+            code, message = "permission_denied", "Drive access is no longer permitted."
+        elif status == 400:
+            code, message = "provider_rejected", "Drive rejected the folder request."
+        else:
+            code, message = "provider_unavailable", "Drive files could not be listed."
+        return {"status": "error", "error": True,
+                "error_code": code, "message": message}
     return {"status": "success",
             "files": [{"id": f["id"], "name": f["name"],
                        "mime": f.get("mimeType", "")} for f in resp.get("files", [])]}
