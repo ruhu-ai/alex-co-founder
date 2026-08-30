@@ -1333,6 +1333,9 @@ The reducer uses this priority and composition:
    ends, pending approval becomes the base state.
 4. Active VAD/user speech → `LISTENING`; barge-in stops scheduled Alex audio first and
    emits only the bounded `INTERRUPTED` visual transition before settling to Listening.
+   The browser uses echo-cancelled local acoustic onset to clear queued playback before
+   the network round trip, while Gemini's configured high-sensitivity automatic VAD and
+   `START_OF_ACTIVITY_INTERRUPTS` remain authoritative for the model turn.
 5. Function/tool in flight → `PROCESSING`; after user final and before first output/tool
    → `THINKING`.
 6. Pending durable approval with no speech/tool/audio → `AWAITING_APPROVAL`.

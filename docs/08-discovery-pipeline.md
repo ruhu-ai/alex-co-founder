@@ -65,6 +65,13 @@ Playwright browser (09) and extract from the rendered DOM text. This covers
 JS-heavy portals (Gust, F6S) **without** any vision-loop browsing — the DOM is
 still the source of truth.
 
+Large HTML is handled by the same bounded-render path rather than rejected:
+the transport reads at most 2 MB, the isolated browser returns at most 100,000
+visible-text characters, and Scout follows another official link when a needed
+fact is absent. This is a memory/resource boundary, not a product dead end.
+PDF transport follows Gemini's supported 50 MB document limit; a larger binary
+is never silently truncated into a corrupt source.
+
 **Search-backend fallback:** `GoogleSearchTool` compatibility with Vertex AI +
 gemini-3.5-flash is **unverified by both reference implementations** — it is
 verified by a 15-minute spike on Day 1 (14). If it fails, the fallback is a

@@ -23,6 +23,11 @@ PdfExtractFn = Callable[[bytes, dict], list[dict[str, Any]]]
 _search_fn: SearchFn | None = None
 _extract_fn: ExtractFn | None = None
 _pdf_extract_fn: PdfExtractFn | None = None
+MAX_HTML_FETCH_BYTES = 2_000_000
+# Gemini document understanding accepts PDFs up to 50 MB. Keep the transport
+# bound aligned with that real provider boundary instead of the former 10 MB
+# application-only restriction.
+MAX_PDF_FETCH_BYTES = 50_000_000
 
 
 def set_search_fn(fn: SearchFn) -> None:
@@ -82,8 +87,16 @@ def _parse_html(html: str, base_url: str) -> tuple[str, list[dict[str, str]]]:
     return text, parser.links[:15]
 
 
-async def _safe_fetch(url: str, max_bytes: int) -> tuple[httpx.Response, str]:
-    """Fetch through the DNS-pinning proxy; validate every redirect and cap bytes."""
+async def _safe_fetch(
+    url: str, max_bytes: int, *, truncate: bool = False,
+) -> tuple[httpx.Response, str, bool]:
+    """Fetch through the DNS-pinning proxy with a bounded streaming read.
+
+    HTML callers may request a bounded prefix rather than failing an otherwise
+    useful research task merely because a page ships a large application
+    bundle. Binary callers still fail closed because truncating a PDF would
+    create a corrupt artifact and misleading extraction result.
+    """
     from services import browser_service
 
     current = url
@@ -103,32 +116,46 @@ async def _safe_fetch(url: str, max_bytes: int) -> tuple[httpx.Response, str]:
                     continue
                 streamed.raise_for_status()
                 declared = int(streamed.headers.get("content-length", "0") or 0)
-                if declared > max_bytes:
+                if declared > max_bytes and not truncate:
                     raise ValueError(f"source exceeds {max_bytes} byte limit")
                 chunks: list[bytes] = []
                 size = 0
+                truncated = declared > max_bytes
                 async for chunk in streamed.aiter_bytes():
-                    size += len(chunk)
-                    if size > max_bytes:
+                    remaining = max_bytes - size
+                    if len(chunk) > remaining:
+                        if truncate and remaining > 0:
+                            chunks.append(chunk[:remaining])
+                            size += remaining
+                            truncated = True
+                            break
                         raise ValueError(f"source exceeds {max_bytes} byte limit")
                     chunks.append(chunk)
+                    size += len(chunk)
+                    if size == max_bytes and truncate:
+                        truncated = True
+                        break
                 response = httpx.Response(
                     streamed.status_code, headers=streamed.headers,
                     content=b"".join(chunks), request=streamed.request)
-                return response, current
+                return response, current, truncated
     raise ValueError("too many redirects")
 
 
 async def fetch_source(source_url: str, source_type: str, artifact_name: str) -> dict:
     """Fetch → text (+ links). JS-shell fallback: <500 chars → Playwright render."""
     try:
-        resp, final_url = await _safe_fetch(
-            source_url, 10_000_000 if source_type == "pdf" else 2_000_000)
+        is_pdf = source_type == "pdf"
+        resp, final_url, source_truncated = await _safe_fetch(
+            source_url,
+            MAX_PDF_FETCH_BYTES if is_pdf else MAX_HTML_FETCH_BYTES,
+            truncate=not is_pdf,
+        )
     except Exception as exc:
         return {"status": "error", "error": True, "message": f"fetch failed: {exc}"}
 
     rendered = False
-    if source_type == "pdf":
+    if is_pdf:
         # The bytes are the source of truth: extract_records() detects the
         # .pdf sibling and feeds document understanding the real document.
         pdf_artifact = artifact_name.replace(".txt", ".pdf")
@@ -137,12 +164,16 @@ async def fetch_source(source_url: str, source_type: str, artifact_name: str) ->
                        f"{pdf_artifact}; extract_records reads the PDF itself]"), []
     else:
         text, links = _parse_html(resp.text, final_url)
-        if len(text) < 500:  # JS shell — render through Playwright (docs/08)
+        if source_truncated or len(text) < 500:
+            # Large HTML and JS shells are rendered in the already isolated,
+            # SSRF-guarded browser worker. The browser loads the page normally
+            # while returning at most MAX_PAGE_TEXT visible characters, so a
+            # multi-megabyte bundle no longer blocks useful research.
             from services import browser_gateway as browser_service
 
             rendered_text = await browser_service.render_text(final_url)
             if rendered_text:
-                text, links, rendered = rendered_text, _parse_html(rendered_text, final_url)[1], True
+                text, rendered = rendered_text, True
 
     storage.save_text(artifact_name, text)
     return {
@@ -151,6 +182,13 @@ async def fetch_source(source_url: str, source_type: str, artifact_name: str) ->
         "summary": text[:300],
         "chars": len(text),
         "rendered": rendered,
+        "source_truncated": source_truncated,
+        "source_bytes_read": len(resp.content),
+        "research_note": (
+            "This large source was converted to bounded visible text. Use its "
+            "links or another official source if a requested detail is absent."
+            if source_truncated else None
+        ),
         "links": links,
     }
 

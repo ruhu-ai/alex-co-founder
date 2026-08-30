@@ -33,8 +33,10 @@ def fetch_source(source_url: str, source_type: str, tool_context: ToolContext) -
 
     Returns:
         dict with status, artifact name, <=300-char summary, char count,
-        rendered flag (True if the Playwright JS-shell fallback fired), and
-        links: [{url, anchor_text}] (top 15, for the crawl lane).
+        rendered flag (True if the Playwright fallback fired), whether a large
+        source required bounded extraction, and links: [{url, anchor_text}]
+        (top 15, for the crawl lane). A large HTML page remains usable; it is
+        never rejected solely for shipping oversized scripts or markup.
     """
     from services import discovery_service, pipeline_service
 

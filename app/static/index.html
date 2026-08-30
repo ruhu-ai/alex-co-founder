@@ -8033,6 +8033,8 @@ async function ensureLiveConnection(forVoice = false) {
         endReason: "",
         voiceLifecycle: forVoice,
         audioEnvelopes: [],
+        speechFrames: 0,
+        localBargeInUntil: 0,
         paused: false,
         held: false,
         attentionHoldEnabled: false,
@@ -8070,7 +8072,11 @@ async function attachLiveMicrophone() {
     ensureLiveStartupCurrent(current);
     if (liveMicrophoneActive(current)) return;
     const stream = await navigator.mediaDevices.getUserMedia({
-        audio: true
+        audio: {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true
+        }
     });
     current.micStream = stream;
     ensureLiveStartupCurrent(current, stream);
@@ -8094,6 +8100,22 @@ async function attachLiveMicrophone() {
             const pcm = new Int16Array(e.data);
             let sum = 0;
             for (const sample of pcm) sum += sample * sample;
+            const rms = Math.sqrt(sum / Math.max(1, pcm.length)) / 32768;
+            const localSpeech = rms >= .035;
+            current.speechFrames = localSpeech ? current.speechFrames + 1 : 0;
+            if (current.localBargeInUntil > Date.now() && localSpeech) {
+                current.localBargeInUntil = Date.now() + 1200;
+            }
+            if (current.speechFrames >= 6
+                    && (liveUi.speaking || (current.sources || []).length)) {
+                // Local acoustic onset is faster than the provider round trip.
+                // Silence only the already-buffered response; raw microphone
+                // audio still goes to Gemini, whose server VAD remains the
+                // authoritative turn/interruption detector.
+                current.localBargeInUntil = Date.now() + 1200;
+                stopLivePlayback(current);
+                liveUi.interruptedUntil = Date.now() + 900;
+            }
             if (!liveUi.speaking) liveUi.energyTarget = Math.min(1, Math.sqrt(sum / Math.max(1, pcm.length)) / 9e3);
             voice.ws.send(JSON.stringify({
                 audio: b64encode(e.data)
@@ -8534,6 +8556,10 @@ function onVoiceFrame(evt) {
         renderVoiceCloud();
     } else if (frame.audio && voice) {
         if (liveUi.paused || liveUi.held) return;
+        // Once local speech has stopped buffered playback, discard late audio
+        // from that response until Gemini confirms the interruption. This is
+        // presentation-only; it cannot invent a provider or durable turn.
+        if (voice.localBargeInUntil > Date.now()) return;
         const pcm = new Int16Array(b64decode(frame.audio));
         const f32 = new Float32Array(pcm.length);
         let energy = 0;
@@ -8583,6 +8609,8 @@ function onVoiceFrame(evt) {
         }
         voice.sources = [];
         voice.audioEnvelopes = [];
+        voice.speechFrames = 0;
+        voice.localBargeInUntil = 0;
         voice.nextPlay = 0;
         liveUi.interruptedUntil = Date.now() + 900;
         liveUi.speaking = false;

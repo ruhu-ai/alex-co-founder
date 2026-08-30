@@ -227,6 +227,19 @@ def register_live(app, session_service, founder_id: str) -> None:
             streaming_mode=StreamingMode.BIDI,
             input_audio_transcription=types.AudioTranscriptionConfig(),
             output_audio_transcription=types.AudioTranscriptionConfig(),
+            realtime_input_config=types.RealtimeInputConfig(
+                automatic_activity_detection=types.AutomaticActivityDetection(
+                    disabled=False,
+                    start_of_speech_sensitivity=(
+                        types.StartSensitivity.START_SENSITIVITY_HIGH),
+                    end_of_speech_sensitivity=(
+                        types.EndSensitivity.END_SENSITIVITY_LOW),
+                    prefix_padding_ms=20,
+                    silence_duration_ms=600,
+                ),
+                activity_handling=(
+                    types.ActivityHandling.START_OF_ACTIVITY_INTERRUPTS),
+            ),
             session_resumption=types.SessionResumptionConfig(
                 handle=resumption_handle or None),
             context_window_compression=types.ContextWindowCompressionConfig(
