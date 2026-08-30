@@ -140,6 +140,7 @@ async def record_connector_success(founder_id: str, connector_id: str,
             return row
     return await firestore.transition_data_connection(
         founder_id, row["connection_id"], expected_version=row["version"],
+        status="CONNECTED",
         successful_operation=operation)
 
 

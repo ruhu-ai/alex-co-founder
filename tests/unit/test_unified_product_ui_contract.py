@@ -498,3 +498,9 @@ def test_unified_ui_does_not_add_a_client_authority_path():
     assert "Chat/voice" not in INDEX  # no client prose parser is introduced
     assert "/api/hiring/applications/${encodeURIComponent(id)}/decisions" in HIRING
     assert "expected_application_version:version" in HIRING_SQUASHED
+
+
+def test_calendar_success_refreshes_health_without_a_second_provider_read():
+    assert "loadConnections({ probeCalendar = true } = {})" in INDEX
+    assert "conn.calendar && probeCalendar" in INDEX
+    assert "loadConnections({ probeCalendar: false })" in INDEX

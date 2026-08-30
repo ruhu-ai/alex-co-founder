@@ -74,6 +74,25 @@ async def test_legacy_alex_drive_scope_is_reauth_and_cannot_execute(fake_store):
     assert gate["error_code"] == "scope_missing"
 
 
+async def test_successful_operation_repairs_degraded_connection(fake_store):
+    connection = await _connection("founder", "calendar")
+    await firestore.transition_data_connection(
+        "founder", connection["connection_id"],
+        expected_version=connection["version"], status="DEGRADED",
+        error_code="provider_unavailable")
+
+    repaired = await connection_registry.record_connector_success(
+        "founder", "calendar", "calendar_list")
+
+    assert repaired["status"] == "CONNECTED"
+    assert repaired["last_error_code"] is None
+    current = await firestore.get_data_connection(
+        "founder", connection["connection_id"])
+    assert current["status"] == "CONNECTED"
+    assert current["last_error_code"] is None
+    assert current["last_successful_operation"] == "calendar_list"
+
+
 async def test_stale_failure_cannot_overwrite_later_reconnect(fake_store):
     first = await _connection("founder", "drive")
     reconnected = await firestore.upsert_data_connection(

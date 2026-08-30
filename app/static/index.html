@@ -7308,7 +7308,7 @@ const KIND_TONE = {
     update: "accent"
 };
 
-async function loadConnections() {
+async function loadConnections({ probeCalendar = true } = {}) {
     const cat = await api("/api/connectors");
     connectorCatalog = (cat || {}).connectors || [];
     renderConnectorList();
@@ -7345,14 +7345,18 @@ async function loadConnections() {
     }
     const alexLast = (connState.alex_mail || {}).last_scan;
     $("alexLastScan").innerHTML = alexLast && !alexLast.error ? (alexLast.events || []).map(e => `\n      <div class="crow">\n        <span class="tag tag-accent">${KIND_LABEL[e.kind] || e.kind}</span>\n        <span class="grow"><b>${esc(e.subject || "(no subject)")}</b>\n          <span class="conn-sub">${esc(e.from || "")} — ${esc((e.excerpt || "").slice(0, 90))}…</span></span>\n      </div>`).join("") || `<div class="crow"><span class="grow conn-sub">Scanned ${timeAgo(alexLast.at)} — no new mail.</span></div>` : `<div class="crow"><span class="grow conn-sub">${alexLast && alexLast.error ? esc(alexLast.error) : "Never scanned."}</span></div>`;
-    if (conn.calendar) {
+    if (conn.calendar && probeCalendar) {
         api("/api/v1/integrations/calendar/upcoming").then(j => {
             const evs = (j || {}).events || [];
             $("calendarUpcoming").innerHTML = evs.length ? evs.map(e => `<div class="crow"><span class="grow"><b>${esc(e.summary)}</b>\n            <span class="conn-sub">${esc((e.start || "").replace("T", " ").slice(0, 16))}</span></span></div>`).join("") : `<div class="crow"><span class="grow conn-sub">Nothing scheduled in the next 7 days.</span></div>`;
+            // A successful provider read repairs a previously degraded durable
+            // connection. Refresh provider-free projections once so the open
+            // detail header and list badge become Ready without a second read.
+            return loadConnections({ probeCalendar: false });
         }).catch(() => {
             $("calendarUpcoming").innerHTML = `<div class="crow"><span class="grow conn-sub">Could not load events.</span></div>`;
         });
-    } else {
+    } else if (!conn.calendar) {
         $("calendarUpcoming").innerHTML = `<div class="crow"><span class="grow conn-sub">Connect Calendar to see upcoming meetings.</span></div>`;
     }
     $("driveFiles").innerHTML = driveFiles.length ? driveFiles.map(f => `\n      <div class="crow">\n        <span class="cbadge sm"><svg class="ico" aria-hidden="true"><use href="#i-cloud-up"/></svg></span>\n        <span class="grow"><b>${esc(f.name)}</b>\n          <span class="conn-sub">${esc(f.id)}</span></span>\n        <button class="btn" data-variant="quiet" data-size="sm" data-drive-action="ingest" data-source-grant-id="${esc(f.source_grant_id)}">Ingest</button>\n        <button class="x" title="Remove" aria-label="Remove" data-drive-action="remove" data-file-id="${esc(f.id)}"><svg class="ico" aria-hidden="true"><use href="#i-close"/></svg></button>\n      </div>`).join("") : `<div class="crow"><span class="grow conn-sub">Nothing selected yet — add a file id below.</span></div>`;
