@@ -1,0 +1,36 @@
+agents/co_founder/instructions.py
+  s_16e75b10efee22::t_065ffa02993f85 184-187,268-270
+  s_16e75b10efee22::t_691c054d8c77c8 234-237
+app/live.py
+  s_16e75b10efee22::t_691c054d8c77c8 230-242
+docs/08-discovery-pipeline.md
+  s_16e75b10efee22::t_16bbb152d4cd09 68-74
+services/discovery_service.py
+  s_16e75b10efee22::t_065ffa02993f85 26-30,90-99,119,123,125-131,134-137,141,148-153,158,167-171,176,185-191
+agents/co_founder/tools/discovery.py
+  s_16e75b10efee22::t_065ffa02993f85 36-39
+docs/38-user-facing-vision.md
+  s_16e75b10efee22::t_16bbb152d4cd09 1336-1338
+tests/unit/test_discovery_large_sources.py
+  s_16e75b10efee22::t_9654395c74e3e2 1-116
+tests/unit/test_live_barge_in.py
+  s_16e75b10efee22::t_9654395c74e3e2 1-30
+app/static/index.html
+  s_16e75b10efee22::t_691c054d8c77c8 8036-8037,8075-8079,8103-8118,8559-8562,8612-8613
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "29ff55ccf4359d38ed63d03ff0eb3b3f2066835c",
+  "prompts": {},
+  "sessions": {
+    "s_16e75b10efee22": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0484d-a6bd-7182-90ae-527ccfd2a966",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Ijidai Lassa <ijidai@cued.app>"
+    }
+  }
+}
