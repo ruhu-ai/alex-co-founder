@@ -4,6 +4,7 @@
 # so deriving it here prevents a command-line port and callback port from
 # drifting apart.
 set -euo pipefail
+umask 077
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
@@ -63,6 +64,10 @@ fi
 # clean-main checkout reuse the developer's local settings without copying or
 # mutating them. Do not edit either file at runtime.
 LOCAL_ENV_FILE="${LOCAL_ENV_FILE:-.env}"
+if [[ "$LOCAL_ENV_FILE" != /* ]]; then
+  LOCAL_ENV_FILE="$ROOT/$LOCAL_ENV_FILE"
+fi
+export LOCAL_ENV_FILE
 if [[ -f "$LOCAL_ENV_FILE" ]]; then
   set -a
   # shellcheck disable=SC1091

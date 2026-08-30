@@ -389,7 +389,11 @@ def save_env_var(key: str, value: str) -> dict:
         if value:
             os.environ[key] = value
         return {"status": "success"}
-    env_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".env")
+    configured_path = os.environ.get("LOCAL_ENV_FILE", "").strip()
+    env_path = os.path.abspath(os.path.expanduser(configured_path)) if configured_path \
+        else os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".env")
+    temp_path = f"{env_path}.tmp-{os.getpid()}"
     try:
         lines = []
         if os.path.exists(env_path):
@@ -397,9 +401,19 @@ def save_env_var(key: str, value: str) -> dict:
                 lines = [ln for ln in fh.read().splitlines() if not ln.startswith(f"{key}=")]
         if value:
             lines.append(f"{key}={value}")
-        with open(env_path, "w") as fh:
+        descriptor = os.open(
+            temp_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(descriptor, "w") as fh:
             fh.write("\n".join(lines) + "\n")
+            fh.flush()
+            os.fsync(fh.fileno())
+        os.replace(temp_path, env_path)
+        os.chmod(env_path, 0o600)
     except OSError as exc:
+        try:
+            os.unlink(temp_path)
+        except OSError:
+            pass
         return {"status": "error", "error": True,
                 "message": f"local connector persistence failed: {exc}"[:200]}
     os.environ.pop(key, None)

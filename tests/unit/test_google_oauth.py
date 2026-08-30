@@ -242,6 +242,33 @@ def test_alex_connector_refresh_tokens_are_saved_to_separate_slots(monkeypatch):
     assert writes[1][1] == "drive-token"
 
 
+def test_local_token_persistence_uses_explicit_env_file_and_locks_it(
+        monkeypatch, tmp_path):
+    target = tmp_path / "shared" / ".env"
+    target.parent.mkdir()
+    target.write_text("EXISTING=value\nTARGET_TOKEN=old\n")
+    target.chmod(0o644)
+    unrelated = tmp_path / "checkout" / ".env"
+    unrelated.parent.mkdir()
+    unrelated.write_text("UNCHANGED=yes\n")
+    monkeypatch.chdir(unrelated.parent)
+    monkeypatch.delenv("K_SERVICE", raising=False)
+    monkeypatch.setenv("LOCAL_ENV_FILE", str(target))
+
+    result = google_oauth.save_env_var("TARGET_TOKEN", "replacement")
+
+    assert result == {"status": "success"}
+    assert target.read_text().splitlines() == [
+        "EXISTING=value", "TARGET_TOKEN=replacement"]
+    assert target.stat().st_mode & 0o777 == 0o600
+    assert unrelated.read_text() == "UNCHANGED=yes\n"
+
+    removed = google_oauth.save_env_var("TARGET_TOKEN", "")
+    assert removed == {"status": "success"}
+    assert target.read_text() == "EXISTING=value\n"
+    assert target.stat().st_mode & 0o777 == 0o600
+
+
 def test_scoped_credential_never_falls_back_to_legacy_global_token(monkeypatch):
     monkeypatch.setenv("GOOGLE_OAUTH_CLIENT_ID", "client")
     monkeypatch.setenv("GOOGLE_OAUTH_CLIENT_SECRET", "secret")

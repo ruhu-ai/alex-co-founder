@@ -79,6 +79,8 @@ cp .env.example .env   # fill values
 # ALEX_MAIL_LOCAL_SUBSCRIPTION=projects/<project>/subscriptions/alex-mail-local-dev
 # Isolated clean-main worktrees may reuse the saved project's environment:
 # LOCAL_ENV_FILE=/path/to/project/.env LOCAL_VENV_DIR=/path/to/project/.venv ./scripts/run_local.sh
+# The launcher exports the resolved LOCAL_ENV_FILE so an OAuth callback writes
+# back to the same locked file even when the code runs from another checkout.
 # terminal 1
 ./scripts/run_local.sh
 # terminal 2
