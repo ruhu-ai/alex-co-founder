@@ -171,6 +171,54 @@ in an issue, commit, recording, or shared URL.
 
 ---
 
+## Reproducible Testing Instructions for Competition Judging Team
+
+The judging team can test the deployed product with the email address and
+password supplied privately in the competition submission. Those credentials
+are intentionally not duplicated in this repository.
+
+1. Open the **[live Cloud Run app](https://co-founder-64dgomo23q-uc.a.run.app)**
+   in a fresh browser window.
+2. Select **Continue with Google** and sign in with the competition-provided
+   email address and password. The provisioned account enters the product as the
+   authenticated `FOUNDER`; authentication does not bypass workflow approvals.
+3. From the Alex chat surface, start a **New session**.
+4. Paste this command exactly:
+
+   ```text
+   /hiring Founding Full-stack AI Engineer, with 4 or more years of experience, strong in python or typescript full-stack web development, and building AI or LLM powered products. They should work directly with founders, own delivery from idea to production and make practical technical decision in fast moving startup.
+   ```
+
+5. If Alex asks for the remaining publication facts, reply:
+
+   ```text
+   Company: Ruhu. Location: Nigeria. Work arrangement: Remote. Employment: Full-time.
+   ```
+
+6. Alex should create a new **draft** role package rather than reuse the optional
+   synthetic fixture. Open **Hiring**, select the new role, and verify that the
+   package contains a complete real-world job description, criteria, interview
+   plan, advertised location, and application policy.
+7. Review the package and use the explicit Founder approval to publish it. Open
+   **View public job page** and confirm that the public page and application form
+   are separate from the internal Hiring workspace.
+8. For an end-to-end intake test, use only the fictional candidate identity and
+   test CV supplied with the competition materials. After submission, verify
+   that Alex prepares restricted criterion evidence and that **Work**,
+   **Evidence**, **Decisions**, and **Activity** reflect committed backend state.
+9. Commit an **Advance** decision to inspect the durable interview-coordination
+   goal. Email, Calendar, reference, offer, or onboarding effects will proceed
+   only when their exact connector, consent, approval, and release controls are
+   active; a blocked effect must remain visible and fail closed.
+
+Expected safety checks are reproducible too: asking Alex in chat to publish,
+advance, submit, email, or book without the corresponding server-side decision
+or approval must not perform the action. Refreshing or reopening the app should
+show the same committed role and candidate state rather than reconstructing it
+from chat history.
+
+---
+
 ## Long-running operations
 
 The same durable-state and event-wake architecture supports multiple product
@@ -287,16 +335,35 @@ founder to choose a ranked opportunity before the guarded application lifecycle
 begins.
 
 ```mermaid
-flowchart LR
-    CURRENT["Run discovery sweep"] --> D["Discover opportunities"]
-    CMD["/discover + optional prose context"] --> D
-    D --> M["Match, rank, and archive weak fits"]
-    M --> S["Ranked shortlist ready<br/>Wait for founder selection"]
-    S -->|"choose_opportunity()"| A["Existing application lifecycle"]
-    A --> W["Interview, draft, review, and fill"]
-    W --> G["Founder submission approval"]
-    G --> F["Submit, follow up, and close"]
+flowchart TB
+    CURRENT["Founder clicks Run discovery sweep"] --> W0["Dormant: discovery request is running"]
+    CMD["Founder uses /discover<br/>with optional prose context"] --> W0
+    W0 -->|Authenticated discovery-task wake| D["Discover normalized opportunities"]
+    D --> M["Match and rank strong fits;<br/>archive weak fits with reasons"]
+    M --> S{"Founder selects a shortlisted opportunity?"}
+    S -->|Close triage| IDLE["Return to idle"]
+    S -->|Choose opportunity| Q["Interview for required facts<br/>and resolve profile gaps"]
+    Q --> DR["Draft every required application section<br/>with an evidence-check report"]
+
+    DR --> W1["Dormant: wait for Founder section review"]
+    W1 -->|Reject or edit one section| DR
+    W1 -->|Approve every section| AP["Application approved for form filling"]
+    AP --> F["Open portal, map questions and fill<br/>without inventing missing facts"]
+    F --> W2["Dormant: wait for exact submission approval"]
+    W2 -->|Matching fresh server approval| X["Submit once through the<br/>idempotent external-action ledger"]
+    X --> W3["Dormant: wait for signed portal confirmation"]
+    W3 -->|Verified portal event| FU["Create follow-up schedule"]
+    FU --> W4["Dormant: wait for deadline,<br/>program reply or result event"]
+    W4 -->|Reply or deadline wake| FU
+    W4 -->|Final result or terminal deadline| C["Close application with audit trail"]
+
+    classDef wait fill:#2a2140,stroke:#b794f6,color:#f5efff;
+    class W0,W1,W2,W3,W4 wait;
 ```
+
+As in Hiring, purple nodes are durable pauses rather than running workers. Only
+the named authenticated task, Founder action, or provider event wakes the
+matching application; Alex never treats chat text as submission approval.
 
 Set `DISCOVER_COMMAND_ENABLED=true` to enable the competition-safe adapter. It
 accepts prose context only, reuses the existing discovery, matching, selection,
