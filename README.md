@@ -850,6 +850,22 @@ Operational evidence is available through:
   checks still execute in code.
 - Every external action and refusal writes auditable evidence.
 
+## License
+
+Except for the exclusions below and separately licensed third-party material,
+the source code and documentation authored by Ruhu in this repository are
+Copyright 2026 Ruhu, Inc. and licensed under the
+[Apache License 2.0](LICENSE). See [NOTICE](NOTICE) for attribution and brand
+terms, and [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for bundled
+third-party components.
+
+The Apache License does not grant permission to use Ruhu or Co-Founder names,
+logos, trademarks, or visual brand assets except for customary attribution.
+Credentials, secrets, access tokens, applicant or personnel data, and demo
+identities are not reusable project assets and are not licensed for reuse.
+Screenshots under `docs/assets/demo/` are documentation-only assets governed by
+their [separate notice](docs/assets/demo/README.md), not by the Apache grant.
+
 ## What's next
 
 Funding applications and Hiring operations are the first complete workflow
