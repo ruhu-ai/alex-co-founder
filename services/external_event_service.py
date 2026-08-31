@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Awaitable, Callable
+from email.utils import parseaddr
 from typing import Any
 
 from services import data_source_contracts as dsc
@@ -171,6 +172,21 @@ async def _causal_candidates(founder_id: str, event: dict[str, Any],
     return list(candidates.values())
 
 
+async def _exact_self_sent_action(
+        founder_id: str, provider_event: dict[str, Any]) -> dict[str, Any] | None:
+    """Return one successful ledger action for an Alex-authored Gmail event."""
+    sender = parseaddr(str(provider_event.get("from") or ""))[1].casefold()
+    provider_message_id = str(provider_event.get("id") or "")
+    if sender != "alex@ruhu.ai" or not provider_message_id:
+        return None
+    matches = [
+        action for action in await firestore.list_external_actions(founder_id)
+        if action.get("status") == "SUCCEEDED"
+        and str(action.get("provider_effect_id") or "") == provider_message_id
+    ]
+    return matches[0] if len(matches) == 1 else None
+
+
 async def _heuristic_candidates(founder_id: str,
                                 provider_event: dict[str, Any]) -> list[dict[str, str]]:
     """Non-authoritative suggestions for inbox display only."""
@@ -284,6 +300,27 @@ async def process_mail_event(founder_id: str, connector_id: str,
                 "settled": True, "event_id": event_id}
     if not claim.get("claimed"):
         return claim
+
+    self_sent = await _exact_self_sent_action(founder_id, provider_event)
+    if self_sent:
+        session_id = str(
+            self_sent.get("run_id") or self_sent.get("session_id") or "")
+        if not session_id:
+            return {"status": "error", "error": True,
+                    "error_code": "invalid_contract",
+                    "message": "Self-sent action has no durable run."}
+        applied = await firestore.apply_external_event_signal(
+            founder_id, event_id, claim["lease_owner"],
+            session_id=session_id,
+            correlation_basis=dsc.CorrelationBasis.CAUSAL_ACTION.value,
+            resource_id=str(
+                self_sent.get("application_id")
+                or self_sent.get("resource_id") or ""))
+        if applied.get("error"):
+            return applied
+        return {"status": "success", "settled": True,
+                "event_id": event_id, "effect_ref": applied.get("effect_ref"),
+                "self_sent": True}
 
     exact = await _causal_candidates(founder_id, current, provider_event)
     if len(exact) == 1:

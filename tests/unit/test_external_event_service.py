@@ -404,3 +404,31 @@ async def test_exact_replay_closes_old_hiring_inbox_receipt_once(
     assert fake_store.founder_inbox[stranded["inbox_item_id"]][
         "status"] == "RESOLVED"
     assert duplicate["error_code"] == "reply_replay_not_eligible"
+
+
+async def test_exact_self_sent_hiring_message_settles_without_reply_or_inbox(
+        fake_store, monkeypatch):
+    action = {
+        "action_id": "hiring_action_self_sent", "founder_id": "founder",
+        "workspace_id": "founder", "status": "SUCCEEDED",
+        "provider_effect_id": "gmail-self-sent",
+        "application_id": "candidateapp_" + "d" * 28,
+        "run_id": "run_hiring_self_sent",
+        "action_kind": "HIRING_SEND_EMAIL",
+    }
+    fake_store.external_actions[action["action_id"]] = action
+
+    result = await external_event_service.process_mail_event(
+        "founder", "alex_mail", _event(
+            message_id="gmail-self-sent", thread_id="gmail-thread-self",
+            sender="Alex <alex@ruhu.ai>",
+            subject="Interview availability", excerpt="Sent invitation.",
+            kind="update"))
+
+    assert result["settled"] is True
+    assert result["self_sent"] is True
+    event = next(row for row in fake_store.external_events.values()
+                 if row["provider_event_id"] == "gmail-self-sent")
+    assert event["processing_status"] == "APPLIED"
+    assert event["correlation_status"] == "EXACT"
+    assert fake_store.founder_inbox == {}
