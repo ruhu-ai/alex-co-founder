@@ -1,0 +1,24 @@
+services/hiring_service.py
+  s_bf598a20bfcdaa::t_d21c625711402d 133-192,649
+tests/unit/test_hiring_founder_draft.py
+  s_bf598a20bfcdaa::t_5af487bdd60b3e 1163,1180-1181,1184
+  s_bf598a20bfcdaa::t_ff37909364d269 1317,1361-1364
+app/hiring_routes.py
+  s_bf598a20bfcdaa::t_d21c625711402d 71-75,472
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "9a7ca7a49750fa46892ba9ec87bc03a8bac54fef",
+  "prompts": {},
+  "sessions": {
+    "s_bf598a20bfcdaa": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a04860-dde3-79c3-b2bd-2987b04adc68",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Ijidai Lassa <ijidai@cued.app>"
+    }
+  }
+}
