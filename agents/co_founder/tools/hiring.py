@@ -9,6 +9,7 @@ from google.adk.tools import ToolContext
 from services.actor_identity import ActorPrincipal, WorkspaceRole
 from services.durable_store import production_store
 from services.hiring_contracts import canonical_hash, stable_id
+from services.hiring_role_writer import write_structured_founder_role_package
 
 from .. import state_schema as ss
 from ._common import actor_id, workspace_id
@@ -55,7 +56,7 @@ async def _scoped_founder(tool_context: ToolContext) -> ActorPrincipal | dict[st
     )
 
 
-def prepare_hiring_role_brief(
+async def prepare_hiring_role_brief(
         company_name: str, role_title: str, role_summary: str,
         headcount_target: int, target_date: str, location: str,
         work_arrangement: str, employment_type: str,
@@ -114,9 +115,7 @@ def prepare_hiring_role_brief(
         description, contract hash, and confirmation prompt. No role, run,
         publication, contact, ranking, decision, or provider effect is created.
     """
-    from services.hiring_role_draft import build_contract
-
-    built = build_contract(
+    built = await write_structured_founder_role_package(
         company_name=company_name,
         role_title=role_title,
         role_summary=role_summary,
@@ -137,6 +136,7 @@ def prepare_hiring_role_brief(
         equal_opportunity_statement=equal_opportunity_statement,
         accessibility_statement=accessibility_statement,
         public_job_description=public_job_description,
+        company_context=None,
     )
     if built.get("error") or built.get("status") != "success":
         return built

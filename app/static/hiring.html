@@ -2196,6 +2196,31 @@
           out.textContent = e.message;
         }
       }
+      async function discardDraftRole(roleId, expectedVersion) {
+        if (!confirm("Discard this unused draft role? It will leave Active roles, while a minimal audit record is retained. This does not delete any chat session.")) return;
+        const output = document.querySelector("#discardRoleStatus");
+        if (output) output.textContent = "Discarding draft…";
+        try {
+          await api(`/api/hiring/roles/${encodeURIComponent(roleId)}/discard`, {
+            method: "POST",
+            headers: {"Content-Type": "application/json", "X-CSRF-Token": await csrf()},
+            body: JSON.stringify({
+              expected_role_version: expectedVersion,
+              client_request_id: `discard_${crypto.randomUUID().replaceAll("-", "_")}`,
+              founder_confirmed: true,
+            }),
+          });
+          selected = null;
+          loadedRoleId = null;
+          history.replaceState({}, "", "/hiring.html");
+          await load();
+          showHiringHome();
+          status.textContent = "Draft role discarded. Its audit record was retained.";
+          status.dataset.tone = "ok";
+        } catch (error) {
+          if (output) output.textContent = error.message;
+        }
+      }
       async function copyApplicationLink(roleId) {
         const status = document.querySelector("#applicationLinkStatus"),
           url = new URL(
@@ -2589,8 +2614,13 @@
                 : "",
             publicationControl = !role.synthetic && role.publication_allowed === true && !(role.publication_receipts || []).length
               ? '<div class="manual-publication"><button class="btn" data-variant="primary" onclick="publishApprovedRole()">Publish approved role</button><p class="micro">Publishes the exact approved job description on this app’s public role page and opens its role-scoped application form. It does not post to third-party sites, contact candidates, rank, or decide.</p><details><summary>Record an existing external publication instead</summary><label>Published HTTPS URL<input id="publicationUrl" type="url" placeholder="https://…" /></label><button class="btn" data-variant="secondary" onclick="recordManualPublication()">Record external receipt</button></details><p id="publicationStatus" class="micro" aria-live="polite"></p></div>'
+              : "",
+            discardControl = (!role.synthetic && role.role_state === "DRAFT" &&
+              candidates.length === 0 && !(role.publication_receipts || []).length &&
+              !role.current_policy_version_id)
+              ? `<button class="btn" data-variant="danger" type="button" onclick='discardDraftRole(${JSON.stringify(role.role_id)},${JSON.stringify(role.version)})'>Discard draft role</button><span id="discardRoleStatus" class="micro" role="status" aria-live="polite"></span>`
               : "";
-          root.innerHTML = `<section class="card role-summary"><div class="role-summary-head"><div><p class="micro">${esc(roleKind)} · ${esc(role.company_name || contract?.company_name || "Company")} · ${esc(role.role_code)}</p><h2>${esc(role.role_title)}</h2></div><a class="btn" data-variant="secondary" href="${esc(discussLink)}"><svg class="ico" aria-hidden="true"><use href="#i-chat"/></svg>Discuss with Alex</a></div><p class="micro">Role-level context only. Candidate identities and restricted evidence stay in Hiring; external actions still require their exact controls.</p><div class="grid"><div class="stat"><span class="muted">Role state</span><strong>${esc(role.role_state)}</strong></div><div class="stat"><span class="muted">Candidates</span><strong>${candidates.length}</strong></div><div class="stat"><span class="muted">${esc(applicationsLabel)}</span><strong>${esc(applicationsStatus)}</strong><span class="micro">${esc(applicationsHelp)}</span>${applicationLink}</div></div><p class="micro next-wake">Next wake: ${esc(role.role_state === "PUBLISHED" ? "trusted application intake" : "founder approval")}</p></section><section class="card role-materials" tabindex="-1"><h3>${needsApproval ? "Proposed" : displayPolicy ? "Approved" : "Saved"} role package</h3>${contract ? `<section><h4>Role brief</h4><p>${esc(contract.role_summary)}</p><p class="micro">${esc(contract.company_name)} · Target ${esc(contract.target_date)} · ${esc((contract.location_envelope || []).join(", "))}</p></section>${roleDescriptionMarkup(role, contract, displayPolicy)}<section><h4>Hiring scorecard</h4><ol>${(contract.criteria || []).map((c) => `<li><strong>${esc(c.label)}</strong> — ${esc(c.description)}</li>`).join("")}</ol></section><section><h4>Interview plan</h4><ol>${(contract.interview_plan || []).map((q) => `<li><strong>${esc(q.criterion_id)}</strong> — ${esc(q.text)}<br><span class="micro">Rubric: ${(q.rubric || []).map(esc).join("; ")}</span></li>`).join("")}</ol></section><p class="micro">${policyMeta}</p>${approveMarkup}` : '<p class="muted">No role contract is available yet.</p>'}</section><section class="card"><h3>Publication receipt</h3>${(role.publication_receipts || []).map((x) => `<p><button data-public-url="${esc(encodeURIComponent(x.public_url))}" onclick="openInAppBrowser(decodeURIComponent(this.dataset.publicUrl))">Open ${esc(x.destination)} receipt in Browser panel</button> · ${esc(x.verification_status)}<br><span class="micro">Recorded by ${esc(x.actor_id)} at ${esc(x.recorded_at)}</span></p>`).join("") || `<p class="muted">${esc(publicationText)}</p>`}${publicationControl}</section><section class="card"><h3>Candidate intake inbox</h3><p class="micro">Role-scoped applications and restricted CV evidence only. Alex does not score, rank, recommend, advance, or reject candidates.</p>${candidateInboxMarkup(groups, candidateEmpty)}</section>`;
+          root.innerHTML = `<section class="card role-summary"><div class="role-summary-head"><div><p class="micro">${esc(roleKind)} · ${esc(role.company_name || contract?.company_name || "Company")} · ${esc(role.role_code)}</p><h2>${esc(role.role_title)}</h2></div><div class="application-actions"><a class="btn" data-variant="secondary" href="${esc(discussLink)}"><svg class="ico" aria-hidden="true"><use href="#i-chat"/></svg>Discuss with Alex</a>${discardControl}</div></div><p class="micro">Role-level context only. Candidate identities and restricted evidence stay in Hiring; external actions still require their exact controls.</p><div class="grid"><div class="stat"><span class="muted">Role state</span><strong>${esc(role.role_state)}</strong></div><div class="stat"><span class="muted">Candidates</span><strong>${candidates.length}</strong></div><div class="stat"><span class="muted">${esc(applicationsLabel)}</span><strong>${esc(applicationsStatus)}</strong><span class="micro">${esc(applicationsHelp)}</span>${applicationLink}</div></div><p class="micro next-wake">Next wake: ${esc(role.role_state === "PUBLISHED" ? "trusted application intake" : "founder approval")}</p></section><section class="card role-materials" tabindex="-1"><h3>${needsApproval ? "Proposed" : displayPolicy ? "Approved" : "Saved"} role package</h3>${contract ? `<section><h4>Role brief</h4><p>${esc(contract.role_summary)}</p><p class="micro">${esc(contract.company_name)} · Target ${esc(contract.target_date)} · ${esc((contract.location_envelope || []).join(", "))}</p></section>${roleDescriptionMarkup(role, contract, displayPolicy)}<section><h4>Hiring scorecard</h4><ol>${(contract.criteria || []).map((c) => `<li><strong>${esc(c.label)}</strong> — ${esc(c.description)}</li>`).join("")}</ol></section><section><h4>Interview plan</h4><ol>${(contract.interview_plan || []).map((q) => `<li><strong>${esc(q.criterion_id)}</strong> — ${esc(q.text)}<br><span class="micro">Rubric: ${(q.rubric || []).map(esc).join("; ")}</span></li>`).join("")}</ol></section><p class="micro">${policyMeta}</p>${approveMarkup}` : '<p class="muted">No role contract is available yet.</p>'}</section><section class="card"><h3>Publication receipt</h3>${(role.publication_receipts || []).map((x) => `<p><button data-public-url="${esc(encodeURIComponent(x.public_url))}" onclick="openInAppBrowser(decodeURIComponent(this.dataset.publicUrl))">Open ${esc(x.destination)} receipt in Browser panel</button> · ${esc(x.verification_status)}<br><span class="micro">Recorded by ${esc(x.actor_id)} at ${esc(x.recorded_at)}</span></p>`).join("") || `<p class="muted">${esc(publicationText)}</p>`}${publicationControl}</section><section class="card"><h3>Candidate intake inbox</h3><p class="micro">Role-scoped applications and restricted CV evidence only. Alex does not score, rank, recommend, advance, or reject candidates.</p>${candidateInboxMarkup(groups, candidateEmpty)}</section>`;
           loadedRoleId = id;
           hydrateUnifiedRoleLayout(role, candidates);
           if (preserveCurrent) restoreHiringScroll(scrollState);

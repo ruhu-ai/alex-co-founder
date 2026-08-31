@@ -43,8 +43,11 @@ Evidence Passport. Delivery or preparation failure is a visible content-free
 `DELAYED`/`FAILED` state; it never becomes a candidate decision. Duplicate
 delivery reuses the same run, evidence ids, assessment id, and event keys.
 
-**Role-package writing boundary:** normal `/hiring` drafting uses the configured
-Gemini model through an injectable, tool-less service boundary. The model sees
+**Role-package writing boundary:** both normal Alex conversation and the
+`/hiring` shortcut use the same configured Gemini model through one injectable,
+tool-less service boundary. The conversation model may collect and structure
+Founder facts, but it cannot commit its own shallow scorecard as the finished
+package. The writer sees
 only the exact Founder description, bounded canonical company facts, and the
 visible working-model assumptions. It fills the existing role-description
 fields; deterministic code preserves the title and numeric requirements,
@@ -54,6 +57,14 @@ failure returns `role_writer_unavailable`; a second invalid response returns
 `role_draft_unsafe`; neither persists a role. The shallow compiler is available
 only as an explicitly labelled non-Cloud local fallback, and the synthetic FDE
 fixture never participates in normal drafting.
+
+**Draft discard boundary:** an authenticated Founder may explicitly discard
+only a non-synthetic `DRAFT` with no approved policy, publication receipt,
+candidate, approval, or external action. Discard is a version-fenced
+`DISCARDED` tombstone plus append-only audit and workflow-run cancellation; it
+removes the draft from Active roles without erasing accountable history. Chat
+session deletion never cascades into a durable role, policy, candidate, or
+audit record.
 
 **Public application surface:** the app-owned public role page renders the
 complete approved job description before a minimal application form containing
@@ -2851,6 +2862,12 @@ approval.
 - [ ] Runtime status and domain state are separate and code-owned.
 - [ ] Chat/session history is never workflow truth; restart and session switch
       preserve the operation.
+- [ ] Normal Alex role drafting and `/hiring` use the same grounded writer and
+      deterministic completeness/safety checks; a shallow two-item scorecard
+      cannot bypass the writer.
+- [ ] Founder-confirmed discard works only for an unused DRAFT, hides it from
+      Active roles, cancels its run, retains audit, and never cascades from
+      chat-session deletion.
 - [ ] Human identity and authority come from a server-derived ActorPrincipal;
       the process-wide `FOUNDER_ID` cannot attribute or authorize hiring work.
 - [ ] Internal delivery identity comes from a signed, route-scoped

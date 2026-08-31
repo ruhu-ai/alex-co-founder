@@ -452,6 +452,9 @@ def test_founder_hiring_package_is_readable_and_exact_approval_is_primary():
     assert "fixed email quota" not in HIRING
     assert "No active synthetic sandbox is scoped to this role" not in HIRING
     assert "Only the Founder can explicitly change a phase or decline" in HIRING
+    assert "Discard draft role" in HIRING
+    assert "/discard`" in HIRING
+    assert "minimal audit record is retained" in HIRING
 
 
 def test_candidate_open_role_is_receipt_gated_and_contains_no_internal_controls():

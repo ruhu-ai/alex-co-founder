@@ -12,7 +12,7 @@ from fastapi.testclient import TestClient
 
 from agents.co_founder import state_schema as ss
 from agents.co_founder.tools import hiring as hiring_tools
-from services import hiring_policy_service, hiring_public_intake
+from services import hiring_policy_service, hiring_public_intake, hiring_role_writer
 from services.actor_identity import ActorPrincipal, WorkspaceRole
 from services.durable_store import InMemoryDurableStore
 from services.hiring_approval_service import request_approval, resolve_approval
@@ -49,6 +49,53 @@ def _package() -> dict:
             "Join Example Co to lead customer deployments from discovery "
             "through accountable production outcomes."),
     )
+
+
+def _detailed_writer_output(title: str = "Deployment Engineer") -> dict:
+    return {
+        "role_title": title,
+        "purpose": (
+            "Example Co is hiring a Deployment Engineer to own reliable customer "
+            "deployments from discovery through production operation, working "
+            "directly with company leaders to make practical delivery decisions."),
+        "responsibilities": [
+            "Lead customer deployments from initial discovery through production launch.",
+            "Translate customer constraints into bounded technical delivery plans.",
+            "Build and maintain reliable integration and deployment workflows.",
+            "Coordinate risks, dependencies, and launch readiness with stakeholders.",
+            "Establish practical testing, observability, and incident response practices.",
+            "Document repeatable deployment decisions and improve delivery playbooks.",
+        ],
+        "success_outcomes": [
+            "Customer deployments reach production with documented acceptance evidence.",
+            "Delivery risks and technical trade-offs remain visible before launch.",
+            "Recurring deployment failures result in durable playbook improvements.",
+            "Founders can review launch status through clear operational evidence.",
+        ],
+        "required_qualifications": [
+            "Experience owning a customer-facing production deployment end to end.",
+            "Ability to translate ambiguous customer needs into practical delivery plans.",
+            "Experience operating reliable web services and integration workflows.",
+            "Evidence of diagnosing production failures and preventing recurrence.",
+            "Clear communication of delivery risks, trade-offs, and outcomes.",
+        ],
+        "preferred_qualifications": [
+            "Experience improving reusable deployment playbooks and operating practices."],
+        "relevant_experience": [
+            "Owned a customer-facing production deployment across planning and launch.",
+            "Worked directly with company leadership on delivery trade-offs and risks.",
+            "Improved an operational workflow using evidence from production incidents.",
+        ],
+        "hiring_process": [
+            "Founder conversation about role scope and end-to-end delivery ownership.",
+            "Structured delivery discussion using the approved job-related scorecard.",
+            "Practical deployment case study followed by a Founder decision.",
+        ],
+        "application_instructions": (
+            "Apply through the published role page with a current resume."),
+        "compensation": "", "benefits": [],
+        "equal_opportunity_statement": "", "accessibility_statement": "",
+    }
 
 
 def _service(store: InMemoryDurableStore) -> HiringService:
@@ -355,13 +402,19 @@ async def test_location_correction_requires_a_new_matching_role_package():
         proposed["policy_version_id"])
 
 
-def test_prepare_tool_presents_exact_package_without_creating_role():
+@pytest.mark.asyncio
+async def test_prepare_tool_presents_grounded_package_without_creating_role(
+        monkeypatch):
+    async def writer(_payload):
+        return _detailed_writer_output()
+
+    monkeypatch.setattr(hiring_role_writer, "_writer_fn", writer)
     context = SimpleNamespace(
         state={ss.K_USER_PROFILE_ID: "workspace_test",
                ss.K_ACTOR_ID: "founder_actor"},
         session=SimpleNamespace(id="session_test", user_id="workspace_test"),
         user_id="workspace_test")
-    result = hiring_tools.prepare_hiring_role_brief(
+    result = await hiring_tools.prepare_hiring_role_brief(
         company_name="Example Co", role_title="Deployment Engineer",
         role_summary="Own reliable customer deployments.", headcount_target=1,
         target_date="2099-01-30", location="Nigeria",
@@ -380,8 +433,8 @@ def test_prepare_tool_presents_exact_package_without_creating_role():
 
     assert result["status"] == "success"
     assert result["created"] is False
-    assert "Full candidate-facing copy." in (
-        result["role_description"]["candidate_facing_job_post"])
+    assert len(result["scorecard"]) == 5
+    assert len(result["role_description"]["responsibilities"]) == 6
     assert "## Responsibilities" in (
         result["role_description"]["candidate_facing_job_post"])
     assert context.state[ss.K_HIRING_ROLE_PROPOSAL]["status"] == "PRESENTED"
@@ -402,7 +455,11 @@ async def test_create_tool_revalidates_founder_and_exact_confirmation(monkeypatc
                ss.K_ACTOR_ID: "founder_actor"},
         session=SimpleNamespace(id="session_test", user_id="workspace_test"),
         user_id="workspace_test")
-    prepared = hiring_tools.prepare_hiring_role_brief(
+    async def writer(_payload):
+        return _detailed_writer_output()
+
+    monkeypatch.setattr(hiring_role_writer, "_writer_fn", writer)
+    prepared = await hiring_tools.prepare_hiring_role_brief(
         company_name="Example Co", role_title="Deployment Engineer",
         role_summary="Own reliable customer deployments.", headcount_target=1,
         target_date="2099-01-30", location="Nigeria",
@@ -1340,3 +1397,100 @@ def test_public_application_route_converges_on_restricted_candidate_queue(monkey
     role_response = client.get(f"/api/hiring/roles/{role_id}")
     assert role_response.status_code == 200
     assert role_response.json()["candidates"][0]["evidence_status"] == "PREPARING"
+
+
+@pytest.mark.asyncio
+async def test_unused_founder_draft_can_be_audited_and_discarded():
+    store = InMemoryDurableStore()
+    service = _service(store)
+    package = _package()
+    created = await service.create_founder_draft_role(
+        principal=_founder(), contract=package["contract"],
+        role_description=package["role_description"],
+        client_request_id="discardable_role")
+    role = created["role"]
+
+    unconfirmed = await service.discard_founder_draft_role(
+        principal=_founder(), role_id=role["role_id"],
+        expected_version=role["version"], client_request_id="discard_1",
+        founder_confirmed=False)
+    assert unconfirmed["error_code"] == "founder_confirmation_required"
+
+    discarded = await service.discard_founder_draft_role(
+        principal=_founder(), role_id=role["role_id"],
+        expected_version=role["version"], client_request_id="discard_1",
+        founder_confirmed=True)
+    assert discarded["status"] == "success"
+    assert discarded["role_state"] == "DISCARDED"
+    assert discarded["runtime_cleanup_pending"] is False
+    stored = await store.get("hiring_roles", role["role_id"])
+    assert stored["role_state"] == "DISCARDED"
+    assert stored["runtime_projection"]["status"] == "CANCELLED"
+    run = await store.get("workflow_runs", role["run_id"])
+    assert run["runtime_status"] == "CANCELLED"
+    audits = await store.list("audit", filters={})
+    assert [row["action"] for row in audits] == ["hiring_role.discard_draft"]
+
+    duplicate = await service.discard_founder_draft_role(
+        principal=_founder(), role_id=role["role_id"],
+        expected_version=stored["version"], client_request_id="discard_1",
+        founder_confirmed=True)
+    assert duplicate["status"] == "success" and duplicate["duplicate"] is True
+
+
+@pytest.mark.asyncio
+async def test_draft_with_candidate_cannot_be_discarded():
+    store = InMemoryDurableStore()
+    service = _service(store)
+    package = _package()
+    created = await service.create_founder_draft_role(
+        principal=_founder(), contract=package["contract"],
+        role_description=package["role_description"],
+        client_request_id="draft_with_candidate")
+    role = created["role"]
+    await store.create("candidate_applications", "candidateapp_blocking", {
+        "application_id": "candidateapp_blocking",
+        "role_id": role["role_id"], "workspace_id": "workspace_test",
+        "version": 1,
+    })
+
+    result = await service.discard_founder_draft_role(
+        principal=_founder(), role_id=role["role_id"],
+        expected_version=role["version"], client_request_id="discard_blocked",
+        founder_confirmed=True)
+    assert result["error_code"] == "draft_discard_forbidden"
+    assert (await store.get("hiring_roles", role["role_id"]))[
+        "role_state"] == "DRAFT"
+
+
+def test_roles_route_hides_discarded_tombstones_by_default(monkeypatch):
+    import asyncio
+
+    from app import hiring_routes
+
+    store = InMemoryDurableStore()
+    base = {
+        "workspace_id": "workspace_test", "synthetic": False,
+        "created_at": "2099-01-01T00:00:00+00:00",
+        "updated_at": "2099-01-01T00:00:00+00:00", "version": 1,
+    }
+    asyncio.run(store.create("hiring_roles", "role_active", {
+        **base, "role_id": "role_active", "role_state": "DRAFT"}))
+    asyncio.run(store.create("hiring_roles", "role_discarded", {
+        **base, "role_id": "role_discarded", "role_state": "DISCARDED"}))
+
+    async def actor(_request):
+        return _founder()
+
+    monkeypatch.setattr(hiring_routes, "_actor", actor)
+    monkeypatch.setattr(hiring_routes, "production_store", lambda: store)
+    app = FastAPI()
+    hiring_routes.register(app)
+    client = TestClient(app)
+
+    visible = client.get("/api/hiring/roles").json()["roles"]
+    assert [role["role_id"] for role in visible] == ["role_active"]
+    all_rows = client.get(
+        "/api/hiring/roles?include_discarded=true").json()["roles"]
+    assert {role["role_id"] for role in all_rows} == {
+        "role_active", "role_discarded"}

@@ -312,3 +312,85 @@ async def write_founder_role_package(
         "role_draft_unsafe",
         "The generated job specification did not pass deterministic review.",
         validation_errors=last_errors[:20])
+
+
+async def write_structured_founder_role_package(
+        *, company_name: str, role_title: str, role_summary: str,
+        headcount_target: int, target_date: str, location: str,
+        work_arrangement: str, employment_type: str,
+        compensation_envelope: str, required_criteria: list[str],
+        responsibilities: list[str], success_outcomes: list[str],
+        preferred_criteria: list[str], relevant_experience: list[str],
+        benefits: list[str], hiring_process: list[str],
+        application_instructions: str,
+        equal_opportunity_statement: str, accessibility_statement: str,
+        public_job_description: str,
+        company_context: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Expand a normal-Alex role brief through the canonical grounded writer.
+
+    The conversation model supplies Founder-confirmed facts, not the final
+    scorecard.  Gemini rewrites only the descriptive job-spec surface under the
+    same count, grounding, duplication and protected-attribute checks used by
+    the ``/hiring`` entry point.  Exact operational/legal facts remain the
+    caller's values and are never replaced by generated assumptions.
+    """
+    exact_title = re.sub(r"\s+", " ", str(role_title or "")).strip()
+    if len(exact_title) < 3 or len(exact_title) > 160:
+        return _error("role_title_missing", "Provide the exact role title.")
+
+    def lines(label: str, values: list[str]) -> str:
+        cleaned = [re.sub(r"\s+", " ", str(item or "")).strip()
+                   for item in values]
+        return f"{label}: " + "; ".join(item for item in cleaned if item)
+
+    normalized_summary = re.sub(
+        r"\s+", " ", str(role_summary or "")).strip()
+    source_parts = [
+        f"{exact_title}. {normalized_summary}",
+        lines("Founder responsibilities", responsibilities),
+        lines("Founder success outcomes", success_outcomes),
+        lines("Founder must-have qualifications", required_criteria),
+        lines("Founder preferred qualifications", preferred_criteria),
+        lines("Founder relevant experience", relevant_experience),
+    ]
+    extra = re.sub(r"\s+", " ", str(public_job_description or "")).strip()
+    if extra:
+        source_parts.append(f"Additional Founder context: {extra}")
+    generated = await write_founder_role_package(
+        " ".join(part for part in source_parts if not part.endswith(": ")),
+        company_name=company_name, location=location,
+        work_arrangement=work_arrangement,
+        employment_type=employment_type, company_context=company_context,
+        headcount_target=headcount_target)
+    if generated.get("status") != "success":
+        return generated
+
+    description = dict(generated["role_description"])
+    package = build_contract(
+        company_name=company_name, role_title=exact_title,
+        role_summary=str(description["purpose"]),
+        headcount_target=headcount_target, target_date=target_date,
+        location=location, work_arrangement=work_arrangement,
+        employment_type=employment_type,
+        compensation_envelope=compensation_envelope,
+        required_criteria=list(description["required_qualifications"]),
+        responsibilities=list(description["responsibilities"]),
+        success_outcomes=list(description["success_outcomes"]),
+        preferred_criteria=list(description["preferred_qualifications"]),
+        relevant_experience=list(description["relevant_experience"]),
+        benefits=list(benefits),
+        hiring_process=(list(hiring_process)
+                        if hiring_process else list(description["hiring_process"])),
+        application_instructions=(application_instructions
+                                  or str(description["application_instructions"])),
+        # These statements are legal/operational representations. Preserve
+        # only Founder-confirmed wording even if the writer returned prose.
+        equal_opportunity_statement=equal_opportunity_statement,
+        accessibility_statement=accessibility_statement,
+        public_job_description=str(description["purpose"]),
+    )
+    if package.get("status") != "success":
+        return package
+    package["drafting_mode"] = "GEMINI_GROUNDED"
+    package["source_entry"] = "NORMAL_ALEX_CONVERSATION"
+    return package

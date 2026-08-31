@@ -148,6 +148,12 @@ class PublishRoleRequest(ClosedRequest):
     client_request_id: str = Field(min_length=3, max_length=200)
 
 
+class DiscardRoleRequest(ClosedRequest):
+    expected_role_version: int = Field(ge=1)
+    client_request_id: str = Field(min_length=3, max_length=200)
+    founder_confirmed: Literal[True]
+
+
 class BindingRequest(SyntheticGuardRequest):
     connection_id: str
     provider_route_id: str
@@ -1095,6 +1101,9 @@ document.querySelector('#form').addEventListener('submit',async e=>{e.preventDef
             order_by="updated_at", descending=True, limit=200)
         if request.query_params.get("include_demo") != "true":
             rows = [row for row in rows if row.get("synthetic") is not True]
+        if request.query_params.get("include_discarded") != "true":
+            rows = [row for row in rows
+                    if row.get("role_state") != "DISCARDED"]
         return {"status": "success", "roles": rows}
 
     @app.get("/api/hiring/roles/{role_id}")
@@ -1355,6 +1364,28 @@ document.querySelector('#form').addEventListener('submit',async e=>{e.preventDef
                          "approved app-owned job page."),
             expected_version=payload.expected_role_version,
             client_request_id=payload.client_request_id))
+
+    @app.post("/api/hiring/roles/{role_id}/discard")
+    async def discard_role(request: Request, role_id: str,
+                           payload: DiscardRoleRequest):
+        """Founder-confirmed tombstone for an unused DRAFT; never cascade."""
+        denied = _mutation_allowed(request)
+        if denied.get("error"):
+            return _response(denied)
+        principal = await _actor(request)
+        services = _services()
+        if isinstance(principal, dict):
+            return _response(principal)
+        if not services:
+            return _response({
+                "status": "error", "error": True,
+                "error_code": "hiring_unavailable",
+                "message": "Hiring is temporarily unavailable."})
+        return _response(await services[0].discard_founder_draft_role(
+            principal=principal, role_id=role_id,
+            expected_version=payload.expected_role_version,
+            client_request_id=payload.client_request_id,
+            founder_confirmed=payload.founder_confirmed))
 
     @app.post("/tasks/hiring/prepare_candidate_evidence")
     async def prepare_candidate_evidence(request: Request):

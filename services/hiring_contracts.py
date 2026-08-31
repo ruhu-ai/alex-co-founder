@@ -30,6 +30,7 @@ class ClosedModel(BaseModel):
 
 class RoleState(str, Enum):
     DRAFT = "DRAFT"
+    DISCARDED = "DISCARDED"
     AWAITING_APPROVAL = "AWAITING_APPROVAL"
     APPROVED = "APPROVED"
     PUBLISHED = "PUBLISHED"

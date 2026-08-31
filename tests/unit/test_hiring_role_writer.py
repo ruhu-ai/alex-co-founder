@@ -130,6 +130,40 @@ async def test_grounded_writer_returns_detailed_existing_package_fields(monkeypa
 
 
 @pytest.mark.asyncio
+async def test_normal_alex_structured_brief_uses_same_writer_and_preserves_facts(
+        monkeypatch):
+    async def writer(_payload):
+        return _good_output("Deployment Engineer")
+
+    monkeypatch.setattr(hiring_role_writer, "_writer_fn", writer)
+    package = await hiring_role_writer.write_structured_founder_role_package(
+        company_name="Example Co", role_title="Deployment Engineer",
+        role_summary="Own reliable customer deployments.", headcount_target=2,
+        target_date="2099-01-30", location="Nigeria",
+        work_arrangement="Remote", employment_type="Full-time employee",
+        compensation_envelope="Founder supplied band",
+        required_criteria=["Customer deployment delivery"],
+        responsibilities=["Lead deployments"],
+        success_outcomes=["Accountable launches"],
+        preferred_criteria=[],
+        relevant_experience=["Owned a production deployment"],
+        benefits=["Founder supplied learning budget"], hiring_process=[],
+        application_instructions="Apply through the published role page.",
+        equal_opportunity_statement="", accessibility_statement="",
+        public_job_description="Customer-facing deployment ownership.")
+
+    assert package["status"] == "success"
+    assert package["source_entry"] == "NORMAL_ALEX_CONVERSATION"
+    assert len(package["contract"].criteria) == 5
+    assert len(package["role_description"]["responsibilities"]) == 6
+    assert package["contract"].target_date == "2099-01-30"
+    assert package["contract"].headcount_target == 2
+    assert package["role_description"]["compensation"] == "Founder supplied band"
+    assert package["role_description"]["benefits"] == [
+        "Founder supplied learning budget"]
+
+
+@pytest.mark.asyncio
 async def test_writer_repairs_once_then_commits_valid_package(monkeypatch):
     calls = []
 

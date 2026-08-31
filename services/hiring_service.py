@@ -10,7 +10,7 @@ from typing import Any
 
 from services import hiring_activation, hiring_evidence
 from services.actor_identity import ActorPrincipal, authorize
-from services.durable_store import DurableStore, production_store
+from services.durable_store import AtomicMutation, DurableStore, production_store
 from services.hiring_contracts import (
     AnalystInput,
     CandidateState,
@@ -357,6 +357,137 @@ class HiringService:
             return _error("idempotency_conflict", "Role request id names other work.")
         return {"status": "success", "duplicate": not created,
                 "role": existing, "role_contract": contract}
+
+    async def discard_founder_draft_role(
+            self, *, principal: ActorPrincipal, role_id: str,
+            expected_version: int, client_request_id: str,
+            founder_confirmed: bool) -> dict[str, Any]:
+        """Tombstone one unused Founder draft and cancel its dormant run.
+
+        Discard is intentionally narrower than deletion: the minimal role and
+        append-only audit remain for accountability.  A role with an approved
+        policy, publication, applicant, approval, or external action fails
+        closed and must follow its normal lifecycle instead.
+        """
+        gate = authorize(principal, "prepare_role")
+        if gate.get("error"):
+            return gate
+        if founder_confirmed is not True:
+            return _error(
+                "founder_confirmation_required",
+                "Confirm that this unused draft role should be discarded.")
+        role = await self.store.get("hiring_roles", role_id)
+        if (not role or role.get("workspace_id") != principal.workspace_id
+                or role.get("synthetic") is not False):
+            return _error("role_not_found", "Role does not exist.", 404)
+        if role.get("role_state") == RoleState.DISCARDED.value:
+            if role.get("discard_client_request_id") != client_request_id:
+                return _error(
+                    "role_already_discarded",
+                    "This draft was already discarded by another request.")
+            cancelled = await self.runtime.cancel_run(
+                str(role["run_id"]), actor_id=principal.actor_id,
+                reason="Founder discarded unused Hiring draft")
+            return {
+                "status": "success", "duplicate": True,
+                "role_id": role_id, "role_state": RoleState.DISCARDED.value,
+                "runtime_cleanup_pending": bool(cancelled.get("error")),
+                "discard_receipt_id": role.get("discard_receipt_id"),
+            }
+        if int(role.get("version", 0)) != expected_version:
+            return _error("version_conflict", "Role changed; reload before discarding.")
+        if role.get("role_state") != RoleState.DRAFT.value:
+            return _error(
+                "draft_discard_forbidden",
+                "Only an unused DRAFT role can be discarded.")
+        if (role.get("current_policy_version_id")
+                or role.get("current_policy_hash")
+                or role.get("publication_receipts")
+                or role.get("publication_allowed") is True
+                or role.get("candidate_processing_allowed") is True
+                or int(role.get("accepted_count") or 0)):
+            return _error(
+                "draft_discard_forbidden",
+                "This role has progressed beyond an unused draft.")
+
+        dependencies = (
+            ("candidate_applications", "role_id"),
+            ("approvals", "role_id"),
+            ("external_actions", "domain_ref"),
+            ("action_execution_outbox", "domain_ref"),
+        )
+        for collection, field in dependencies:
+            rows = await self.store.list(
+                collection, filters={field: role_id}, limit=1)
+            if any(row.get("workspace_id") == principal.workspace_id
+                   or row.get("founder_id") == principal.workspace_id
+                   for row in rows):
+                return _error(
+                    "draft_discard_forbidden",
+                    "This role has durable applicants, approvals, or actions.")
+        policies = await self.store.list(
+            "hiring_policy_versions", filters={"role_id": role_id}, limit=200)
+        if any(row.get("status") == "APPROVED" for row in policies):
+            return _error(
+                "draft_discard_forbidden",
+                "An approved role package cannot be discarded as a draft.")
+
+        now = utc_now()
+        receipt_id = stable_id(
+            "rolediscard", principal.workspace_id, role_id, client_request_id)
+        audit_id = stable_id(
+            "audit", principal.workspace_id, "hiring_role_discard", receipt_id)
+        committed = await self.store.atomic_compare_and_set((
+            AtomicMutation(
+                "hiring_roles", role_id, expected_version,
+                updates={
+                    "role_state": RoleState.DISCARDED.value,
+                    "discard_receipt_id": receipt_id,
+                    "discard_client_request_id": client_request_id,
+                    "discarded_by_actor_id": principal.actor_id,
+                    "discarded_at": now,
+                    "candidate_processing_allowed": False,
+                    "publication_allowed": False,
+                    "updated_at": now,
+                }),
+            AtomicMutation(
+                "audit", audit_id, None,
+                record={
+                    "schema_version": 2, "audit_id": audit_id,
+                    "founder_id": principal.workspace_id,
+                    "workspace_id": principal.workspace_id,
+                    "actor": principal.actor_id,
+                    "actor_id": principal.actor_id,
+                    "action": "hiring_role.discard_draft",
+                    "target": f"hiring_roles/{role_id}",
+                    "result": "success",
+                    "detail": "unused DRAFT tombstoned; durable history retained",
+                    "client_request_id": client_request_id,
+                    "created_at": now, "version": 1,
+                }),
+        ))
+        if not committed:
+            return _error("version_conflict", "Role changed; reload before discarding.")
+        discarded = committed[("hiring_roles", role_id)]
+        cancelled = await self.runtime.cancel_run(
+            str(role["run_id"]), actor_id=principal.actor_id,
+            reason="Founder discarded unused Hiring draft")
+        cleanup_pending = bool(cancelled.get("error"))
+        if not cleanup_pending:
+            refreshed = await self.store.compare_and_set(
+                "hiring_roles", role_id, int(discarded["version"]), {
+                    "runtime_projection": {
+                        "status": "CANCELLED", "run_id": role["run_id"]},
+                    "updated_at": utc_now(),
+                })
+            discarded = refreshed or discarded
+        return {
+            "status": "success", "duplicate": False,
+            "role_id": role_id, "role_state": RoleState.DISCARDED.value,
+            "runtime_cleanup_pending": cleanup_pending,
+            "discard_receipt_id": receipt_id,
+            "role_version": discarded["version"],
+        }
 
     async def record_publication(self, *, principal: ActorPrincipal, role_id: str,
                                  destination: str, public_url: str,
