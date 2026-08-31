@@ -773,6 +773,21 @@ async def test_exact_rendered_slot_books_then_repeat_is_no_effect(
 
 
 @pytest.mark.asyncio
+async def test_pre_goal_mandate_uses_original_activation_and_expiry_window(
+        founder, monkeypatch):
+    store, provider = InMemoryDurableStore(), _Provider()
+    application_id = await _seed(store)
+    service = _service(store, provider)
+    mandate = await _activate_mandate(
+        service, store, founder, application_id, monkeypatch)
+    legacy = dict(mandate)
+    legacy.pop("scheduling_window_start", None)
+    legacy.pop("scheduling_window_end", None)
+
+    assert service._slot_within_window(legacy, legacy["confirmed_slots"][1])
+
+
+@pytest.mark.asyncio
 async def test_founder_copy_is_fixed_by_mandate_and_never_candidate_authority(
         founder, monkeypatch):
     monkeypatch.setenv("HIRING_FOUNDER_COPY_EMAIL", "founder@example.test")

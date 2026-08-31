@@ -1776,8 +1776,18 @@ class HiringCoordinationService:
     def _slot_within_window(
             mandate: dict[str, Any], slot: dict[str, Any]) -> bool:
         """Admit an alternative only inside the consented window and duration."""
-        window_start = str(mandate.get("scheduling_window_start") or "")
-        window_end = str(mandate.get("scheduling_window_end") or "")
+        # Mandates activated before the explicit long-running-goal projection
+        # already bound the same interval as activated_at..expires_at. Keep
+        # those live consents usable without widening either endpoint.
+        window_start = str(
+            mandate.get("scheduling_window_start")
+            or mandate.get("activated_at")
+            or mandate.get("created_at")
+            or "")
+        window_end = str(
+            mandate.get("scheduling_window_end")
+            or mandate.get("expires_at")
+            or "")
         if not window_start or not window_end:
             return False
         try:
