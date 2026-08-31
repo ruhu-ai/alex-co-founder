@@ -771,7 +771,8 @@ async def search(*, founder_id: str, q: str = "",
 
     if not normalized:
         return await _recent(founder_id, limit, want_sessions, session_id,
-                             resource_types, want_resources)
+                             resource_types, want_resources,
+                             session_exists=session_exists or _session_exists)
 
     probe = choose_probe_prefix(q_terms)
     if not probe:
@@ -800,6 +801,10 @@ async def search(*, founder_id: str, q: str = "",
         for row in rows:
             if not terms_match(row.get("search_terms") or [],
                                row.get("search_prefixes") or [], q_terms):
+                continue
+            checker = session_exists or _session_exists
+            if checker is not None and not await checker(
+                    str(row.get("session_id") or "")):
                 continue
             candidates.append({
                 "stream": "sessions", "kind": "session", "row": row,
@@ -1002,7 +1007,8 @@ def _public(row: dict[str, Any]) -> dict[str, Any]:
 
 async def _recent(founder_id: str, limit: int, want_sessions: bool,
                   session_id: str | None,
-                  resource_types: list[str], want_resources: bool) -> dict[str, Any]:
+                  resource_types: list[str], want_resources: bool,
+                  session_exists=None) -> dict[str, Any]:
     """Blank state: recent conversations and primary resources, single page."""
     from services import firestore
 
@@ -1021,6 +1027,10 @@ async def _recent(founder_id: str, limit: int, want_sessions: bool,
         if want_sessions:
             for row in await firestore.list_recent_session_catalog(
                     founder_id, limit=limit):
+                if (session_exists is not None
+                        and not await session_exists(
+                            str(row.get("session_id") or ""))):
+                    continue
                 results.append(_session_result(row))
         if want_resources:
             for row in await firestore.list_recent_resources(

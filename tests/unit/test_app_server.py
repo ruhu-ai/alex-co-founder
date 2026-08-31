@@ -1838,24 +1838,48 @@ class TestSessionHistory:
             "message-1", "message-2"]
         assert older.json()["next_before"] == 1
 
-    def test_catalog_projection_avoids_loading_every_transcript(
+    def test_catalog_projection_is_intersected_with_canonical_sessions(
             self, appmod, client, monkeypatch):
+        from types import SimpleNamespace
+
         async def _catalog(founder_id, *, limit):
             assert founder_id == appmod.FOUNDER_ID
-            return [{"session_id": "s-indexed", "updated_at": "2026-08-30Z",
-                     "preview": "Indexed preview", "message_count": 420}]
+            assert limit >= 500
+            return [
+                {"session_id": "s-indexed", "updated_at": "2026-08-30Z",
+                 "preview": "Indexed preview", "message_count": 420},
+                {"session_id": "s-stale", "updated_at": "2026-08-31Z",
+                 "preview": "Stale local preview", "message_count": 3},
+            ]
 
         class _NoTranscriptReads:
-            async def list_sessions(self, **_kwargs):
-                raise AssertionError("catalog listing must avoid transcript scan")
+            async def list_sessions(self, *, app_name, user_id):
+                return SimpleNamespace(sessions=[
+                    SimpleNamespace(id="s-indexed", last_update_time=2000.0),
+                ])
+
+            async def get_session(self, **_kwargs):
+                raise AssertionError("indexed sessions need no transcript scan")
 
         monkeypatch.setattr(appmod.firestore, "list_recent_session_catalog", _catalog)
         monkeypatch.setattr(appmod, "db_session_service", _NoTranscriptReads())
         result = client.get("/api/sessions")
         assert result.status_code == 200
         assert result.json()["sessions"] == [{
-            "id": "s-indexed", "updated_at": "2026-08-30Z",
+            "id": "s-indexed",
+            "updated_at": "1970-01-01T00:33:20+00:00",
             "preview": "Indexed preview", "messages": 420}]
+
+    def test_missing_conversation_returns_typed_404(
+            self, appmod, client, monkeypatch):
+        class _Missing:
+            async def get_session(self, **_kwargs):
+                return None
+
+        monkeypatch.setattr(appmod, "db_session_service", _Missing())
+        result = client.get("/api/chat/s-missing")
+        assert result.status_code == 404
+        assert result.json()["error_code"] == "conversation_not_found"
 
 
 class TestSessionScopedPipeline:

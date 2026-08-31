@@ -5129,7 +5129,18 @@ function renderBootFailure(error) {
 // session without the founder sending anything — sync from history.
 async function syncChat() {
     if (!sessionId || thinking || voice || viewingSession) return;
-    const h = await api("/api/v1/sessions/" + sessionId + "/messages");
+    const syncingSession = sessionId;
+    let h;
+    try {
+        h = await api("/api/v1/sessions/" + syncingSession + "/messages");
+    } catch (error) {
+        if (error.status !== 404 || sessionId !== syncingSession) throw error;
+        localStorage.removeItem(SESSION_KEY);
+        sessionId = null;
+        await newSession();
+        toast("That conversation was unavailable. A new conversation is ready.", "attn");
+        return;
+    }
     sessionMemoryMode = h.memory_mode || "STANDARD";
     renderSessionMemoryMode();
     const msgs = h.messages || [];
@@ -7417,9 +7428,12 @@ async function viewSession(sid) {
         toast("Hang up the live call before opening another conversation.", "attn");
         return;
     }
-    const h = await api("/api/v1/sessions/" + sid + "/messages");
-    if (h.error) {
-        toast("That session no longer exists.", "danger");
+    let h;
+    try {
+        h = await api("/api/v1/sessions/" + sid + "/messages");
+    } catch (error) {
+        if (error.status !== 404) throw error;
+        toast("That conversation is not available in this session store.", "danger");
         return;
     }
     viewingSession = sid;
@@ -9640,6 +9654,13 @@ async function resumeSession(sid) {
     }
     if (sid === sessionId) {
         await backToSession();
+        return;
+    }
+    try {
+        await api("/api/v1/sessions/" + sid + "/messages?limit=1");
+    } catch (error) {
+        if (error.status !== 404) throw error;
+        toast("That conversation is not available in this session store.", "danger");
         return;
     }
     sessionId = sid;

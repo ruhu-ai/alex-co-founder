@@ -1437,7 +1437,11 @@ async def chat_history(session_id: str, request: Request, limit: int = 200,
         app_name=agent_app.name, user_id=principal.workspace_id,
         session_id=session_id)
     if session is None:
-        return JSONResponse({"error": "not found"}, status_code=404)
+        return JSONResponse({
+            "status": "error", "error": True,
+            "error_code": "conversation_not_found",
+            "message": "This conversation is not available in the current session store.",
+        }, status_code=404)
     messages = []
     for event in session.events or []:
         content = getattr(event, "content", None)
@@ -1727,8 +1731,20 @@ async def api_search(request: Request, q: str = "", types: str = "",
     if isinstance(principal, dict):
         return JSONResponse(principal, status_code=401)
 
+    canonical_ids: set[str] | None = None
+
     async def _session_exists(session: str) -> bool:
-        return await _workspace_session_exists(principal.workspace_id, session)
+        # One canonical listing per request avoids an N-query existence scan
+        # while ensuring a Firestore-only projection can never be opened.
+        nonlocal canonical_ids
+        if canonical_ids is None:
+            listing = await db_session_service.list_sessions(
+                app_name=agent_app.name, user_id=principal.workspace_id)
+            canonical_ids = {
+                str(item.id) for item in
+                (getattr(listing, "sessions", None) or [])
+            }
+        return session in canonical_ids
 
     result = await session_resources.search(
         founder_id=principal.workspace_id, q=q,
@@ -1783,29 +1799,39 @@ async def api_sessions(request: Request, limit: int = 30):
     founder_id = principal.workspace_id
 
     page_limit = max(1, min(limit, 100))
-    try:
-        catalog = await firestore.list_recent_session_catalog(
-            founder_id, limit=page_limit)
-    except Exception:  # noqa: BLE001 - catalog is an advisory projection
-        catalog = []
-    if catalog:
-        return {
-            "status": "success",
-            "sessions": [{
-                "id": str(row.get("session_id") or row.get("id") or ""),
-                "updated_at": str(row.get("updated_at") or ""),
-                "preview": str(row.get("preview") or "")[:140],
-                "messages": int(row.get("message_count") or 0),
-            } for row in catalog if row.get("session_id") or row.get("id")],
-        }
-
+    # The session service is the transcript authority. Firestore is only a
+    # search projection and may contain rows written by another environment
+    # (for example a local SQLite developer session). Intersect it with the
+    # canonical store so every listed conversation can actually be opened.
     listing = await db_session_service.list_sessions(
         app_name=agent_app.name, user_id=founder_id)
     sessions = sorted(getattr(listing, "sessions", None) or [],
                       key=lambda s: s.last_update_time or 0,
                       reverse=True)[:page_limit]
+    try:
+        projected = await firestore.list_recent_session_catalog(
+            founder_id, limit=max(500, page_limit * 5))
+        catalog = {
+            str(row.get("session_id") or row.get("id") or ""): row
+            for row in projected
+            if row.get("session_id") or row.get("id")
+        }
+    except Exception:  # noqa: BLE001 - catalog is an advisory projection
+        catalog = {}
     out = []
     for s in sessions:
+        row = catalog.get(s.id)
+        if row is not None:
+            updated = s.last_update_time
+            out.append({
+                "id": s.id,
+                "updated_at": (datetime.fromtimestamp(updated, tz=timezone.utc)
+                               .isoformat() if updated else
+                               str(row.get("updated_at") or "")),
+                "preview": str(row.get("preview") or "")[:140],
+                "messages": int(row.get("message_count") or 0),
+            })
+            continue
         # list_sessions returns shells; events need the full read. Founder
         # scale (tens of sessions) keeps this cheap, and `limit` caps it.
         full = await db_session_service.get_session(

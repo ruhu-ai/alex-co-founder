@@ -107,6 +107,23 @@ class TestResultUnit:
         assert len(rows) == 1
         assert rows[0]["focus"] == {"kind": "session", "id": "s-a"}
 
+    async def test_projection_without_canonical_transcript_is_hidden(self, wired):
+        await sr.catalog_session_event(
+            founder_id=FOUNDER, session_id="s-stale",
+            text="Founder strategy archive", author="user")
+
+        async def _missing(_session_id):
+            return False
+
+        searched = await sr.search(
+            founder_id=FOUNDER, q="strategy", session_exists=_missing)
+        recent = await sr.search(
+            founder_id=FOUNDER, q="", session_exists=_missing)
+        assert all(row["result_type"] != "session"
+                   for row in searched["results"])
+        assert all(row["result_type"] != "session"
+                   for row in recent["results"])
+
 
 class TestPagination:
     async def test_mutation_between_pages_neither_skips_nor_duplicates(self, wired):
