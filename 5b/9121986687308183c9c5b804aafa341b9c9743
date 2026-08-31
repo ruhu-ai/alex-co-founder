@@ -1,0 +1,42 @@
+tests/unit/test_hiring_role_writer.py
+  s_bf598a20bfcdaa::t_9af4aa792fde3e 133-165
+  s_bf598a20bfcdaa::t_98ebac2a0a0166 132
+services/hiring_service.py
+  s_bf598a20bfcdaa::t_283f40ea19976f 13,361-490
+  s_bf598a20bfcdaa::t_f92cc0a574ef72 491
+tests/unit/test_unified_product_ui_contract.py
+  s_bf598a20bfcdaa::t_9af4aa792fde3e 455-457
+app/hiring_routes.py
+  s_bf598a20bfcdaa::t_283f40ea19976f 151-156,1104-1106,1368-1388
+  s_bf598a20bfcdaa::t_c2f5f3d196ce37 1389
+agents/co_founder/tools/hiring.py
+  s_bf598a20bfcdaa::t_0314708e9ec9f8 12,59,118,139
+docs/25-hiring-operations.md
+  s_bf598a20bfcdaa::t_59bbcf0b374798 46-50,61-68,2865-2870
+services/hiring_role_writer.py
+  s_bf598a20bfcdaa::t_732b15a47d17de 346-347,349
+  s_bf598a20bfcdaa::t_0314708e9ec9f8 315-345,348,350-396
+tests/unit/test_hiring_founder_draft.py
+  s_bf598a20bfcdaa::t_9baf7789055946 1464-1496
+  s_bf598a20bfcdaa::t_cdc2c420382864 15,54-100,405-411,417,436-437,458-462,1400-1463
+services/hiring_contracts.py
+  s_bf598a20bfcdaa::t_283f40ea19976f 33
+app/static/hiring.html
+  s_bf598a20bfcdaa::t_283f40ea19976f 2199-2223,2617-2621,2623
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "5b9121986687308183c9c5b804aafa341b9c9743",
+  "prompts": {},
+  "sessions": {
+    "s_bf598a20bfcdaa": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a04860-dde3-79c3-b2bd-2987b04adc68",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Ijidai Lassa <ijidai@cued.app>"
+    }
+  }
+}
