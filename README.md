@@ -211,71 +211,45 @@ not claims about this adapter.
 
 ### Current application state machine and dormant pause gates
 
-Co-Founder does not run one blocking thread from discovery to submission. The
-session persists its current state and becomes dormant at human or external
-wait points. Webhooks and tasks resume the same session with a `state_delta`
-applied before the next model inference.
+Co-Founder does not keep a model invocation or worker alive from discovery to
+submission. Firestore owns the application state; the session contains only a
+reconciled model-facing projection. At a human, provider, or timer boundary the
+run records what it is waiting for and becomes dormant. A verified event first
+commits authoritative state and a durable wake receipt, then resumes the same
+session with a minimal `state_delta` before the next model inference.
 
 ```mermaid
 stateDiagram-v2
     [*] --> IDLE : Initialize session
     IDLE --> TRIAGE : Founder opens pipeline
 
-    state "TRIAGE" as TRIAGE
-    note right of TRIAGE
-        ⏳ DORMANT — FOUNDER SELECTION
-        Ranked opportunities are ready.
-        No application exists until the
-        founder chooses one to pursue.
-    end note
-
+    TRIAGE --> IDLE : Founder closes triage
     TRIAGE --> INTERVIEWING : choose_opportunity()
     INTERVIEWING --> DRAFTING : Required facts complete
     DRAFTING --> AWAITING_REVIEW : complete_drafting()
-
-    state "AWAITING_REVIEW" as AWAITING_REVIEW
-    note right of AWAITING_REVIEW
-        ⏳ DORMANT — NO POLLING
-        Waiting for founder feedback.
-        Session and drafts persist;
-        the feedback event resumes Alex.
-    end note
-
-    AWAITING_REVIEW --> DRAFTING : Reject or edit
-    AWAITING_REVIEW --> APPROVED : All sections approved
+    AWAITING_REVIEW --> DRAFTING : Founder rejects or edits a section
+    AWAITING_REVIEW --> APPROVED : Founder approves every section
     APPROVED --> FORM_FILLING : Founder starts portal fill
     FORM_FILLING --> AWAITING_SUBMIT_APPROVAL : Fill report committed
-
-    state "AWAITING_SUBMIT_APPROVAL" as AWAITING_SUBMIT_APPROVAL
-    note right of AWAITING_SUBMIT_APPROVAL
-        ⏳ DORMANT — HUMAN GATE
-        Waiting for server-recorded approval.
-        Chat claims and pasted tokens
-        cannot bypass this gate.
-    end note
-
-    AWAITING_SUBMIT_APPROVAL --> SUBMITTED : Valid approval + submit_form()
-
-    state "SUBMITTED" as SUBMITTED
-    note right of SUBMITTED
-        ⏳ DORMANT — EXTERNAL EVENT
-        Waiting for signed portal confirmation.
-        A webhook resumes the same session.
-    end note
-
+    AWAITING_SUBMIT_APPROVAL --> SUBMITTED : Bound, fresh approval + submit_form()
     SUBMITTED --> FOLLOW_UP : Confirmation recorded
-
-    state "FOLLOW_UP" as FOLLOW_UP
-    note right of FOLLOW_UP
-        ⏳ DORMANT — WAKE CYCLES
-        Program email, deadline task,
-        or result event wakes Alex.
-    end note
-
     FOLLOW_UP --> FOLLOW_UP : Reply or deadline wake
     FOLLOW_UP --> CLOSED : Result received or deadline passed
     CLOSED --> [*] : Workflow complete
 ```
+
+The registered dormant gates are deliberately small and inspectable:
+
+| Durable state | Waiting for | Trusted wake | What the wake may change |
+|---|---|---|---|
+| `AWAITING_REVIEW` | `founder_feedback` | Founder feedback submitted in the UI | Records feedback; either returns one section to `DRAFTING` or completes review when all sections are approved. |
+| `AWAITING_SUBMIT_APPROVAL` | `founder_approval` | Server-resolved approval bound to the current fill report | Grants only the matching, unexpired, unconsumed submission action. Chat text cannot satisfy this gate. |
+| `SUBMITTED` | `portal_confirmation` | Signed portal webhook | Records the confirmation and advances the durable application to `FOLLOW_UP`. |
+| `FOLLOW_UP` | `deadline_tick` or a verified result event | Authenticated task or provider event | Refreshes urgency/status or closes the application; silence never fabricates a result. |
+
+`TRIAGE`, browser Stop, and closed/cold containers do not weaken these rules.
+No wake is authorized by chat history, and no wait is implemented by polling or
+by keeping a long model call parked.
 
 The opportunity pipeline has its own smaller lifecycle:
 
@@ -297,24 +271,57 @@ optional, visibly synthetic fixture; normal `/hiring` intake starts from the
 Founder's real description.
 
 ```mermaid
-flowchart LR
-    D["Founder describes a role"] --> J["Alex drafts complete job package"]
-    J --> A{"Founder approves and publishes?"}
-    A -->|No| J
-    A -->|Yes| P["Public job page and encrypted application intake"]
-    P --> E["Alex prepares restricted, citation-bound evidence"]
-    E --> H{"Founder decision"}
-    H -->|Advance| S["Durable SCHEDULE_INTERVIEW goal"]
-    H -->|Hold or decline| W["Committed human-controlled state"]
-    S --> I["Verified applicant-thread negotiation and interview"]
-    I --> R{"Founder post-interview decision"}
-    R -->|References| C["Candidate-authorized reference checks"]
-    R -->|Waive references| O["Exact approved offer and signature event"]
-    R -->|Conditional offer| O
-    C -->|Reference ready| O
-    O --> N["Separate onboarding run"]
-    C -.->|Required before start| N
+flowchart TB
+    D["Founder describes a real role"] --> J["Alex drafts role contract,<br/>job description and interview plan"]
+    J --> A{"Founder approves exact package?"}
+    A -->|Revise| J
+    A -->|Approve and publish| P["Public job page<br/>encrypted application intake"]
+
+    P --> W1["Dormant: wait for an application"]
+    W1 -->|Verified role-bound intake| E["Alex prepares restricted evidence:<br/>criterion map, citations, unknowns and contradictions"]
+    E --> H{"Founder shortlist decision"}
+    H -->|Request evidence| W1
+    H -->|Hold or decline| X["Committed human-controlled state"]
+    H -->|Advance| S["Activate durable<br/>SCHEDULE_INTERVIEW goal"]
+
+    S --> M["Send exact approved outreach"]
+    M --> W2["Dormant: wait for exact applicant-thread reply"]
+    W2 -->|Verified Alex Mail wake| N["Interpret reply, recheck Founder availability,<br/>counterpropose or select a confirmed slot"]
+    N -->|More negotiation| W2
+    N -->|Confirmed slot| I["Create or update the Hiring-owned<br/>Calendar interview"]
+    I --> IE["Founder records structured interview evidence"]
+    IE --> R{"Founder post-interview decision"}
+
+    R -->|Additional interview| S
+    R -->|Hold or decline| X
+    R -->|Advance to references| CP["Candidate permission and exact<br/>reference outreach approval"]
+    CP --> W3["Dormant: wait for exact reference replies"]
+    W3 -->|Verified opaque response token| CR["Cited reference report"]
+    CR --> FD{"Founder final offer decision"}
+
+    R -->|Advance directly to offer;<br/>references waived| O["Prepare exact offer terms"]
+    R -->|Conditional offer;<br/>references required before start| O
+    R -->|Conditional offer| CP
+    FD -->|Offer| O
+    FD -->|Hold or decline| X
+
+    O --> OA{"Founder approves exact offer?"}
+    OA -->|Revise| O
+    OA -->|Send| W4["Dormant: wait for authoritative signature event"]
+    W4 -->|Accepted| OB["Create one separately permissioned<br/>onboarding run"]
+    W4 -->|Declined| X
+    OB --> SG{"Reference condition satisfied?"}
+    SG -->|Waived or report ready| ON["Start-date transition,<br/>first day and onboarding completion"]
+    SG -->|Conditional report pending| W3
+
+    classDef wait fill:#2a2140,stroke:#b794f6,color:#f5efff;
+    class W1,W2,W3,W4 wait;
 ```
+
+Purple nodes are durable dormant waits. A verified application, mailbox,
+reference, signature, or timer event wakes the exact role/candidate run; a
+worker never scans every candidate and a model message never manufactures a
+transition.
 
 Important boundaries:
 
