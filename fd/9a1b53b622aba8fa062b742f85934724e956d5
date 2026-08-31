@@ -1,0 +1,31 @@
+services/external_event_service.py
+  s_bf598a20bfcdaa::t_490754fe843e4b 26,75-78,81-86,88-98,130,142,153,170,243-246,253-257
+  s_bf598a20bfcdaa::t_a1077d372ae3d6 99-121,123-127,132-141
+  s_bf598a20bfcdaa::t_79e3dda2d50c0c 74,79-80
+services/hiring_coordination.py
+  s_bf598a20bfcdaa::t_72cb42150f4cc9 534-542,931-957,964,984,1084-1115
+tests/unit/test_hiring_live_coordination.py
+  s_bf598a20bfcdaa::t_4bd48df5a33e80 39-41,43,526-557
+  s_bf598a20bfcdaa::t_b24892c111ffa9 558-559
+tests/unit/test_external_event_service.py
+  s_bf598a20bfcdaa::t_047bef3fe39635 324
+  s_bf598a20bfcdaa::t_5a42fbc1bac9fc 281-284,312-323,325-342
+docs/25-hiring-operations.md
+  s_bf598a20bfcdaa::t_e71fe1b9a6eca2 1351-1357,2275
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "fd9a1b53b622aba8fa062b742f85934724e956d5",
+  "prompts": {},
+  "sessions": {
+    "s_bf598a20bfcdaa": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a04860-dde3-79c3-b2bd-2987b04adc68",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Ijidai Lassa <ijidai@cued.app>"
+    }
+  }
+}
