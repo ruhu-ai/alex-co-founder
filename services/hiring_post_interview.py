@@ -44,6 +44,7 @@ from services.hiring_contracts import (
     canonical_hash,
     stable_id,
     utc_now,
+    verified_jurisdiction_binding,
 )
 from services.hiring_coordination import (
     GoogleHiringProviderAdapter,
@@ -91,8 +92,6 @@ class HiringPostInterviewService:
         cloud = bool(os.getenv("K_SERVICE"))
         enabled = os.getenv("HIRING_H5_H7_ENABLED", "0") == "1"
         kill = os.getenv("HIRING_H5_H7_KILL_SWITCH", "1") != "0"
-        workspace = os.getenv("HIRING_H5_H7_WORKSPACE_ID", "")
-        jurisdiction = os.getenv("HIRING_H5_H7_JURISDICTION_REVIEW_REF", "")
         signature = bool(os.getenv("HIRING_SIGNATURE_WEBHOOK_SECRET", ""))
         reviewers = os.getenv("HIRING_H5_H7_REVIEW_REF", "")
         base_url = os.getenv("HIRING_PUBLIC_BASE_URL", "").rstrip("/")
@@ -101,10 +100,6 @@ class HiringPostInterviewService:
             blockers.append("feature_disabled")
         if kill:
             blockers.append("kill_switch_active")
-        if not workspace:
-            blockers.append("workspace_not_allowlisted")
-        if not jurisdiction:
-            blockers.append("jurisdiction_review_missing")
         if not signature:
             blockers.append("signature_adapter_unconfigured")
         if not production_reference_resolver_configured():
@@ -118,7 +113,11 @@ class HiringPostInterviewService:
         return {
             "status": "success", "stage": "H7_CONSTRAINED_PILOT",
             "enabled": enabled and not kill, "kill_switch": kill,
-            "workspace_id": workspace, "blockers": blockers,
+            "workspace_admission": "AUTHENTICATED_ACTIVE_FOUNDER_MEMBERSHIP",
+            "jurisdiction_source": "APPROVED_ROLE_PACKAGE",
+            "jurisdiction_is_legal_advice": False,
+            "jurisdiction_proves_legal_review": False,
+            "blockers": blockers,
             "reference_outreach_adapter": "alex_mail_v1",
             "production_ready": cloud and not blockers,
             "forbidden": ["SCORING", "RANKING", "AUTO_DECLINE",
@@ -137,10 +136,6 @@ class HiringPostInterviewService:
                 return _error("h5_h7_not_released",
                               "Post-interview Hiring is not released for this workspace.",
                               403)
-            if release["workspace_id"] != principal.workspace_id:
-                return _error("workspace_not_allowlisted",
-                              "Post-interview Hiring is not released for this workspace.",
-                              403)
         return {"status": "success"}
 
     async def _application(self, principal: ActorPrincipal,
@@ -156,6 +151,60 @@ class HiringPostInterviewService:
             "hiring_policy_versions", str((role or {}).get("current_policy_version_id") or ""))
         return (role, policy) if role and policy else None
 
+    async def application_release_projection(
+            self, application: dict[str, Any]) -> dict[str, Any]:
+        """Return the exact package/workspace H7 binding for one application."""
+        role_policy = await self._role_policy(application)
+        binding = (verified_jurisdiction_binding(
+            role=role_policy[0], policy=role_policy[1], application=application)
+            if role_policy else None)
+        blockers: list[str] = []
+        if application.get("synthetic") is not False:
+            blockers.append("real_application_required")
+        if not role_policy:
+            blockers.append("approved_role_package_missing")
+        elif not binding:
+            blockers.append("jurisdiction_binding_stale")
+        return {
+            "status": "success",
+            "ready": not blockers,
+            "workspace_admission": "AUTHENTICATED_ACTIVE_FOUNDER_MEMBERSHIP",
+            "workspace_id": str(application.get("workspace_id") or ""),
+            "jurisdiction_source": "APPROVED_ROLE_PACKAGE",
+            "operating_jurisdiction": (
+                binding["operating_jurisdiction"] if binding else None),
+            "jurisdiction_binding_sha256": (
+                binding["binding_sha256"] if binding else None),
+            "policy_version_id": (
+                binding["policy_version_id"] if binding else None),
+            "legal_advice": False,
+            "legal_review_claimed": False,
+            "blockers": blockers,
+        }
+
+    async def _application_release_gate(
+            self, application: dict[str, Any]) -> dict[str, Any]:
+        if not os.getenv("K_SERVICE"):
+            return {"status": "success"}
+        projection = await self.application_release_projection(application)
+        if not projection["ready"]:
+            return _error(
+                "h7_application_binding_invalid",
+                "Post-interview Hiring requires the current approved role package.",
+                403)
+        return {"status": "success", "release": projection}
+
+    async def _onboarding_release_gate(
+            self, record: dict[str, Any]) -> dict[str, Any]:
+        application = await self.store.get(
+            "candidate_applications",
+            str(record.get("candidate_application_id") or ""))
+        if not application:
+            return _error(
+                "application_not_found",
+                "The onboarding run is not linked to an application.", 404)
+        return await self._application_release_gate(application)
+
     async def record_interview_evidence(
             self, *, principal: ActorPrincipal, application_id: str,
             payload: InterviewEvidenceInput) -> dict[str, Any]:
@@ -165,6 +214,9 @@ class HiringPostInterviewService:
         app = await self._application(principal, application_id)
         if not app:
             return _error("application_not_found", "Application does not exist.", 404)
+        application_gate = await self._application_release_gate(app)
+        if application_gate.get("error"):
+            return application_gate
         if int(app["version"]) != payload.expected_application_version:
             return _error("version_conflict", "Application changed; reload first.")
         if app.get("candidate_state") not in {
@@ -256,6 +308,9 @@ class HiringPostInterviewService:
         app = await self._application(principal, application_id)
         if not app:
             return _error("application_not_found", "Application does not exist.", 404)
+        application_gate = await self._application_release_gate(app)
+        if application_gate.get("error"):
+            return application_gate
         if int(app["version"]) != payload.expected_application_version:
             return _error("version_conflict", "Application changed; reload first.")
         interview = await self.store.get("hiring_interviews", payload.interview_id)
@@ -339,6 +394,9 @@ class HiringPostInterviewService:
         app = await self._application(principal, application_id)
         if not app:
             return _error("application_not_found", "Application does not exist.", 404)
+        application_gate = await self._application_release_gate(app)
+        if application_gate.get("error"):
+            return application_gate
         if (app.get("candidate_state") !=
                 CandidateState.AWAITING_REFERENCE_PERMISSION.value):
             return _error("reference_stage_invalid",
@@ -462,6 +520,9 @@ class HiringPostInterviewService:
         app = await self._application(principal, application_id)
         if not app:
             return _error("application_not_found", "Application does not exist.", 404)
+        application_gate = await self._application_release_gate(app)
+        if application_gate.get("error"):
+            return application_gate
         if app.get("candidate_state") != CandidateState.AWAITING_REFERENCE_PERMISSION.value:
             return _error("reference_stage_invalid",
                           "References require a Founder decision and candidate permission.")
@@ -486,6 +547,9 @@ class HiringPostInterviewService:
                 or check.get("candidate_application_id") != application_id
                 or check.get("workspace_id") != principal.workspace_id):
             return _error("reference_check_not_found", "Reference check does not exist.", 404)
+        application_gate = await self._application_release_gate(app)
+        if application_gate.get("error"):
+            return application_gate
         if check.get("status") == "AWAITING_RESPONSE":
             return {"status": "success", "duplicate": True,
                     "reference_check_id": payload.reference_check_id,
@@ -654,6 +718,9 @@ class HiringPostInterviewService:
                 or action.get("status") not in {"EXECUTING", "UNCERTAIN"}):
             return _error("reference_outreach_reconciliation_required",
                           "No uncertain reference outreach exists.", 404)
+        application_gate = await self._application_release_gate(app)
+        if application_gate.get("error"):
+            return application_gate
         result = await self.provider_adapter.reconcile(
             workspace_id=principal.workspace_id, action=action)
         if result.get("status") not in {"success", "failed"}:
@@ -739,14 +806,20 @@ class HiringPostInterviewService:
             workspace_id = str((app or {}).get("workspace_id") or "")
             if os.getenv("K_SERVICE"):
                 release = self.release_projection()
+                application_release = (
+                    await self.application_release_projection(app) if app else None)
                 if (not release["production_ready"]
-                        or release["workspace_id"] != workspace_id):
+                        or not application_release
+                        or not application_release["ready"]):
                     return _error("h5_h7_not_released",
                                   "Reference intake is not released.", 403)
         if (not app or not check
                 or check.get("candidate_application_id") != application_id
                 or check.get("workspace_id") != workspace_id):
             return _error("reference_check_not_found", "Reference check does not exist.", 404)
+        application_gate = await self._application_release_gate(app)
+        if application_gate.get("error"):
+            return application_gate
         if check.get("status") not in {"AWAITING_RESPONSE", "REPORT_READY"}:
             return _error("reference_outreach_incomplete",
                           "Reference evidence requires a completed outreach receipt.", 409)
@@ -833,6 +906,12 @@ class HiringPostInterviewService:
         if not check or check.get("status") not in {"AWAITING_RESPONSE", "REPORT_READY"}:
             return _error("reference_check_not_found",
                           "Reference request does not exist.", 404)
+        application = await self.store.get(
+            "candidate_applications",
+            str(check.get("candidate_application_id") or ""))
+        application_gate = await self._application_release_gate(application or {})
+        if application_gate.get("error"):
+            return application_gate
         if str(check.get("response_token_expires_at") or "") <= utc_now():
             return _error("reference_token_expired",
                           "Reference response authorization has expired.", 403)
@@ -857,6 +936,9 @@ class HiringPostInterviewService:
         app = await self._application(principal, application_id)
         if not app:
             return _error("application_not_found", "Application does not exist.", 404)
+        application_gate = await self._application_release_gate(app)
+        if application_gate.get("error"):
+            return application_gate
         if app.get("candidate_state") != CandidateState.AWAITING_OFFER_APPROVAL.value:
             return _error("offer_stage_invalid",
                           "A final Founder ADVANCE_TO_OFFER decision is required.")
@@ -949,6 +1031,9 @@ class HiringPostInterviewService:
                 offer.get("offer_sha256")):
             return _error("offer_approval_invalid",
                           "A fresh exact granted offer approval is required.")
+        application_gate = await self._application_release_gate(app)
+        if application_gate.get("error"):
+            return application_gate
         if offer.get("status") == "WAITING_FOR_RESPONSE":
             return {"status": "success", "duplicate": True,
                     "offer_id": payload.offer_id}
@@ -988,14 +1073,20 @@ class HiringPostInterviewService:
             actor_id = "signature_adapter"
             if os.getenv("K_SERVICE"):
                 release = self.release_projection()
+                application_release = (
+                    await self.application_release_projection(app) if app else None)
                 if (not release["production_ready"]
-                        or release["workspace_id"] != workspace_id):
+                        or not application_release
+                        or not application_release["ready"]):
                     return _error("h5_h7_not_released",
                                   "Offer response intake is not released.", 403)
         if (not app or not offer or offer.get("candidate_application_id") != application_id
                 or offer.get("offer_sha256") != payload.offer_sha256):
             return _error("offer_event_invalid",
                           "Signature event does not match the current approved offer.")
+        application_gate = await self._application_release_gate(app)
+        if application_gate.get("error"):
+            return application_gate
         existing_event = str(offer.get("signature_event_id") or "")
         if existing_event:
             if existing_event == payload.provider_event_id:
@@ -1095,6 +1186,9 @@ class HiringPostInterviewService:
         if len(rows) != 1:
             return _error("onboarding_not_found", "Onboarding run does not exist.", 404)
         onboarding = rows[0]
+        application_gate = await self._onboarding_release_gate(onboarding)
+        if application_gate.get("error"):
+            return application_gate
         if int(onboarding["version"]) != payload.expected_onboarding_version:
             return _error("version_conflict", "Onboarding changed; reload first.")
         plan_id = stable_id("onboarding_plan", payload.onboarding_run_id,
@@ -1155,6 +1249,9 @@ class HiringPostInterviewService:
             return _error("onboarding_approval_invalid",
                           "A fresh exact onboarding-plan approval is required.")
         row = rows[0]
+        application_gate = await self._onboarding_release_gate(row)
+        if application_gate.get("error"):
+            return application_gate
         committed = await self.store.compare_and_set(
             "onboarding_runs", str(row["onboarding_id"]), int(row["version"]), {
                 "state": OnboardingState.PRE_START.value,
@@ -1175,6 +1272,9 @@ class HiringPostInterviewService:
         if (not item or item.get("workspace_id") != principal.workspace_id
                 or item.get("onboarding_run_id") != payload.onboarding_run_id):
             return _error("onboarding_item_not_found", "Onboarding item does not exist.", 404)
+        application_gate = await self._onboarding_release_gate(item)
+        if application_gate.get("error"):
+            return application_gate
         if int(item["version"]) != payload.expected_item_version:
             return _error("version_conflict", "Onboarding item changed; reload first.")
         if item.get("owner") == "NEW_HIRE":
@@ -1211,6 +1311,9 @@ class HiringPostInterviewService:
         if len(rows) != 1:
             return _error("onboarding_not_found", "Onboarding run does not exist.", 404)
         row = rows[0]
+        application_gate = await self._onboarding_release_gate(row)
+        if application_gate.get("error"):
+            return application_gate
         if int(row["version"]) != payload.expected_onboarding_version:
             return _error("version_conflict", "Onboarding run changed; reload first.")
         current = str(row.get("state") or "")
@@ -1305,6 +1408,7 @@ class HiringPostInterviewService:
         app = await self._application(principal, application_id)
         if not app:
             return _error("application_not_found", "Application does not exist.", 404)
+        application_release = await self.application_release_projection(app)
         filters = {"workspace_id": principal.workspace_id,
                    "candidate_application_id": application_id}
         interviews = await self.store.list("hiring_interviews", filters=filters, limit=50)
@@ -1316,7 +1420,10 @@ class HiringPostInterviewService:
                 "interviews": interviews, "references": references,
                 "offers": offers, "onboarding": onboarding,
                 "onboarding_items": items,
-                "release": self.release_projection()}
+                "release": {
+                    **self.release_projection(),
+                    "application": application_release,
+                }}
 
 
 def verify_signature_webhook(raw_body: bytes, supplied: str) -> bool:

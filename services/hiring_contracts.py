@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import re
+import unicodedata
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Annotated, Literal
@@ -540,6 +541,92 @@ def stable_id(prefix: str, *parts: str) -> str:
         raise ValueError("invalid id prefix")
     digest = hashlib.sha256("\x1f".join(parts).encode()).hexdigest()[:28]
     return f"{prefix}_{digest}"
+
+
+def normalize_operating_jurisdiction(value: str) -> str:
+    """Normalize the advertised job location used as an operating label.
+
+    This is a version binding, not legal advice and not evidence that any law
+    or regulatory review occurred.  The Founder changes it only by approving
+    a new role-package version.
+    """
+    normalized = unicodedata.normalize("NFKC", str(value or ""))
+    normalized = re.sub(r"\s+", " ", normalized).strip(" \t\r\n,.;:")
+    if not normalized or len(normalized) > 120:
+        raise ValueError("an advertised operating jurisdiction is required")
+    return normalized
+
+
+def jurisdiction_policy_id(value: str) -> str:
+    """Return an opaque id for an advertised-location jurisdiction label."""
+    normalized = normalize_operating_jurisdiction(value)
+    return stable_id("jurisdiction", normalized.casefold())
+
+
+def build_jurisdiction_binding(
+        *, role_id: str, policy_version_id: str, policy_hash: str,
+        role_description_hash: str, advertised_location: str) -> dict:
+    """Bind one approved package version to its normalized operating label."""
+    jurisdiction = normalize_operating_jurisdiction(advertised_location)
+    payload = {
+        "schema_version": 1,
+        "source": "APPROVED_ROLE_PACKAGE",
+        "operating_jurisdiction": jurisdiction,
+        "jurisdiction_policy_id": jurisdiction_policy_id(jurisdiction),
+        "role_id": role_id,
+        "policy_version_id": policy_version_id,
+        "policy_hash": policy_hash,
+        "role_description_hash": role_description_hash,
+        "legal_advice": False,
+        "legal_review_claimed": False,
+    }
+    return {**payload, "binding_sha256": canonical_hash(payload)}
+
+
+def verified_jurisdiction_binding(
+        *, role: dict, policy: dict, application: dict | None = None) -> dict | None:
+    """Return the exact current binding, or ``None`` on any stale projection."""
+    if role.get("synthetic") is not False or policy.get("synthetic") is not False:
+        return None
+    if (policy.get("status") != "APPROVED"
+            or role.get("current_policy_version_id") !=
+            policy.get("policy_version_id")
+            or role.get("current_policy_hash") != policy.get("canonical_hash")):
+        return None
+    description = dict(policy.get("role_description") or {})
+    description_hash = str(policy.get("role_description_hash") or "")
+    if not description_hash or canonical_hash(description) != description_hash:
+        return None
+    try:
+        expected = build_jurisdiction_binding(
+            role_id=str(role.get("role_id") or ""),
+            policy_version_id=str(policy.get("policy_version_id") or ""),
+            policy_hash=str(policy.get("canonical_hash") or ""),
+            role_description_hash=description_hash,
+            advertised_location=str(description.get("location") or ""),
+        )
+    except ValueError:
+        return None
+    for record in (policy, role):
+        if (record.get("operating_jurisdiction") !=
+                expected["operating_jurisdiction"]
+                or record.get("jurisdiction_policy_id") !=
+                expected["jurisdiction_policy_id"]
+                or record.get("jurisdiction_binding_sha256") !=
+                expected["binding_sha256"]
+                or record.get("jurisdiction_binding") != expected):
+            return None
+    if application is not None and (
+            application.get("synthetic") is not False
+            or application.get("current_policy_version_id") !=
+            expected["policy_version_id"]
+            or application.get("current_policy_hash") != expected["policy_hash"]
+            or application.get("operating_jurisdiction") !=
+            expected["operating_jurisdiction"]
+            or application.get("jurisdiction_binding_sha256") !=
+            expected["binding_sha256"]):
+        return None
+    return expected
 
 
 def utc_now() -> str:

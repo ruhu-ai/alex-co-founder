@@ -411,6 +411,10 @@ class HiringPublicIntakeService:
             "source_kind": "PUBLIC_FORM", "inbound_channel": "PUBLIC_FORM",
             "candidate_state": CandidateState.RECEIVED.value,
             "current_policy_version_id": role["current_policy_version_id"],
+            "current_policy_hash": role.get("current_policy_hash"),
+            "operating_jurisdiction": role.get("operating_jurisdiction"),
+            "jurisdiction_binding_sha256": role.get(
+                "jurisdiction_binding_sha256"),
             "current_assessment_id": None, "current_decision_id": None,
             "artifact_ids": [artifact_id], "withdrawal": None,
             "retention_status": "ACTIVE", "processing_status": "EVIDENCE_QUEUED",

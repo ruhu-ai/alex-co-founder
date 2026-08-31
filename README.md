@@ -109,7 +109,7 @@ and safety boundaries.
 | Funding/program applications | Complete guarded lifecycle through submission and follow-up | Provider and submission effects still require their exact connectors and approvals |
 | Hiring H0–H4 | Real role intake, public application, restricted evidence, Founder decisions, and durable interview coordination implemented | Gmail/Calendar watches, connectors, workspace admission, and kill switch must be healthy |
 | Hiring H5–H6 | References, offers, accepted-offer handoff, and onboarding workflow implemented | External effects remain behind H7 prerequisites and release controls |
-| Hiring H7 | Executable fail-closed release projection implemented | Disabled until every named KMS, secret, HTTPS, provider, workspace, jurisdiction, and review prerequisite is real |
+| Hiring H7 | Executable fail-closed release projection implemented | Disabled until KMS, secrets, HTTPS, provider, approved-package jurisdiction binding, and qualified technical review are real |
 | Spec 39 M2 memory | Founder-controlled memory implementation and measured canary path implemented | Default-off outside the exact attested Founder cohort; private sessions always exclude optional memory |
 | Spec 40 background work | One grounded, actor-private artifact-draft skill implemented | Separate admission/execution flags, bounded queue, monitoring, same-image rollback, and kill switch |
 
@@ -332,11 +332,13 @@ Important boundaries:
 
 The H5/H6 workflow and execution core is implemented. Production H7 effects
 remain deliberately fail-closed until the deployment has its exact Founder
-workspace, HTTPS public origin, Cloud KMS key, response/signature secrets,
-chosen e-signature provider, jurisdiction review reference, qualified review
-reference, connector readiness, enable flag, and released kill switch. Missing
-values are reported as blockers; the application never invents release
-evidence. See [docs/25-hiring-operations.md](docs/25-hiring-operations.md).
+membership, HTTPS public origin, Cloud KMS key, response/signature secrets,
+chosen e-signature provider, qualified technical review reference, connector
+readiness, enable flag, and released kill switch. The approved role package's
+normalized advertised location is the operating-jurisdiction binding; it is
+not legal advice or proof that laws were reviewed. Missing values are reported
+as blockers; the application never invents release evidence. See
+[docs/25-hiring-operations.md](docs/25-hiring-operations.md).
 
 ---
 
@@ -700,9 +702,10 @@ Production posture:
   Founder cohort, deletion ledger, monitoring, and rollback gate all pass.
 - Background admission/execution flags are independent, queues are bounded,
   and kill switches default on.
-- Hiring H5–H7 external effects stay disabled until their workspace,
-  jurisdiction/review references, KMS/Secret Manager bindings, public HTTPS
-  origin, connector checks, and signature adapter are real and verifiable.
+- Hiring H5–H7 external effects stay disabled until active Founder membership,
+  the approved role-package jurisdiction binding, qualified technical review,
+  KMS/Secret Manager bindings, public HTTPS origin, connector checks, and the
+  signature adapter are real and verifiable.
 
 ## Observability
 
@@ -756,8 +759,8 @@ Reconcile → Close.
 Near-term work is operational rather than another broad feature layer:
 
 - provision and independently verify the remaining H7 KMS, secret, HTTPS,
-  e-signature, jurisdiction, and qualified-review prerequisites before enabling
-  real reference/offer/onboarding effects;
+  e-signature, approved-package jurisdiction binding, and qualified-review
+  prerequisites before enabling real reference/offer/onboarding effects;
 - keep validating Gmail watch recovery, exact applicant-thread correlation,
   Founder Calendar availability, and uncertain-effect reconciliation;
 - expand the constrained background lane only through separately measured

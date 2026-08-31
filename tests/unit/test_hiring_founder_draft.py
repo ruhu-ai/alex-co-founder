@@ -248,6 +248,8 @@ async def test_exact_complete_draft_is_promoted_but_not_published_by_approval():
         "policy_version_id": proposed["policy_version_id"],
         "policy_hash": proposed["canonical_hash"],
         "role_description_hash": proposed["role_description_hash"],
+        "jurisdiction_binding_sha256": proposed[
+            "jurisdiction_binding_sha256"],
     }
     approval = await request_approval(
         principal=_founder(), run_id=role["run_id"], role_id=role["role_id"],
@@ -268,6 +270,11 @@ async def test_exact_complete_draft_is_promoted_but_not_published_by_approval():
     assert committed["role_state"] == "APPROVED"
     assert committed["publication_allowed"] is True
     assert committed["role_description"] == package["role_description"]
+    assert committed["operating_jurisdiction"] == "Nigeria"
+    assert committed["jurisdiction_binding"]["source"] == (
+        "APPROVED_ROLE_PACKAGE")
+    assert committed["jurisdiction_binding"]["legal_advice"] is False
+    assert committed["jurisdiction_binding"]["legal_review_claimed"] is False
     assert (await service.get_public_role(role["role_id"]))["error_code"] == (
         "open_role_not_live")
     tampered_description = dict(committed["role_description"])
@@ -283,6 +290,57 @@ async def test_exact_complete_draft_is_promoted_but_not_published_by_approval():
         client_request_id="tampered_publication",
         attestation="Founder manually published the reviewed page.")
     assert refused_publication["error_code"] == "role_description_incomplete"
+
+
+@pytest.mark.asyncio
+async def test_location_correction_requires_a_new_matching_role_package():
+    store = InMemoryDurableStore()
+    service = _service(store)
+    package = _package()
+    created = await service.create_founder_draft_role(
+        principal=_founder(), contract=package["contract"],
+        role_description=package["role_description"],
+        client_request_id="jurisdiction_draft_v1")
+    corrected_description = {
+        **package["role_description"], "location": "Ghana"}
+    refused = await hiring_policy_service.propose_policy(
+        principal=_founder(), role_id=created["role"]["role_id"],
+        contract=package["contract"],
+        role_description=corrected_description,
+        change_reason="Founder corrected the advertised location.",
+        client_request_id="jurisdiction_policy_stale", store=store)
+    assert refused["error_code"] == "jurisdiction_binding_mismatch"
+
+    corrected_package = build_contract(
+        company_name="Example Co", role_title="Deployment Engineer",
+        role_summary="Own reliable customer deployments.", headcount_target=1,
+        target_date="2099-01-30", location="Ghana",
+        work_arrangement="Remote", employment_type="Full-time employee",
+        compensation_envelope="Founder-reviewed band",
+        required_criteria=["Customer deployment delivery"],
+        preferred_criteria=["Experience improving deployment playbooks"],
+        relevant_experience=["Owned a customer-facing production deployment"],
+        responsibilities=["Lead deployments from discovery through launch"],
+        success_outcomes=["Accountable production launches"],
+        benefits=["Learning and development support"],
+        hiring_process=["Structured role interview", "Founder decision"],
+        application_instructions="Apply through the published role page.",
+        accessibility_statement=(
+            "Candidates may request an adjustment for the interview process."),
+        public_job_description=(
+            "Join Example Co to lead customer deployments from discovery "
+            "through accountable production outcomes."),
+    )
+    proposed = await hiring_policy_service.propose_policy(
+        principal=_founder(), role_id=created["role"]["role_id"],
+        contract=corrected_package["contract"],
+        role_description=corrected_package["role_description"],
+        change_reason="Founder corrected the advertised location.",
+        client_request_id="jurisdiction_policy_v2", store=store)
+    assert proposed["status"] == "success"
+    assert proposed["operating_jurisdiction"] == "Ghana"
+    assert proposed["jurisdiction_binding"]["policy_version_id"] == (
+        proposed["policy_version_id"])
 
 
 def test_prepare_tool_presents_exact_package_without_creating_role():

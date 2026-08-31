@@ -1854,7 +1854,7 @@ this document may not create a separate Hiring product shell.
 | hiring role cockpit | synthetic H3 now uses the shared token/type/icon/navigation source, a role-index home, focused cockpit, Quiet contextual workspace, and grouped mobile candidate rows; committed role/runtime/mailbox/publication truth remains backend-authoritative | complete the remaining shared component extraction and add the still-missing production workflow fields only behind their reviewed stage gates |
 | candidate intake inbox and evidence passport | the authenticated Founder sees applicant name/email in Hiring, can open the exact restricted CV through a no-store audited route, and reviews `PRESENT` / `MISSING` / `UNCLEAR` criterion evidence without scores or recommendations | keep identity/CV out of general search, memory, logs and model context; retain Founder-only decisions and backend authority |
 | policy version/diff/impact view | implemented for synthetic H2–H3 | approved role brief, scorecard, interview plan, job post, version and impact |
-| interview/reference/offer/onboarding views | H4 communication plus H5 interview/reference/offer and H6 onboarding projections implemented | retain exact approvals, signature-adapter verification, provider reconciliation, H7 workspace/jurisdiction/reviewer gates and kill switch |
+| interview/reference/offer/onboarding views | H4 communication plus H5 interview/reference/offer and H6 onboarding projections implemented | retain exact approvals, signature-adapter verification, provider reconciliation, authenticated-Founder/current-package jurisdiction binding, qualified-review gate, and kill switch |
 | application-mailbox operations | normal Alex mailbox push/history is reused; successful Hiring sends persist exact provider thread ids and applicant replies correlate only by that thread plus the server-resolved candidate address; ambiguous mail remains in the Founder inbox | no subject/name/model correlation; automatic/DSN-like mail is receipt-only; every reply message is untrusted and injection-shaped previews are withheld |
 | candidate-facing application portal | a receipt-gated public job description and encrypted role-scoped form exist; the form is default-off until a dedicated intake key is configured, exact role approval and a separate Founder publish click are committed; synthetic fixtures are never eligible | production rollout preserves bounded uploads, encrypted identity/artifact storage, explicit privacy consent, deletion/export controls, and monitoring; no third-party post, contact, ranking, recommendation, or employment decision is enabled |
 
@@ -2758,9 +2758,16 @@ exact approval; duplicates and uncertain effects converge.
 
 ### Phase H7 — constrained production pilot
 
-- one company/workspace, one reviewed jurisdiction set, one role-specific
-  application mailbox, manually supervised operation, kill switches and
-  incident playbook;
+- any registered, authenticated user resolves to the sole product role
+  `FOUNDER` through one current ACTIVE workspace membership; there is no
+  separate product-role or hard-coded workspace allowlist;
+- each non-synthetic workflow is bound to the normalized advertised location
+  in its exact approved role package. A Founder correction creates a new
+  package/policy version and therefore a new binding; stale H7 actions fail
+  closed. This jurisdiction label is not legal advice and does not claim that
+  laws were reviewed;
+- one role-specific application mailbox, manually supervised operation, kill
+  switches and incident playbook;
 - no production role address is published until the unfiltered watch, trusted
   binding probes, complete recovery, and cursor/receipt crash tests pass;
 - no scoring/ranking, auto-decline, broad ATS/job-board automation, background
@@ -2801,15 +2808,18 @@ acceptance remains authoritative only through the configured HMAC signature
 adapter; email sentiment can never accept an offer.
 
 H7 remains deliberately fail-closed in production. The executable release
-projection requires the exact workspace allowlist, reviewed jurisdiction ref,
-signature adapter secret, a reviewed executable reference-contact resolver and
-outreach adapter, qualified-review ref, feature enable and inactive kill switch.
+projection requires active authenticated `FOUNDER` membership, an exact
+non-synthetic application binding to the current approved role-package version
+and its normalized advertised-location jurisdiction, the signature adapter
+secret, a reviewed executable reference-contact resolver and outreach adapter,
+qualified technical-review ref, feature enable and inactive kill switch.
 The executable reference resolver additionally requires its dedicated Cloud KMS
 key, a separate response-token signing secret and the reviewed HTTPS public
 base URL. Missing values are returned as content-free blockers. When every
 technical and external prerequisite is present, the same checker reports no
-blockers; local test execution does not constitute jurisdiction or qualified
-review approval.
+blockers. A jurisdiction name is operational metadata only; local test
+execution and the label itself do not constitute legal or qualified-review
+approval.
 
 ---
 

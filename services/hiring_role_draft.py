@@ -7,7 +7,7 @@ import re
 from datetime import date, timedelta
 from typing import Any
 
-from services.hiring_contracts import RoleContract
+from services.hiring_contracts import RoleContract, jurisdiction_policy_id
 
 _PROHIBITED = re.compile(
     r"\b(?:culture\s*fit|personality|race|ethnicity|religion|gender|sex|age|"
@@ -315,7 +315,7 @@ def build_contract(
                 "Protected characteristics", "Culture fit", "Prestige proxies"],
             "notice_policy_id": "notice_founder_draft_v1",
             "retention_policy_id": "retention_unconfigured_draft_v1",
-            "jurisdiction_policy_id": "jurisdiction_unconfigured_draft_v1",
+            "jurisdiction_policy_id": jurisdiction_policy_id(strings["location"]),
         })
     except ValueError as exc:
         return _error("role_brief_invalid", str(exc)[:400])

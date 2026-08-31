@@ -25,6 +25,8 @@ from services.hiring_contracts import (
     ReferenceEvidenceInput,
     ReferenceOutreachExecutionInput,
     ReferencePermissionInput,
+    build_jurisdiction_binding,
+    canonical_hash,
 )
 from services.hiring_post_interview import HiringPostInterviewService
 from services.hiring_reference_contacts import reference_response_token
@@ -490,8 +492,7 @@ async def test_reference_injection_is_withheld_and_cannot_advance(monkeypatch):
 
 def test_h7_cloud_gate_is_fail_closed(monkeypatch):
     monkeypatch.setenv("K_SERVICE", "co-founder")
-    for key in ("HIRING_H5_H7_ENABLED", "HIRING_H5_H7_WORKSPACE_ID",
-                "HIRING_H5_H7_JURISDICTION_REVIEW_REF",
+    for key in ("HIRING_H5_H7_ENABLED",
                 "HIRING_SIGNATURE_WEBHOOK_SECRET", "HIRING_H5_H7_REVIEW_REF"):
         monkeypatch.delenv(key, raising=False)
     monkeypatch.setenv("HIRING_H5_H7_KILL_SWITCH", "1")
@@ -500,14 +501,16 @@ def test_h7_cloud_gate_is_fail_closed(monkeypatch):
     assert "kill_switch_active" in result["blockers"]
     assert "reference_contact_kms_unconfigured" in result["blockers"]
     assert "AUTO_PROVISIONING" in result["forbidden"]
+    assert result["workspace_admission"] == (
+        "AUTHENTICATED_ACTIVE_FOUNDER_MEMBERSHIP")
+    assert result["jurisdiction_source"] == "APPROVED_ROLE_PACKAGE"
+    assert result["jurisdiction_proves_legal_review"] is False
 
 
 def test_h7_cloud_gate_is_executable_when_external_prerequisites_exist(monkeypatch):
     monkeypatch.setenv("K_SERVICE", "co-founder")
     monkeypatch.setenv("HIRING_H5_H7_ENABLED", "1")
     monkeypatch.setenv("HIRING_H5_H7_KILL_SWITCH", "0")
-    monkeypatch.setenv("HIRING_H5_H7_WORKSPACE_ID", "workspace_test")
-    monkeypatch.setenv("HIRING_H5_H7_JURISDICTION_REVIEW_REF", "review_jurisdiction")
     monkeypatch.setenv("HIRING_H5_H7_REVIEW_REF", "review_qualified")
     monkeypatch.setenv("HIRING_SIGNATURE_WEBHOOK_SECRET", "signature-secret")
     monkeypatch.setenv(
@@ -519,3 +522,79 @@ def test_h7_cloud_gate_is_executable_when_external_prerequisites_exist(monkeypat
     assert result["production_ready"] is True
     assert result["blockers"] == []
     assert result["reference_outreach_adapter"] == "alex_mail_v1"
+    another_registered_founder = ActorPrincipal(
+        actor_id="founder_other", workspace_id="workspace_other",
+        role=WorkspaceRole.FOUNDER, session_auth_time=int(time.time()),
+        membership_version=1, principal_kind="INTERACTIVE")
+    assert HiringPostInterviewService(
+        InMemoryDurableStore())._gate(another_registered_founder) == {
+            "status": "success"}
+
+
+def test_h7_package_version_and_location_define_new_binding():
+    first = build_jurisdiction_binding(
+        role_id="role_real", policy_version_id="policy_real_v1",
+        policy_hash="sha256:" + "1" * 64,
+        role_description_hash="sha256:" + "2" * 64,
+        advertised_location="  Nigeria, ")
+    corrected = build_jurisdiction_binding(
+        role_id="role_real", policy_version_id="policy_real_v2",
+        policy_hash="sha256:" + "3" * 64,
+        role_description_hash="sha256:" + "4" * 64,
+        advertised_location="Nigeria")
+    assert first["operating_jurisdiction"] == "Nigeria"
+    assert corrected["operating_jurisdiction"] == "Nigeria"
+    assert first["binding_sha256"] != corrected["binding_sha256"]
+    assert first["legal_advice"] is False
+    assert first["legal_review_claimed"] is False
+
+
+@pytest.mark.asyncio
+async def test_h7_application_binding_uses_approved_advertised_location():
+    store = InMemoryDurableStore()
+    policy_id = "policy_real_v1"
+    policy_hash = "sha256:" + "b" * 64
+    description = {"location": "  Nigeria  "}
+    description_hash = canonical_hash(description)
+    binding = build_jurisdiction_binding(
+        role_id="role_real", policy_version_id=policy_id,
+        policy_hash=policy_hash, role_description_hash=description_hash,
+        advertised_location=description["location"])
+    shared = {
+        "operating_jurisdiction": binding["operating_jurisdiction"],
+        "jurisdiction_policy_id": binding["jurisdiction_policy_id"],
+        "jurisdiction_binding_sha256": binding["binding_sha256"],
+        "jurisdiction_binding": binding,
+    }
+    await store.create("hiring_roles", "role_real", {
+        "role_id": "role_real", "workspace_id": "workspace_any_founder",
+        "synthetic": False, "current_policy_version_id": policy_id,
+        "current_policy_hash": policy_hash, **shared, "version": 1,
+    })
+    await store.create("hiring_policy_versions", policy_id, {
+        "policy_version_id": policy_id,
+        "workspace_id": "workspace_any_founder", "synthetic": False,
+        "status": "APPROVED", "canonical_hash": policy_hash,
+        "role_description": description,
+        "role_description_hash": description_hash,
+        "contract": {}, **shared, "version": 1,
+    })
+    application = {
+        "candidate_application_id": "candidateapp_real",
+        "workspace_id": "workspace_any_founder", "role_id": "role_real",
+        "synthetic": False, "current_policy_version_id": policy_id,
+        "current_policy_hash": policy_hash,
+        "operating_jurisdiction": "Nigeria",
+        "jurisdiction_binding_sha256": binding["binding_sha256"],
+    }
+    service = HiringPostInterviewService(store)
+    projection = await service.application_release_projection(application)
+    assert projection["ready"] is True
+    assert projection["operating_jurisdiction"] == "Nigeria"
+    assert projection["legal_advice"] is False
+    assert projection["legal_review_claimed"] is False
+
+    stale = {**application, "current_policy_version_id": "policy_real_v2"}
+    blocked = await service.application_release_projection(stale)
+    assert blocked["ready"] is False
+    assert blocked["blockers"] == ["jurisdiction_binding_stale"]

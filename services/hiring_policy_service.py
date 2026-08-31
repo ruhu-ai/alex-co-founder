@@ -6,7 +6,14 @@ from typing import Any
 
 from services.actor_identity import ActorPrincipal, authorize
 from services.durable_store import DurableStore, production_store
-from services.hiring_contracts import RoleContract, canonical_hash, stable_id, utc_now
+from services.hiring_contracts import (
+    RoleContract,
+    build_jurisdiction_binding,
+    canonical_hash,
+    jurisdiction_policy_id,
+    stable_id,
+    utc_now,
+)
 from services.hiring_role_draft import validate_role_description
 
 
@@ -40,6 +47,17 @@ async def propose_policy(*, principal: ActorPrincipal, role_id: str,
         description_gate = validate_role_description(description, contract)
         if description_gate.get("error"):
             return description_gate
+        try:
+            expected_jurisdiction_id = jurisdiction_policy_id(
+                str(description.get("location") or ""))
+        except ValueError:
+            return _error(
+                "jurisdiction_binding_missing",
+                "The approved job package must name its advertised location.")
+        if contract.jurisdiction_policy_id != expected_jurisdiction_id:
+            return _error(
+                "jurisdiction_binding_mismatch",
+                "Regenerate the role package after changing its advertised location.")
     policy_hash = canonical_hash(payload)
     parent_id = str(role.get("current_policy_version_id") or "") or None
     parent = await durable.get("hiring_policy_versions", parent_id) if parent_id else None
@@ -69,6 +87,19 @@ async def propose_policy(*, principal: ActorPrincipal, role_id: str,
     }
     if role.get("synthetic") is False:
         row["role_description_hash"] = canonical_hash(description)
+        binding = build_jurisdiction_binding(
+            role_id=role_id,
+            policy_version_id=policy_id,
+            policy_hash=policy_hash,
+            role_description_hash=row["role_description_hash"],
+            advertised_location=str(description["location"]),
+        )
+        row.update({
+            "operating_jurisdiction": binding["operating_jurisdiction"],
+            "jurisdiction_policy_id": binding["jurisdiction_policy_id"],
+            "jurisdiction_binding_sha256": binding["binding_sha256"],
+            "jurisdiction_binding": binding,
+        })
     impact_id = stable_id("impact", policy_id, policy_hash)
     impact = {
         "schema_version": 1, "impact_id": impact_id,
@@ -158,6 +189,14 @@ async def approve_policy(*, principal: ActorPrincipal, role_id: str,
         description_gate = validate_role_description(description, contract)
         if description_gate.get("error"):
             return description_gate
+        required_binding_fields = {
+            "operating_jurisdiction", "jurisdiction_policy_id",
+            "jurisdiction_binding_sha256", "jurisdiction_binding",
+        }
+        if not required_binding_fields <= policy.keys():
+            return _error(
+                "jurisdiction_binding_missing",
+                "Regenerate and review the role package before approval.")
     impact = (await durable.list(
         "hiring_policy_impacts", filters={"policy_version_id": policy_version_id},
         limit=2))
@@ -174,6 +213,8 @@ async def approve_policy(*, principal: ActorPrincipal, role_id: str,
     if role.get("synthetic") is False:
         exact_action["role_description_hash"] = str(
             policy.get("role_description_hash") or "")
+        exact_action["jurisdiction_binding_sha256"] = str(
+            policy.get("jurisdiction_binding_sha256") or "")
     if (not approval or approval.get("status") not in {"GRANTED", "CONSUMED"}
             or approval.get("workspace_id") != principal.workspace_id
             or approval.get("role_id") != role_id
@@ -202,6 +243,11 @@ async def approve_policy(*, principal: ActorPrincipal, role_id: str,
                 "publication_package": publication_package,
                 "role_state": "APPROVED",
                 "publication_allowed": True,
+                "operating_jurisdiction": policy["operating_jurisdiction"],
+                "jurisdiction_policy_id": policy["jurisdiction_policy_id"],
+                "jurisdiction_binding_sha256": policy[
+                    "jurisdiction_binding_sha256"],
+                "jurisdiction_binding": policy["jurisdiction_binding"],
             })
         committed_role = await durable.compare_and_set(
             "hiring_roles", role_id, expected_role_version, {
