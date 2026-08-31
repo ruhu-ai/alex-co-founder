@@ -1,0 +1,28 @@
+THIRD_PARTY_NOTICES.md
+  s_bf598a20bfcdaa::t_5368b546c3da5e 1-36
+README.md
+  s_bf598a20bfcdaa::t_dc9c44487cf84c 853-868
+docs/assets/demo/README.md
+  s_bf598a20bfcdaa::t_5368b546c3da5e 1-12
+NOTICE
+  s_bf598a20bfcdaa::t_5368b546c3da5e 1-9
+LICENSE
+  s_bf598a20bfcdaa::t_06bfda9e48cd8f 1
+  s_bf598a20bfcdaa::t_a3f3b33f595115 2-202
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "5d0ec7f2f0c7f6f0709a32f7e447c1f4172c123e",
+  "prompts": {},
+  "sessions": {
+    "s_bf598a20bfcdaa": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a04860-dde3-79c3-b2bd-2987b04adc68",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Ijidai Lassa <ijidai@cued.app>"
+    }
+  }
+}
