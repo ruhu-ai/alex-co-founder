@@ -1,0 +1,69 @@
+services/firestore.py
+  s_bf598a20bfcdaa::t_bda17d63f07641 159
+services/data_lifecycle.py
+  s_bf598a20bfcdaa::t_bda17d63f07641 239-240
+services/hiring_data_rights.py
+  s_bf598a20bfcdaa::t_bda17d63f07641 253
+services/capability_registry.py
+  s_bf598a20bfcdaa::t_8650fb5487ce40 313-314
+services/hiring_approval_service.py
+  s_bf598a20bfcdaa::t_8650fb5487ce40 32-33,67
+.env.example
+  s_bf598a20bfcdaa::t_9c54e98f82b08a 256-264
+services/durable_store.py
+  s_bf598a20bfcdaa::t_bda17d63f07641 152
+services/hiring_post_interview.py
+  s_bf598a20bfcdaa::t_79658a3d2ef231 17,21,23-26,40,42,51,53-59,80-82,86-87,98,110-115,122
+  s_bf598a20bfcdaa::t_5a9d5d2e36a8a9 36,48-50,1192-1298
+  s_bf598a20bfcdaa::t_3a993d166a5532 357-365,368-409,414-415,423-429,445,450-452,455-725
+  s_bf598a20bfcdaa::t_00b8b6aca3b2b2 750-755
+  s_bf598a20bfcdaa::t_276c97e5e5efa5 829-851
+  s_bf598a20bfcdaa::t_3aff47215324a8 726
+  s_bf598a20bfcdaa::t_3c31b47afda221 1299
+app/hiring_routes.py
+  s_bf598a20bfcdaa::t_5a9d5d2e36a8a9 38,1906-1917
+  s_bf598a20bfcdaa::t_1036d3e6a26acb 18,40,42,583-611,1752-1798
+  s_bf598a20bfcdaa::t_00193f5ece1860 1799
+  s_bf598a20bfcdaa::t_347313d51e6911 1918-1919
+docs/25-hiring-operations.md
+  s_bf598a20bfcdaa::t_70457fce73f28f 2778,2784-2788,2794-2806,2812-2817
+services/hiring_coordination.py
+  s_bf598a20bfcdaa::t_8650fb5487ce40 144-146,160-161
+services/hiring_reference_contacts.py
+  s_bf598a20bfcdaa::t_ecf06f486ced72 139-147,190,194-198,233
+  s_bf598a20bfcdaa::t_35baa629ecf974 1-38,40-117,148-189,191-193,199-232,234-281
+  s_bf598a20bfcdaa::t_b90d1b0aa9a860 39,118-138
+tests/unit/test_hiring_h5_h7.py
+  s_bf598a20bfcdaa::t_70457fce73f28f 452-464
+  s_bf598a20bfcdaa::t_af6ecf4417dec3 23,25,29,48,50,52-60,64-70
+  s_bf598a20bfcdaa::t_a3aa044eb2e46d 120
+  s_bf598a20bfcdaa::t_26e7b22ed7126f 20,118,121,157-160,173-175,186-193,329-369,498-516
+  s_bf598a20bfcdaa::t_2019f5ff2d21b3 49,51,61-63,370-419
+  s_bf598a20bfcdaa::t_2813550a6193b0 152-156,166,176-185,194-197,203
+  s_bf598a20bfcdaa::t_b2225e91f3479d 434-438
+  s_bf598a20bfcdaa::t_1f4463a6532e7b 444,451,465-467,472,496
+  s_bf598a20bfcdaa::t_d67276db1d9318 71-72
+services/hiring_contracts.py
+  s_bf598a20bfcdaa::t_3bc3bbe502d1af 372-392
+  s_bf598a20bfcdaa::t_5a9d5d2e36a8a9 463-478
+app/static/hiring.html
+  s_bf598a20bfcdaa::t_9dc04db3422e32 2780,2782,2818-2821,2825-2838
+app/auth.py
+  s_bf598a20bfcdaa::t_1036d3e6a26acb 68-69
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "edec6d1a4b11efc5cfea95315fe18d947b721e67",
+  "prompts": {},
+  "sessions": {
+    "s_bf598a20bfcdaa": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a04860-dde3-79c3-b2bd-2987b04adc68",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Ijidai Lassa <ijidai@cued.app>"
+    }
+  }
+}
