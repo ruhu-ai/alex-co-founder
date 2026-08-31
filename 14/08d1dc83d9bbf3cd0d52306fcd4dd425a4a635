@@ -1,0 +1,77 @@
+app/hiring_routes.py
+  s_bf598a20bfcdaa::t_86d2abc619f64e 1,32-40,240-242
+  s_bf598a20bfcdaa::t_a0a8c785d8ab96 552-561
+  s_bf598a20bfcdaa::t_2586f1f341e88a 53-56,547-551,562-603
+  s_bf598a20bfcdaa::t_f316e806f604f2 1651-1825
+  s_bf598a20bfcdaa::t_2bbcaffc395796 243-244
+  s_bf598a20bfcdaa::t_ac21987b0fae98 604
+.env.example
+  s_bf598a20bfcdaa::t_dfb0d7762739fa 249-256
+services/firestore.py
+  s_bf598a20bfcdaa::t_f1f4cb0e18ac85 158-162
+services/hiring_post_interview.py
+  s_bf598a20bfcdaa::t_6d71b1965d0251 369,372-386,388-389,426,584,590-606,643,649,657
+  s_bf598a20bfcdaa::t_a4258ef35d94e8 40
+  s_bf598a20bfcdaa::t_4f65d944e86fb9 479-482,485-502
+  s_bf598a20bfcdaa::t_6c021312a19a3b 619-621
+  s_bf598a20bfcdaa::t_0cab7aee1d7415 638-641,644
+  s_bf598a20bfcdaa::t_fe6bb457ca67a1 650
+  s_bf598a20bfcdaa::t_608d1cec46edb6 719
+  s_bf598a20bfcdaa::t_bd50154e71b076 1-39,45-62,65-85,90-368,370-371,387,390-403,408,424-425,427-430,432,434-478,483-484,503-583,585-589,607-618,622-637,642,645-648,652-656,658-718,720-772,775-832
+  s_bf598a20bfcdaa::t_cc1a3b351e379a 86-89
+  s_bf598a20bfcdaa::t_4c530070ea24d4 63-64
+  s_bf598a20bfcdaa::t_8218e27bd96706 404-407,409-423,431,433,773-774
+  s_bf598a20bfcdaa::t_b1f4be013fc585 41-44,651
+tests/unit/test_hiring_h5_h7.py
+  s_bf598a20bfcdaa::t_318dfc486cf09d 1-25,27-29,37-88,91-110,113-196,198-254,258-264,307-318,320
+  s_bf598a20bfcdaa::t_8218e27bd96706 255-257,265-303,305-306
+  s_bf598a20bfcdaa::t_4c530070ea24d4 26,89-90
+  s_bf598a20bfcdaa::t_8430b77f923a11 111-112
+  s_bf598a20bfcdaa::t_4a36d144439c43 304
+  s_bf598a20bfcdaa::t_6334cce74bc7ff 30-36
+  s_bf598a20bfcdaa::t_954411d698a510 197
+  s_bf598a20bfcdaa::t_93e78517bf47f1 319
+services/hiring_contracts.py
+  s_bf598a20bfcdaa::t_2dabc3ca77e264 48-58,73-97,313-439
+  s_bf598a20bfcdaa::t_09ed6f0dcee73b 440-441
+services/data_lifecycle.py
+  s_bf598a20bfcdaa::t_f1f4cb0e18ac85 237-246
+services/durable_store.py
+  s_bf598a20bfcdaa::t_f1f4cb0e18ac85 151-155
+services/hiring_service.py
+  s_bf598a20bfcdaa::t_6307d9b8f1f0e4 1299-1308,1314-1319
+services/hiring_approval_service.py
+  s_bf598a20bfcdaa::t_608d1cec46edb6 32-33
+app/static/hiring.html
+  s_bf598a20bfcdaa::t_b7cd830655e4ad 2741-2744,2746
+  s_bf598a20bfcdaa::t_cde924fdfca7ba 2792-2795
+  s_bf598a20bfcdaa::t_f1b39904db0670 2758-2791,2796-2831
+docs/25-hiring-operations.md
+  s_bf598a20bfcdaa::t_cc1a3b351e379a 2804-2809
+  s_bf598a20bfcdaa::t_56fc5ed58b450e 1858,1862,1869-1870,2776-2777,2779-2793,2802-2803
+  s_bf598a20bfcdaa::t_8218e27bd96706 2778,2794-2801
+  s_bf598a20bfcdaa::t_96b3b067766a61 2810
+app/auth.py
+  s_bf598a20bfcdaa::t_6334cce74bc7ff 66-68
+services/hiring_workflow_adapter.py
+  s_bf598a20bfcdaa::t_b1f4be013fc585 45-57,74-75
+  s_bf598a20bfcdaa::t_12e677a4938d46 76
+services/hiring_data_rights.py
+  s_bf598a20bfcdaa::t_f1f4cb0e18ac85 252-254
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "1408d1dc83d9bbf3cd0d52306fcd4dd425a4a635",
+  "prompts": {},
+  "sessions": {
+    "s_bf598a20bfcdaa": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a04860-dde3-79c3-b2bd-2987b04adc68",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Ijidai Lassa <ijidai@cued.app>"
+    }
+  }
+}
