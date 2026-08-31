@@ -41,6 +41,10 @@ def test_composer_grows_with_bottom_actions_and_converts_large_prose():
     assert 'combined.trimStart().startsWith("/")' in HTML
     assert 'id = "composerAttachments"' in HTML
     assert 'title="Remove from this message"' in HTML
+    assert ".pillbar textarea:focus-visible" in HTML
+    assert "box-shadow: none" in HTML.split(
+        ".pillbar textarea:focus-visible", 1
+    )[1].split("}", 1)[0]
 
 
 def test_composer_attachment_chip_tracks_upload_and_message_lifecycle():
