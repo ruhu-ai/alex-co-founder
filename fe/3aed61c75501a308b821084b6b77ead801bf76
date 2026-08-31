@@ -1,0 +1,30 @@
+services/hiring_coordination.py
+  s_bf598a20bfcdaa::t_56ffa856233028 54,71-87,190-199,507-508,527-548,605-606,961-964
+tests/unit/test_hiring_live_coordination.py
+  s_bf598a20bfcdaa::t_04a65295f8e233 8
+  s_bf598a20bfcdaa::t_21529f5a376dd2 548-549,576-577
+  s_bf598a20bfcdaa::t_2cf2d4b3abb869 5,15-18,504-508,513-517,523-547,550-575,578-590
+  s_bf598a20bfcdaa::t_8d13b3b7ae8567 591-592
+services/alex_mailbox.py
+  s_bf598a20bfcdaa::t_56ffa856233028 200
+tests/unit/test_alex_mailbox_durability.py
+  s_bf598a20bfcdaa::t_2cf2d4b3abb869 241-248,254-256
+docs/25-hiring-operations.md
+  s_bf598a20bfcdaa::t_9163aa9e312da5 1347-1351,2724
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "fe3aed61c75501a308b821084b6b77ead801bf76",
+  "prompts": {},
+  "sessions": {
+    "s_bf598a20bfcdaa": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a04860-dde3-79c3-b2bd-2987b04adc68",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Ijidai Lassa <ijidai@cued.app>"
+    }
+  }
+}
