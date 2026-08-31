@@ -1160,7 +1160,7 @@ async def test_candidate_detail_resolves_citations_and_retains_committed_decisio
         "unknowns"][-1]
 
 
-def test_hiring_routes_expose_scoped_context_and_non_live_public_page(monkeypatch):
+def test_public_role_read_does_not_require_synthetic_identity_key(monkeypatch):
     store = InMemoryDurableStore()
     service = _service(store)
     package = _package()
@@ -1177,8 +1177,11 @@ def test_hiring_routes_expose_scoped_context_and_non_live_public_page(monkeypatc
     async def actor(_request):
         return _founder()
 
+    monkeypatch.setenv("K_SERVICE", "co-founder")
+    monkeypatch.delenv("HIRING_SYNTHETIC_ENCRYPTION_KEY", raising=False)
     monkeypatch.setattr(hiring_routes, "_actor", actor)
     monkeypatch.setattr(hiring_routes, "_services", lambda: (service, object()))
+    monkeypatch.setattr(hiring_routes, "production_store", lambda: store)
     app = FastAPI()
     hiring_routes.register(app)
     client = TestClient(app)
@@ -1311,7 +1314,7 @@ def test_editable_job_description_saves_proposed_version_and_previews_exact_copy
         "responsibilities"]
 
 
-def test_public_application_route_converges_on_restricted_candidate_queue(monkeypatch):
+def test_cloud_public_application_route_uses_dedicated_intake_key(monkeypatch):
     import asyncio
 
     from app import hiring_routes
@@ -1355,8 +1358,10 @@ def test_public_application_route_converges_on_restricted_candidate_queue(monkey
         "publication_package": {"application_address": None},
         "synthetic": False, "version": 1,
     }))
-    monkeypatch.setenv("HIRING_PUBLIC_INTAKE_LOCAL_ENABLED", "1")
-    monkeypatch.setenv("HIRING_PUBLIC_INTAKE_LOCAL_KEY", "53" * 32)
+    monkeypatch.setenv("K_SERVICE", "co-founder")
+    monkeypatch.delenv("HIRING_SYNTHETIC_ENCRYPTION_KEY", raising=False)
+    monkeypatch.setenv("HIRING_PUBLIC_INTAKE_ENABLED", "1")
+    monkeypatch.setenv("HIRING_PUBLIC_INTAKE_KEY", "53" * 32)
     saved: dict[str, bytes] = {}
     monkeypatch.setattr(
         "services.hiring_public_intake.storage.save_bytes",

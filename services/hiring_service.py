@@ -130,6 +130,66 @@ def _candidate_facing_projection(
     }
 
 
+async def get_public_role_projection(
+        store: DurableStore, role_id: str) -> dict[str, Any]:
+    """Return the receipt-backed public projection without an identity vault.
+
+    Reading a published job description does not touch candidate identity and
+    must not depend on either the synthetic fixture key or production identity
+    decryption. Application submission has its own closed, encrypted intake
+    boundary in ``HiringPublicIntakeService``.
+    """
+    role = await store.get("hiring_roles", role_id)
+    # Synthetic fixtures are never public intake surfaces, even when a
+    # fixture happens to contain publication-shaped receipts.
+    if not role or role.get("synthetic") is not False:
+        return _error("open_role_not_live", "This open role is not live.", 404)
+    policy_id = str(role.get("current_policy_version_id") or "")
+    policy_hash = str(role.get("current_policy_hash") or "")
+    receipts = [
+        item for item in role.get("publication_receipts", [])
+        if item.get("policy_version_id") == policy_id
+        and item.get("policy_hash") == policy_hash
+        and item.get("automated_publication") is False
+        and item.get("destination") == "COFOUNDER_PUBLIC_ROLE_PAGE"
+        and item.get("verification_status") == "VERIFIED_APP_OWNED"
+    ]
+    if (not policy_id or not policy_hash or not receipts
+            or role.get("role_state") != RoleState.PUBLISHED.value
+            or role.get("publication_allowed") is False):
+        return _error("open_role_not_live", "This open role is not live.", 404)
+    policy = await store.get("hiring_policy_versions", policy_id)
+    if (not policy or policy.get("status") != "APPROVED"
+            or policy.get("canonical_hash") != policy_hash
+            or policy.get("role_id") != role_id):
+        return _error("open_role_not_live", "This open role is not live.", 404)
+    try:
+        contract = RoleContract.model_validate(policy.get("contract") or {})
+    except ValueError:
+        return _error("open_role_not_live", "This open role is not live.", 404)
+    description = dict(role.get("role_description") or {})
+    if (not policy.get("role_description_hash")
+            or canonical_hash(description) != policy.get("role_description_hash")):
+        return _error("open_role_not_live", "This open role is not live.", 404)
+    description_gate = validate_role_description(description, contract)
+    if description_gate.get("error"):
+        return _error("open_role_not_live", "This open role is not live.", 404)
+    latest_receipt = sorted(
+        receipts, key=lambda item: str(item.get("recorded_at") or ""))[-1]
+    if not _is_public_url(str(latest_receipt.get("public_url") or "")):
+        return _error("open_role_not_live", "This open role is not live.", 404)
+    from services.hiring_public_intake import build_public_intake_projection
+    intake = build_public_intake_projection(role)
+    return {
+        "status": "success",
+        "live": True,
+        "open_role": _candidate_facing_projection(
+            contract=contract, description=description,
+            published_source_url=str(latest_receipt["public_url"]),
+            intake=intake),
+    }
+
+
 class HiringService:
     def __init__(self, *, store: DurableStore | None = None,
                  identity_vault: CandidateIdentityVault,
@@ -586,56 +646,7 @@ class HiringService:
         approved-but-unpublished role, stale-policy receipt, or malformed role
         returns the same non-live response and leaks no workspace metadata.
         """
-        role = await self.store.get("hiring_roles", role_id)
-        # Synthetic fixtures are never public intake surfaces, even when a
-        # fixture happens to contain publication-shaped receipts.
-        if not role or role.get("synthetic") is not False:
-            return _error("open_role_not_live", "This open role is not live.", 404)
-        policy_id = str(role.get("current_policy_version_id") or "")
-        policy_hash = str(role.get("current_policy_hash") or "")
-        receipts = [
-            item for item in role.get("publication_receipts", [])
-            if item.get("policy_version_id") == policy_id
-            and item.get("policy_hash") == policy_hash
-            and item.get("automated_publication") is False
-            and item.get("destination") == "COFOUNDER_PUBLIC_ROLE_PAGE"
-            and item.get("verification_status") == "VERIFIED_APP_OWNED"
-        ]
-        if (not policy_id or not policy_hash or not receipts
-                or role.get("role_state") != RoleState.PUBLISHED.value
-                or role.get("publication_allowed") is False):
-            return _error("open_role_not_live", "This open role is not live.", 404)
-        policy = await self.store.get("hiring_policy_versions", policy_id)
-        if (not policy or policy.get("status") != "APPROVED"
-                or policy.get("canonical_hash") != policy_hash
-                or policy.get("role_id") != role_id):
-            return _error("open_role_not_live", "This open role is not live.", 404)
-        try:
-            contract = RoleContract.model_validate(policy.get("contract") or {})
-        except ValueError:
-            return _error("open_role_not_live", "This open role is not live.", 404)
-        description = dict(role.get("role_description") or {})
-        if (not policy.get("role_description_hash")
-                or canonical_hash(description) !=
-                policy.get("role_description_hash")):
-            return _error("open_role_not_live", "This open role is not live.", 404)
-        description_gate = validate_role_description(description, contract)
-        if description_gate.get("error"):
-            return _error("open_role_not_live", "This open role is not live.", 404)
-        latest_receipt = sorted(
-            receipts, key=lambda item: str(item.get("recorded_at") or ""))[-1]
-        if not _is_public_url(str(latest_receipt.get("public_url") or "")):
-            return _error("open_role_not_live", "This open role is not live.", 404)
-        from services.hiring_public_intake import build_public_intake_projection
-        intake = build_public_intake_projection(role)
-        return {
-            "status": "success",
-            "live": True,
-            "open_role": _candidate_facing_projection(
-                contract=contract, description=description,
-                published_source_url=str(latest_receipt["public_url"]),
-                intake=intake),
-        }
+        return await get_public_role_projection(self.store, role_id)
 
     async def get_role_draft_preview(
             self, *, principal: ActorPrincipal, role_id: str,

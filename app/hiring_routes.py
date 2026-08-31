@@ -68,7 +68,11 @@ from services.hiring_run_answer import (
     HiringRunAnswerService,
 )
 from services.hiring_sandbox import HiringSandboxService
-from services.hiring_service import HiringService, candidate_evidence_status
+from services.hiring_service import (
+    HiringService,
+    candidate_evidence_status,
+    get_public_role_projection,
+)
 from services.internal_controlled_demo import InternalControlledDemoService
 from services.internal_controlled_demo_effects import InternalDemoEffectService
 from services.internal_controlled_demo_intake import InternalDemoInboxImportService
@@ -465,14 +469,7 @@ def register(app: FastAPI) -> None:
     @app.get("/api/public/hiring/roles/{role_id}")
     async def public_open_role(role_id: str):
         """Receipt-backed, candidate-safe projection; no internal policy data."""
-        services = _services()
-        if not services:
-            return JSONResponse(
-                {"status": "error", "error": True,
-                 "error_code": "open_role_unavailable",
-                 "message": "Open roles are temporarily unavailable."},
-                status_code=503)
-        result = await services[0].get_public_role(role_id)
+        result = await get_public_role_projection(production_store(), role_id)
         if result.get("error"):
             return JSONResponse(result, status_code=404)
         return result
