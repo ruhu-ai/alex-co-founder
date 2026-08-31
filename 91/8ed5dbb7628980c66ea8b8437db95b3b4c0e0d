@@ -1,0 +1,21 @@
+services/hiring_post_interview.py
+  s_bf598a20bfcdaa::t_62ca75bf6d9202 1163,1169-1171,1174-1187,1190,1196-1201,1404,1411-1441,1444-1445
+tests/unit/test_hiring_h5_h7.py
+  s_bf598a20bfcdaa::t_5d604c7e140457 260-266,537-541
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "918ed5dbb7628980c66ea8b8437db95b3b4c0e0d",
+  "prompts": {},
+  "sessions": {
+    "s_bf598a20bfcdaa": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a04860-dde3-79c3-b2bd-2987b04adc68",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Ijidai Lassa <ijidai@cued.app>"
+    }
+  }
+}
