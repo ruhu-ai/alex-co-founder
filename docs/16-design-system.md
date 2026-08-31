@@ -338,6 +338,16 @@ meaning. Color never carries the action by itself.
 | Share screen | `screen-share` | `monitor-arrow-up` |
 | Send | `send` | `arrow-up` |
 
+The composer is a compact multiline surface rather than a single-line pill.
+It begins tall enough for a short paragraph, grows with the Founder input up to
+five lines (118 px), and then scrolls internally. Attachment scope and media/send controls
+stay in a bottom action row, so long text never pushes controls out of reach.
+Pasted or typed non-command prose above 8,000 characters is converted into a
+visible `Pasted context.txt` conversation attachment through the same bounded,
+audited ingestion path as a manually attached text file. Slash commands retain
+their operation-owned prose limits and never gain attachment authority through
+this convenience behavior.
+
 The globe remains Browser-only. A target is not a camera or a Hiring mark.
 New alone is the filled blue/white rail CTA; the other rail and composer glyphs
 inherit semantic foreground tokens. Disabled media controls retain their exact

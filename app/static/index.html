@@ -1756,12 +1756,14 @@
       }
       .pillbar {
         display: flex;
-        align-items: center;
-        gap: var(--sp-1);
+        flex-direction: column;
+        align-items: stretch;
+        gap: var(--sp-2);
+        min-height: 124px;
         background: var(--surface-2);
         border: 1px solid var(--border);
-        border-radius: var(--r-full);
-        padding: 5px 6px;
+        border-radius: var(--r-4);
+        padding: var(--sp-3);
         transition:
           border-color var(--dur-1) var(--ease-out),
           box-shadow var(--dur-1) var(--ease-out);
@@ -1770,18 +1772,79 @@
         border-color: var(--accent);
         box-shadow: 0 0 0 3px var(--accent-bg);
       }
-      .pillbar input {
-        flex: 1;
+      .pillbar textarea {
+        display: block;
+        width: 100%;
+        min-height: 52px;
+        max-height: 118px;
+        resize: none;
+        overflow-y: hidden;
         background: transparent;
         border: 0;
         outline: none;
-        min-width: 0;
-        padding: var(--sp-2) var(--sp-1);
+        padding: var(--sp-1);
         color: var(--ink-1);
         font: 400 var(--fs-4) / var(--lh-4) var(--font-ui);
       }
-      .pillbar input::placeholder {
+      .pillbar textarea::placeholder {
         color: var(--ink-3);
+      }
+      .composer-actions,
+      .composer-actions-left,
+      .composer-actions-right {
+        display: flex;
+        align-items: center;
+        gap: var(--sp-1);
+      }
+      .composer-actions {
+        justify-content: space-between;
+        min-height: 34px;
+      }
+      .composer-actions-left,
+      .composer-actions-right {
+        min-width: 0;
+      }
+      .composer-attachments {
+        display: flex;
+        flex-wrap: wrap;
+        gap: var(--sp-2);
+      }
+      .composer-attachments[hidden] {
+        display: none;
+      }
+      .composer-attachment {
+        display: flex;
+        align-items: center;
+        gap: var(--sp-2);
+        min-width: 0;
+        max-width: min(100%, 360px);
+        padding: var(--sp-2);
+        border: 1px solid var(--border);
+        border-radius: var(--r-3);
+        background: var(--surface-1);
+      }
+      .composer-attachment .doc-badge {
+        width: 30px;
+        height: 30px;
+      }
+      .composer-attachment-copy {
+        min-width: 0;
+        flex: 1;
+      }
+      .composer-attachment-name,
+      .composer-attachment-status {
+        display: block;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .composer-attachment-name {
+        color: var(--ink-1);
+        font: 600 var(--fs-2) / var(--lh-2) var(--font-ui);
+      }
+      .composer-attachment-status {
+        color: var(--ink-3);
+        font: 400 var(--fs-1) / var(--lh-1) var(--font-ui);
       }
       .cbtn {
         width: 34px;
@@ -3832,6 +3895,17 @@
         .attachment-scope {
           max-width: 100px;
         }
+        .pillbar {
+          min-height: 116px;
+          padding: var(--sp-2);
+        }
+        .composer-actions {
+          gap: 2px;
+        }
+        .composer-actions-left,
+        .composer-actions-right {
+          gap: 2px;
+        }
         #paneTabs {
           display: none !important;
         }
@@ -4158,9 +4232,138 @@ document.querySelector("#pane-decisions > .btn")?.remove();
 
 const emptyState = (icon, head, body, action = "") => `<div class="empty">${ico(icon, "ico-lg")}<b>${head}</b><p>${body}</p>${action}</div>`;
 
+const COMPOSER_PASTE_ATTACHMENT_THRESHOLD = 8_000;
+// Five 22px text lines plus the textarea's 8px vertical padding.
+const COMPOSER_INPUT_MAX_HEIGHT = 118;
+
+function syncComposerState() {
+    const input = $("msg");
+    if (!input) return;
+    $("sendBtn").disabled = readThrough() || thinking || pendingUploads > 0 || !input.value.trim();
+}
+
+function resizeComposerInput() {
+    const input = $("msg");
+    if (!input || input.tagName !== "TEXTAREA") return;
+    input.style.height = "auto";
+    const nextHeight = Math.min(input.scrollHeight, COMPOSER_INPUT_MAX_HEIGHT);
+    input.style.height = `${Math.max(52, nextHeight)}px`;
+    input.style.overflowY = input.scrollHeight > COMPOSER_INPUT_MAX_HEIGHT ? "auto" : "hidden";
+}
+
+function handleComposerInput() {
+    const input = $("msg");
+    if (input.value.length > COMPOSER_PASTE_ATTACHMENT_THRESHOLD
+            && !input.value.trimStart().startsWith("/")) {
+        attachLargeComposerText(input.value);
+        return;
+    }
+    resizeComposerInput();
+    syncComposerState();
+}
+
+function handleComposerKeydown(event) {
+    if (event.key !== "Enter" || event.shiftKey || event.isComposing) return;
+    event.preventDefault();
+    send();
+}
+
+function renderComposerAttachments() {
+    const slot = $("composerAttachments");
+    if (!slot) return;
+    const visible = composerAttachmentItems.filter(item => !item.dismissed);
+    slot.hidden = !visible.length;
+    slot.innerHTML = visible.map(item => `<div class="composer-attachment">
+      <span class="doc-badge ${item.isText ? "docx" : ""}">${ico(item.isText ? "file-doc" : "paperclip", "ico-sm")}</span>
+      <span class="composer-attachment-copy">
+        <span class="composer-attachment-name" title="${esc(item.filename)}">${esc(item.filename)}</span>
+        <span class="composer-attachment-status">${esc(item.status)}</span>
+      </span>
+      <button class="cbtn" type="button" title="Remove from this message"
+              aria-label="Remove ${esc(item.filename)} from this message"
+              onclick="removeComposerAttachment('${item.id}')">${ico("close", "ico-sm")}</button>
+    </div>`).join("");
+}
+
+function removeComposerAttachment(itemId) {
+    const item = composerAttachmentItems.find(candidate => candidate.id === itemId);
+    if (!item) return;
+    item.dismissed = true;
+    if (item.ref) readyAttachmentRefs = readyAttachmentRefs.filter(ref => ref !== item.ref);
+    renderComposerAttachments();
+    syncComposerState();
+}
+
+function clearComposerAttachments() {
+    composerAttachmentItems = [];
+    renderComposerAttachments();
+}
+
+function attachLargeComposerText(text) {
+    const input = $("msg");
+    input.value = "Please use the attached pasted context in this conversation.";
+    resizeComposerInput();
+    syncComposerState();
+    const file = new File([text], "Pasted context.txt", { type: "text/plain" });
+    uploadAttachmentFile(file);
+    toast("Large text was added as a conversation attachment.", "ok");
+}
+
+function handleComposerPaste(event) {
+    const pasted = event.clipboardData?.getData("text/plain") || "";
+    if (!pasted) return;
+    const input = $("msg");
+    const start = input.selectionStart ?? input.value.length;
+    const end = input.selectionEnd ?? start;
+    const combined = input.value.slice(0, start) + pasted + input.value.slice(end);
+    // Slash commands have explicit, operation-owned bounds and deliberately do
+    // not gain attachment authority through the composer convenience path.
+    if (combined.trimStart().startsWith("/") || combined.length <= COMPOSER_PASTE_ATTACHMENT_THRESHOLD) return;
+    event.preventDefault();
+    attachLargeComposerText(combined);
+}
+
+function upgradeComposer() {
+    const original = $("msg");
+    const bar = document.querySelector("#composer .pillbar");
+    if (!original || !bar || original.tagName === "TEXTAREA") return;
+    const input = document.createElement("textarea");
+    input.id = "msg";
+    input.rows = 2;
+    input.placeholder = original.placeholder;
+    input.autocomplete = "off";
+    input.spellcheck = true;
+    input.setAttribute("aria-label", original.getAttribute("aria-label") || "Message");
+    input.value = original.value;
+    input.disabled = original.disabled;
+    input.addEventListener("input", handleComposerInput);
+    input.addEventListener("keydown", handleComposerKeydown);
+    input.addEventListener("paste", handleComposerPaste);
+
+    const attachments = document.createElement("div");
+    attachments.id = "composerAttachments";
+    attachments.className = "composer-attachments";
+    attachments.setAttribute("aria-live", "polite");
+    attachments.hidden = true;
+
+    const actions = document.createElement("div");
+    actions.className = "composer-actions";
+    const left = document.createElement("div");
+    left.className = "composer-actions-left";
+    const right = document.createElement("div");
+    right.className = "composer-actions-right";
+    for (const id of [ "attachBtn", "docUpload", "attachmentScope" ]) left.appendChild($(id));
+    for (const id of [ "micBtn", "talkBtn", "cameraBtn", "displayBtn", "sendBtn" ]) right.appendChild($(id));
+    actions.append(left, right);
+    bar.replaceChildren(attachments, input, actions);
+    resizeComposerInput();
+    syncComposerState();
+}
+
 applyTheme(localStorage.getItem(THEME_KEY));
 
 addEventListener("DOMContentLoaded", () => {
+    upgradeComposer();
     buildRefTabs();
     // Conversation starts clean on every load. The workspace can be reopened without
     // losing its selected tab, but never appears as persistent dashboard chrome.
@@ -4421,7 +4624,7 @@ async function loadHiringCandidateContext(candidateId) {
  // founder-facing agent name (docs/adr/001); from /api/config
 let memorySurfaceEnabled = false;
 let workspaceBriefSurfaceEnabled = false;
-let pendingUploads = 0, readyAttachmentRefs = [];
+let pendingUploads = 0, readyAttachmentRefs = [], composerAttachmentItems = [];
 
 function configureMemorySurface(enabled) {
     memorySurfaceEnabled = enabled === true;
@@ -4802,6 +5005,7 @@ function setThinking(on) {
         $("chatlog").appendChild(t);
         followConversation(atLatest);
     }
+    syncComposerState();
 }
 
 function chatPlaceholder() {
@@ -4845,6 +5049,7 @@ async function newSession(memoryMode = "STANDARD") {
     $("sessionWork").hidden = true;
     updateContextControl();
     readyAttachmentRefs = [];
+    clearComposerAttachments();
     resetBrowserView();
     chatPlaceholder();
     connectBrowserEvents();
@@ -4936,6 +5141,7 @@ async function send() {
     if (!sessionId) await newSession();
     addMsg("you", text);
     input.value = "";
+    resizeComposerInput();
     $("sendBtn").disabled = true;
     if (voice) {
         // Mid-call: the typed message goes INTO the live conversation — Alex
@@ -4964,6 +5170,7 @@ async function send() {
             })
         });
         readyAttachmentRefs = [];
+        clearComposerAttachments();
         actFinish(r.trace);
         (r.replies || []).forEach(t => addMsg("agent", t));
     } catch (e) {
@@ -6692,6 +6899,16 @@ async function uploadAttachmentFile(f) {
     if (!sessionId) await newSession();
     const attachmentSessionId = sessionId;
     const isImage = String(f.type || "").startsWith("image/");
+    const composerItem = {
+        id: `composer_attachment_${crypto.randomUUID()}`,
+        filename: f.name || "Attachment",
+        isText: String(f.type || "") === "text/plain" || /\.txt$/i.test(f.name || ""),
+        status: "Uploading…",
+        ref: "",
+        dismissed: false
+    };
+    composerAttachmentItems.push(composerItem);
+    renderComposerAttachments();
     const scope = isImage ? "reference_only" : $("attachmentScope").value || "reference_only";
     pendingUploads += 1;
     $("sendBtn").disabled = true;
@@ -6716,12 +6933,17 @@ async function uploadAttachmentFile(f) {
         if (!r.ok || j.status !== "success" || !j.attachment_ref) {
             throw new Error(j.message || j.detail || `upload failed (${r.status})`);
         }
-        if (sessionId === attachmentSessionId && !readyAttachmentRefs.includes(j.attachment_ref)) {
+        composerItem.ref = j.attachment_ref;
+        composerItem.status = "Attached to this message";
+        if (!composerItem.dismissed && sessionId === attachmentSessionId && !readyAttachmentRefs.includes(j.attachment_ref)) {
             readyAttachmentRefs.push(j.attachment_ref);
         }
+        renderComposerAttachments();
         d.innerHTML = `${agentHead()}<p><b>${esc(f.name)}</b> is queued ${purpose}.\n      You can keep chatting while I process it.</p>`;
-        watchAttachment(j.attachment_ref, f.name, scope, d, attachmentSessionId);
+        watchAttachment(j.attachment_ref, f.name, scope, d, attachmentSessionId, composerItem);
     } catch (e) {
+        composerItem.status = "Upload failed";
+        renderComposerAttachments();
         d.innerHTML = agentHead() + `<p>I couldn't accept <b>${esc(f.name)}</b>:\n      ${esc(e.message || e)}.</p>`;
     } finally {
         pendingUploads = Math.max(0, pendingUploads - 1);
@@ -6732,7 +6954,7 @@ async function uploadAttachmentFile(f) {
     refresh();
 }
 
-async function watchAttachment(ref, filename, scope, messageNode, attachmentSessionId) {
+async function watchAttachment(ref, filename, scope, messageNode, attachmentSessionId, composerItem = null) {
     const terminal = new Set([ "READY", "NEEDS_FOUNDER", "CONFIRMED", "NO_TEXT", "UNSUPPORTED", "FAILED" ]);
     for (let attempt = 0; attempt < 45; attempt += 1) {
         if (attempt) await new Promise(resolve => setTimeout(resolve, 2e3));
@@ -6740,22 +6962,31 @@ async function watchAttachment(ref, filename, scope, messageNode, attachmentSess
             const j = await api(`/api/v1/ingestions/${encodeURIComponent(ref)}?session_id=${encodeURIComponent(attachmentSessionId)}`);
             const status = j.ingestion_status || "QUEUED";
             if (!terminal.has(status)) {
+                if (composerItem) {
+                    composerItem.status = "Processing…";
+                    renderComposerAttachments();
+                }
                 messageNode.innerHTML = `${agentHead()}<p>Processing <b>${esc(filename)}</b>\n          for ${scope === "profile" ? "Founder Profile review" : "cited conversation use"}…\n          <span class="badge" data-tone="info">${esc(status.toLowerCase())}</span></p>`;
                 continue;
             }
             if (status === "READY") {
+                if (composerItem) composerItem.status = "Ready for this message";
                 const count = Number(j.kind === "image" ? j.observation_count : j.chunk_count) || 0;
                 const noun = j.kind === "image" ? "cited visual observation" : "cited section";
                 messageNode.innerHTML = `${agentHead()}<p><b>${esc(filename)}</b> is ready —\n          ${count} ${noun}${count === 1 ? "" : "s"} available in this conversation.</p>`;
             } else if (status === "CONFIRMED") {
+                if (composerItem) composerItem.status = "Ready for this message";
                 messageNode.innerHTML = `${agentHead()}<p><b>${esc(filename)}</b> is ready —\n          ${Number(j.auto_applied || 0)} supported Founder Profile update${Number(j.auto_applied || 0) === 1 ? "" : "s"} applied.</p>`;
             } else if (status === "NEEDS_FOUNDER") {
+                if (composerItem) composerItem.status = "Ready · review needed";
                 messageNode.innerHTML = `${agentHead()}<p><b>${esc(filename)}</b> is ready —\n          ${Number(j.auto_applied || 0)} supported profile update${Number(j.auto_applied || 0) === 1 ? "" : "s"} applied;\n          ${Number(j.needs_founder || 0)} need your review.</p>\n          <div class="grp" data-profile-review-list="${esc(ref)}"\n               data-profile-review-session="${esc(attachmentSessionId)}"></div>`;
                 await renderProfileReview(ref, attachmentSessionId, messageNode);
             } else {
                 readyAttachmentRefs = readyAttachmentRefs.filter(item => item !== ref);
+                if (composerItem) composerItem.status = "Unavailable";
                 messageNode.innerHTML = `${agentHead()}<p>I did not read <b>${esc(filename)}</b>:\n          ${esc(j.message || status.toLowerCase().replaceAll("_", " "))}.</p>`;
             }
+            renderComposerAttachments();
             return;
         } catch (e) {
             if (attempt >= 2) {
@@ -6763,6 +6994,10 @@ async function watchAttachment(ref, filename, scope, messageNode, attachmentSess
                 return;
             }
         }
+    }
+    if (composerItem) {
+        composerItem.status = "Processing…";
+        renderComposerAttachments();
     }
     messageNode.innerHTML = `${agentHead()}<p><b>${esc(filename)}</b> is still processing.\n    You can continue chatting; I will refresh its status on your next message.</p>`;
 }
