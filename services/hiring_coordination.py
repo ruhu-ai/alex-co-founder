@@ -531,7 +531,15 @@ class HiringCoordinationService:
                 if latest_reply_id else None)
             if (latest_reply
                     and latest_reply.get("candidate_application_id") == application_id
-                    and latest_reply.get("provider_thread_id") == provider_thread_id):
+                    and latest_reply.get("correlation_basis") in {
+                        "PROVIDER_THREAD", "RFC822_REPLY_ANCHOR"}
+                    and _message_id(latest_reply.get("rfc822_message_id"))):
+                # Gmail may assign an applicant reply to a new thread even when
+                # it carries an exact RFC reply anchor. Continue on the thread
+                # that now owns the applicant's message, not the obsolete send
+                # receipt thread.
+                provider_thread_id = str(
+                    latest_reply.get("provider_thread_id") or provider_thread_id)
                 in_reply_to = _message_id(
                     latest_reply.get("rfc822_message_id"))
                 references = _reference_chain(
@@ -920,23 +928,40 @@ class HiringCoordinationService:
                 "mailer-daemon", "postmaster@", "delivery status notification",
                 "undeliverable", "automatic reply", "auto-reply",
                 "out of office")))
-        candidates = [
-            row for row in await self._workspace_rows(
-                "external_actions", workspace_id, descending=True)
-            if row.get("approval_domain") == "HIRING"
-            and row.get("action_kind") == "HIRING_SEND_EMAIL"
-            and row.get("status") == "SUCCEEDED"
-            and str((row.get("result_ref") or {}).get("provider_thread_id") or "") == thread_id
-            and (auto or sender == str(
-                ((row.get("exact_action") or {}).get("payload") or {}).get(
-                    "candidate_recipient") or "").casefold())
-        ]
+        reply_anchors = set(_RFC822_MESSAGE_ID.findall(" ".join((
+            str(provider_event.get("in_reply_to") or ""),
+            str(provider_event.get("references") or ""),
+        ))))
+        candidates: list[dict[str, Any]] = []
+        candidate_basis: dict[str, str] = {}
+        for action_row in await self._workspace_rows(
+                "external_actions", workspace_id, descending=True):
+            result_ref = dict(action_row.get("result_ref") or {})
+            thread_match = (
+                str(result_ref.get("provider_thread_id") or "") == thread_id)
+            action_message_id = _message_id(
+                result_ref.get("rfc822_message_id"))
+            anchor_match = bool(
+                action_message_id and action_message_id in reply_anchors)
+            if (action_row.get("approval_domain") != "HIRING"
+                    or action_row.get("action_kind") != "HIRING_SEND_EMAIL"
+                    or action_row.get("status") != "SUCCEEDED"
+                    or not (thread_match or anchor_match)
+                    or (not auto and sender != str(
+                        ((action_row.get("exact_action") or {}).get(
+                            "payload") or {}).get(
+                                "candidate_recipient") or "").casefold())):
+                continue
+            candidates.append(action_row)
+            candidate_basis[str(action_row["action_id"])] = (
+                "PROVIDER_THREAD" if thread_match else "RFC822_REPLY_ANCHOR")
         application_ids = {
             str(row.get("application_id") or "") for row in candidates
         }
         if len(application_ids) != 1:
             return _error("reply_not_correlatable", "Reply is not uniquely linked.", 404)
         action = candidates[0]
+        correlation_basis = candidate_basis[str(action["action_id"])]
         application_id = str(action["application_id"])
         correlation_id = stable_id("hiringreply", workspace_id,
                                    application_id, provider_message_id)
@@ -956,6 +981,7 @@ class HiringCoordinationService:
             "candidate_application_id": application_id,
             "candidate_run_id": str(action.get("run_id") or ""),
             "action_id": action["action_id"],
+            "correlation_basis": correlation_basis,
             "provider_message_id": provider_message_id,
             "provider_thread_id": thread_id,
             "rfc822_message_id": _message_id(
@@ -1055,6 +1081,38 @@ class HiringCoordinationService:
         if not mandate:
             return _error("coordination_mandate_required",
                           "The Founder coordination mandate is not active.")
+        correlation = await self.store.get(
+            "hiring_reply_correlations", correlation_id)
+        if (correlation
+                and correlation.get("correlation_basis") == "RFC822_REPLY_ANCHOR"
+                and correlation.get("provider_thread_id")
+                and correlation.get("provider_thread_id") != mandate.get(
+                    "provider_thread_id")):
+            correlated_action = await self.store.get(
+                "external_actions", str(correlation.get("action_id") or ""))
+            if (not correlated_action
+                    or correlated_action.get("mandate_id") != mandate.get(
+                        "mandate_id")
+                    or correlated_action.get("application_id") != application_id):
+                return _error(
+                    "reply_not_correlatable",
+                    "The reply anchor is outside the active interview mandate.", 409)
+            migrated = await self.store.compare_and_set(
+                "hiring_coordination_mandates", str(mandate["mandate_id"]),
+                int(mandate["version"]), {
+                    "provider_thread_id": str(
+                        correlation["provider_thread_id"]),
+                    "thread_migrated_from": str(
+                        mandate.get("provider_thread_id") or ""),
+                    "thread_migration_correlation_id": correlation_id,
+                    "updated_at": utc_now(),
+                })
+            if not migrated:
+                return _error(
+                    "concurrency_conflict",
+                    "The applicant email thread changed concurrently.")
+            mandate = await self.store.get(
+                "hiring_coordination_mandates", str(mandate["mandate_id"]))
         principal = ActorPrincipal(
             actor_id="agent:alex", workspace_id=workspace_id,
             role=WorkspaceRole.FOUNDER, session_auth_time=0,

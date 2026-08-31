@@ -36,8 +36,11 @@ class _Provider:
     async def execute(self, **kwargs):
         self.calls.append(kwargs)
         if kwargs["action_kind"] == "HIRING_SEND_EMAIL":
+            thread_id = str(
+                (kwargs["exact_action"].get("payload") or {}).get(
+                    "provider_thread_id") or "thread_hiring_1")
             return {"status": "success", "provider_effect_id": "gmail_message_1",
-                    "result_ref": {"provider_thread_id": "thread_hiring_1",
+                    "result_ref": {"provider_thread_id": thread_id,
                                    "rfc822_message_id": "<hiring@test>"}}
         return {"status": "success", "provider_effect_id": "calendar_event_1",
                 "result_ref": {"event_id": "calendar_event_1",
@@ -518,6 +521,40 @@ async def test_ambiguous_reply_gets_bounded_alex_followup_without_new_approval(
     refreshed = await store.get(
         "hiring_coordination_mandates", mandate["mandate_id"])
     assert refreshed["email_count"] == 2
+
+
+@pytest.mark.asyncio
+async def test_rfc_reply_anchor_migrates_split_gmail_thread_before_followup(
+        founder, monkeypatch):
+    store, provider = InMemoryDurableStore(), _Provider()
+    application_id = await _seed(store)
+    service = _service(store, provider)
+    mandate = await _activate_mandate(
+        service, store, founder, application_id, monkeypatch)
+
+    reply = await service.correlate_reply(
+        workspace_id="founder", provider_event={
+            "id": "message_split_thread", "thread_id": "thread_candidate_split",
+            "from": "Ada Candidate <ada@example.test>",
+            "subject": "Re: Interview availability",
+            "excerpt": "Could you remind me of the available times?",
+            "kind": "update",
+            "rfc822_message_id": "<candidate-split@example.test>",
+            "in_reply_to": "<hiring@test>",
+            "references": "<hiring@test>",
+        })
+
+    assert reply["continuation_status"] == "success"
+    correlation = await store.get(
+        "hiring_reply_correlations", reply["correlation_id"])
+    assert correlation["correlation_basis"] == "RFC822_REPLY_ANCHOR"
+    refreshed = await store.get(
+        "hiring_coordination_mandates", mandate["mandate_id"])
+    assert refreshed["provider_thread_id"] == "thread_candidate_split"
+    assert refreshed["thread_migrated_from"] == "thread_hiring_1"
+    payload = provider.calls[-1]["exact_action"]["payload"]
+    assert payload["provider_thread_id"] == "thread_candidate_split"
+    assert payload["in_reply_to"] == "<candidate-split@example.test>"
 
 
 @pytest.mark.asyncio

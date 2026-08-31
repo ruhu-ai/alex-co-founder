@@ -278,7 +278,10 @@ async def test_exact_hiring_thread_records_candidate_reply_without_chat_wake(
             "recipients": ["ada@example.test"],
             "payload": {"candidate_recipient": "ada@example.test"},
         },
-        "result_ref": {"provider_thread_id": "gmail-thread-hiring"},
+        "result_ref": {
+            "provider_thread_id": "gmail-thread-hiring",
+            "rfc822_message_id": "<hiring-action@ruhu.ai>",
+        },
         "created_at": "2026-08-30T10:00:00+00:00", "version": 1,
     }
     await durable.create("external_actions", action["action_id"], action)
@@ -306,3 +309,34 @@ async def test_exact_hiring_thread_records_candidate_reply_without_chat_wake(
     assert replies[0]["candidate_application_id"] == application_id
     assert replies[0]["status"] == "REPLY_RECEIVED"
     assert wakes == []
+
+    # The same application is now discoverable from both the successful
+    # action and prior exact thread history. Those are one causal candidate,
+    # not an ambiguity.
+    second = await external_event_service.process_mail_event(
+        "founder", "alex_mail", _event(
+            message_id="gmail-hiring-reply-2",
+            thread_id="gmail-thread-hiring",
+            sender="Ada Candidate <ada@example.test>",
+            subject="Re: Interview availability", excerpt="Tuesday works.",
+            kind="update"), wake=wake)
+    assert second["settled"] is True
+    assert not second.get("inbox_item_id"), second
+    assert len(await durable.list(
+        "hiring_reply_correlations", filters={"workspace_id": "founder"})) == 2
+    assert fake_store.founder_inbox == {}
+
+    # Gmail may split a reply into a new thread. An exact RFC reply anchor to
+    # our immutable sent Message-ID still binds it to the same candidate.
+    split = await external_event_service.process_mail_event(
+        "founder", "alex_mail", _event(
+            message_id="gmail-hiring-reply-split",
+            thread_id="gmail-thread-split",
+            sender="Ada Candidate <ada@example.test>",
+            subject="Re: Interview availability", excerpt="Could we do later?",
+            kind="update", in_reply_to="<hiring-action@ruhu.ai>",
+            references="<hiring-action@ruhu.ai>"), wake=wake)
+    assert split["settled"] is True
+    assert len(await durable.list(
+        "hiring_reply_correlations", filters={"workspace_id": "founder"})) == 3
+    assert fake_store.founder_inbox == {}

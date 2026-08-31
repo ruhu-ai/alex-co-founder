@@ -23,6 +23,7 @@ _MAIL_KIND = {
     "result_negative": dsc.ExternalEventKind.MAIL_RESULT.value,
     "update": dsc.ExternalEventKind.MAIL_UPDATE.value,
 }
+_RFC822_MESSAGE_ID = re.compile(r"<[^\s<>@\r\n]{1,200}@[^\s<>@\r\n]{1,200}>")
 
 
 def _sender_domain(sender: str) -> str:
@@ -70,59 +71,75 @@ async def _connection(founder_id: str, connector_id: str) -> dict[str, Any]:
 async def _causal_candidates(founder_id: str, event: dict[str, Any],
                              provider_event: dict[str, Any]) -> list[dict[str, str]]:
     """Return exact persisted causal mappings, never subject/name inference."""
-    candidates: dict[tuple[str, str, str], dict[str, str]] = {}
-    thread_id = str(event.get("provider_thread_id") or "")
-    if thread_id:
-        for action in await firestore.list_external_actions(founder_id):
-            result_ref = action.get("result_ref") or {}
-            if (action.get("status") == "SUCCEEDED"
-                    and str(result_ref.get("provider_thread_id") or "") == thread_id):
-                domain_ref = str(action.get("domain_ref") or "")
-                if (action.get("approval_domain") == "HIRING"
-                        and action.get("action_kind") == "HIRING_SEND_EMAIL"
-                        and action.get("application_id")
-                        and action.get("run_id")):
-                    item = {
-                        "application_id": str(action["application_id"]),
-                        "session_id": str(action["run_id"]),
-                        "resource_id": str(action["application_id"]),
-                        "resource_kind": "hiring_candidate",
-                        "action_id": str(action["action_id"]),
-                        "basis": dsc.CorrelationBasis.CAUSAL_ACTION.value,
-                    }
-                    candidates[(item["application_id"], item["session_id"],
-                                item["basis"])] = item
-                    continue
-                if (domain_ref
-                        and action.get("approval_domain") == "INVESTOR_OUTREACH"):
-                    from services.durable_store import production_store
+    candidates: dict[tuple[str, str], dict[str, str]] = {}
 
-                    outreach = await production_store().get(
-                        "investor_outreach", domain_ref)
-                    if (outreach and outreach.get("workspace_id") == founder_id
-                            and outreach.get("origin_session_id")):
-                        item = {
-                            "application_id": "",
-                            "session_id": str(outreach["origin_session_id"]),
-                            "resource_id": domain_ref,
-                            "resource_kind": "investor_outreach",
-                            "outreach_id": domain_ref,
-                            "basis": dsc.CorrelationBasis.CAUSAL_ACTION.value,
-                        }
-                        candidates[(domain_ref, item["session_id"],
-                                    item["basis"])] = item
-                        continue
-                if not action.get("session_id"):
-                    continue
+    def add(item: dict[str, str]) -> None:
+        application_id = str(item.get("application_id") or "")
+        resource_id = str(item.get("outreach_id") or item.get("resource_id") or "")
+        key = (application_id or resource_id,
+               str(item.get("session_id") or ""))
+        previous = candidates.get(key)
+        if (previous is None
+                or (previous.get("basis") != dsc.CorrelationBasis.CAUSAL_ACTION.value
+                    and item.get("basis") == dsc.CorrelationBasis.CAUSAL_ACTION.value)):
+            candidates[key] = item
+
+    thread_id = str(event.get("provider_thread_id") or "")
+    reply_anchors = set(_RFC822_MESSAGE_ID.findall(" ".join((
+        str(provider_event.get("in_reply_to") or ""),
+        str(provider_event.get("references") or ""),
+    ))))
+    for action in await firestore.list_external_actions(founder_id):
+        result_ref = action.get("result_ref") or {}
+        thread_match = (bool(thread_id)
+                        and str(result_ref.get("provider_thread_id") or "") == thread_id)
+        anchor_match = (str(result_ref.get("rfc822_message_id") or "")
+                        in reply_anchors)
+        if action.get("status") == "SUCCEEDED" and (thread_match or anchor_match):
+            domain_ref = str(action.get("domain_ref") or "")
+            if (action.get("approval_domain") == "HIRING"
+                    and action.get("action_kind") == "HIRING_SEND_EMAIL"
+                    and action.get("application_id")
+                    and action.get("run_id")):
                 item = {
-                    "application_id": str(action.get("application_id") or ""),
-                    "session_id": str(action.get("session_id") or ""),
-                    "resource_id": str(action.get("resource_id") or
-                                       action.get("application_id") or ""),
+                    "application_id": str(action["application_id"]),
+                    "session_id": str(action["run_id"]),
+                    "resource_id": str(action["application_id"]),
+                    "resource_kind": "hiring_candidate",
+                    "action_id": str(action["action_id"]),
                     "basis": dsc.CorrelationBasis.CAUSAL_ACTION.value,
                 }
-                candidates[(item["application_id"], item["session_id"],
-                            item["basis"])] = item
+                add(item)
+                continue
+            if (domain_ref
+                    and action.get("approval_domain") == "INVESTOR_OUTREACH"):
+                from services.durable_store import production_store
+
+                outreach = await production_store().get(
+                    "investor_outreach", domain_ref)
+                if (outreach and outreach.get("workspace_id") == founder_id
+                        and outreach.get("origin_session_id")):
+                    item = {
+                        "application_id": "",
+                        "session_id": str(outreach["origin_session_id"]),
+                        "resource_id": domain_ref,
+                        "resource_kind": "investor_outreach",
+                        "outreach_id": domain_ref,
+                        "basis": dsc.CorrelationBasis.CAUSAL_ACTION.value,
+                    }
+                    add(item)
+                    continue
+            if not action.get("session_id"):
+                continue
+            item = {
+                "application_id": str(action.get("application_id") or ""),
+                "session_id": str(action.get("session_id") or ""),
+                "resource_id": str(action.get("resource_id") or
+                                   action.get("application_id") or ""),
+                "basis": dsc.CorrelationBasis.CAUSAL_ACTION.value,
+            }
+            add(item)
+    if thread_id:
         for prior in await firestore.list_external_events_by_thread(
                 founder_id, thread_id):
             if (prior.get("correlation_status") == "EXACT"
@@ -133,8 +150,7 @@ async def _causal_candidates(founder_id: str, event: dict[str, Any],
                     "resource_id": str(prior.get("resource_id") or ""),
                     "basis": dsc.CorrelationBasis.PROVIDER_THREAD.value,
                 }
-                candidates[(item["application_id"], item["session_id"],
-                            item["basis"])] = item
+                add(item)
 
     sender_domain = _sender_domain(str(provider_event.get("from") or ""))
     if sender_domain:
@@ -151,8 +167,7 @@ async def _causal_candidates(founder_id: str, event: dict[str, Any],
                     "resource_id": str(registration.get("application_id") or ""),
                     "basis": dsc.CorrelationBasis.PORTAL_REGISTRATION.value,
                 }
-                candidates[(item["application_id"], item["session_id"],
-                            item["basis"])] = item
+                add(item)
     return list(candidates.values())
 
 
@@ -225,13 +240,21 @@ async def process_mail_event(founder_id: str, connector_id: str,
         "kind": kind, "from": str(provider_event.get("from") or "")[:200],
         "subject": str(provider_event.get("subject") or "")[:200],
         "excerpt": str(provider_event.get("excerpt") or "")[:280],
+        "in_reply_to": " ".join(_RFC822_MESSAGE_ID.findall(
+            str(provider_event.get("in_reply_to") or ""))),
+        "references": " ".join(_RFC822_MESSAGE_ID.findall(
+            str(provider_event.get("references") or ""))),
     })
     receipt = await firestore.create_external_event(
         founder_id, connection["connection_id"], connector_id,
         provider_event_id, kind, payload_hash=payload_hash,
         provider_thread_id=thread_id,
         source_ref={"message_id": provider_event_id,
-                    "thread_id": thread_id or ""},
+                    "thread_id": thread_id or "",
+                    "in_reply_to": " ".join(_RFC822_MESSAGE_ID.findall(
+                        str(provider_event.get("in_reply_to") or ""))),
+                    "references": " ".join(_RFC822_MESSAGE_ID.findall(
+                        str(provider_event.get("references") or "")))},
         safe_display=safe_display, content_risk=risk)
     data_source_metrics.record(
         "external_event_received", connector_id=connector_id,

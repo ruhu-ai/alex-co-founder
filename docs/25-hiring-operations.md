@@ -1348,7 +1348,13 @@ approval for each message. Every continuation binds all three Gmail threading
 signals: the immutable provider `threadId`, a validated RFC 5322
 `In-Reply-To` parent, and the bounded `References` chain. A missing or malformed
 reply anchor fails closed before Gmail is called; a `Re:` subject alone never
-counts as thread continuity.
+counts as thread continuity. If Gmail assigns an exact applicant reply to a
+different provider thread, the server may recover continuity only when the
+reply's validated `In-Reply-To`/`References` chain contains an immutable
+Message-ID from one successful send in the same active mandate. The mandate is
+then atomically rebound to the applicant's current thread before any response.
+Equivalent action and prior-thread correlation paths are de-duplicated by
+application/run so one candidate can never become an artificial ambiguity.
 
 Inbound mail is classified deterministically for DSN/deferred-delivery and
 automatic-reply semantics from provider headers/envelope facts before ordinary
@@ -2266,7 +2272,7 @@ closed provider contracts and equivalent technical controls are implemented.
 | malware, archive bomb, unsupported or oversized file | controlled copy, format/size/archive limits, malware scan before parsing | receipt/quarantine without candidate assessment leakage |
 | tracking pixels or remote references | previews and extraction never fetch remote HTML/image references | network-deny test |
 | duplicate push/history/redelivery | deterministic message/event/batch ids and idempotent effects | 50 concurrent duplicates converge |
-| off-thread, split, or merged reply | causal Gmail thread or opaque reply token only; otherwise founder inbox | no name/email/model fallback |
+| off-thread, split, or merged reply | causal Gmail thread or exact RFC reply anchor from one successful same-mandate send; atomically rebind a split thread, otherwise founder inbox | no name/email/subject/model fallback |
 | DSN or vacation reply mistaken for candidate response | deterministic MIME/status/Auto-Submitted parsing before reply classification | only exact permanent DSN supersedes reply wait |
 | one person applies to several roles | application/run/evidence/decision context remains role-scoped | no cross-role existence/evidence signal |
 | forwarded application | receipt plus identity/notice-provenance inbox path | forwarder never becomes candidate automatically |
