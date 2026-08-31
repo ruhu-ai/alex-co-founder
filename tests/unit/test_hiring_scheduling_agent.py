@@ -42,6 +42,24 @@ async def test_explicit_option_uses_deterministic_boundary_without_model():
 
 
 @pytest.mark.asyncio
+async def test_exact_rendered_slot_uses_deterministic_boundary_without_model():
+    now, end = _window()
+    result = await interpret_scheduling_reply(
+        "Hi Alex, Tue 01 Sep, 14:00–15:00 WAT works for me. Regards, Adaeze.",
+        offered_slots=[
+            {"display": "Tue 01 Sep, 10:00–11:00 WAT"},
+            {"display": "Tue 01 Sep, 14:00–15:00 WAT"},
+            {"display": "Tue 01 Sep, 16:00–17:00 WAT"},
+        ],
+        founder_timezone="Africa/Lagos", duration_minutes=60,
+        has_booking=False, current_time=now.isoformat(),
+        scheduling_window_end=end.isoformat())
+    assert result["intent"] == "ACCEPT_OFFERED_SLOT"
+    assert result["selected_option"] == 2
+    assert result["interpretation_mode"] == "DETERMINISTIC"
+
+
+@pytest.mark.asyncio
 async def test_model_may_resolve_concrete_time_but_cannot_authorize_it():
     now, end = _window()
     proposed = now + timedelta(days=2)

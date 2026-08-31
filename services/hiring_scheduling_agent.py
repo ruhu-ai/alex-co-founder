@@ -112,6 +112,7 @@ def draft_response_schema() -> dict[str, Any]:
 
 
 def _selected_option(text: str) -> int:
+    text = str(text or "").casefold()
     patterns = (
         (1, r"\b(?:option|slot)\s*(?:1|one|first)\b|\bfirst\s+(?:option|slot)\b"),
         (2, r"\b(?:option|slot)\s*(?:2|two|second)\b|\bsecond\s+(?:option|slot)\b"),
@@ -121,8 +122,34 @@ def _selected_option(text: str) -> int:
     return matches[0] if len(matches) == 1 else 0
 
 
-def _deterministic(text: str, *, has_booking: bool) -> dict[str, Any]:
-    selected = _selected_option(text)
+def _normalized_slot_text(value: str) -> str:
+    """Normalize punctuation only; never infer a date or time."""
+    return re.sub(
+        r"\s+", " ",
+        str(value or "").casefold()
+        .replace("\u2013", "-").replace("\u2014", "-").replace("\u2212", "-")
+        .replace(",", " "),
+    ).strip()
+
+
+def _selected_offered_slot(text: str,
+                           offered_slots: list[dict[str, str]]) -> int:
+    """Return one slot only when its complete rendered range is quoted exactly."""
+    normalized = _normalized_slot_text(text)
+    matches = [
+        index for index, slot in enumerate(offered_slots[:3], start=1)
+        if (display := _normalized_slot_text(str(slot.get("display") or "")))
+        and display in normalized
+    ]
+    return matches[0] if len(matches) == 1 else 0
+
+
+def _deterministic(text: str, *, offered_slots: list[dict[str, str]],
+                   has_booking: bool) -> dict[str, Any]:
+    numbered = _selected_option(text)
+    rendered = _selected_offered_slot(text, offered_slots)
+    selected = (numbered or rendered) if not (
+        numbered and rendered and numbered != rendered) else 0
     base = {
         "status": "success", "selected_option": selected,
         "proposed_start": "", "proposed_starts": [],
@@ -188,7 +215,8 @@ async def interpret_scheduling_reply(
         current_booking: dict[str, str] | None = None) -> dict[str, Any]:
     """Interpret one reply into bounded constraints, never an authorized action."""
     normalized = re.sub(r"\s+", " ", str(reply or "")).strip()[:1600]
-    deterministic = _deterministic(normalized.casefold(), has_booking=has_booking)
+    deterministic = _deterministic(
+        normalized, offered_slots=offered_slots, has_booking=has_booking)
     if deterministic["confidence"] == "HIGH" or _interpreter_fn is None:
         return deterministic
     payload = {

@@ -737,6 +737,42 @@ async def test_candidate_change_after_booking_updates_same_owned_event(
 
 
 @pytest.mark.asyncio
+async def test_exact_rendered_slot_books_then_repeat_is_no_effect(
+        founder, monkeypatch):
+    store, provider = InMemoryDurableStore(), _Provider()
+    application_id = await _seed(store)
+    service = _service(store, provider)
+    mandate = await _activate_mandate(
+        service, store, founder, application_id, monkeypatch)
+    selected = mandate["confirmed_slots"][1]
+    excerpt = f"Hi Alex, {selected['display']} works for me. Regards, Adaeze."
+
+    first = await service.correlate_reply(
+        workspace_id="founder", provider_event={
+            "id": "message_exact_range_first", "thread_id": "thread_hiring_1",
+            "from": "Ada Candidate <ada@example.test>",
+            "subject": "Re: Interview availability", "excerpt": excerpt,
+            "kind": "update", "automated": False,
+        })
+    repeated = await service.correlate_reply(
+        workspace_id="founder", provider_event={
+            "id": "message_exact_range_repeat", "thread_id": "thread_hiring_1",
+            "from": "Ada Candidate <ada@example.test>",
+            "subject": "Re: Interview availability", "excerpt": excerpt,
+            "kind": "update", "automated": False,
+        })
+
+    assert first["continuation_status"] == "success"
+    assert repeated["continuation_status"] == "success"
+    assert [call["action_kind"] for call in provider.calls] == [
+        "HIRING_SEND_EMAIL", "HIRING_CREATE_INTERVIEW"]
+    current = await store.get(
+        "hiring_coordination_mandates", mandate["mandate_id"])
+    assert current["goal_status"] == "SCHEDULED"
+    assert current["goal_step"] == "INTERVIEW_CONFIRMED"
+
+
+@pytest.mark.asyncio
 async def test_founder_copy_is_fixed_by_mandate_and_never_candidate_authority(
         founder, monkeypatch):
     monkeypatch.setenv("HIRING_FOUNDER_COPY_EMAIL", "founder@example.test")

@@ -1219,6 +1219,26 @@ class HiringCoordinationService:
                 selected = slot
                 break
 
+        if (selected and current_event_id and current_event
+                and self._same_event_slot(current_event, selected)):
+            # A repeated provider message is still a distinct inbound receipt,
+            # but confirming the already-booked instant is not a new Calendar
+            # mutation and must not generate another availability email.
+            transitioned = await self._transition_goal(
+                mandate, goal_status="SCHEDULED",
+                goal_step="INTERVIEW_CONFIRMED",
+                correlation_id=correlation_id,
+                event_id=current_event_id)
+            if transitioned.get("error"):
+                return transitioned
+            return {
+                "status": "success", "duplicate": True,
+                "no_external_effect": True,
+                "goal_status": "SCHEDULED",
+                "goal_step": "INTERVIEW_CONFIRMED",
+                "event_id": current_event_id,
+            }
+
         if (selected and intent in {
                 "ACCEPT_OFFERED_SLOT", "PROPOSE_ALTERNATIVE",
                 "REQUEST_RESCHEDULE"}):
@@ -1828,6 +1848,20 @@ class HiringCoordinationService:
                     "end": str(payload.get("end") or ""),
                     "timezone": str(payload.get("timezone") or "")}
         return None
+
+    @staticmethod
+    def _same_event_slot(current: dict[str, str],
+                         selected: dict[str, str]) -> bool:
+        """Compare exact instants so offset-only formatting never causes an update."""
+        try:
+            return (
+                datetime.fromisoformat(str(current.get("start") or ""))
+                == datetime.fromisoformat(str(selected.get("start") or ""))
+                and datetime.fromisoformat(str(current.get("end") or ""))
+                == datetime.fromisoformat(str(selected.get("end") or ""))
+            )
+        except ValueError:
+            return False
 
     async def _workspace_rows(self, collection: str, workspace_id: str, *,
                               descending: bool = False) -> list[dict[str, Any]]:
