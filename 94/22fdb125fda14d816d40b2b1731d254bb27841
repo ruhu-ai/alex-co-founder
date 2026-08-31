@@ -1,0 +1,30 @@
+services/session_resources.py
+  s_16e75b10efee22::t_00449923c42525 774-775,805-808,1010-1011,1030-1033
+tests/unit/test_app_server.py
+  s_16e75b10efee22::t_b76268a46dfaca 1841,1843-1844,1847-1853,1856-1862,1869-1870,1873-1882
+  s_16e75b10efee22::t_b8b12bbd18648a 1883
+tests/unit/test_search_api.py
+  s_16e75b10efee22::t_e3ddb5d5a2a795 110-126
+app/main.py
+  s_16e75b10efee22::t_bb9db2d18bb4ca 1440-1444
+  s_16e75b10efee22::t_d682f4ffccd345 1802-1805,1811-1820,1823-1834
+  s_16e75b10efee22::t_c23bf8b2dfcb26 1734-1735,1737-1747
+app/static/index.html
+  s_16e75b10efee22::t_92ad5c2643f890 5132-5143,7431-7436,9659-9665
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "9422fdb125fda14d816d40b2b1731d254bb27841",
+  "prompts": {},
+  "sessions": {
+    "s_16e75b10efee22": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0484d-a6bd-7182-90ae-527ccfd2a966",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Ijidai Lassa <ijidai@cued.app>"
+    }
+  }
+}
