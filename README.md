@@ -139,6 +139,23 @@ the backend commits the transition. Generated documents are real files; portal
 fills have inspection evidence and exact filled/needs-human reports; approval
 status is resolved on the server rather than accepted from chat.
 
+### Hiring demo snapshots
+
+These screenshots use the competition's fictional candidate data and show
+committed product state rather than a mock interface.
+
+![Alex chat showing a Founder hiring request and the resulting durable draft role](docs/assets/demo/alex-chat-hiring-role-draft.png)
+
+*Alex turns a natural-language `/hiring` request into a durable draft role
+package. The response identifies the role record and makes clear that no job was
+published and no email was sent.*
+
+![Hiring workspace showing restricted candidate material and a scheduled interview goal](docs/assets/demo/hiring-interview-scheduling-goal.png)
+
+*The candidate workspace keeps the CV Hiring-restricted while exposing the
+durable `SCHEDULE_INTERVIEW` goal, its committed `INTERVIEW_CONFIRMED` state,
+and the causally linked applicant reply.*
+
 ### Authenticated testing access
 
 The product has one application role: `FOUNDER`. Google authentication proves
