@@ -1,0 +1,39 @@
+docs/25-hiring-operations.md
+  s_bf598a20bfcdaa::t_21c8122f43a4fc 665-666,685-691,1436-1443,1446-1448,1453-1455
+services/hiring_contracts.py
+  s_bf598a20bfcdaa::t_f85084301e9be9 77-80,418-422
+app/static/hiring.html
+  s_bf598a20bfcdaa::t_389c88884d570c 2845
+  s_bf598a20bfcdaa::t_f1af6d7fc2c934 2775-2777,2782,2784,2786,2790,2792,2794
+services/hiring_post_interview.py
+  s_bf598a20bfcdaa::t_dc25d5a91e0d93 1579-1582
+  s_bf598a20bfcdaa::t_191b768043f104 1064-1079,1126,1144,1278-1283
+  s_bf598a20bfcdaa::t_3782f9fc9c58dd 1465,1472-1483,1538-1542
+  s_bf598a20bfcdaa::t_8b564e9efe3fa4 490,579-590,594,609-612,627
+  s_bf598a20bfcdaa::t_f598e20cfdff30 359-382,391,399-402,417-425,437,442-460,464,475-476
+  s_bf598a20bfcdaa::t_1bc91ccc3a375e 942-943,987-1000,1008,1014-1017
+  s_bf598a20bfcdaa::t_210bf1e0ab6229 78-82,159-191
+  s_bf598a20bfcdaa::t_07075246500516 192
+README.md
+  s_bf598a20bfcdaa::t_b3f917c3921a7e 312-314,316,333-335,337-339
+tests/unit/test_hiring_h5_h7.py
+  s_bf598a20bfcdaa::t_7a8047964e703d 282-387,397-436,438-473,482-483
+  s_bf598a20bfcdaa::t_002ca5fcfee53e 5,437
+  s_bf598a20bfcdaa::t_13026c8b821bff 7,388-396,474-481
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "b824cd1ebba6d5aadfdec69ae56a87df5cf808ce",
+  "prompts": {},
+  "sessions": {
+    "s_bf598a20bfcdaa": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a04860-dde3-79c3-b2bd-2987b04adc68",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Ijidai Lassa <ijidai@cued.app>"
+    }
+  }
+}
