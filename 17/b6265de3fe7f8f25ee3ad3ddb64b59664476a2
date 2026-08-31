@@ -1,0 +1,103 @@
+README.md
+  s_bf598a20bfcdaa::t_066fabb7cf37b6 641,648,711-712,717
+  s_bf598a20bfcdaa::t_49da025cd06c3c 710
+docs/12-security.md
+  s_bf598a20bfcdaa::t_5481ab361af4ad 11,14
+services/browser_service.py
+  s_bf598a20bfcdaa::t_4eef2d5aacb3a2 853-854,1079-1084,1206
+requirements.txt
+  s_bf598a20bfcdaa::t_4f9d69a9223601 42-43
+tests/unit/test_review_fixes_app.py
+  s_bf598a20bfcdaa::t_96b4b6d599cfc7 1,3-4
+docs/13-deployment.md
+  s_bf598a20bfcdaa::t_48444f501fe4e4 138,150,177,200-201,259,285,292
+scripts/deploy.sh
+  s_bf598a20bfcdaa::t_7ab71d786c8f93 32-33,43,49-50,214-216,223,276-277,293,299,301
+tests/unit/test_portal_access.py
+  s_bf598a20bfcdaa::t_c692a1979f4614 60-68,72-90,93-103,105-106,108,112-113,115
+.dockerignore
+  s_bf598a20bfcdaa::t_b1bdb5fe6b8e40 4
+docs/05-tools.md
+  s_bf598a20bfcdaa::t_5481ab361af4ad 152-153
+services/alex_mailbox.py
+  s_bf598a20bfcdaa::t_d986bbdae0e2d6 365,368-369,376-382
+  s_bf598a20bfcdaa::t_4ea76e14540b2e 383-398
+docs/09-form-filler.md
+  s_bf598a20bfcdaa::t_88747b03eeebd9 1-90,94-103
+scripts/run_local.sh
+  s_bf598a20bfcdaa::t_8b4c94acbf44ac 2-4,20,22,159,166-167
+docs/19-winning-plan.md
+  s_bf598a20bfcdaa::t_b6e52068eba102 28-29,51-53,58-59,101
+docs/39-durable-cross-session-memory.md
+  s_bf598a20bfcdaa::t_03c985d84e5ec4 2206,2483,2605
+scripts/check_browser_invariants.py
+  s_bf598a20bfcdaa::t_8b4c94acbf44ac 59
+docs/demo-script.md
+  s_bf598a20bfcdaa::t_d7959ea31267b5 1,3-5,7,9-15,17,19-34
+app/auth.py
+  s_bf598a20bfcdaa::t_5481ab361af4ad 16-17
+services/a2a_talk.py
+  s_bf598a20bfcdaa::t_4eef2d5aacb3a2 9-10,41
+docs/22-browser-runtime-hardening.md
+  s_bf598a20bfcdaa::t_5481ab361af4ad 594
+docs/07-server-webhooks.md
+  s_bf598a20bfcdaa::t_5481ab361af4ad 206
+tests/unit/test_review_fixes_services.py
+  s_bf598a20bfcdaa::t_5481ab361af4ad 32
+tests/unit/test_grounding_and_submit.py
+  s_bf598a20bfcdaa::t_7eab0c4df914a7 277,289,310,324-327,354
+.env.example
+  s_bf598a20bfcdaa::t_4f9d69a9223601 68-69
+docs/34-platform-architecture-and-convergence.md
+  s_bf598a20bfcdaa::t_5481ab361af4ad 261
+scripts/seed_demo.py
+  s_bf598a20bfcdaa::t_49da025cd06c3c 16,75-76
+docs/01-architecture.md
+  s_bf598a20bfcdaa::t_1fa43e2ca803a1 30-31,121,139
+  s_bf598a20bfcdaa::t_03c985d84e5ec4 216
+tests/unit/test_browser_invariants.py
+  s_bf598a20bfcdaa::t_8b4c94acbf44ac 300-301
+docs/verification-notes.md
+  s_bf598a20bfcdaa::t_6fea343c668e10 84-86,93-94,100-101
+tests/unit/test_a2a.py
+  s_bf598a20bfcdaa::t_aea2e1df45196b 1,5,11-48,51,56-57,60,63-64,72-73,82-83,91-95,97,102-112
+tests/unit/test_findings_hardening.py
+  s_bf598a20bfcdaa::t_c9c96fb7979741 225,228-229
+  s_bf598a20bfcdaa::t_5481ab361af4ad 227
+docs/README.md
+  s_bf598a20bfcdaa::t_5481ab361af4ad 56
+tests/unit/test_collection_registry.py
+  s_bf598a20bfcdaa::t_8b4c94acbf44ac 22
+docs/17-real-portal-access.md
+  s_bf598a20bfcdaa::t_5481ab361af4ad 3-6,70-71,83
+docs/architecture-diagram.md
+  s_bf598a20bfcdaa::t_8ad58956d1f79e 34,39,55-56,69-74
+services/secrets.py
+  s_bf598a20bfcdaa::t_039d8471507182 27
+tests/unit/test_local_launcher.py
+  s_bf598a20bfcdaa::t_8b4c94acbf44ac 129
+docs/14-build-plan.md
+  s_bf598a20bfcdaa::t_b6e52068eba102 18,23,31,43
+agents/co_founder/tools/browser.py
+  s_bf598a20bfcdaa::t_d986bbdae0e2d6 409,415-416,424,783-790,1031
+tests/unit/test_deploy_firestore_indexes.py
+  s_bf598a20bfcdaa::t_7ab71d786c8f93 100
+PROJECT_BRIEF.md
+  s_bf598a20bfcdaa::t_eed171ff293565 64,73,100,111,147,152
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "17b6265de3fe7f8f25ee3ad3ddb64b59664476a2",
+  "prompts": {},
+  "sessions": {
+    "s_bf598a20bfcdaa": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a04860-dde3-79c3-b2bd-2987b04adc68",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Ijidai Lassa <ijidai@cued.app>"
+    }
+  }
+}
