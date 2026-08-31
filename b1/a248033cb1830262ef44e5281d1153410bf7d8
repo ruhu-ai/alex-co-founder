@@ -1,0 +1,22 @@
+README.md
+  s_bf598a20bfcdaa::t_820aa73fb0a695 214-219,226,230-231,234,241-252
+  s_bf598a20bfcdaa::t_269c6bd241fcdc 274-318,321-324
+  s_bf598a20bfcdaa::t_1d151c96ced93a 253
+  s_bf598a20bfcdaa::t_a7b1b5ec412fec 325
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "b1a248033cb1830262ef44e5281d1153410bf7d8",
+  "prompts": {},
+  "sessions": {
+    "s_bf598a20bfcdaa": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a04860-dde3-79c3-b2bd-2987b04adc68",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Ijidai Lassa <ijidai@cued.app>"
+    }
+  }
+}
