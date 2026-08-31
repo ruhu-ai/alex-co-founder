@@ -1272,10 +1272,24 @@ class TestDiscoverCommandAdapter:
         monkeypatch.setattr(appmod, "_hiring_company_context", _company_context)
         monkeypatch.setenv("HIRING_ROLE_WRITER_ALLOW_DEGRADED_LOCAL", "1")
 
+        context = (
+            "Founding Full-stack AI Engineer, for Ruhu, based "
+            "in Nigeria, remote, full-time. We need someone with 4 or more years "
+            "of experience in Python or TypeScript full-stack web development "
+            "and building AI or LLM-powered products. They will work directly "
+            "with the founders, own delivery from idea through production, "
+            "design reliable product and backend architecture, ship user-facing "
+            "features, integrate models and agent workflows, maintain quality "
+            "and observability, and make practical technical decisions in a "
+            "fast-moving startup. The ideal candidate communicates clearly, "
+            "handles ambiguity, understands security and production operations, "
+            "and can balance speed with maintainability. Prepare a complete, "
+            "realistic job specification and hiring process as a draft for "
+            "Founder review. Do not publish it until I explicitly approve it.")
+        assert len(context) > 700
         result = await appmod._launch_hiring_command(
             principal=founder,
-            context=("Forward Deployment Engineer for Ruhu, Inc. Full-time "
-                     "employee, based in Nigeria and working remotely."),
+            context=context,
             request_id="hiring_founder_owner_1")
 
         assert result["status"] == "success"
@@ -1283,7 +1297,23 @@ class TestDiscoverCommandAdapter:
         assert result["policy"]["policy_status"] == "PROPOSED"
         assert result["role"]["current_policy_version_id"] is None
         assert seen["principal"] is founder
+        assert seen["contract"].role_title == "Founding Full-Stack AI Engineer"
         assert seen["role_description"]["employment_type"] == "Full-time employee"
+
+    @pytest.mark.asyncio
+    async def test_hiring_command_retains_bounded_context_limit(self, appmod):
+        from services.actor_identity import ActorPrincipal, WorkspaceRole
+
+        founder = ActorPrincipal(
+            actor_id="member_founder", workspace_id="workspace_test",
+            role=WorkspaceRole.FOUNDER, session_auth_time=2_000_000_000,
+            membership_version=1)
+        result = await appmod._launch_hiring_command(
+            principal=founder, context="x" * 4_001,
+            request_id="hiring_context_bound_1")
+
+        assert result["error_code"] == "hiring_context_too_long"
+        assert "4,000 characters or fewer" in result["message"]
 
     def test_hiring_command_is_normal_founder_product_path(
             self, appmod, client, monkeypatch):

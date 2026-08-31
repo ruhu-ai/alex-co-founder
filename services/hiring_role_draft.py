@@ -61,6 +61,14 @@ def _clean_list(values: list[str] | None, *, limit: int = 12) -> list[str]:
 def derive_role_title(description: str, *, company_name: str) -> str:
     """Extract the Founder-supplied title without borrowing demo-role facts."""
     normalized = re.sub(r"\s+", " ", str(description or "")).strip()
+    # Natural chat commands often introduce the title with a creation request.
+    # Remove only the exact company-bound preamble; the following text remains
+    # Founder-authored and is still validated by the normal title contract.
+    normalized = re.sub(
+        rf"^(?:/hiring\s+)?(?:please\s+)?create\s+(?:a\s+)?(?:new\s+)?"
+        rf"role\s+(?:for|at)\s+{re.escape(company_name)}"
+        rf"(?:\s*,?\s*inc\.?)?\s*:\s*",
+        "", normalized, flags=re.I).strip()
     title = re.split(r"[,.;:]", normalized, maxsplit=1)[0].strip()
     title = re.sub(
         r"^(?:/hiring\s+|hire\s+|hiring\s+|we need\s+|we are hiring\s+|"

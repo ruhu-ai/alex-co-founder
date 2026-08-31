@@ -452,7 +452,10 @@ _SLASH_COMMAND = re.compile(r"^/([a-z][a-z0-9_-]*)(?:\s+(.*))?$", re.DOTALL)
 _REQUEST_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$")
 _ATTACHMENT_REFERENCE = re.compile(r"(?:^|\s)@[A-Za-z0-9_.-]+(?:\s|$)")
 _DISCOVER_CONTEXT_MAX = 500
-_HIRING_CONTEXT_MAX = 700
+# A realistic Founder brief commonly includes scope, experience, outcomes, and
+# working arrangement. Keep it bounded before the model boundary, but do not
+# reject normal job-spec input merely for being longer than a chat sentence.
+_HIRING_CONTEXT_MAX = 4_000
 _INVESTOR_CONTEXT_MAX = 800
 _INGESTION_REF = re.compile(r"^[a-f0-9]{32}$")
 _HIRING_JUDGMENT_REQUEST = re.compile(
@@ -821,7 +824,13 @@ async def _launch_hiring_command(*, principal: ActorPrincipal, context: str,
     """Write the Founder's description into an internal, editable role DRAFT."""
     normalized = re.sub(r"\s+", " ", context).strip()
     if len(normalized) > _HIRING_CONTEXT_MAX:
-        return {"error": True, "message": "Hiring context is too long."}
+        return {
+            "error": True,
+            "error_code": "hiring_context_too_long",
+            "message": (
+                f"The role description must be {_HIRING_CONTEXT_MAX:,} "
+                "characters or fewer. Shorten the brief and try again."),
+        }
     services = hiring_routes._services()
     if not services:
         return {"error": True, "message": "Hiring draft storage is not configured."}

@@ -192,6 +192,18 @@ def test_explicit_local_fallback_compiles_real_role_and_not_demo_fixture():
     assert description["preferred_qualifications"] == []
 
 
+def test_role_title_ignores_natural_create_role_preamble():
+    package = founder_description_package(
+        ("Create a new role for Ruhu: Founding Full-stack AI Engineer, based "
+         "in Nigeria, remote, full-time. We need someone with 4 or more years "
+         "of experience in Python or TypeScript full-stack development."),
+        company_name="Ruhu", location="Nigeria", work_arrangement="Remote",
+        employment_type="Full-time employee")
+
+    assert package["status"] == "success"
+    assert package["contract"].role_title == "Founding Full-Stack AI Engineer"
+
+
 @pytest.mark.asyncio
 async def test_founder_draft_is_non_synthetic_and_cannot_publish():
     store = InMemoryDurableStore()
