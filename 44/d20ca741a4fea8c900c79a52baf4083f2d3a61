@@ -1,0 +1,43 @@
+tests/unit/test_workspace_brief_m1.py
+  s_bf598a20bfcdaa::t_35a83f316ee96b 93-136
+app/main.py
+  s_bf598a20bfcdaa::t_fc90f36e1988ad 1561
+app/static/index.html
+  s_bf598a20bfcdaa::t_bc1f5b58b11ff7 4978-4980
+  s_bf598a20bfcdaa::t_e667ed2a626696 4983
+  s_bf598a20bfcdaa::t_169dc84e1177c9 9424,9442
+  s_bf598a20bfcdaa::t_927ba05373d7bd 4925-4929,5000,5013-5014
+  s_bf598a20bfcdaa::t_f823b6b7387f97 4957
+  s_bf598a20bfcdaa::t_71d4cf6782d0ad 4971-4975
+  s_bf598a20bfcdaa::t_a855669ce116e4 7315-7318
+  s_bf598a20bfcdaa::t_ba25eb4673d0a4 1709-1715
+tests/unit/test_workspace_brief_release.py
+  s_bf598a20bfcdaa::t_35a83f316ee96b 87
+docs/39-durable-cross-session-memory.md
+  s_bf598a20bfcdaa::t_927ba05373d7bd 305-307
+  s_bf598a20bfcdaa::t_305c55ea9e3b5b 258-260,278-282,300-302,308-309,311-312,2165-2168
+services/workspace_brief.py
+  s_bf598a20bfcdaa::t_fc90f36e1988ad 110-111,121-122,133,138-142,169-170,188-190,216-217,229-231,256-257,269-276,298-299,308-310,351-352,369
+tests/unit/test_activity_ui_contract.py
+  s_bf598a20bfcdaa::t_927ba05373d7bd 81-86
+  s_bf598a20bfcdaa::t_35a83f316ee96b 87-97,100-101
+  s_bf598a20bfcdaa::t_bc1f5b58b11ff7 98-99
+docs/34-platform-architecture-and-convergence.md
+  s_bf598a20bfcdaa::t_305c55ea9e3b5b 1293-1298
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "44d20ca741a4fea8c900c79a52baf4083f2d3a61",
+  "prompts": {},
+  "sessions": {
+    "s_bf598a20bfcdaa": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a04860-dde3-79c3-b2bd-2987b04adc68",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Ijidai Lassa <ijidai@cued.app>"
+    }
+  }
+}
