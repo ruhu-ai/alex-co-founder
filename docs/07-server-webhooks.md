@@ -6,8 +6,8 @@ durable sessions, event-driven resume via `state_delta`.
 
 ## Startup wiring (`app/main.py`)
 
-Follows the reference repo (`new-hire-onboarding/app/fast_api_app.py`) exactly:
-**two entry surfaces, one shared session store.**
+The binding startup invariant is **two entry surfaces, one shared session
+store.**
 
 ```python
 from google.adk.cli.fast_api import get_fast_api_app
@@ -38,7 +38,7 @@ distill_app = App(name="co_founder_distill", root_agent=distiller_agent)
 distill_runner = Runner(app=distill_app, session_service=db_session_service)
 ```
 
-Rules (corrected against the reference implementation):
+Rules:
 - The invariant is **one shared session store**, not one Runner. Chat and webhook
   surfaces each get a startup-built Runner pointing at the same
   `DatabaseSessionService`. A Runner built **per request** = amnesia; that is the
@@ -99,7 +99,7 @@ class PortalEvent(BaseModel):
 
 ## Resume handler (`app/resume_handler.py`)
 
-Pattern from the reference architecture — hydrate, transition, wake, in that order:
+The binding order is hydrate, transition, then wake:
 
 ```python
 class ResumeHandler:

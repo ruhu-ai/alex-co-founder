@@ -5,20 +5,17 @@ the deck. This spec adds document **production** as a first-class capability —
 generated from approved state, validated before delivery, downloadable from the
 UI, optionally synced to the founder's Drive.
 
-## Patterns mined (reference repos, read-only)
+## Binding design decisions
 
-| Source | Pattern we adopt |
+| Area | Decision |
 |---|---|
-| `harveyai/harvey-labs` skills (`docx/`, `pptx/`, `xlsx/`) | **spec → build → validate**: model emits a JSON spec; a small deterministic builder writes the file; a validation gate runs before delivery. ~30–110 LOC per builder. |
-| `Tracer-Cloud/opensre` `GoogleDocsClient`, `incidentfox` docs-google | Google-native creation idiom: create → `batchUpdate` with small request builders; **errors as data**, never raised. |
-| `google/adk-python` `DocsToolset`/`SlidesToolset`/`SheetsToolset` | Google-native creation without custom API code, if we ever need native Docs/Slides/Sheets objects. |
-| ADK artifact samples | `tool_context.save_artifact(...)` — files live in the artifact store, never in chat history. |
-| `andrewyng/aisuite` GDOCS-SHEETS-SPEC | OAuth scope tiering: `drive.file` (per-file) — never full-drive; writes ask first. |
-| `superdoc` warning | python-docx is fine for generation; raw OOXML surgery (redlines/comments) is out of scope. |
-| `Chainlit/chainlit` (`Elements/`, `InlinedElements`) | **In-chat cards**: typed artifact array per turn, cards stacked *below* the message text; extension-badge card (colored rounded square + truncated name + tooltip); generic files punt to download. |
-| `Chainlit` PDF element | **Two-tier preview**: inline thumbnail card → full modal viewer. We adopt this shape but keep it download-first (see below). |
-| `CopilotKit` showcases (`ArtifactPanel`, `Workspace`) | **Documents panel**: sectioned card list beside the chat with counts and an honest empty state; chat stays clean, library lives beside it. |
-| `superdoc` viewer | Rejected for v1: in-browser DOCX preview works (`documentMode: 'viewing'`, CDN build) but costs ~3 MB and is AGPL v3. Nobody previews xlsx/pptx in-browser. |
+| Production | **spec → build → validate**: the model emits a closed JSON spec, a deterministic builder writes the file, and validation runs before delivery. |
+| Google-native creation | Use small create/`batchUpdate` request builders and return errors as data. |
+| Artifact authority | Save files through `tool_context.save_artifact(...)`; files live in the artifact store, never in chat history. |
+| OAuth | Use per-file Drive authority rather than unrestricted full-Drive access; writes require the applicable product control. |
+| OOXML | Generate supported documents through the pinned libraries; raw OOXML surgery for redlines/comments is out of scope. |
+| Presentation | Typed artifact cards sit below the originating message; the Documents panel owns the durable library and PDF uses thumbnail-to-modal preview. |
+| V1 scope | Keep delivery download-first and avoid heavyweight browser-side office-document renderers. |
 
 ## Architecture
 
@@ -115,10 +112,9 @@ bytes; a Firestore `documents` registry holds the lineage:
 
 ## Document output UI
 
-Two surfaces, both fed by the registry (patterns: Chainlit in-chat elements,
-CopilotKit artifact panel):
+Two surfaces, both fed by the registry:
 
-1. **In-chat document cards** (Chainlit model). Documents produced in a turn
+1. **In-chat document cards.** Documents produced in a turn
    render as a card block *below* the agent message that made them — never a
    raw URL. Card: extension badge (colored rounded square: `DOCX` blue /
    `XLSX` green / `PPTX` orange), truncated title (full name in tooltip),
@@ -126,8 +122,8 @@ CopilotKit artifact panel):
    `/api/documents?session_id=…` with the transcript — no markup contract with
    the model required.
 
-2. **Documents section** (review column, below Fill report — CopilotKit panel
-   model). Grouped by application, newest first; each row: kind badge, title,
+2. **Documents section** (review column, below Fill report). Grouped by
+   application, newest first; each row: kind badge, title,
    `v3`, session tag, download. Clicking the session tag filters the chat log
    to the producing conversation — provenance is navigable in both directions
    (doc → conversation, conversation → doc). Driven by the registry, not by

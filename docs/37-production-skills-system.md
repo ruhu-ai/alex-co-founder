@@ -65,26 +65,18 @@ proved.
 
 ---
 
-## 2. Reference status and specification boundaries
+## 2. Specification boundaries
 
-### 2.1 OpenSRC reference review
+### 2.1 First-party authority
 
-The user-supplied reference path
-`/Users/ijidailassa/projects/ruhu-operator/.opensrc` resolves through
-`/Users/ijidailassa/projects/all-things-ai/.opensrc` to the shared
-`/Users/ijidailassa/.opensrc` source cache. The cache contains a source registry
-and mirrored open-source repositories. It was reviewed as untrusted,
-read-only reference material; none of its code, prompts, package formats,
-licenses, dependencies, or assumptions is imported into Co-Founder.
+The checked-in Co-Founder architecture, accepted specifications, compiled
+packages, and content-addressed release evidence are the only normative skill
+contracts. Runtime behavior and verification must not depend on unrelated
+source trees, package formats, prompts, licenses, or assumptions.
 
-Representative skill implementations reviewed included Google ADK, Haystack,
-Kilo/OpenCode, HolmesGPT, and OpenWorker. They are useful pattern evidence, not
-normative contracts. The actual Co-Founder architecture and accepted specs
-remain authoritative.
+### 2.2 Runtime design decisions
 
-### 2.2 Patterns adopted and deliberately rejected
-
-The reference implementations converge on several useful mechanics:
+The skills system uses these mechanics:
 
 - **progressive disclosure:** expose compact name/description metadata first,
   load full instructions only after selection, and fetch named resources only
@@ -102,8 +94,8 @@ The reference implementations converge on several useful mechanics:
   skills, selection/no-match behavior, permissions, resources, updates, and
   concurrent first load.
 
-This spec adopts and strengthens those patterns. It deliberately rejects other
-reference behaviors that are unsafe for a founder operations product:
+This spec makes those mechanics binding. It deliberately rejects alternatives
+that are unsafe for a founder operations product:
 
 - no remote registry search or network hot-loading in V1;
 - no local/user skill path that overrides a reviewed built-in by name;
@@ -1355,9 +1347,8 @@ artifacts include source revision, manifest/playbook/schema hashes, dependency
 lock, test/eval attestations, and reviewer references. Runtime rejects unknown
 or mismatched hashes. There is no network fetch of skill text or code.
 
-Reference repositories and examples may be pattern-mined read-only. Their code,
-prompts, licenses, secrets, assumptions, telemetry, or package formats are not
-imported by default.
+Unrelated source trees, prompts, licenses, secrets, assumptions, telemetry, and
+package formats are outside the build and runtime trust boundary.
 
 ---
 
@@ -1704,10 +1695,9 @@ review:
   qualification evidence bundles remain separately hashed and jointly pinned?
 - [ ] **Rollout:** Confirm shadow mode, internal canary, numeric gates, and
   reversible configuration precede founder-facing activation.
-- [ ] **OpenSRC comparison:** Confirm the spec should adopt progressive
-  disclosure, atomic publication, agent-specific visibility, and contained
-  resources while rejecting remote hot-load, dynamic tools, arbitrary scripts,
-  and source-precedence overrides.
+- [ ] **Loader contract:** Confirm progressive disclosure, atomic publication,
+  agent-specific visibility, and contained resources while rejecting remote
+  hot-load, dynamic tools, arbitrary scripts, and source-precedence overrides.
 - [ ] **Implementation authority:** Confirm that approval of this document is
   design approval only; implementation requires a separate scoped decision.
 

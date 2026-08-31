@@ -14,7 +14,7 @@ worktrees may be used for review or testing, but accepted work must not remain
 only there and must not replace or force-update `main`. When `main` has unrelated
 in-progress changes, stage only the task-owned paths and preserve the rest.
 
-Never commit `.env`, secrets, generated outputs, or optional reference repos.
+Never commit `.env`, secrets, generated outputs, or unrelated source trees.
 Historical evidence may name former branches or worktrees; those names record
 past execution and do not authorize new branch-only development.
 
@@ -42,7 +42,5 @@ Conventions: generic core naming (`Opportunity`, `Application`, never
 secrets fetched by name at execution time; user ids `user` / `eval_founder` /
 demo founder must all be seeded (docs/02).
 
-Optional reference repos are read-only pattern-mining inputs and are never
-imported or required by this project. When available outside the repository,
-they may include `google/adk-python`, `andrewyng/openworker`, `cline/cline`,
-`GoogleCloudPlatform/generative-ai`, `livekit-examples`, and `pipecat-ai`.
+The checked-in specifications and first-party source are authoritative. Do not
+make implementation or verification depend on unrelated source trees.

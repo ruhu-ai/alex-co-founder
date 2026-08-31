@@ -17,7 +17,7 @@ project can stay up for judge testing (through ~Oct 1) at near-zero cost.
 APIs to enable:
 `run firestore sqladmin pubsub cloudscheduler cloudtasks secretmanager storage cloudbuild aiplatform cloudtrace logging`
 
-`requirements.txt` (mirrors the reference repo's pyproject + our additions):
+`requirements.txt` (the repository's pinned runtime contract):
 
 ```
 google-adk[eval]==2.8.0
@@ -45,7 +45,7 @@ httpx
 
 Dev extras: `pytest pytest-asyncio nest-asyncio ruff`.
 
-⚠️ Known trap (reference lab): `postgresql+asyncpg://`, not `postgresql://` —
+⚠️ Known trap: `postgresql+asyncpg://`, not `postgresql://` —
 ADK's SQLAlchemy is async; the sync driver "works until the first session write,
 which in the cloud is at 3am with nobody watching." Same class of trap as
 `aiosqlite` locally. The `host=/cloudsql/<proj>:<region>:<instance>` unix-socket
@@ -222,7 +222,7 @@ installs `libreoffice-writer/-calc/-impress` (pinned apt — document previews
 and PDF output, docs/15 §LibreOffice) and runs as the non-root `pwuser`.
 Mock portal image is a plain slim Python image.
 
-## Telemetry (matches the reference repo's `app_utils/telemetry.py`)
+## Telemetry
 
 `app/app_utils/telemetry.py::setup_telemetry()` sets, at import time:
 

@@ -82,15 +82,15 @@ goes quiet. Events arrive via webhooks/tasks (see 07/08) and resume the session:
 | SUBMITTED (awaiting confirmation) | `["portal_confirmation"]` | `POST /webhooks/portal_event` | `current_step=FOLLOW_UP` |
 | FOLLOW_UP | `["deadline_tick"]` | `POST /tasks/deadline_scan` | urgency/status refreshed |
 
-**Deliberate deviation from the ADK 2 lab:** we resume parked runs via webhook
-+ `state_delta` (the reference-repo pattern), not `LongRunningFunctionTool` +
-`ResumabilityConfig` (the lab's in-invocation parking). Our waits are external
+**Deliberate ADK design choice:** we resume parked runs via webhook +
+`state_delta`, not `LongRunningFunctionTool` + `ResumabilityConfig`
+(in-invocation parking). Our waits are external
 events — founder feedback, approval, portal confirmation — answered by people
 and webhooks, not a single long tool call returning a handle. The `state_delta`
-pattern fits that shape and is the one verified in the reference repo; the lab
-pattern stays on the roadmap if a future workflow has true in-invocation waits.
+pattern fits that shape; in-invocation parking stays on the roadmap if a future
+workflow has a true long-running tool call.
 
-**Resume handler rules (from the reference pattern):**
+**Resume handler rules:**
 1. Hydrate the persisted session by `(user_id, session_id)` — never start a new one.
 2. Commit authoritative state and a durable wake receipt first. Hydration then
    reconciles the session projection and calls `runner.run_async(...)` with a

@@ -67,14 +67,12 @@ only authority that may grant or consume an effect.
 - Generic company-wide candidate memory/retrieval, polling, a process held open
   while waiting, client-controlled sandbox/live modes, or connector fallback.
 
-### 1.3 Patterns adopted and rejected
-
-The reference repositories are read-only pattern inputs; none is imported.
+### 1.3 Runtime design decisions
 
 | Pattern | Decision |
 |---|---|
-| Google Cloud ADK onboarding lifecycle and webhook wake | Adopt: write durable receipt/event before UI transition; resume with state_delta. |
-| Recruiter examples that poll, score, or automatically reject | Reject: H4S is event-driven, non-ranking, founder-decided. |
+| ADK lifecycle and webhook wake | Adopt: write durable receipt/event before UI transition; resume with state_delta. |
+| Polling, scoring, or automatic rejection | Reject: H4S is event-driven, non-ranking, founder-decided. |
 | Visible approval queue | Adopt its visibility only: authority remains single-use server-bound exact action, never text/email parser. |
 | Voice/note-taking examples | Voice is presentation transport only: no independent workflow authority or hidden memory. |
 

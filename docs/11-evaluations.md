@@ -5,10 +5,9 @@ Most entrants skip evals; judges reward them (Architecture 30%). Two layers:
 one **integration test** for the adaptation loop. Both run in CI and ship in the
 repo as evidence.
 
-File/envelope formats below match the reference repo
-(`new-hire-onboarding/tests/eval/`) exactly — eval-set envelope, `session_input`
-state seeding, and LLM-judged final-response criteria. Idle time is simulated by
-**seeding state**, never by waiting.
+File/envelope formats use the pinned ADK evaluation contract: eval-set envelope,
+`session_input` state seeding, and LLM-judged final-response criteria. Idle time
+is simulated by **seeding state**, never by waiting.
 
 ## Metric configs
 

@@ -175,8 +175,8 @@ asserts every hue clears 3:1 after the theme-appropriate lift, that light stays
 at 0%, and — guarding the guard — that at least one hue still trips the
 threshold, so the test can never pass vacuously.
 
-*Technique adapted from `andrewyng/openworker`'s `isDarkMark()` (luminance test,
-then compensate). Pattern only — no assets or code were taken; see §5.5.*
+The implementation uses a standard relative-luminance test followed by a
+theme-owned compensation token; no third-party assets are involved.
 
 ---
 
@@ -382,16 +382,12 @@ rather than letting that fallback ship silently.
 Switching to real logos later is one map plus one vendored set: `CONN_ICON` in
 `index.html` keys off the connector `name`, so no markup changes.
 
-**Why we do not copy them from a reference repo.** `andrewyng/openworker` ships a
-handsome connector list, and it is on the reading list in `AGENTS.md` — as
-*"read-only pattern mining, never import from them"*. Three reasons that rule is
-right here: its own marks are, by its own comment, *"hand-drawn … deliberately
-simplified geometry — not exact reproductions"*, so copying them buys the
-trademark exposure without the craft; the vendored checkout carries no LICENSE
-file, and the hackathon requires disclosing any incorporated pre-existing code;
-and where a logo came from does not change the submission rule. Mining the
-*grammar* — grouped inset rows, the brand-tinted tile, the dark-mark lift in
-§2.5 — is exactly what that repo is there for.
+**Why the marks are first-party and generic.** Copying third-party marks would
+create avoidable trademark and licensing ambiguity, while the submission rules
+already forbid third-party logos. The product therefore owns the presentation
+grammar—grouped inset rows, a brand-tinted tile, and the dark-mark lift in
+§2.5—while every mark remains a deliberately generic icon from the checked-in
+sprite.
 
 ### 5.6 The brand mark is not an icon
 

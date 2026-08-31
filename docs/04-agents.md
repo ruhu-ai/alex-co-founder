@@ -59,9 +59,8 @@ token- and event-bounded. Gemini Live separately uses the 2.8
 `RunConfig.session_resumption` and `context_window_compression` contracts;
 opaque resumption handles are encrypted server-side and never sent to the
 browser. Neither mechanism replaces durable workflow `state_delta` authority.
-The
-`GoogleCloudPlatform/generative-ai` onboarding sample pins ADK 1.x; where its
-patterns and ADK 2 differ, ADK 2 wins.
+The installed and pinned ADK 2 contract is authoritative for imports and
+behavior.
 
 ## Wiring (`agents/co_founder/agent.py`)
 

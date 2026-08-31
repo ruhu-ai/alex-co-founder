@@ -39,19 +39,19 @@ session. Firebase remains the email/password provider but no Firebase popup or
 cross-origin redirect-result storage participates in Google login. "No new
 window" binds an SDK that opens one exactly as it binds `window.open`.
 
-## Reference patterns adopted and rejected
+## Runtime design decisions
 
-Reference repositories are read-only pattern-mining inputs. No dependency or
-source code is copied into this project.
+The runtime owns ordered action-result frames, URL/action metadata,
+close-before-replace ownership, push observations, idempotent start and stop,
+duplicate-handler protection, pre/post-navigation guards, an isolated managed
+profile, session-owned tabs, bounded idle cleanup, launch circuit breaking,
+authenticated observation, proxy isolation, and SSRF rechecks.
 
-| Reference | Adopt | Explicitly reject |
-|---|---|---|
-| Cline `BrowserSession` / `BrowserSessionRow` | Ordered action-result frames, URL/action metadata, close-before-replace ownership | Debug/relaunch modes that spawn system Chrome; remote headed sessions |
-| OpenHands Browser store | Push browser observations to the embedded surface while the agent turn is still running; reset on session change | Unrelated `window.open` application links |
-| browser-use `BrowserSession` + watchdogs | Idempotent start, explicit stop/kill semantics, duplicate-handler protection, reset discipline, pre/post-navigation and new-page guards | Allow-all domain default; personal Chrome profiles; automatically accepting `confirm` or `beforeunload` dialogs |
-| OpenClaw browser runtime | Isolated managed profile, session-owned tabs, idle/excess cleanup, launch circuit breaker, authenticated observation, SSRF recheck | Headed default, personal-profile attachment, externally managed CDP as a product mode, CAPTCHA solving |
-| Strix | Bounded per-task resource ownership and proxy isolation | Container orchestration as a prerequisite for the v1 UI |
-| Google new-hire-onboarding sample | In-app artifact preview only | `target="_blank"`, 1.2-second polling, and treating an artifact iframe as browser automation |
+It explicitly rejects system-browser relaunch/debug modes, remote headed
+sessions, unrelated `window.open` links, allow-all domain defaults, personal
+profiles, automatic acceptance of browser dialogs, externally managed CDP,
+CAPTCHA solving, polling-based projection, and container orchestration as a V1
+prerequisite.
 
 ## Non-negotiable runtime invariants
 
@@ -493,7 +493,7 @@ The Browser surface is an observation/control surface, not a webview:
   overwrite newer ones, even when image requests finish out of order.
 - The stage shows `opening`, `live`, `blocked`, `stopping`, or `closed`, plus
   redacted URL, goal, non-secret fill phase, last action, and a compact
-  Cline-style frame timeline.
+  ordered frame timeline.
 - Stop is shown for every nonterminal `browse` and `fill` run. Stopping a fill first asks
   the founder to confirm that unsaved portal entries may be discarded. Stop
   never submits or changes application workflow state.

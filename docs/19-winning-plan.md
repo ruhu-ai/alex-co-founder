@@ -1,28 +1,27 @@
-# 19 — Winning Plan: improvements + Google-framework coverage
+# 19 — Release Plan: improvements + Google-framework coverage
 
 Deadline: **Aug 31, 2026, 5:00 PM PDT** (11 days out at writing).
 Judging: **Innovation & Operational Utility 40% · Architectural Discipline
 30% · Demo & Production Readiness 30%** + bonus (extra Google models, build
 log, social post).
 
-Benchmark: VitaCare (prior winner) — crisp one-line narrative, A2A protocol,
-5+ Google models, clickable demo scenarios, live URL, consent-at-protocol
-safety. We match them on substance (state machine, approval gates, real
-browser automation, evals, idempotency, audit) and trail on **narrative
-packaging, A2A, embeddings, model breadth**.
+Release thesis: the product already has substantive workflow safety—state
+machine, approval gates, browser containment, evaluations, idempotency, and
+audit. The remaining release work concentrates on **narrative packaging, A2A,
+embeddings, model breadth, and executable demo scenarios**.
 
 ## Gap inventory (honest)
 
-| Area | VitaCare | Us today |
+| Area | Current position | Required release outcome |
 |---|---|---|
-| Narrative | "Agent-to-agent care network" | "Does the work; founder keeps judgment" — good, less viral |
-| A2A protocol | Core to their story | Absent |
-| Google models | 2.5 Pro, Flash, Live, Embedding-001, Cloud TTS | gemini-3.5-flash, gemini-live-2.5-flash |
-| Embeddings/RAG | gemini-embedding-001, cosine | deterministic tag retrieval |
-| Agent runtime | Cloud Run | Cloud Run (planned) |
-| GEAP | — | Memory/Identity/Observability custom-built |
-| Demo format | Clickable scenarios | Linear script |
-| Safety story | Consent grid, never-diagnoses | **Stronger**: server-resolved approval gates, extraction-only rule, evals |
+| Narrative | "Does the work; founder keeps judgment" | One crisp, evidence-backed product story |
+| A2A protocol | Absent | Real protocol integration or an explicit cut |
+| Google models | Dialogue and Live tiers | Measured role-specific model assignments |
+| Embeddings/RAG | Deterministic tag retrieval | Grounded embedding retrieval with deterministic fallback |
+| Agent runtime | Cloud Run planned | Healthy, observable deployed runtime |
+| Managed services | Memory/Identity/Observability are application-owned | Clear managed-service boundaries and receipts |
+| Demo format | Linear script | Founder-clickable deterministic scenarios |
+| Safety story | Server-resolved approval gates, extraction-only rule, evals | Visible refusal and audit evidence |
 
 ## P0 — ship-readiness (nothing else matters until these are done)
 
@@ -88,20 +87,20 @@ packaging, A2A, embeddings, model breadth**.
    the labelled rollout gate passes and the finding is visible in the UI.
    *Criteria: optional model integration, product safety, demo evidence.*
 8. **Cloud TTS (Chirp HD)** for voice-note playback / assistant replies in
-   the UI — VitaCare lists it; ours would match. Optional if Live voices
-   suffice; cheap to add via the TTS API for the async voice-note path.
+   the UI. Optional if Live voices suffice; use it only when the asynchronous
+   voice-note path adds a distinct product capability.
    **Status (Aug 20): BUILT — `POST /api/tts` (Chirp-3-HD-Charon) + hover
    read-aloud button on agent messages; API enabled via Service Usage.**
 
 ## P2 — demo & evidence packaging
 
-0. **Safety headline: "Zero Unauthorized Submissions."** Our counter to
-   VitaCare's consent grid, with teeth: G1/G3 guards in code, single-use
+0. **Safety headline: "Zero Unauthorized Submissions."** Back it with G1/G3
+   guards in code, single-use
    server-resolved approval tokens, audited refusals, evals proving them.
    Headline on Devpost + a named beat in the video (submit attempted without
    approval → refused, on camera, twice, idempotent).
-9. **Scenario buttons** on the UI (VitaCare's format): pre-staged,
-   judge-clickable — "Deck → profile in 30s" · "Feedback → adaptation loop" ·
+9. **Scenario buttons** on the UI: pre-staged, judge-clickable — "Deck → profile
+   in 30s" · "Feedback → adaptation loop" ·
    "A2A negotiation" · "Mock portal pre-fill & gate" · "Doc produced live".
    Each seeds state and runs one beat, powered by `scripts/seed_demo.py
    --scenarios` (EXTEND the existing seed script — no duplicate seeders).

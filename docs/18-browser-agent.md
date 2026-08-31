@@ -52,9 +52,9 @@ model's good behavior.
 5. **No secrets in general browsing.** Credentials are typed only through the
    portal-credential path (17) by the form-filler; the browse context has no
    typing primitive outside recognized search boxes.
-6. **License hygiene.** Reference repos are pattern sources only
-   (`.opensrc/repos/…`, read-only). Skyvern is AGPL-3.0 — mine the patterns,
-   never copy code (same stance as the superdoc rejection in 15).
+6. **License hygiene.** Browser runtime code is first-party and pinned in this
+   repository. Do not import an additional browser-agent runtime or copy code
+   from unrelated projects.
 7. **One browser-owning instance (v1).** Live Playwright contexts are
    in-memory per process; Cloud Run `max-instances=1` for the agent service
    (13 — consistent with the near-zero-cost deployment). The durable
@@ -184,8 +184,8 @@ returns the recorded result without re-executing. A record found still
 re-executed blindly.
 
 **Indexed snapshot.** `propose_and_act` serializes the page's interactive
-elements to `[key]<tag role aria-label href/>` text (AX-tree + DOM merge, the
-browser-use pattern) and keeps `key → element handle`. The proposer emits a
+elements to `[key]<tag role aria-label href/>` text (AX-tree + DOM merge) and
+keeps `key → element handle`. The proposer emits a
 key; execution re-resolves the handle and **re-validates key + `dom_hash`
 immediately before acting** — mismatch → error `stale_page`, no action.
 
@@ -213,8 +213,8 @@ scroll | navigate_back`, submit controls excluded) — unchanged.
 consequential clicks cannot repeat on retry, and crash-ambiguous actions
 degrade to `needs_human` instead of re-executing.
 
-**Vision stays on-demand** (the browser-use `use_vision='auto'` pattern):
-bounded JPEG viewport frames are captured every step for ordered evidence and
+**Vision stays on-demand**: bounded JPEG viewport frames are captured every
+step for ordered evidence and
 the panel, but enter the model context only inside `propose_and_act`. Full-page
 PNG is reserved for blocked/final milestones (22).
 
@@ -393,10 +393,9 @@ what it says.") through the normal send path — the request travels the agent's
 policy and audit trail, so this surface never navigates directly. No
 click-through or founder takeover is exposed.
 
-This combines the OpenHands push-store pattern with Cline's ordered action
-frames and remains deliberately **not** VNC or an arbitrary-site iframe. 22's
-SSE channel is browser-observation-only; the existing `WS /live` remains
-voice-only.
+This uses push observations with ordered action frames and remains deliberately
+**not** VNC or an arbitrary-site iframe. 22's SSE channel is
+browser-observation-only; the existing `WS /live` remains voice-only.
 
 ## State, audit, endpoints
 
@@ -423,20 +422,14 @@ voice-only.
 | **`browse.*` (this spec)** | **orchestrator** | **read-only interactive open/navigate/read** | **new** |
 | **Browser panel (this spec)** | **UI** | **live view of any browser work** | **new** |
 
-## Reference implementations (pattern mining only)
+## Implementation decision
 
-| Repo | License | Stars (Aug 2026) | What we mined |
-|---|---|---|---|
-| `browser-use/browser-use` (local clone) | MIT | ~110k | Action allowlist + step/time budgets; indexed-DOM serialization; stale-DOM action guards; sensitive-data placeholder protocol (mirrors our server-resolved tokens); watchdog guards incl. IP-canonicalizing domain security; screencast live-view primitive |
-| `microsoft/playwright-mcp` | Apache-2.0 | ~36k | AX-tree/text-first page representation; origin allow/block config; granular tool surface |
-| `Skyvern-AI/skyvern` | AGPL-3.0 (patterns only, no code) | ~23k | Viewport livestreaming to a web UI; `act/extract/validate` AI-augmented Playwright actions |
-| `OpenHands/OpenHands` (local clone) | MIT | — | Browser observation store updated by WebSocket events while the turn is running |
-| `cline/cline` (local clone) | Apache-2.0 | — | `BrowserSession` ownership + ordered action-result frame timeline; debug/system-Chrome paths explicitly rejected by 22 |
-| `openclaw/openclaw` (local clone) | MIT | — | Session tab ownership, idle cleanup, launch circuit breaking, authenticated observation; headed/personal-profile modes rejected |
-
-Decision: keep our own thin Playwright + Gemini implementation (mandatory
-stack; 09 already ruled "no third-party browser agent"). These repos validate
-the design and supply the guardrail patterns; nothing is imported.
+Keep the browser runtime as a thin first-party Playwright + Gemini
+implementation. Its closed action allowlist, step/time budgets, stale-DOM
+guards, server-resolved sensitive values, session ownership, ordered frames,
+idle cleanup, launch circuit breaking, authenticated observation, and SSRF
+rechecks are repository-owned invariants. No additional browser-agent runtime
+is imported or required.
 
 ## Demo beat
 

@@ -73,8 +73,8 @@ PDF transport follows Gemini's supported 50 MB document limit; a larger binary
 is never silently truncated into a corrupt source.
 
 **Search-backend fallback:** `GoogleSearchTool` compatibility with Vertex AI +
-gemini-3.5-flash is **unverified by both reference implementations** — it is
-verified by a 15-minute spike on Day 1 (14). If it fails, the fallback is a
+gemini-3.5-flash is verified by a 15-minute spike on Day 1 (14). If it fails,
+the fallback is a
 plain search HTTP API behind the identical `search_programs` signature; the
 lane contract does not change and nothing downstream notices.
 

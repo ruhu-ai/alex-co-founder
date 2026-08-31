@@ -40,9 +40,7 @@ minimum inspect:
 - tests covering sessions, discovery, documents, attachments, browser events,
   approvals, feedback, and deletion/export.
 
-The optional repos `/Users/ijidailassa/projects/alvary` and
-`/Users/ijidailassa/projects/all-things-ai/.opensrc` are read-only pattern-
-mining inputs. Do not import from them or make this project depend on them.
+Do not import from unrelated source trees or make this project depend on them.
 
 ## Review tasks
 

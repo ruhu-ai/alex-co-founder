@@ -35,8 +35,8 @@ founder's voice and thinking through explicit feedback capture.
 - Never force-update or destructively reset `main`. If unrelated work is present,
   stage only owned paths and perform a conflict-aware integration that preserves
   both histories.
-- Never commit `.env`, secrets, generated outputs, local artifacts, or optional
-  reference repositories.
+- Never commit `.env`, secrets, generated outputs, local artifacts, or unrelated
+  source trees.
 - Historical specifications and evidence records may retain the branch/worktree
   names that describe what occurred. They are historical facts, not exceptions
   to this policy for future development.
@@ -64,7 +64,7 @@ founder's voice and thinking through explicit feedback capture.
 | `16-design-system.md` | Design tokens, icon sprite, contrast checks | Post-core |
 | `17-real-portal-access.md` | Portal registration + sign-in, mailbox verification loop, audited account creation | Post-core |
 | `18-browser-agent.md` | General-purpose browsing (`browse.*` tools), Browser panel live view | Post-core |
-| `19-winning-plan.md` | Gap analysis vs prior winner, prioritized Google-framework coverage, timeline to Aug 31 | Post-core |
+| `19-winning-plan.md` | Release gap analysis, prioritized Google-framework coverage, timeline to Aug 31 | Post-core |
 | `20-gemma-evidence-checker.md` | Isolated semantic evidence check before founder review; Gemma, validation, rollout eval | Post-core |
 | `21-alex-platform-north-star.md` | Post-v1 multi-workflow platform: natural conversation, durable runs, dynamic composition, agents/capabilities, long-running execution, safety and migration | North star / post-v1 |
 | `22-browser-runtime-hardening.md` | Production browser ownership, in-app event projection, containment watchdogs, leases, quotas, and no-external-window invariant | Post-core hardening |

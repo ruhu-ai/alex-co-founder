@@ -246,11 +246,9 @@ proves mailbox failure is rejected. A quiet role may be healthy. Binding health
 comes from watch expiry, cursor lag, complete reconciliation checkpoints, and
 controlled positive/negative probes—not the presence or absence of candidates.
 
-### 1.5 Google ADK new-hire-onboarding pattern disposition
+### 1.5 Hiring workflow design disposition
 
-The GoogleCloudPlatform `new-hire-onboarding` reference was reviewed as a
-demonstration pattern, not a production dependency. Five compatible patterns
-are accepted and made binding below:
+Five production patterns are binding:
 
 1. backend-authoritative surfaces with no optimistic workflow advancement;
 2. causal receipt-before-derived-artifact presentation;
@@ -261,18 +259,15 @@ are accepted and made binding below:
 5. a demonstration read from ordinary durable projections, with no independent
    mutable demo case store.
 
-Its process-memory cases, local artifact authority, UI interval polling,
+Process-memory cases, local artifact authority, UI interval polling,
 caller-selected webhook session identity, direct tool state mutation,
 prompt-only transition enforcement, and simulated provisioning secrets are
 explicitly rejected for this product. Optional Agent Runtime packaging remains
 a deployment decision and is not required to satisfy H0–H3.
 
-### 1.6 Broader GoogleCloudPlatform/generative-ai disposition
+### 1.6 Cross-cutting production disposition
 
-A repository-wide, risk-weighted review of the other agent, Gemini Enterprise,
-Computer Use, RAG/evaluation, MCP, document-extraction, multimodal, and sample-
-application projects at commit `3f34fcf0c3ab1777f1a1420ee7e2f6fde04111d7`
-accepted four additional production patterns:
+The repository-wide risk review accepts four additional production patterns:
 
 1. strict, versioned model-to-code envelopes with deterministic validation;
 2. authenticated workload identity distinct from human actor identity;
@@ -280,13 +275,13 @@ accepted four additional production patterns:
 4. baseline-parity, hard-negative, false-activation, and correct-abstention
    evaluation with human-reviewed synthetic cases.
 
-The review explicitly rejects sample shortcuts including unauthenticated task,
+The review explicitly rejects shortcuts including unauthenticated task,
 viewer, browser-decision, or mutation routes; process-global user OAuth tokens;
 tokens in logs, task prompts, session state, Firestore, or object storage;
 prompt-only approval/policy enforcement; unrestricted browser navigation;
 dynamic code-generated agents; generic tool/MCP import; polling memory; and
-non-idempotent event workers. GoogleCloudPlatform sample provenance does not
-make those patterns production-authoritative.
+non-idempotent event workers. Only the checked-in contracts and measured
+runtime behavior are production-authoritative.
 
 ---
 

@@ -94,7 +94,7 @@ Concrete rules for the implementation:
 
 ### State, memory, durability (core of the architecture score)
 
-- **Explicit state schema** in session state (`current_step`, `active_program`, `checklist_status`, `pending_signals`) — the agent is grounded in a state machine, not conversation replay. State variables are injected into the system instruction (`{current_step}` etc.) so the model always sees exact workflow position. State is initialized in a `before_agent_callback`. (Pattern from the ADK long-running-agents reference.)
+- **Explicit state schema** in session state (`current_step`, `active_program`, `checklist_status`, `pending_signals`) — the agent is grounded in a state machine, not conversation replay. State variables are injected into the system instruction (`{current_step}` etc.) so the model always sees exact workflow position. State is initialized in a `before_agent_callback`.
 - **Persistent sessions:** ADK DatabaseSessionService backed by Cloud SQL (or SQLite locally) so the agent survives restarts and can pause for days waiting on the founder or a deadline.
 - **Founder Profile (long-term memory):** structured document(s) in Firestore + Memory Bank: canonical facts, approved answer library, style/voice rules, rejection history with reasons. This is the "constantly adapts" evidence.
 - **Event-driven dormancy + resume:** instead of polling, the agent sleeps (container may scale to zero) and is woken by external events — Pub/Sub messages (deadline tick) and **FastAPI webhook endpoints** (founder reply, portal confirmation, mock-portal events). Discovery starts only from a founder action. On wake, a resume handler hydrates the persisted session and calls `runner.run_async(..., state_delta={...})` so the state transition is applied atomically *before* the next inference call — no replayed chat history, no hallucinated intermediate steps.
@@ -111,7 +111,6 @@ Concrete rules for the implementation:
 - Primary: **Cloud Run** (FastAPI app via ADK's `get_fast_api_app`) with scale-to-zero during dormancy; mock portal on a second Cloud Run service.
 - Optional/stronger: deploy via **Agent Runtime (Vertex AI Agent Engine)** using the `AdkApp` wrapper and `agents-cli deploy` — session persistence, auto-scaling, and Cloud Trace built in. Pick one per environment; note the choice in the README.
 - **Cloud Trace / structured logs** for end-to-end reasoning chains — show these in the video as production-readiness proof.
-- Reference implementation to study (not copy — disclose any borrowed code): `GoogleCloudPlatform/generative-ai` → `agents/adk/new-hire-onboarding`.
 
 ### Security (must be able to explain this to judges)
 

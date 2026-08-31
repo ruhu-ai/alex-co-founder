@@ -972,7 +972,8 @@ by default; `--apply` is required for deterministic writes).
   backfill neither resurrects nor duplicates it;
 - write a JSON summary with counts only, no founder content.
 
-The script must be safe to rerun and must never modify optional reference repos.
+The script must be safe to rerun and must never modify paths outside this
+repository or its configured data stores.
 
 ### Work item 6 — Search API
 
