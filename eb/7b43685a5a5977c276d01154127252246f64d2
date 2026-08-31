@@ -1,0 +1,28 @@
+tests/conftest.py
+  s_bf598a20bfcdaa::t_59aa3edab000c3 1526-1557,2173-2174
+services/external_event_service.py
+  s_bf598a20bfcdaa::t_1da4c1532d5e5c 374-448
+services/firestore.py
+  s_bf598a20bfcdaa::t_57d0ea6738f433 4005-4076
+tests/unit/test_external_event_service.py
+  s_bf598a20bfcdaa::t_033e873e0d04b8 344-406
+  s_bf598a20bfcdaa::t_6484c4ec8a133c 343
+scripts/replay_hiring_inbox_reply.py
+  s_bf598a20bfcdaa::t_fbbaf5d709e642 1-40
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "eb7b43685a5a5977c276d01154127252246f64d2",
+  "prompts": {},
+  "sessions": {
+    "s_bf598a20bfcdaa": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a04860-dde3-79c3-b2bd-2987b04adc68",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Ijidai Lassa <ijidai@cued.app>"
+    }
+  }
+}
