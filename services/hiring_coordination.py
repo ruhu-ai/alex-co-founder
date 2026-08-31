@@ -51,6 +51,7 @@ _ALEX_ADDRESS = "alex@ruhu.ai"
 _MANDATE_DAYS = 14
 _DEFAULT_INTERVIEW_MINUTES = 60
 _INTERVIEW_DURATION_OPTIONS = frozenset({30, 45, 60, 90})
+_RFC822_MESSAGE_ID = re.compile(r"<[^\s<>@\r\n]{1,200}@[^\s<>@\r\n]{1,200}>")
 
 
 def _error(code: str, message: str, http_status: int = 409) -> dict[str, Any]:
@@ -65,6 +66,23 @@ def _kill_switch() -> bool:
 def _founder_copy_address() -> str:
     value = os.environ.get("HIRING_FOUNDER_COPY_EMAIL", "").strip().casefold()
     return value if _EMAIL.fullmatch(value) else ""
+
+
+def _message_id(value: Any) -> str:
+    """Return one injection-safe RFC 5322 message id or an empty string."""
+    text = str(value or "").strip()
+    match = _RFC822_MESSAGE_ID.fullmatch(text)
+    return match.group(0) if match else ""
+
+
+def _reference_chain(*values: Any) -> str:
+    """Return a bounded, de-duplicated RFC 5322 References chain."""
+    ordered: list[str] = []
+    for value in values:
+        for token in _RFC822_MESSAGE_ID.findall(str(value or "")):
+            if token not in ordered:
+                ordered.append(token)
+    return " ".join(ordered[-20:])[:4000]
 
 
 def _provider_error(exc: Exception) -> dict[str, Any]:
@@ -169,12 +187,21 @@ class GoogleHiringProviderAdapter:
         message["X-CoFounder-Hiring-Action"] = action_id
         message["X-CoFounder-Hiring-Candidate"] = str(
             exact["candidate_application_id"])
+        prior_thread_id = str(payload.get("provider_thread_id") or "")
+        if prior_thread_id:
+            in_reply_to = _message_id(payload.get("in_reply_to"))
+            references = _reference_chain(payload.get("references"), in_reply_to)
+            if not in_reply_to or not references:
+                return _error(
+                    "reply_anchor_missing",
+                    "The verified email reply anchor is unavailable.", 409)
+            message["In-Reply-To"] = in_reply_to
+            message["References"] = references
         message.set_content(str(payload["body"]))
         raw = base64.urlsafe_b64encode(message.as_bytes()).decode()
         from googleapiclient.discovery import build
 
         request_body = {"raw": raw}
-        prior_thread_id = str(payload.get("provider_thread_id") or "")
         if prior_thread_id:
             request_body["threadId"] = prior_thread_id
         response = await asyncio.to_thread(
@@ -477,6 +504,8 @@ class HiringCoordinationService:
         default_subject = (
             f"Interview availability — {role.get('role_title', 'your application')}")
         provider_thread_id = ""
+        in_reply_to = ""
+        references = ""
         if reply:
             default_subject = f"Re: {default_subject}"
             prior_sends = [
@@ -495,6 +524,28 @@ class HiringCoordinationService:
                     "No verified applicant email thread is available.", 409)
             provider_thread_id = str(
                 (prior_sends[0].get("result_ref") or {})["provider_thread_id"])
+            latest_reply_id = str((mandate or {}).get(
+                "last_reply_correlation_id") or "")
+            latest_reply = (await self.store.get(
+                "hiring_reply_correlations", latest_reply_id)
+                if latest_reply_id else None)
+            if (latest_reply
+                    and latest_reply.get("candidate_application_id") == application_id
+                    and latest_reply.get("provider_thread_id") == provider_thread_id):
+                in_reply_to = _message_id(
+                    latest_reply.get("rfc822_message_id"))
+                references = _reference_chain(
+                    latest_reply.get("references"),
+                    latest_reply.get("in_reply_to"), in_reply_to)
+            if not in_reply_to:
+                in_reply_to = _message_id(
+                    (prior_sends[0].get("result_ref") or {}).get(
+                        "rfc822_message_id"))
+                references = _reference_chain(references, in_reply_to)
+            if not in_reply_to or not references:
+                return _error(
+                    "reply_anchor_missing",
+                    "The verified applicant email reply anchor is unavailable.", 409)
         rendered = "\n".join(
             f"{index + 1}. {slot['display']}" for index, slot in enumerate(slots))
         opening = ("Thank you for your reply." if reply else
@@ -551,6 +602,8 @@ class HiringCoordinationService:
             action_kind="HIRING_SEND_EMAIL", recipients=recipients,
             payload={"subject": final_subject, "body": final_body,
                      "provider_thread_id": provider_thread_id,
+                     "in_reply_to": in_reply_to,
+                     "references": references,
                      "candidate_recipient": candidate_email},
             slot_options=slots, mandate=mandate,
             candidate_first_name=candidate_name,
@@ -905,6 +958,10 @@ class HiringCoordinationService:
             "action_id": action["action_id"],
             "provider_message_id": provider_message_id,
             "provider_thread_id": thread_id,
+            "rfc822_message_id": _message_id(
+                provider_event.get("rfc822_message_id")),
+            "in_reply_to": _message_id(provider_event.get("in_reply_to")),
+            "references": _reference_chain(provider_event.get("references")),
             "message_kind": "AUTOMATED" if auto else "APPLICANT_REPLY",
             "auto_submitted": auto,
             "automation_basis": str(

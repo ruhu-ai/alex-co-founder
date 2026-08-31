@@ -238,12 +238,22 @@ class TestFetchDoesNotMarkProcessed:
             "Thank you for applying. The Founder is currently available.")
         _use(_FakeMessages(stubs=[{"id": "reply1"}], messages={
             "reply1": _msg("Re: Interview availability", body=body,
-                           sender="Ada <ada@example.test>")}))
+                           sender="Ada <ada@example.test>", extra_headers=[
+                               {"name": "Message-ID",
+                                "value": "<candidate-reply@example.test>"},
+                               {"name": "In-Reply-To",
+                                "value": "<alex-invite@ruhu.ai>"},
+                               {"name": "References",
+                                "value": "<root@ruhu.ai> <alex-invite@ruhu.ai>"},
+                           ])}))
 
         event = (await alex_mailbox.scan_unread())["events"][0]
 
         assert event["automated"] is False
         assert event["excerpt"] == "Tuesday 1 September at 11:00 WAT works for me."
+        assert event["rfc822_message_id"] == "<candidate-reply@example.test>"
+        assert event["in_reply_to"] == "<alex-invite@ruhu.ai>"
+        assert event["references"].endswith("<alex-invite@ruhu.ai>")
         assert "Thank you for applying" not in event["excerpt"]
 
     async def test_auto_submitted_header_remains_automated(self, mail_state):

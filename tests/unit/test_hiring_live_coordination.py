@@ -2,15 +2,20 @@
 
 from __future__ import annotations
 
+import base64
 import time
 from datetime import datetime
+from email import message_from_bytes
 
 import pytest
 
 from services.actor_identity import ActorPrincipal, WorkspaceRole
 from services.durable_store import InMemoryDurableStore
 from services.hiring_approval_service import resolve_approval
-from services.hiring_coordination import HiringCoordinationService
+from services.hiring_coordination import (
+    GoogleHiringProviderAdapter,
+    HiringCoordinationService,
+)
 from services.hiring_scheduling_agent import set_draft_fn, set_interpreter_fn
 
 
@@ -496,14 +501,93 @@ async def test_ambiguous_reply_gets_bounded_alex_followup_without_new_approval(
             "id": "message_ambiguous", "thread_id": "thread_hiring_1",
             "from": "Ada Candidate <ada@example.test>",
             "subject": "Re: Interview availability",
-            "excerpt": "Could you remind me of the available times?", "kind": "update"})
+            "excerpt": "Could you remind me of the available times?", "kind": "update",
+            "rfc822_message_id": "<candidate-reply@example.test>",
+            "in_reply_to": "<hiring@test>",
+            "references": "<root@ruhu.ai> <hiring@test>",
+        })
     assert reply["continuation_status"] == "success"
     assert len(await store.list("approvals", filters={})) == approval_count == 1
     assert [call["action_kind"] for call in provider.calls] == [
         "HIRING_SEND_EMAIL", "HIRING_SEND_EMAIL"]
+    reply_payload = provider.calls[-1]["exact_action"]["payload"]
+    assert reply_payload["provider_thread_id"] == "thread_hiring_1"
+    assert reply_payload["in_reply_to"] == "<candidate-reply@example.test>"
+    assert reply_payload["references"] == (
+        "<root@ruhu.ai> <hiring@test> <candidate-reply@example.test>")
     refreshed = await store.get(
         "hiring_coordination_mandates", mandate["mandate_id"])
     assert refreshed["email_count"] == 2
+
+
+@pytest.mark.asyncio
+async def test_google_reply_binds_thread_and_rfc_headers(monkeypatch):
+    captured = {}
+
+    class Request:
+        def execute(self):
+            return {"id": "sent_reply", "threadId": "thread_hiring_1"}
+
+    class Messages:
+        def send(self, *, userId, body):  # noqa: N803 - Google API name
+            assert userId == "me"
+            captured.update(body)
+            return Request()
+
+    class Users:
+        def messages(self):
+            return Messages()
+
+    class Gmail:
+        def users(self):
+            return Users()
+
+    async def credentials(_workspace_id, _connector_id):
+        return object()
+
+    monkeypatch.setattr(
+        GoogleHiringProviderAdapter, "_credentials", staticmethod(credentials))
+    monkeypatch.setattr("googleapiclient.discovery.build", lambda *a, **k: Gmail())
+    result = await GoogleHiringProviderAdapter()._send_email(
+        "founder",
+        {"candidate_application_id": "candidateapp_test",
+         "recipients": ["ada@example.test"],
+         "payload": {
+             "subject": "Re: Interview availability", "body": "Hello Ada",
+             "provider_thread_id": "thread_hiring_1",
+             "in_reply_to": "<candidate-reply@example.test>",
+             "references": "<root@ruhu.ai> <candidate-reply@example.test>",
+         }},
+        "action_reply", "provider_request_reply")
+
+    mime = message_from_bytes(base64.urlsafe_b64decode(captured["raw"]))
+    assert result["status"] == "success"
+    assert captured["threadId"] == "thread_hiring_1"
+    assert mime["In-Reply-To"] == "<candidate-reply@example.test>"
+    assert mime["References"] == (
+        "<root@ruhu.ai> <candidate-reply@example.test>")
+
+
+@pytest.mark.asyncio
+async def test_google_reply_fails_closed_without_verified_rfc_anchor(monkeypatch):
+    async def credentials(_workspace_id, _connector_id):
+        return object()
+
+    monkeypatch.setattr(
+        GoogleHiringProviderAdapter, "_credentials", staticmethod(credentials))
+    result = await GoogleHiringProviderAdapter()._send_email(
+        "founder",
+        {"candidate_application_id": "candidateapp_test",
+         "recipients": ["ada@example.test"],
+         "payload": {
+             "subject": "Re: Interview availability", "body": "Hello Ada",
+             "provider_thread_id": "thread_hiring_1",
+             "in_reply_to": "bad\r\nBcc: attacker@example.test",
+             "references": "",
+         }},
+        "action_reply", "provider_request_reply")
+
+    assert result["error_code"] == "reply_anchor_missing"
 
 
 @pytest.mark.asyncio

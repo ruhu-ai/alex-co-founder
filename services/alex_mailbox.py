@@ -197,6 +197,7 @@ def _message_to_event(svc, stub: dict) -> dict | None:
         "auto_submitted": header_map.get("auto-submitted", "")[:_META_CAP],
         "precedence": header_map.get("precedence", "")[:_META_CAP],
         "content_type": header_map.get("content-type", "")[:_META_CAP],
+        "rfc822_message_id": header_map.get("message-id", "")[:_META_CAP],
         "in_reply_to": header_map.get("in-reply-to", "")[:_META_CAP],
         "references": header_map.get("references", "")[:500],
         # The generic wake/inbox projection truncates this again to 280 chars.

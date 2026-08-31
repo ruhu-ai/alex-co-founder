@@ -1344,7 +1344,11 @@ coordination volume is governed by that consent and actual availability. The sen
 `external_actions` row before every Gmail call. Successful provider
 message/thread ids become the correlation authority for replies. Within the
 active consent Alex may continue only that exact candidate thread without a new
-approval for each message.
+approval for each message. Every continuation binds all three Gmail threading
+signals: the immutable provider `threadId`, a validated RFC 5322
+`In-Reply-To` parent, and the bounded `References` chain. A missing or malformed
+reply anchor fails closed before Gmail is called; a `Re:` subject alone never
+counts as thread continuity.
 
 Inbound mail is classified deterministically for DSN/deferred-delivery and
 automatic-reply semantics from provider headers/envelope facts before ordinary
@@ -2717,6 +2721,7 @@ synthetic identity/destination gate and H4S cannot authorize a live effect.
 - exact causal Alex Gmail thread + server-resolved applicant-address
   correlation and inbox receipt;
 - candidate-run-bound email/Calendar action ledger with PREPARED-before-provider;
+- exact Gmail `threadId` plus validated `In-Reply-To`/`References` continuity;
 - deterministic DSN/automatic-reply receipt classification and untrusted-content
   withholding;
 - Founder free/busy slot proposal, applicant email negotiation, interview
