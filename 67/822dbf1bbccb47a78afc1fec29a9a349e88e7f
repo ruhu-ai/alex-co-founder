@@ -1,0 +1,52 @@
+.env.example
+  s_bf598a20bfcdaa::t_fb382bee638ee0 253-254
+docs/25-hiring-operations.md
+  s_bf598a20bfcdaa::t_c2db996379ea62 1857
+  s_bf598a20bfcdaa::t_fb382bee638ee0 2761-2770,2811-2815,2820-2822
+services/hiring_contracts.py
+  s_bf598a20bfcdaa::t_32f1437e7595e2 586-631
+  s_bf598a20bfcdaa::t_3f67d913db205a 7,546-583
+  s_bf598a20bfcdaa::t_6018f32923f37b 584-585
+services/hiring_policy_service.py
+  s_bf598a20bfcdaa::t_9fc33ad571dfc6 216-217
+  s_bf598a20bfcdaa::t_c44ac9c63f07f7 192-199
+  s_bf598a20bfcdaa::t_3f67d913db205a 9-16,50-60,90-102,246-250
+services/hiring_role_draft.py
+  s_bf598a20bfcdaa::t_3f67d913db205a 10,318
+services/hiring_post_interview.py
+  s_bf598a20bfcdaa::t_565c741dcf5aea 197-207,909-914,1189-1191,1252-1254,1275-1277,1314-1316,1411,1423-1426
+  s_bf598a20bfcdaa::t_72543745dfa611 47,116-120,154-195
+  s_bf598a20bfcdaa::t_2fd002596c77d1 217-219,311-313,397-399,523-525,550-552,721-723,820-822,939-941,1034-1036,1087-1089
+  s_bf598a20bfcdaa::t_2468d087ffd1bb 809-810,812-813,1076-1077,1079-1080
+  s_bf598a20bfcdaa::t_fc12e782f7786e 196
+app/static/hiring.html
+  s_bf598a20bfcdaa::t_9fc33ad571dfc6 2265
+services/hiring_public_intake.py
+  s_bf598a20bfcdaa::t_97ae476cf9588a 414-417
+README.md
+  s_bf598a20bfcdaa::t_fb382bee638ee0 112,335-341,705-708,762-763
+tests/unit/test_hiring_h5_h7.py
+  s_bf598a20bfcdaa::t_4a10a3d2c90522 525-531
+  s_bf598a20bfcdaa::t_17040ed7335ae3 534-551
+  s_bf598a20bfcdaa::t_268c0eb0a5aac1 495,504-507,532-533,552-600
+  s_bf598a20bfcdaa::t_18bfb3cc59359d 28-29
+tests/unit/test_hiring_founder_draft.py
+  s_bf598a20bfcdaa::t_94e39f05e71927 295-345
+  s_bf598a20bfcdaa::t_739e74ac158cba 251-252,273-277
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "67822dbf1bbccb47a78afc1fec29a9a349e88e7f",
+  "prompts": {},
+  "sessions": {
+    "s_bf598a20bfcdaa": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a04860-dde3-79c3-b2bd-2987b04adc68",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Ijidai Lassa <ijidai@cued.app>"
+    }
+  }
+}
