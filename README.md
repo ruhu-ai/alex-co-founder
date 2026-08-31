@@ -3,7 +3,11 @@
 Co-Founder is a persistent AI operating partner for founders. It discovers
 funding opportunities, evaluates fit, interviews the team, drafts applications
 in the founder's voice, learns from feedback, works inside application portals,
-and follows through after submission.
+and follows through after submission. It also runs a role-scoped Hiring
+workspace: Alex drafts a real job package from the founder's description,
+publishes only after Founder approval, receives applications, prepares cited
+candidate evidence, coordinates interviews, and carries approved candidates
+through references, offers, and onboarding.
 
 It is not another chatbot that gives founders more advice. Co-Founder carries
 the operational workflow while every consequential decision remains with a
@@ -20,10 +24,12 @@ Google ADK, Gemini, Gemma, and Google Cloud.
 [Read the architecture](docs/01-architecture.md) ·
 [Review the evaluation evidence](docs/11-evaluations.md)
 
-> **Live access:** the current Cloud Run deployment is protected by a temporary
-> app-level access grant and returns `401` without it. Google Sign-In is the
-> planned replacement. See [Judge testing access](#judge-testing-access) for the
-> accounts that will be allowlisted. No access token is stored in this README.
+> **Live access:** the Founder application uses Google Sign-In and an exact,
+> active `FOUNDER` workspace membership. Protected routes return a generic
+> `401` to unauthenticated callers. A public job page exists only for an
+> approved, published role; its application form additionally requires the
+> encrypted-intake configuration. No credential, token, subject identifier, or
+> secret is stored in this README.
 
 ---
 
@@ -68,12 +74,44 @@ and safety boundaries.
   an explicit scope and unsupported scans are never presented as read.
 - **Works inside application portals** using guarded, headless Playwright
   automation and reports partial success when a field needs founder input.
-- **Requires approval for irreversible actions**. Submission, outbound email,
-  and meeting booking require a persisted, single-use, server-resolved approval.
+- **Requires durable authority for irreversible actions**. Submission and
+  standalone effects use persisted, single-use, server-resolved approvals.
+  Hiring coordination may instead use one recent Founder consent to activate a
+  time-bounded mandate constrained to the exact applicant, thread, policy,
+  availability, duration, and owned Calendar event.
 - **Owns an operational identity**, Alex (`alex@ruhu.ai`), for portal accounts
   and program correspondence without using the founder's personal inbox.
+- **Runs real Hiring operations** without a fixed demo role. A tool-less Gemini
+  writer turns the founder's description into a complete job package using the
+  existing schema; deterministic completeness and safety checks fail closed.
+- **Keeps hiring judgment human**. Alex prepares citation-bound evidence and
+  coordinates an approved applicant thread, but never scores, ranks, advances,
+  rejects, offers, or hires a candidate on its own.
+- **Coordinates interviews as a durable goal**. After an evidence-backed
+  Founder `ADVANCE`, verified Alex Mail events wake the bounded
+  `SCHEDULE_INTERVIEW` goal; Alex rechecks Founder Calendar availability,
+  negotiates in the exact applicant thread, and creates or updates only the
+  Hiring-owned event within the approved mandate.
+- **Provides optional cross-session memory** with explicit Remember, Correct,
+  Pin, Forget, Disable, export, deletion-ledger, expiry, and private-session
+  fences. Memory is advisory and cannot authorize an action.
+- **Can prepare bounded background drafts** from an immutable Founder-owned
+  artifact. This lane has its own allowlist, queue, admission/execution flags,
+  and kill switch; it cannot browse, use connectors, send messages, perform an
+  external effect, or write memory.
 - **Sleeps when nothing is happening** and resumes from durable state when a
   founder action, webhook, scheduled task, or program response arrives.
+
+### Implementation and release status
+
+| Capability | Repository state | Release boundary |
+|---|---|---|
+| Funding/program applications | Complete guarded lifecycle through submission and follow-up | Provider and submission effects still require their exact connectors and approvals |
+| Hiring H0–H4 | Real role intake, public application, restricted evidence, Founder decisions, and durable interview coordination implemented | Gmail/Calendar watches, connectors, workspace admission, and kill switch must be healthy |
+| Hiring H5–H6 | References, offers, accepted-offer handoff, and onboarding workflow implemented | External effects remain behind H7 prerequisites and release controls |
+| Hiring H7 | Executable fail-closed release projection implemented | Disabled until every named KMS, secret, HTTPS, provider, workspace, jurisdiction, and review prerequisite is real |
+| Spec 39 M2 memory | Founder-controlled memory implementation and measured canary path implemented | Default-off outside the exact attested Founder cohort; private sessions always exclude optional memory |
+| Spec 40 background work | One grounded, actor-private artifact-draft skill implemented | Separate admission/execution flags, bounded queue, monitoring, same-image rollback, and kill switch |
 
 ## Live demo
 
@@ -81,32 +119,38 @@ The production UI is deployed on Cloud Run:
 
 **[https://co-founder-64dgomo23q-uc.a.run.app](https://co-founder-64dgomo23q-uc.a.run.app)**
 
-The founder cockpit combines five surfaces:
+The Founder product combines these surfaces:
 
-- A pipeline for discovered, shortlisted, and active opportunities.
+- A product rail for Alex, Search, Runs, Hiring, Decisions, Activity, and
+  Settings.
+- A funding pipeline for discovered, shortlisted, and active opportunities.
+- A Hiring workspace for roles, public application links, restricted candidate
+  evidence, human decisions, communication, interviews, references, offers,
+  and onboarding.
 - A conversation with Alex over text, voice notes, or real-time Gemini Live.
-- A section-by-section review panel with approve/edit/reject controls.
+- Contextual Work, Evidence, Decisions, and Activity views with committed-state
+  indicators rather than optimistic UI transitions.
 - A built-in Browser panel showing headless research and form-filling progress.
-- An approval panel for submission, email, and calendar actions.
+- Connector and approval panels for Drive, Gmail, Calendar, submission, email,
+  and calendar actions.
 
 The UI does not optimistically advance the workflow. A state changes only after
 the backend commits the transition. Generated documents are real files; portal
 fills have inspection evidence and exact filled/needs-human reports; approval
 status is resolved on the server rather than accepted from chat.
 
-### Judge testing access
+### Authenticated testing access
 
-The current deployment uses a temporary maintainer-issued app grant. We will
-replace it with email and Google Sign-In authentication. When that change is
-enabled, these judge accounts will be explicitly allowlisted:
+The product has one application role: `FOUNDER`. Google authentication proves
+the account, while an active workspace membership grants product access. It
+does not bypass recent-sign-in, CSRF, durable workflow, approval, connector, or
+external-effect controls. Test accounts must be provisioned out of band; this
+repository intentionally contains no allowlisted email, subject, or credential.
 
-- `testing@devpost.com`
-- `cloudhackathons@google.com`
-
-Testing flow after Google Sign-In is enabled:
+Suggested authenticated test flow:
 
 1. Open the deployed app and choose **Continue with Google**.
-2. Sign in with either allowlisted judge account above.
+2. Sign in with a provisioned Founder account.
 3. Start a **New session** and ask Alex to show the current opportunity pipeline.
 4. Select a shortlisted opportunity and answer the guided interview questions.
 5. Review a draft section. Reject one with a specific reason, such as “avoid the
@@ -121,9 +165,8 @@ Testing flow after Google Sign-In is enabled:
 10. Use the approval panel, review the irreversible action, and approve the
     final submission.
 
-Until Google Sign-In is deployed, a `401` at the public URL means the access
-gate is working as designed, not that the service is unavailable. Maintainers
-can provide temporary judge access privately; credentials must never be posted
+A `401` on a protected route means the authentication boundary is working as
+designed, not that the service is unavailable. Credentials must never be posted
 in an issue, commit, recording, or shared URL.
 
 ---
@@ -246,6 +289,57 @@ The binding transition guards and side effects are documented in
 
 ---
 
+## Hiring operations
+
+Hiring is a separate, role-scoped workflow, not a synthetic package attached to
+the funding pipeline. The fixed Forward Deployment Engineer case remains an
+optional, visibly synthetic fixture; normal `/hiring` intake starts from the
+Founder's real description.
+
+```mermaid
+flowchart LR
+    D["Founder describes a role"] --> J["Alex drafts complete job package"]
+    J --> A{"Founder approves and publishes?"}
+    A -->|No| J
+    A -->|Yes| P["Public job page and encrypted application intake"]
+    P --> E["Alex prepares restricted, citation-bound evidence"]
+    E --> H{"Founder decision"}
+    H -->|Advance| S["Durable SCHEDULE_INTERVIEW goal"]
+    H -->|Hold or decline| W["Committed human-controlled state"]
+    S --> I["Verified applicant-thread negotiation and interview"]
+    I --> R{"Founder post-interview decision"}
+    R -->|References| C["Candidate-authorized reference checks"]
+    R -->|Offer| O["Exact approved offer and signature event"]
+    O --> N["Separate onboarding run"]
+```
+
+Important boundaries:
+
+- Applications, CVs, evidence, identities, and conversations remain inside the
+  Hiring scope and are excluded from global search, Founder Profile memory, and
+  company knowledge.
+- Alex prepares `PRESENT`, `MISSING`, `UNCLEAR`, and contradiction evidence with
+  resolvable source citations. These labels are not scores or hiring advice.
+- Only the Founder commits `ADVANCE`, `HOLD`, `DECLINE`, reference, offer, and
+  onboarding decisions. A model message or elapsed time never creates one.
+- A single recent Founder consent may activate a time-bounded interview mandate
+  for the exact candidate, policy, recipient, thread, duration, and scheduling
+  window. Provider effects remain idempotent, receipted, and uncertainty-safe.
+- Reference contacts are envelope encrypted; each outreach and response is
+  bound to exact approval, a controlled Alex Mail action, and an opaque token.
+- Offer acceptance creates exactly one separately permissioned onboarding run.
+  Onboarding completion refuses unresolved tasks or open external actions.
+
+The H5/H6 workflow and execution core is implemented. Production H7 effects
+remain deliberately fail-closed until the deployment has its exact Founder
+workspace, HTTPS public origin, Cloud KMS key, response/signature secrets,
+chosen e-signature provider, jurisdiction review reference, qualified review
+reference, connector readiness, enable flag, and released kill switch. Missing
+values are reported as blockers; the application never invents release
+evidence. See [docs/25-hiring-operations.md](docs/25-hiring-operations.md).
+
+---
+
 ## Multi-agent architecture
 
 The root **Orchestrator** owns the founder relationship and state-machine
@@ -260,6 +354,12 @@ routing. Specialist agents receive only the tools required for their role:
 | Drafter | Retrieve relevant evidence, draft sections, and produce documents | Cannot submit an application. |
 | Form-Filler | Inspect portals, map questions, fill approved answers, and submit behind approval | Cannot invent facts or draft new founder claims. |
 | Distiller | Convert feedback into profile updates in an isolated system session | Receives the feedback payload with `include_contents="none"`, never founder chat history. |
+
+Hiring adds bounded domain workers rather than widening the root agent's tool
+authority: the job-spec writer is tool-less; the evidence analyst reads only
+Hiring-restricted artifacts; the scheduling interpreter produces a validated
+plan while deterministic services own thread correlation, availability,
+idempotency, provider effects, and state transitions.
 
 The model tiers are selected by workload:
 
@@ -289,6 +389,22 @@ Founder rejection
   → append-only audit evidence
 ```
 
+Optional M2 durable memory is a separate founder-controlled layer for small,
+explicit facts and preferences. It is default-off outside an attested Founder
+canary, performs zero optional-memory I/O in private sessions, and never ingests
+transcripts automatically. Deletion tombstones and the separately administered
+ledger prevent forgotten lineages from being restored by replay or backup.
+
+### Bounded background work
+
+The background skill lane can prepare one actor-private, citation-grounded
+draft from an immutable artifact owned by the same Founder workspace/session.
+It uses one bounded model call and no tool loop. Admission, specialist
+execution, artifact preparation, and queue dispatch are independently
+controlled; the preparation kill switch is the final enable. Open web,
+connectors, approvals, external actions, memory writes, and conversation
+delivery remain unavailable in that lane.
+
 ### Guarded browser automation
 
 Playwright is permanently headless. Before acting, the Form-Filler inspects the
@@ -306,7 +422,8 @@ deadlines, and submission status.
 
 - **Google ADK** — agent graph, sessions, tools, callbacks, and evaluations.
 - **Vertex AI** — Gemini, Gemini Live, embeddings, and optional Gemma MaaS.
-- **Cloud Run** — founder application and isolated mock program portal.
+- **Cloud Run** — Founder application, isolated browser worker, and mock program
+  portal.
 - **Cloud SQL** — durable ADK sessions across cold starts and revisions.
 - **Firestore** — opportunities, applications, profiles, approvals, feedback,
   evidence checks, browser runs, and append-only audit records.
@@ -314,7 +431,8 @@ deadlines, and submission status.
 - **Secret Manager** — connector and portal credentials fetched by name only at
   execution time.
 - **Pub/Sub, Cloud Scheduler, Cloud Tasks, and signed webhooks** — manual durable
-  discovery, scheduled deadline checks, resumptions, and retries.
+  discovery, Gmail event wakes, scheduled deadline/watch maintenance,
+  resumptions, background-pilot dispatch, and bounded retries.
 - **Cloud Build** — reproducible deployment.
 
 See the full [service architecture diagram](docs/architecture-diagram.md) and
@@ -355,7 +473,10 @@ all-things-ai/
 ├── agents/co_founder/          # ADK app, state callbacks, instructions, tools
 │   └── sub_agents/             # Scout, Matchmaker, Interviewer, Drafter, Form-Filler
 ├── app/                        # FastAPI UI, auth, chat, voice, webhooks, task routes
-├── services/                   # Firestore, models, artifacts, memory, evidence, connectors
+│   └── static/hiring.html      # Role, candidate, evidence, decision and onboarding UI
+├── services/                   # Firestore, artifacts, memory, connectors and domain services
+│   ├── hiring_*.py             # Intake, evidence, coordination, references, offers, onboarding
+│   └── durable_memory*.py      # Founder-controlled M2 memory and release boundary
 ├── mock_portal/                # Demo application portal and A2A program agent
 ├── workflows/                  # Domain-neutral declarative workflow definitions
 ├── tests/
@@ -452,6 +573,23 @@ Founder sign-in (email + Google) is optional and off until configured: set
 handles sign-in and the account menu (top-left avatar) shows the signed-in
 founder with Connectors, Settings, and Log out.
 
+The product role is always `FOUNDER`; there is no Owner/Operator role selector.
+In a deployed workspace, seed the exact authenticated subject with
+`scripts/seed_workspace_founder.py` before enabling protected mutations.
+
+For automatic local Alex Mail wakeups, configure both the existing deployed
+topic and the dedicated local subscription before starting the launcher:
+
+```bash
+ALEX_MAIL_PUBSUB_TOPIC=projects/<project>/topics/alex-mail-events
+ALEX_MAIL_LOCAL_SUBSCRIPTION=projects/<project>/subscriptions/alex-mail-local-dev
+./scripts/run_local.sh
+```
+
+The local subscriber acknowledges an event only after the authenticated local
+webhook succeeds. Manual mailbox scan/replay remains a recovery tool, not the
+normal scheduling loop.
+
 To exercise conversational discovery locally after running the test and eval
 commands below, set `DISCOVER_COMMAND_ENABLED=true`, restart the app, and send:
 
@@ -473,6 +611,7 @@ silently updating the Founder Profile.
 | `python scripts/seed_demo.py` | Seed `founder`, `eval_founder`, demo opportunities, and workflow data. |
 | `./scripts/run_local.sh` | Run and health-check the stable founder app and mock portal together. |
 | `./scripts/run_local.sh --reload` | Run both local services with development hot reload. |
+| `LOCAL_ENV_FILE=/saved/project/.env LOCAL_VENV_DIR=/saved/project/.venv ./scripts/run_local.sh` | Run an isolated clean checkout while keeping one authoritative local credential/session configuration. |
 | `python -m pytest tests/unit tests/integration -q` | Run deterministic unit, service, and integration tests. |
 | `ruff check .` | Run Python static checks. |
 | `python scripts/check_contrast.py` | Verify the founder UI's semantic color contrast. |
@@ -557,6 +696,13 @@ Production posture:
 - Secrets are fetched by name at execution time, never baked into the image.
 - Browser access is fail-closed to the production allowlist.
 - Every externally visible action is idempotent and audited.
+- M2 memory is default-off unless its exact candidate hash, attestation,
+  Founder cohort, deletion ledger, monitoring, and rollback gate all pass.
+- Background admission/execution flags are independent, queues are bounded,
+  and kill switches default on.
+- Hiring H5–H7 external effects stay disabled until their workspace,
+  jurisdiction/review references, KMS/Secret Manager bindings, public HTTPS
+  origin, connector checks, and signature adapter are real and verifiable.
 
 ## Observability
 
@@ -578,7 +724,9 @@ Operational evidence is available through:
 
 ## Safety guarantees
 
-- Session state—not chat history—grounds every workflow decision.
+- Durable workflow, domain, approval, and action records authorize every
+  transition or consequence. Reconciled session state grounds model inference;
+  chat history authorizes nothing.
 - Tools return structured errors as data instead of raising failures into the
   model conversation.
 - Drafting, portal opening, submission, email, and calendar actions have code
@@ -588,21 +736,36 @@ Operational evidence is available through:
 - Idempotency keys make retries and webhook redelivery safe.
 - Web pages, PDFs, emails, and A2A messages are treated as untrusted data.
 - The Distiller is isolated from founder conversation history.
+- Private sessions perform zero optional-memory reads and writes; forgotten
+  memory lineages cannot be restored through ordinary replay.
+- Candidate evidence and identity remain Hiring-restricted. Alex cannot score,
+  rank, recommend, advance, reject, offer, or hire without the corresponding
+  human decision and exact effect authority.
+- Gmail and Calendar scope grants are capabilities, not authority: recipient,
+  thread, policy, availability, mandate, approval, idempotency, and kill-switch
+  checks still execute in code.
 - Every external action and refusal writes auditable evidence.
 
 ## What's next
 
-Funding applications are workflow one. The same
-Scout → Matchmaker → Guide → Drafter → Action → Approval → Follow-up pattern can
-support investor outreach, customer discovery, compliance deadlines, hiring
-operations, bookkeeping reconciliation, and vendor follow-through.
+Funding applications and Hiring operations are the first complete workflow
+families on the same durable platform. The reusable pattern is
+Discover/Intake → Evidence → Draft/Plan → Human Decision → Exact Action → Wait →
+Reconcile → Close.
 
-Near-term product work includes Google Sign-In with the judge allowlist,
-the additive `/discover + context` and `/apply <opportunity>` conversation
-entries described in the north star, multi-founder identity and permissions,
-additional business workflow definitions, and graduating the Gemma evidence
-checker only after its labelled rollout evals meet the documented precision and
-false-positive thresholds.
+Near-term work is operational rather than another broad feature layer:
+
+- provision and independently verify the remaining H7 KMS, secret, HTTPS,
+  e-signature, jurisdiction, and qualified-review prerequisites before enabling
+  real reference/offer/onboarding effects;
+- keep validating Gmail watch recovery, exact applicant-thread correlation,
+  Founder Calendar availability, and uncertain-effect reconciliation;
+- expand the constrained background lane only through separately measured
+  skills and unchanged kill-switch/rollback controls;
+- graduate optional Gemma evidence checking only after labelled rollout evals
+  meet the documented precision and false-positive thresholds; and
+- design multi-founder admission and permissions as a separate reviewed model,
+  not as another role flag in the current one-Founder product.
 
 The boundary remains deliberate: strategy, pricing, hiring decisions, and
 pivots belong to people.
