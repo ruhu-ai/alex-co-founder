@@ -310,6 +310,8 @@ CONTROLLED_ACTION_CAPABILITIES: dict[str, CapabilityDescriptor] = {
         ("H4S_UPDATE_CALENDAR_EVENT", "h4s_google", "calendar_event_id.v1"),
         ("H4S_CANCEL_CALENDAR_EVENT", "h4s_google", "calendar_event_id.v1"),
         ("HIRING_SEND_EMAIL", "alex_mail", "gmail_rfc822_message_id.v1"),
+        ("HIRING_SEND_REFERENCE_REQUEST", "alex_mail",
+         "gmail_rfc822_message_id.v1"),
         ("HIRING_CREATE_INTERVIEW", "calendar", "calendar_event_id.v1"),
         ("HIRING_UPDATE_INTERVIEW", "calendar", "calendar_event_id.v1"),
         ("HIRING_CANCEL_INTERVIEW", "calendar", "calendar_event_id.v1"),

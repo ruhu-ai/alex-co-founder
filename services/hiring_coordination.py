@@ -141,6 +141,9 @@ class GoogleHiringProviderAdapter:
             if action_kind == "HIRING_SEND_EMAIL":
                 return await self._send_email(
                     workspace_id, exact_action, action_id, provider_request_id)
+            if action_kind == "HIRING_SEND_REFERENCE_REQUEST":
+                return await self._send_email(
+                    workspace_id, exact_action, action_id, provider_request_id)
             if action_kind == "HIRING_CREATE_INTERVIEW":
                 return await self._create_interview(workspace_id, exact_action, action_id)
             if action_kind == "HIRING_UPDATE_INTERVIEW":
@@ -154,7 +157,8 @@ class GoogleHiringProviderAdapter:
     async def reconcile(self, *, workspace_id: str,
                         action: dict[str, Any]) -> dict[str, Any]:
         try:
-            if action.get("action_kind") == "HIRING_SEND_EMAIL":
+            if action.get("action_kind") in {
+                    "HIRING_SEND_EMAIL", "HIRING_SEND_REFERENCE_REQUEST"}:
                 return await self._reconcile_email(workspace_id, action)
             return await self._reconcile_calendar(workspace_id, action)
         except Exception as exc:

@@ -149,6 +149,7 @@ def _collection_ref(name: str):
         "hiring_coordination_items": client.collection("hiring_coordination_items"),
         "hiring_coordination_mandates": client.collection("hiring_coordination_mandates"),
         "hiring_interviews": client.collection("hiring_interviews"),
+        "hiring_reference_contacts": client.collection("hiring_reference_contacts"),
         "reference_checks": client.collection("reference_checks"),
         "offers": client.collection("offers"),
         "onboarding_runs": client.collection("onboarding_runs"),

@@ -15,7 +15,7 @@ from typing import Any, Literal
 from urllib.parse import quote
 
 from fastapi import FastAPI, File, Form, Request, UploadFile
-from fastapi.responses import JSONResponse, Response
+from fastapi.responses import HTMLResponse, JSONResponse, Response
 from pydantic import BaseModel, ConfigDict, Field
 
 from app import auth
@@ -35,8 +35,11 @@ from services.hiring_contracts import (
     OfferSignatureEventInput,
     OnboardingItemResolutionInput,
     OnboardingPlanInput,
+    OnboardingProgressInput,
     PostInterviewDecisionInput,
+    ReferenceContactInput,
     ReferenceEvidenceInput,
+    ReferenceOutreachExecutionInput,
     ReferencePermissionInput,
     RoleContract,
     SyntheticFixtureMessage,
@@ -576,6 +579,35 @@ def register(app: FastAPI) -> None:
         return _response(await HiringPostInterviewService(
             production_store()).record_reference_evidence(
                 principal=None, application_id=application_id, payload=payload))
+
+    @app.get("/api/public/hiring/references/{reference_check_id}")
+    async def public_reference_request(
+            reference_check_id: str, token: str):
+        """Return only exact approved questions for one valid response token."""
+        return _response(await HiringPostInterviewService(
+            production_store()).reference_response_projection(
+                reference_check_id=reference_check_id,
+                response_token=token))
+
+    @app.get("/hiring/reference-response/{reference_check_id}")
+    async def reference_response_page(reference_check_id: str):
+        """Render the isolated token-authenticated reference response surface."""
+        del reference_check_id
+        return HTMLResponse("""<!doctype html><html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Professional reference · Ruhu</title><style>
+body{font:16px/1.5 system-ui;background:#0b0d12;color:#f3f5fa;margin:0;padding:32px}
+main{max-width:720px;margin:auto;background:#151923;border:1px solid #343b4d;border-radius:16px;padding:28px}
+label{display:block;margin:18px 0 8px}select,textarea,button{box-sizing:border-box;width:100%;font:inherit;color:inherit;background:#0f131c;border:1px solid #566079;border-radius:10px;padding:12px}textarea{min-height:160px}button{margin-top:18px;background:#315ec7;cursor:pointer}p{color:#b8c0d3}.error{color:#ff9d95}.success{color:#73dca5}</style></head><body><main>
+<h1>Professional reference</h1><p id="intro">Loading the approved request…</p>
+<form id="form" hidden><label for="criterion">Approved criterion</label><select id="criterion"></select>
+<label for="claim">Your job-related response</label><textarea id="claim" maxlength="1200" required></textarea>
+<button type="submit">Submit reference response</button></form><p id="status" role="status"></p>
+</main><script>
+const id=location.pathname.split('/').pop(),token=new URLSearchParams(location.search).get('token')||'',status=document.querySelector('#status');
+async function boot(){const r=await fetch(`/api/public/hiring/references/${encodeURIComponent(id)}?token=${encodeURIComponent(token)}`),d=await r.json();if(!r.ok||d.error){status.className='error';status.textContent=d.message||'This request is unavailable.';return}document.querySelector('#intro').textContent=`The candidate permitted this request. Please answer only the approved job-related questions: ${(d.approved_questions||[]).join(' ')}`;const s=document.querySelector('#criterion');(d.criterion_ids||[]).forEach(v=>{const o=document.createElement('option');o.value=v;o.textContent=v.replaceAll('_',' ');s.append(o)});document.querySelector('#form').hidden=false}
+document.querySelector('#form').addEventListener('submit',async e=>{e.preventDefault();const body={schema_version:1,reference_check_id:id,response_token:token,criterion_id:document.querySelector('#criterion').value,claim:document.querySelector('#claim').value,source_locator:'secure reference response form',contradictions:[],unknowns:[],client_request_id:`reference_response_${crypto.randomUUID().replaceAll('-','_')}`};const r=await fetch(`/api/public/hiring/references/${encodeURIComponent(id)}/evidence`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}),d=await r.json();status.className=r.ok&&!d.error?'success':'error';status.textContent=r.ok&&!d.error?'Thank you. Your response was securely recorded.':d.message||'The response could not be recorded.';if(r.ok&&!d.error)document.querySelector('#form').hidden=true});boot();
+</script></body></html>""", headers={"Cache-Control": "no-store"})
 
     @app.post("/api/public/hiring/offers/{offer_id}/signature-events")
     async def submit_offer_signature_event(
@@ -1717,6 +1749,54 @@ def register(app: FastAPI) -> None:
                 principal=principal, application_id=application_id,
                 payload=payload))
 
+    @app.post("/api/hiring/applications/{application_id}/reference-contacts")
+    async def store_reference_contact(
+            request: Request, application_id: str,
+            payload: ReferenceContactInput):
+        """Encrypt one candidate-provided reference contact outside projections."""
+        denied = _mutation_allowed(request)
+        if denied.get("error"):
+            return _response(denied)
+        principal = await _actor(request)
+        if isinstance(principal, dict):
+            return _response(principal)
+        return _response(await HiringPostInterviewService(
+            production_store()).store_reference_contact(
+                principal=principal, application_id=application_id,
+                payload=payload))
+
+    @app.post("/api/hiring/applications/{application_id}/reference-outreach/execute")
+    async def execute_reference_outreach(
+            request: Request, application_id: str,
+            payload: ReferenceOutreachExecutionInput):
+        """Execute one exact approved Alex Mail reference request."""
+        denied = _mutation_allowed(request)
+        if denied.get("error"):
+            return _response(denied)
+        principal = await _actor(request)
+        if isinstance(principal, dict):
+            return _response(principal)
+        return _response(await HiringPostInterviewService(
+            production_store()).execute_reference_outreach(
+                principal=principal, application_id=application_id,
+                payload=payload))
+
+    @app.post("/api/hiring/applications/{application_id}/references/{reference_check_id}/reconcile")
+    async def reconcile_reference_outreach(
+            request: Request, application_id: str,
+            reference_check_id: str):
+        """Reconcile one uncertain reference send without repeating it."""
+        denied = _mutation_allowed(request)
+        if denied.get("error"):
+            return _response(denied)
+        principal = await _actor(request)
+        if isinstance(principal, dict):
+            return _response(principal)
+        return _response(await HiringPostInterviewService(
+            production_store()).reconcile_reference_outreach(
+                principal=principal, application_id=application_id,
+                reference_check_id=reference_check_id))
+
     @app.post("/api/hiring/applications/{application_id}/reference-evidence")
     async def record_reference_evidence(
             request: Request, application_id: str,
@@ -1821,6 +1901,20 @@ def register(app: FastAPI) -> None:
             return _response(principal)
         return _response(await HiringPostInterviewService(
             production_store()).resolve_onboarding_item(
+                principal=principal, payload=payload))
+
+    @app.post("/api/hiring/onboarding/progress")
+    async def progress_onboarding(
+            request: Request, payload: OnboardingProgressInput):
+        """Commit one explicit, server-validated onboarding transition."""
+        denied = _mutation_allowed(request)
+        if denied.get("error"):
+            return _response(denied)
+        principal = await _actor(request)
+        if isinstance(principal, dict):
+            return _response(principal)
+        return _response(await HiringPostInterviewService(
+            production_store()).progress_onboarding(
                 principal=principal, payload=payload))
 
     @app.post("/api/hiring/applications/{application_id}/conversations")

@@ -2775,38 +2775,46 @@ exact approval; duplicates and uncertain effects converge.
 
 ### H5–H7 implementation status (2026-08-31)
 
-The H5 and H6 durable workflow core is implemented:
+The H5 and H6 durable workflow and execution core is implemented:
 
 - criterion-bound interview evidence is non-scoring and requires the exact
   Hiring-owned Calendar receipt; consent is mandatory before attaching a
   transcript;
 - post-interview and final Founder decisions append to the decision ledger;
-- candidate permission, exact approved questions and an opaque response token
-  bind each reference report;
+- candidate permission, an envelope-encrypted reference contact, exact approved
+  questions, one fresh exact Founder outreach approval, an idempotent Alex Mail
+  receipt and an opaque response token bind each reference report. Contact
+  plaintext is revealed only inside that approved provider execution and is
+  absent from projections, approvals, action rows and logs;
 - an offer is an immutable version/hash plus a fresh exact Founder approval;
   only an HMAC-verified signature-adapter event can accept or decline it;
 - accepted-offer projection, offer terminal state and creation of exactly one
   `ONBOARDING` child run commit in one atomic database transaction;
 - onboarding has a separate approved plan, separate items and human-owner
-  completion/waiver. `ACCESS_REQUEST` means preparation only and grants no
-  provisioning authority.
+  completion/waiver. Explicit server-validated start-date, first-day,
+  first-week, completion-review and retention transitions prevent chat or
+  elapsed time from silently completing the run. `ACCESS_REQUEST` means
+  preparation only and grants no provisioning authority.
 
-This is not yet a production-complete H5 release. Real reference outreach must
-still be bound to the reviewed `alex_mail_v1` adapter and secure reference
-contact resolver, and the signature adapter must supply its verified event
-contract. Until then, candidate permission/questions and token-bound reference
-intake can be exercised locally, but the system does not claim a real outreach
-receipt. Reference content that contains protected-category data or prompt
-injection is withheld and cannot advance the candidate.
+The real reference path is now bound to the reviewed `alex_mail_v1` provider
+boundary and a dedicated envelope-encrypted contact resolver. The system writes
+`PREPARED` before the provider call, consumes one exact approval, reuses an
+idempotency key, blocks blind retry after uncertainty, and exposes a read-only
+reconciliation operation. Reference content containing protected-category data
+or prompt injection is withheld and cannot advance the candidate. Offer
+acceptance remains authoritative only through the configured HMAC signature
+adapter; email sentiment can never accept an offer.
 
 H7 remains deliberately fail-closed in production. The executable release
 projection requires the exact workspace allowlist, reviewed jurisdiction ref,
 signature adapter secret, a reviewed executable reference-contact resolver and
 outreach adapter, qualified-review ref, feature enable and inactive kill switch.
-The current source deliberately emits
-`reference_outreach_adapter_not_implemented`; no environment value can bypass
-that executable gap. Missing values are returned as content-free blockers.
-Local test execution does not constitute H7 production approval.
+The executable reference resolver additionally requires its dedicated Cloud KMS
+key, a separate response-token signing secret and the reviewed HTTPS public
+base URL. Missing values are returned as content-free blockers. When every
+technical and external prerequisite is present, the same checker reports no
+blockers; local test execution does not constitute jurisdiction or qualified
+review approval.
 
 ---
 

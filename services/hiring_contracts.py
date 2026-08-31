@@ -369,6 +369,27 @@ class ReferencePermissionInput(ClosedModel):
     expected_application_version: Annotated[int, Field(ge=1)]
 
 
+class ReferenceContactInput(ClosedModel):
+    """Candidate-provided reference contact encrypted outside general records."""
+
+    schema_version: Literal[1] = 1
+    name: Annotated[str, Field(min_length=1, max_length=200)]
+    email: Annotated[str, Field(
+        min_length=3, max_length=320,
+        pattern=r"^[^\s@]{1,64}@[^\s@]{1,190}\.[^\s@]{2,63}$")]
+    label: Annotated[str, Field(min_length=1, max_length=160)]
+    client_request_id: OpaqueId
+
+
+class ReferenceOutreachExecutionInput(ClosedModel):
+    """Consume one exact Founder approval for one reference request."""
+
+    schema_version: Literal[1] = 1
+    reference_check_id: OpaqueId
+    approval_id: OpaqueId
+    client_request_id: OpaqueId
+
+
 class ReferenceEvidenceInput(ClosedModel):
     schema_version: Literal[1] = 1
     reference_check_id: OpaqueId
@@ -437,6 +458,22 @@ class OnboardingItemResolutionInput(ClosedModel):
     note: Annotated[str, Field(max_length=1000)] = ""
     client_request_id: OpaqueId
     expected_item_version: Annotated[int, Field(ge=1)]
+
+
+class OnboardingProgressInput(ClosedModel):
+    """Founder-controlled lifecycle transition for one onboarding child run."""
+
+    schema_version: Literal[1] = 1
+    onboarding_run_id: OpaqueId
+    transition: Literal[
+        "SYNC_START_DATE",
+        "COMPLETE_FIRST_DAY",
+        "REQUEST_COMPLETION_REVIEW",
+        "COMPLETE_ONBOARDING",
+    ]
+    note: Annotated[str, Field(max_length=1000)] = ""
+    client_request_id: OpaqueId
+    expected_onboarding_version: Annotated[int, Field(ge=1)]
 
 
 class SyntheticEnvelope(ClosedModel):

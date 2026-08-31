@@ -65,7 +65,8 @@ EXEMPT_PREFIXES = ("/health", "/webhooks/", "/tasks/",  # "/health" covers /heal
                    "/auth/", "/login.html", "/hiring-notice.html",
                    "/api/public/hiring/roles/",
                    "/api/public/hiring/references/",
-                   "/api/public/hiring/offers/")
+                   "/api/public/hiring/offers/",
+                   "/hiring/reference-response/")
 
 
 def configured_token() -> str:

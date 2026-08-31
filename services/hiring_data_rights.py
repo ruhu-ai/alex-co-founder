@@ -250,6 +250,7 @@ class HiringDataRightsService:
                 "hiring_candidate_artifacts", "candidate_evidence",
                 "candidate_assessments", "hiring_decisions",
                 "hiring_candidate_requests", "hiring_interviews",
+                "hiring_reference_contacts",
                 "reference_checks", "offers", "onboarding_runs",
                 "onboarding_items", "founder_inbox", "external_events"):
             for row in await self.store.list(

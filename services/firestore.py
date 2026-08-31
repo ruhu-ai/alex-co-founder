@@ -156,6 +156,7 @@ TOP_LEVEL_COLLECTIONS: frozenset[str] = frozenset({
     "hiring_coordination_items",
     "hiring_coordination_mandates",
     "hiring_interviews",
+    "hiring_reference_contacts",
     "reference_checks",
     "offers",
     "onboarding_runs",

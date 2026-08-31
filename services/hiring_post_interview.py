@@ -14,11 +14,16 @@ import hashlib
 import hmac
 import os
 import secrets
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from services.actor_identity import ActorPrincipal, authorize
+from services.capability_registry import require_controlled_action
 from services.durable_store import AtomicMutation, DurableStore
-from services.hiring_approval_service import request_approval
+from services.hiring_approval_service import (
+    request_approval,
+    validate_approval_claim,
+)
 from services.hiring_contracts import (
     CandidateState,
     InterviewEvidenceInput,
@@ -28,16 +33,30 @@ from services.hiring_contracts import (
     OfferSignatureEventInput,
     OnboardingItemResolutionInput,
     OnboardingPlanInput,
+    OnboardingProgressInput,
     OnboardingState,
     PostInterviewDecisionInput,
     PostInterviewDecisionKind,
+    ReferenceContactInput,
     ReferenceEvidenceInput,
+    ReferenceOutreachExecutionInput,
     ReferencePermissionInput,
     canonical_hash,
     stable_id,
     utc_now,
 )
+from services.hiring_coordination import (
+    GoogleHiringProviderAdapter,
+    HiringProviderAdapter,
+)
 from services.hiring_evidence import redact_block
+from services.hiring_reference_contacts import (
+    ReferenceContactVault,
+    production_reference_resolver_configured,
+    reference_contact_vault,
+    reference_response_secret,
+    reference_response_token,
+)
 from services.hiring_workflow_adapter import (
     HiringWorkflowAdapter,
     founder_onboarding_provenance,
@@ -58,10 +77,14 @@ def _sha(value: str) -> str:
 class HiringPostInterviewService:
     """Implement H5-H7 with version-fenced, workspace-scoped records."""
 
-    def __init__(self, store: DurableStore, runtime: WorkflowRuntime | None = None):
+    def __init__(self, store: DurableStore, runtime: WorkflowRuntime | None = None,
+                 *, reference_vault: ReferenceContactVault | None = None,
+                 provider_adapter: HiringProviderAdapter | None = None):
         self.store = store
         self.runtime = runtime or WorkflowRuntime(
             store, domain_adapter=HiringWorkflowAdapter())
+        self.reference_vault = reference_vault or reference_contact_vault(store)
+        self.provider_adapter = provider_adapter or GoogleHiringProviderAdapter()
 
     def release_projection(self) -> dict[str, Any]:
         """Return the executable H7 release posture without changing state."""
@@ -72,6 +95,7 @@ class HiringPostInterviewService:
         jurisdiction = os.getenv("HIRING_H5_H7_JURISDICTION_REVIEW_REF", "")
         signature = bool(os.getenv("HIRING_SIGNATURE_WEBHOOK_SECRET", ""))
         reviewers = os.getenv("HIRING_H5_H7_REVIEW_REF", "")
+        base_url = os.getenv("HIRING_PUBLIC_BASE_URL", "").rstrip("/")
         blockers = []
         if cloud and not enabled:
             blockers.append("feature_disabled")
@@ -83,16 +107,19 @@ class HiringPostInterviewService:
             blockers.append("jurisdiction_review_missing")
         if not signature:
             blockers.append("signature_adapter_unconfigured")
-        # The reviewed reference-contact resolver/outreach adapter is not in
-        # this source yet.  Do not let an environment value manufacture a
-        # production-ready claim for a missing executable boundary.
-        blockers.append("reference_outreach_adapter_not_implemented")
+        if not production_reference_resolver_configured():
+            blockers.append("reference_contact_kms_unconfigured")
+        if reference_response_secret(production_only=True) is None:
+            blockers.append("reference_response_signing_unconfigured")
+        if not base_url.startswith("https://"):
+            blockers.append("public_base_url_unconfigured")
         if not reviewers:
             blockers.append("qualified_review_missing")
         return {
             "status": "success", "stage": "H7_CONSTRAINED_PILOT",
             "enabled": enabled and not kill, "kill_switch": kill,
             "workspace_id": workspace, "blockers": blockers,
+            "reference_outreach_adapter": "alex_mail_v1",
             "production_ready": cloud and not blockers,
             "forbidden": ["SCORING", "RANKING", "AUTO_DECLINE",
                           "BACKGROUND_CHECKS", "AUTO_PROVISIONING",
@@ -327,14 +354,65 @@ class HiringPostInterviewService:
         if not set(payload.criterion_ids) <= allowed:
             return _error("criterion_scope_invalid",
                           "Reference questions must use approved criteria.")
+        contact = await self.store.get(
+            "hiring_reference_contacts", payload.reference_contact_ref)
+        if (not contact or contact.get("workspace_id") != principal.workspace_id
+                or contact.get("role_id") != app.get("role_id")
+                or contact.get("candidate_application_id") != application_id
+                or contact.get("retention_status") != "ACTIVE"):
+            return _error(
+                "reference_contact_not_found",
+                "Store the candidate-provided reference contact before approval.", 404)
         reference_id = stable_id("reference", application_id,
                                  payload.client_request_id)
-        response_token = secrets.token_urlsafe(32)
+        token_nonce = secrets.token_urlsafe(18)
+        response_token = reference_response_token(reference_id, token_nonce)
+        if not response_token:
+            return _error(
+                "reference_response_signing_unavailable",
+                "Reference response authorization is unavailable.", 503)
+        base_url = os.getenv("HIRING_PUBLIC_BASE_URL", "").rstrip("/")
+        if not base_url and not os.getenv("K_SERVICE"):
+            base_url = "http://127.0.0.1:8090"
+        if not base_url:
+            return _error("public_base_url_unconfigured",
+                          "Reference response URL is unavailable.", 503)
+        response_path = f"/hiring/reference-response/{reference_id}"
+        exact = {
+            "schema_version": 1, "workspace_id": principal.workspace_id,
+            "role_id": app["role_id"],
+            "candidate_application_id": application_id,
+            "candidate_run_id": app["run_id"],
+            "policy_version_id": policy["policy_version_id"],
+            "action_kind": "HIRING_SEND_REFERENCE_REQUEST",
+            "connector_id": "alex_mail",
+            "reference_check_id": reference_id,
+            "reference_contact_ref": payload.reference_contact_ref,
+            "masked_recipient": contact["masked_email"],
+            "destination_ids": [payload.reference_contact_ref],
+            "reference_label": payload.reference_label,
+            "approved_questions": payload.approved_questions,
+            "criterion_ids": payload.criterion_ids,
+            "response_path": response_path,
+            "response_token_sha256": _sha(response_token),
+            "subject": "Reference request from Ruhu",
+            "body_template": "reference_request_v1",
+        }
+        approval = await request_approval(
+            principal=principal, run_id=str(app["run_id"]),
+            role_id=str(app["role_id"]),
+            policy_version_id=str(policy["policy_version_id"]),
+            action_kind="HIRING_SEND_REFERENCE_REQUEST", exact_action=exact,
+            client_request_id=f"reference_outreach:{payload.client_request_id}",
+            store=self.store)
+        if approval.get("error"):
+            return approval
         row = {
             "schema_version": 1, "reference_check_id": reference_id,
             "workspace_id": principal.workspace_id, "role_id": app["role_id"],
             "candidate_application_id": application_id,
-            "candidate_run_id": app["run_id"], "status": "AWAITING_RESPONSE",
+            "candidate_run_id": app["run_id"],
+            "status": "AWAITING_OUTREACH_APPROVAL",
             "permission_receipt_ref": payload.permission_receipt_ref,
             "permission_recorded_by": principal.actor_id,
             "reference_contact_ref": payload.reference_contact_ref,
@@ -342,7 +420,13 @@ class HiringPostInterviewService:
             "approved_questions": payload.approved_questions,
             "criterion_ids": payload.criterion_ids,
             "response_token_sha256": _sha(response_token),
-            "provider_thread_id": "", "report": None,
+            "response_token_nonce": token_nonce,
+            "response_token_expires_at": (
+                datetime.now(timezone.utc) + timedelta(days=30)).isoformat(),
+            "outreach_exact": exact,
+            "approval_id": approval["approval_id"],
+            "action_id": None, "provider_thread_id": "",
+            "provider_message_id": "", "report": None,
             "created_at": utc_now(), "version": 1,
         }
         committed = await self.store.atomic_compare_and_set((
@@ -358,12 +442,287 @@ class HiringPostInterviewService:
             if existing:
                 return {"status": "success", "duplicate": True,
                         "reference_check_id": reference_id,
+                        "approval_id": existing.get("approval_id"),
                         "response_token": None}
             return _error("version_conflict", "Reference permission was not committed.")
         return {"status": "success", "duplicate": False,
                 "reference_check_id": reference_id,
-                "response_token": response_token,
+                "approval_id": approval["approval_id"],
+                "approval_status": approval["approval_status"],
+                "response_token": None,
                 "candidate_state": CandidateState.REFERENCES_IN_PROGRESS.value}
+
+    async def store_reference_contact(
+            self, *, principal: ActorPrincipal, application_id: str,
+            payload: ReferenceContactInput) -> dict[str, Any]:
+        """Encrypt a candidate-provided reference identity for exact outreach."""
+        gate = self._gate(principal, "human_decision", fresh=True)
+        if gate.get("error"):
+            return gate
+        app = await self._application(principal, application_id)
+        if not app:
+            return _error("application_not_found", "Application does not exist.", 404)
+        if app.get("candidate_state") != CandidateState.AWAITING_REFERENCE_PERMISSION.value:
+            return _error("reference_stage_invalid",
+                          "References require a Founder decision and candidate permission.")
+        if not self.reference_vault:
+            return _error("reference_contact_encryption_unavailable",
+                          "Reference contact encryption is unavailable.", 503)
+        return await self.reference_vault.store_contact(
+            principal=principal, application=app, name=payload.name,
+            email=payload.email, label=payload.label,
+            client_request_id=payload.client_request_id)
+
+    async def execute_reference_outreach(
+            self, *, principal: ActorPrincipal, application_id: str,
+            payload: ReferenceOutreachExecutionInput) -> dict[str, Any]:
+        """Consume one exact approval and send one idempotent reference request."""
+        gate = self._gate(principal, "resolve_approval", fresh=True)
+        if gate.get("error"):
+            return gate
+        app = await self._application(principal, application_id)
+        check = await self.store.get("reference_checks", payload.reference_check_id)
+        if (not app or not check
+                or check.get("candidate_application_id") != application_id
+                or check.get("workspace_id") != principal.workspace_id):
+            return _error("reference_check_not_found", "Reference check does not exist.", 404)
+        if check.get("status") == "AWAITING_RESPONSE":
+            return {"status": "success", "duplicate": True,
+                    "reference_check_id": payload.reference_check_id,
+                    "action_id": check.get("action_id")}
+        if check.get("status") in {"OUTREACH_UNCERTAIN", "EXECUTING"}:
+            return _error("reference_outreach_reconciliation_required",
+                          "Reconcile the existing reference outreach; do not retry.")
+        if check.get("status") != "AWAITING_OUTREACH_APPROVAL":
+            return _error("reference_outreach_not_ready",
+                          "Reference outreach is not awaiting approval.")
+        exact = dict(check.get("outreach_exact") or {})
+        validated = await validate_approval_claim(
+            principal=principal, approval_id=payload.approval_id,
+            run_id=str(app["run_id"]),
+            policy_version_id=str(exact.get("policy_version_id") or ""),
+            action_kind="HIRING_SEND_REFERENCE_REQUEST", exact_action=exact,
+            store=self.store, require_fresh=True)
+        if validated.get("error"):
+            return validated
+        if not self.reference_vault:
+            return _error("reference_contact_encryption_unavailable",
+                          "Reference contact encryption is unavailable.", 503)
+        resolved = await self.reference_vault.reveal_for_outreach(
+            principal=principal,
+            contact_id=str(check["reference_contact_ref"]), application=app)
+        if resolved.get("error"):
+            return resolved
+        preflight = await self.provider_adapter.preflight(
+            workspace_id=principal.workspace_id, connector_id="alex_mail")
+        if preflight.get("status") != "success":
+            return preflight
+        capability = require_controlled_action(
+            "HIRING_SEND_REFERENCE_REQUEST", "alex_mail")
+        action_id = stable_id("hiringaction", principal.workspace_id,
+                              canonical_hash(exact))
+        current = await self.store.get("external_actions", action_id)
+        if current:
+            return await self._existing_reference_action(check, current)
+        token = reference_response_token(
+            payload.reference_check_id, str(check["response_token_nonce"]))
+        if not token or _sha(token) != check.get("response_token_sha256"):
+            return _error("reference_response_signing_unavailable",
+                          "Reference response authorization is unavailable.", 503)
+        base_url = os.getenv("HIRING_PUBLIC_BASE_URL", "").rstrip("/")
+        if not base_url and not os.getenv("K_SERVICE"):
+            base_url = "http://127.0.0.1:8090"
+        response_url = (
+            f"{base_url}{exact['response_path']}?token={token}"
+            if base_url else "")
+        if not response_url:
+            return _error("public_base_url_unconfigured",
+                          "Reference response URL is unavailable.", 503)
+        contact = resolved["contact"]
+        question_lines = "\n".join(
+            f"{index}. {question}" for index, question in enumerate(
+                check["approved_questions"], start=1))
+        transient_exact = {
+            **exact, "recipients": [contact["email"]],
+            "payload": {
+                "subject": exact["subject"],
+                "body": (
+                    f"Hello {contact['name']},\n\n"
+                    "The candidate named you as a professional reference and "
+                    "permitted this job-related request. Please answer only the "
+                    "approved questions below.\n\n"
+                    f"{question_lines}\n\nSecure response: {response_url}\n\n"
+                    "Alex\nAI co-founder, Ruhu"),
+            },
+        }
+        now = utc_now()
+        approval = validated["approval"]
+        provider_request_id = stable_id("providerrequest", action_id, "1")
+        action_row = {
+            "schema_version": 2, "action_id": action_id,
+            "workspace_id": principal.workspace_id,
+            "founder_id": principal.workspace_id, "actor_id": principal.actor_id,
+            "approval_domain": "HIRING", "action_domain": "HIRING",
+            "application_id": application_id,
+            "candidate_application_id": application_id,
+            "session_id": str(app["run_id"]), "run_id": str(app["run_id"]),
+            "role_id": str(app["role_id"]), "domain_ref": application_id,
+            "action_kind": "HIRING_SEND_REFERENCE_REQUEST",
+            "connector_id": "alex_mail",
+            "connection_id": preflight.get("connection_id"),
+            "capability_id": capability.capability_id,
+            "capability_version": capability.semantic_version,
+            "idempotency_key": action_id, "request_hash": canonical_hash(exact),
+            "approval_id": payload.approval_id,
+            "claim_id": stable_id("claim", payload.approval_id, action_id),
+            "authorization_kind": "EXACT_FOUNDER_APPROVAL",
+            "reference_check_id": payload.reference_check_id,
+            "exact_action": exact, "status": "PREPARED",
+            "provider_started_at": None,
+            "provider_request_id": provider_request_id,
+            "provider_effect_id": None, "result_ref": {},
+            "error_code": None, "uncertainty_reason": None,
+            "synthetic": False, "created_at": now, "updated_at": now,
+            "version": 1,
+        }
+        committed = await self.store.atomic_compare_and_set((
+            AtomicMutation("external_actions", action_id, None, record=action_row),
+            AtomicMutation("reference_checks", payload.reference_check_id,
+                           int(check["version"]), updates={
+                               "status": "APPROVED", "action_id": action_id,
+                               "approved_at": now, "updated_at": now}),
+            AtomicMutation("approvals", payload.approval_id,
+                           int(approval["version"]), updates={
+                               "status": "CLAIMED",
+                               "claim_id": action_row["claim_id"],
+                               "claimed_action_id": action_id,
+                               "claimed_by_actor_id": principal.actor_id,
+                               "claimed_at": now, "updated_at": now}),
+        ))
+        if not committed:
+            return _error("concurrency_conflict",
+                          "Reference approval changed concurrently.")
+        action = committed[("external_actions", action_id)]
+        approval_now = committed[("approvals", payload.approval_id)]
+        check_now = committed[("reference_checks", payload.reference_check_id)]
+        started_at = utc_now()
+        started = await self.store.atomic_compare_and_set((
+            AtomicMutation("external_actions", action_id, int(action["version"]),
+                           updates={"status": "EXECUTING",
+                                    "provider_started_at": started_at,
+                                    "updated_at": started_at}),
+            AtomicMutation("reference_checks", payload.reference_check_id,
+                           int(check_now["version"]),
+                           updates={"status": "EXECUTING",
+                                    "updated_at": started_at}),
+            AtomicMutation("approvals", payload.approval_id,
+                           int(approval_now["version"]), updates={
+                               "status": "CONSUMED", "consumed_at": started_at,
+                               "terminal_action_id": action_id,
+                               "updated_at": started_at}),
+        ))
+        if not started:
+            return _error("concurrency_conflict",
+                          "Reference outreach start changed concurrently.")
+        action = started[("external_actions", action_id)]
+        try:
+            result = await self.provider_adapter.execute(
+                workspace_id=principal.workspace_id,
+                action_kind="HIRING_SEND_REFERENCE_REQUEST",
+                exact_action=transient_exact, action_id=action_id,
+                provider_request_id=provider_request_id)
+        except Exception:
+            result = {"status": "uncertain", "error": True,
+                      "uncertainty_reason": "provider_call_interrupted"}
+        return await self._finish_reference_action(
+            check_id=payload.reference_check_id, action=action, result=result)
+
+    async def reconcile_reference_outreach(
+            self, *, principal: ActorPrincipal, application_id: str,
+            reference_check_id: str) -> dict[str, Any]:
+        """Resolve one uncertain send from provider evidence without retrying it."""
+        gate = self._gate(principal, "resolve_approval", fresh=True)
+        if gate.get("error"):
+            return gate
+        app = await self._application(principal, application_id)
+        check = await self.store.get("reference_checks", reference_check_id)
+        action = await self.store.get(
+            "external_actions", str((check or {}).get("action_id") or ""))
+        if (not app or not check or not action
+                or check.get("candidate_application_id") != application_id
+                or action.get("workspace_id") != principal.workspace_id
+                or action.get("status") not in {"EXECUTING", "UNCERTAIN"}):
+            return _error("reference_outreach_reconciliation_required",
+                          "No uncertain reference outreach exists.", 404)
+        result = await self.provider_adapter.reconcile(
+            workspace_id=principal.workspace_id, action=action)
+        if result.get("status") not in {"success", "failed"}:
+            return _error("reference_outreach_reconciliation_required",
+                          "Provider evidence remains inconclusive.", 503)
+        return await self._finish_reference_action(
+            check_id=reference_check_id, action=action, result=result)
+
+    async def _existing_reference_action(
+            self, check: dict[str, Any], action: dict[str, Any]) -> dict[str, Any]:
+        if action.get("request_hash") != canonical_hash(check.get("outreach_exact") or {}):
+            return _error("idempotency_conflict", "Reference action binding changed.")
+        if action.get("status") == "SUCCEEDED":
+            return {"status": "success", "duplicate": True,
+                    "reference_check_id": check["reference_check_id"],
+                    "action_id": action["action_id"]}
+        if action.get("status") in {"EXECUTING", "UNCERTAIN"}:
+            return _error("reference_outreach_reconciliation_required",
+                          "Reconcile the existing reference outreach; do not retry.")
+        return _error("reference_outreach_failed",
+                      "The exact reference outreach failed and needs a new approval.")
+
+    async def _finish_reference_action(
+            self, *, check_id: str, action: dict[str, Any],
+            result: dict[str, Any]) -> dict[str, Any]:
+        status = str(result.get("status") or "")
+        terminal = ("SUCCEEDED" if status == "success" else
+                    "FAILED" if status == "failed" or (
+                        result.get("error") and status != "uncertain") else
+                    "UNCERTAIN")
+        check_status = {
+            "SUCCEEDED": "AWAITING_RESPONSE",
+            "FAILED": "OUTREACH_FAILED",
+            "UNCERTAIN": "OUTREACH_UNCERTAIN",
+        }[terminal]
+        current_action = await self.store.get("external_actions", action["action_id"])
+        current_check = await self.store.get("reference_checks", check_id)
+        if not current_action or not current_check:
+            return _error("reference_outreach_not_found", "Reference outreach vanished.")
+        result_ref = dict(result.get("result_ref") or {})
+        committed = await self.store.atomic_compare_and_set((
+            AtomicMutation("external_actions", action["action_id"],
+                           int(current_action["version"]), updates={
+                               "status": terminal,
+                               "provider_effect_id": result.get("provider_effect_id"),
+                               "result_ref": result_ref,
+                               "error_code": result.get("error_code"),
+                               "uncertainty_reason": result.get("uncertainty_reason"),
+                               "updated_at": utc_now()}),
+            AtomicMutation("reference_checks", check_id,
+                           int(current_check["version"]), updates={
+                               "status": check_status,
+                               "provider_message_id": result.get("provider_effect_id") or "",
+                               "provider_thread_id": result_ref.get(
+                                   "provider_thread_id", ""),
+                               "outreach_sent_at": utc_now() if terminal == "SUCCEEDED" else None,
+                               "updated_at": utc_now()}),
+        ))
+        if not committed:
+            return _error("concurrency_conflict",
+                          "Reference outreach receipt changed concurrently.")
+        return {
+            "status": "success" if terminal == "SUCCEEDED" else "error",
+            "error": terminal != "SUCCEEDED", "terminal_status": terminal,
+            "reference_check_id": check_id, "action_id": action["action_id"],
+            "error_code": (None if terminal == "SUCCEEDED" else
+                           result.get("error_code") or
+                           "reference_outreach_reconciliation_required"),
+        }
 
     async def record_reference_evidence(
             self, *, principal: ActorPrincipal | None, application_id: str,
@@ -388,6 +747,12 @@ class HiringPostInterviewService:
                 or check.get("candidate_application_id") != application_id
                 or check.get("workspace_id") != workspace_id):
             return _error("reference_check_not_found", "Reference check does not exist.", 404)
+        if check.get("status") not in {"AWAITING_RESPONSE", "REPORT_READY"}:
+            return _error("reference_outreach_incomplete",
+                          "Reference evidence requires a completed outreach receipt.", 409)
+        if str(check.get("response_token_expires_at") or "") <= utc_now():
+            return _error("reference_token_expired",
+                          "Reference response authorization has expired.", 403)
         if not hmac.compare_digest(str(check.get("response_token_sha256") or ""),
                                    _sha(payload.response_token)):
             return _error("reference_token_invalid", "Reference response is not authorized.", 403)
@@ -460,6 +825,29 @@ class HiringPostInterviewService:
         return {"status": "success", "duplicate": False,
                 "evidence_id": evidence_id,
                 "candidate_state": CandidateState.AWAITING_FINAL_DECISION.value}
+
+    async def reference_response_projection(
+            self, *, reference_check_id: str, response_token: str) -> dict[str, Any]:
+        """Return only approved questions after validating the opaque bearer token."""
+        check = await self.store.get("reference_checks", reference_check_id)
+        if not check or check.get("status") not in {"AWAITING_RESPONSE", "REPORT_READY"}:
+            return _error("reference_check_not_found",
+                          "Reference request does not exist.", 404)
+        if str(check.get("response_token_expires_at") or "") <= utc_now():
+            return _error("reference_token_expired",
+                          "Reference response authorization has expired.", 403)
+        if not hmac.compare_digest(
+                str(check.get("response_token_sha256") or ""),
+                _sha(response_token)):
+            return _error("reference_token_invalid",
+                          "Reference response is not authorized.", 403)
+        return {
+            "status": "success", "reference_check_id": reference_check_id,
+            "reference_label": check.get("reference_label"),
+            "approved_questions": list(check.get("approved_questions") or []),
+            "criterion_ids": list(check.get("criterion_ids") or []),
+            "response_status": check.get("status"),
+        }
 
     async def prepare_offer(self, *, principal: ActorPrincipal, application_id: str,
                             payload: OfferDraftInput) -> dict[str, Any]:
@@ -800,6 +1188,114 @@ class HiringPostInterviewService:
             return _error("version_conflict", "Onboarding item was not resolved.")
         return {"status": "success", "item_id": payload.item_id,
                 "resolution": payload.resolution}
+
+    async def progress_onboarding(
+            self, *, principal: ActorPrincipal,
+            payload: OnboardingProgressInput) -> dict[str, Any]:
+        """Advance one approved onboarding run without inferring completion.
+
+        Start-date transitions are server-derived from the approved ISO date.
+        First-day/week completion and final completion remain explicit Founder
+        acts.  Final completion is refused until every checklist item has an
+        authoritative completion or waiver and every related external action
+        is terminal and reconciled.
+        """
+        gate = self._gate(principal, "human_decision", fresh=True)
+        if gate.get("error"):
+            return gate
+        rows = await self.store.list(
+            "onboarding_runs",
+            filters={"workspace_id": principal.workspace_id,
+                     "onboarding_run_id": payload.onboarding_run_id},
+            limit=2)
+        if len(rows) != 1:
+            return _error("onboarding_not_found", "Onboarding run does not exist.", 404)
+        row = rows[0]
+        if int(row["version"]) != payload.expected_onboarding_version:
+            return _error("version_conflict", "Onboarding run changed; reload first.")
+        current = str(row.get("state") or "")
+        now = datetime.now(timezone.utc)
+        today = now.date().isoformat()
+        transition = payload.transition
+        target = ""
+        if transition == "SYNC_START_DATE":
+            if current not in {
+                    OnboardingState.PRE_START.value,
+                    OnboardingState.WAITING_FOR_START_DATE.value}:
+                return _error("onboarding_transition_invalid",
+                              "Start-date sync is not valid in the current state.")
+            target = (OnboardingState.FIRST_DAY.value
+                      if today >= str(row.get("start_date") or "")
+                      else OnboardingState.WAITING_FOR_START_DATE.value)
+        elif transition == "COMPLETE_FIRST_DAY":
+            if current != OnboardingState.FIRST_DAY.value:
+                return _error("onboarding_transition_invalid",
+                              "First-day completion requires the first-day state.")
+            target = OnboardingState.FIRST_WEEK.value
+        elif transition == "REQUEST_COMPLETION_REVIEW":
+            if current != OnboardingState.FIRST_WEEK.value:
+                return _error("onboarding_transition_invalid",
+                              "Completion review follows the first-week state.")
+            target = OnboardingState.AWAITING_COMPLETION_REVIEW.value
+        elif transition == "COMPLETE_ONBOARDING":
+            if current != OnboardingState.AWAITING_COMPLETION_REVIEW.value:
+                return _error("onboarding_transition_invalid",
+                              "Final completion requires Founder completion review.")
+            items = await self.store.list(
+                "onboarding_items",
+                filters={"workspace_id": principal.workspace_id,
+                         "onboarding_run_id": payload.onboarding_run_id},
+                limit=200)
+            unresolved = [str(item["item_id"]) for item in items
+                          if item.get("status") not in {"COMPLETE", "WAIVED"}]
+            if unresolved:
+                return _error("onboarding_items_incomplete",
+                              "Every onboarding item must be completed or waived.")
+            actions = await self.store.list(
+                "external_actions",
+                filters={"workspace_id": principal.workspace_id}, limit=1000)
+            open_actions = [str(action["action_id"]) for action in actions
+                            if action.get("onboarding_run_id") ==
+                            payload.onboarding_run_id
+                            and action.get("status") not in {
+                                "SUCCEEDED", "FAILED", "CANCELLED"}]
+            if open_actions:
+                return _error("onboarding_actions_unreconciled",
+                              "Onboarding external actions must be reconciled.")
+            target = OnboardingState.COMPLETE.value
+        else:  # pragma: no cover - Pydantic closes this input.
+            return _error("onboarding_transition_invalid",
+                          "Onboarding transition is not supported.")
+        request_hash = canonical_hash(payload.model_dump(mode="json"))
+        existing_hash = str(row.get("last_progress_request_hash") or "")
+        if existing_hash == request_hash:
+            return {"status": "success", "duplicate": True,
+                    "onboarding_run_id": payload.onboarding_run_id,
+                    "state": current}
+        updates: dict[str, Any] = {
+            "state": target, "last_progress_request_hash": request_hash,
+            "last_progress_note": payload.note,
+            "last_progressed_by": principal.actor_id,
+            "last_progressed_at": now.isoformat(), "updated_at": now.isoformat(),
+        }
+        if target == OnboardingState.WAITING_FOR_START_DATE.value:
+            updates["start_date_wait_active"] = True
+        elif target == OnboardingState.FIRST_DAY.value:
+            updates.update({"start_date_wait_active": False,
+                            "first_day_started_at": now.isoformat()})
+        elif target == OnboardingState.COMPLETE.value:
+            updates.update({"completed_at": now.isoformat(),
+                            "completion_reviewed_by": principal.actor_id,
+                            "retention_transition_at": now.isoformat(),
+                            "retention_status": "POST_ONBOARDING"})
+        committed = await self.store.compare_and_set(
+            "onboarding_runs", str(row["onboarding_id"]),
+            int(row["version"]), updates)
+        if not committed:
+            return _error("version_conflict", "Onboarding progress was not committed.")
+        return {"status": "success", "duplicate": False,
+                "onboarding_run_id": payload.onboarding_run_id,
+                "state": target}
 
     async def projection(self, *, principal: ActorPrincipal,
                          application_id: str) -> dict[str, Any]:
