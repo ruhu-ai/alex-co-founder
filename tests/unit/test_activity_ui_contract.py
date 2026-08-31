@@ -78,6 +78,27 @@ class TestDigest:
         assert 'innerHTML = ""' in block
         assert "api(" not in block and "fetch(" not in block
 
+    def test_local_acknowledgement_is_scoped_to_the_conversation(self):
+        assert 'const SEEN_KEY_PREFIX = "cofounder-lastseen:"' in UI
+        assert "localStorage.getItem(seenKey(context))" in _fn(
+            "refreshWaiting")
+        assert "localStorage.setItem(seenKey(context)" in _fn("markSeen")
+
+    def test_hide_and_durable_item_dismissal_have_distinct_meanings(self):
+        body = _fn("renderWorkspaceBrief")
+        assert "data-digest-dismiss>Hide</button>" in body
+        assert 'data-inbox-dismiss="${esc(inboxId)}"' in body
+        dismiss = _fn("dismissFounderInbox")
+        assert ":dismiss`" in dismiss
+        assert "await refreshWaiting()" in dismiss
+
+    def test_partial_failure_is_a_separate_compact_status(self):
+        body = _fn("renderWorkspaceBrief")
+        assert 'class="brief-status" role="status"' in body
+        assert "if (!rows.length)" in body
+        assert "host.innerHTML = partial" in body
+        assert '${rows.join("")}</div>${partial}' in body
+
     def test_digest_reads_on_load_focus_and_visibility_but_never_polls(self):
         assert "await restoreSession()" in UI
         boot = _fn("boot")

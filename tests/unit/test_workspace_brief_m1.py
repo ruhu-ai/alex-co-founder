@@ -90,6 +90,50 @@ async def test_brief_reads_registered_durable_projections_and_excludes_hiring():
         "founder_inbox:inbox-safe"]
 
 
+async def test_conversation_brief_only_contains_exact_session_deliveries():
+    store = InMemoryDurableStore()
+    now = datetime.now(timezone.utc)
+    stamp = now.isoformat()
+    for suffix in ("a", "b"):
+        await store.create("workflow_runs", f"run-{suffix}", {
+            "run_id": f"run-{suffix}", "workspace_id": "workspace-a",
+            "origin_session_id": f"session-{suffix}",
+            "run_kind": "OPPORTUNITY_DISCOVERY",
+            "workflow_kind": "opportunity_discovery:v1",
+            "runtime_status": "SUCCEEDED", "updated_at": stamp,
+            "completed_at": stamp, "version": 1,
+        })
+        await store.create("run_events", f"event-{suffix}", {
+            "event_id": f"event-{suffix}", "workspace_id": "workspace-a",
+            "run_id": f"run-{suffix}", "event_kind": "RUN_SUCCEEDED",
+            "occurred_at": stamp, "version": 1,
+        })
+        await store.create("founder_inbox", f"inbox-{suffix}", {
+            "inbox_item_id": f"inbox-{suffix}",
+            "workspace_id": "workspace-a", "status": "UNREAD",
+            "item_kind": "AMBIGUOUS_EVENT",
+            "title": f"Session {suffix}", "summary": "Safe summary.",
+            "resolved_session_id": f"session-{suffix}",
+            "candidate_refs": [], "created_at": stamp, "version": 1,
+        })
+    await store.create("founder_inbox", "inbox-unlinked", {
+        "inbox_item_id": "inbox-unlinked", "workspace_id": "workspace-a",
+        "status": "UNREAD", "item_kind": "AMBIGUOUS_EVENT",
+        "title": "Global inbox only", "summary": "No causal session.",
+        "candidate_refs": [], "created_at": stamp, "version": 1,
+    })
+
+    result = await WorkspaceBriefAssembler(store).assemble(
+        principal=principal(), since=(now - timedelta(days=2)).isoformat(),
+        now=now, session_id="session-a")
+
+    for section in ("milestones", "terminal_receipts"):
+        assert {row["focus"]["resource_id"] for row in result[section]} == {
+            "run-a"}
+    assert [row["focus"]["resource_id"] for row in result["inbox"]] == [
+        "inbox-a"]
+
+
 async def test_one_contributor_failure_is_partial_not_guessed():
     class Broken:
         name = "broken"

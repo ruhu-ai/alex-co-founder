@@ -84,6 +84,7 @@ async def test_standard_session_returns_only_assembler_evidence(monkeypatch):
     assert result["model_calls"] == result["memory_backend_calls"] == 0
     assert result["transcript_reads"] == result["pending_signals_reads"] == 0
     assert calls[0]["principal"].workspace_id == "workspace-a"
+    assert calls[0]["session_id"] == "session-standard"
 
 
 @pytest.mark.asyncio

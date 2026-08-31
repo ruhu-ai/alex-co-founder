@@ -107,7 +107,8 @@ class BriefContributor(Protocol):
     section: str
 
     async def read(self, *, principal: ActorPrincipal, since: datetime,
-                   now: datetime, limit: int) -> list[dict[str, Any]]: ...
+                   now: datetime, limit: int,
+                   session_id: str = "") -> list[dict[str, Any]]: ...
 
 
 @dataclass
@@ -117,7 +118,8 @@ class PendingApprovalContributor:
     section: str = "needs_you"
 
     async def read(self, *, principal: ActorPrincipal, since: datetime,
-                   now: datetime, limit: int) -> list[dict[str, Any]]:
+                   now: datetime, limit: int,
+                   session_id: str = "") -> list[dict[str, Any]]:
         del since
         rows = await self.store.list(
             "approvals", filters={"workspace_id": principal.workspace_id,
@@ -128,10 +130,16 @@ class PendingApprovalContributor:
             if str(row.get("expires_at") or "") <= now.isoformat():
                 continue
             run_id = str(row.get("run_id") or "")
+            run = None
             if run_id:
                 run = await self.store.get("workflow_runs", run_id)
                 if not _eligible_run(run, principal.workspace_id):
                     continue
+            origin_session_id = str(
+                (run or {}).get("origin_session_id")
+                or row.get("origin_session_id") or "")
+            if session_id and origin_session_id != session_id:
+                continue
             if str(row.get("approval_domain") or "").startswith("HIRING"):
                 continue
             approval_id = str(row.get("approval_id") or row.get("id") or "")
@@ -158,7 +166,8 @@ class WorkflowMilestoneContributor:
     section: str = "milestones"
 
     async def read(self, *, principal: ActorPrincipal, since: datetime,
-                   now: datetime, limit: int) -> list[dict[str, Any]]:
+                   now: datetime, limit: int,
+                   session_id: str = "") -> list[dict[str, Any]]:
         del now
         rows = await self.store.list(
             "run_events", filters={"workspace_id": principal.workspace_id},
@@ -175,6 +184,9 @@ class WorkflowMilestoneContributor:
             run_id = str(row.get("run_id") or "")
             run = await self.store.get("workflow_runs", run_id)
             if not _eligible_run(run, principal.workspace_id):
+                continue
+            if (session_id
+                    and str(run.get("origin_session_id") or "") != session_id):
                 continue
             run_label = str(run.get("run_kind") or "work").replace("_", " ").title()
             event_id = str(row.get("event_id") or row.get("id") or "")
@@ -201,7 +213,8 @@ class DurableWaitContributor:
     section: str = "waits"
 
     async def read(self, *, principal: ActorPrincipal, since: datetime,
-                   now: datetime, limit: int) -> list[dict[str, Any]]:
+                   now: datetime, limit: int,
+                   session_id: str = "") -> list[dict[str, Any]]:
         del since, now
         rows = await self.store.list(
             "waits", filters={"workspace_id": principal.workspace_id,
@@ -212,6 +225,9 @@ class DurableWaitContributor:
             run_id = str(row.get("run_id") or "")
             run = await self.store.get("workflow_runs", run_id)
             if not _eligible_run(run, principal.workspace_id):
+                continue
+            if (session_id
+                    and str(run.get("origin_session_id") or "") != session_id):
                 continue
             wait_id = str(row.get("wait_id") or row.get("id") or "")
             wait_kind = str(row.get("wait_kind") or "WORK").replace("_", " ").title()
@@ -237,7 +253,8 @@ class SafeInboxContributor:
     section: str = "inbox"
 
     async def read(self, *, principal: ActorPrincipal, since: datetime,
-                   now: datetime, limit: int) -> list[dict[str, Any]]:
+                   now: datetime, limit: int,
+                   session_id: str = "") -> list[dict[str, Any]]:
         del since, now
         rows = await self.store.list(
             "founder_inbox", filters={"workspace_id": principal.workspace_id,
@@ -248,6 +265,14 @@ class SafeInboxContributor:
             # Generic M1 never reveals candidate refs or Hiring inbox rows.
             if (row.get("candidate_refs")
                     or str(row.get("inbox_domain") or "").startswith("HIRING")):
+                continue
+            origin_session_id = str(
+                row.get("resolved_session_id")
+                or row.get("origin_session_id") or "")
+            # Ambiguous/unmatched inbox items normally have no exact session.
+            # They remain visible in the global Founder inbox and must never be
+            # copied into whichever conversation happens to be open.
+            if session_id and origin_session_id != session_id:
                 continue
             item_id = str(row.get("inbox_item_id") or row.get("id") or "")
             out.append(_item(
@@ -270,7 +295,8 @@ class TerminalReceiptContributor:
     section: str = "terminal_receipts"
 
     async def read(self, *, principal: ActorPrincipal, since: datetime,
-                   now: datetime, limit: int) -> list[dict[str, Any]]:
+                   now: datetime, limit: int,
+                   session_id: str = "") -> list[dict[str, Any]]:
         del now
         rows = await self.store.list(
             "workflow_runs", filters={"workspace_id": principal.workspace_id},
@@ -278,6 +304,9 @@ class TerminalReceiptContributor:
         out = []
         for run in rows:
             if not _eligible_run(run, principal.workspace_id):
+                continue
+            if (session_id
+                    and str(run.get("origin_session_id") or "") != session_id):
                 continue
             occurred_at = str(run.get("completed_at") or run.get("updated_at") or "")
             occurred = _parse(occurred_at)
@@ -319,7 +348,8 @@ class WorkspaceBriefAssembler:
         )
 
     async def assemble(self, *, principal: ActorPrincipal, since: str = "",
-                       now: datetime | None = None) -> dict[str, Any]:
+                       now: datetime | None = None,
+                       session_id: str = "") -> dict[str, Any]:
         now = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
         bounded_since = clamp_since(since, now=now)
         sections: dict[str, list[dict[str, Any]]] = {
@@ -336,7 +366,7 @@ class WorkspaceBriefAssembler:
             try:
                 values = await contributor.read(
                     principal=principal, since=bounded_since, now=now,
-                    limit=limits[contributor.section])
+                    limit=limits[contributor.section], session_id=session_id)
                 sections[contributor.section].extend(
                     values[:limits[contributor.section]])
             except Exception:  # noqa: BLE001 - one contributor never blanks M1

@@ -1290,6 +1290,12 @@ Correlation authority order:
 4. deterministic unique match;
 5. otherwise unmatched/ambiguous inbox—never “latest session.”
 
+The Founder inbox is workspace-global, but a conversation may mirror an item
+inline only when its durable origin/resolved delivery session exactly equals the
+owned session being viewed. Missing session correlation never falls back to the
+active or newest chat. Dismissing the inbox record is durable and removes it from
+every projection; hiding a conversation brief is only local presentation state.
+
 ### 9.2 Durable wake
 
 Resolving a wait creates a unique wake delivery keyed by

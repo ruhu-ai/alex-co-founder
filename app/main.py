@@ -1558,7 +1558,7 @@ async def api_workspace_brief(
                 "No workspace brief was assembled."),
         }, status_code=403)
     result = await workspace_brief.configured_assembler().assemble(
-        principal=principal, since=since)
+        principal=principal, since=since, session_id=session_id)
     return {
         **result,
         "session_memory_mode": durable_memory.MemoryMode.STANDARD.value,

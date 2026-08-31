@@ -1706,6 +1706,13 @@
         display: block;
         margin-top: 1px;
       }
+      .brief-status {
+        color: var(--ink-2);
+        font-size: var(--fs-2);
+        line-height: var(--lh-2);
+        margin: calc(-1 * var(--sp-1)) 0 var(--sp-3);
+        padding-inline: var(--sp-3);
+      }
       @media (prefers-reduced-motion: reduce) {
         .act-glyph.spin {
           animation: none;
@@ -4915,7 +4922,11 @@ function showStopControl(on) {
 }
 
 // ---------- waiting + return digest ----------
-const SEEN_KEY = "cofounder-lastseen";
+const SEEN_KEY_PREFIX = "cofounder-lastseen:";
+
+function seenKey(session) {
+    return SEEN_KEY_PREFIX + encodeURIComponent(session || "none");
+}
 
 function waitRow(w) {
     const glyph = w.blocked_on === "founder" ? "attn" : w.wait_kind === "discovery_running" ? "spin" : "ring";
@@ -4943,7 +4954,7 @@ function renderDigest(data) {
     for (const w of open.slice(0, 2)) {
         rows.push(`<div class="digest-row">${actGlyph("ring")}\n      <span class="body">${esc(w.title)}<em>${esc(w.next_check_action)}</em></span></div>`);
     }
-    host.innerHTML = `<div class="digest">\n    <div class="digest-head"><h3>While you were away</h3>\n      <span style="flex:1"></span>\n      <button class="btn" data-variant="quiet" data-size="sm" data-digest-dismiss>Dismiss</button>\n    </div>${rows.join("")}</div>`;
+    host.innerHTML = `<div class="digest">\n    <div class="digest-head"><h3>While you were away</h3>\n      <span style="flex:1"></span>\n      <button class="btn" data-variant="quiet" data-size="sm" data-digest-dismiss>Hide</button>\n    </div>${rows.join("")}</div>`;
 }
 
 function renderWorkspaceBrief(data) {
@@ -4957,15 +4968,19 @@ function renderWorkspaceBrief(data) {
     const rows = [];
     for (const [key, glyph, tone] of sections) {
         for (const item of data[key] || []) {
-            rows.push(`<div class="digest-row" ${tone ? `data-kind="${tone}"` : ""}>${actGlyph(glyph)}\n        <span class="body"><strong>${esc(item.title || "Workspace update")}</strong>\n        <em>${esc(item.safe_summary || timeAgo(item.occurred_at) || "Current durable record")}</em></span></div>`);
+            const inboxId = key === "inbox" && item.focus?.resource_kind === "inbox_item"
+              ? item.focus.resource_id || "" : "";
+            const action = inboxId ? `<button class="btn" data-variant="ghost" data-size="sm"
+                data-inbox-dismiss="${esc(inboxId)}">Dismiss</button>` : "";
+            rows.push(`<div class="digest-row" ${tone ? `data-kind="${tone}"` : ""}>${actGlyph(glyph)}\n        <span class="body"><strong>${esc(item.title || "Workspace update")}</strong>\n        <em>${esc(item.safe_summary || timeAgo(item.occurred_at) || "Current durable record")}</em></span>${action}</div>`);
         }
     }
-    if (!rows.length && !data.partial) {
-        host.innerHTML = "";
+    const partial = data.partial ? `<div class="brief-status" role="status">Some workspace updates could not be loaded.</div>` : "";
+    if (!rows.length) {
+        host.innerHTML = partial;
         return;
     }
-    const partial = data.partial ? `<p class="foot">Some workspace updates could not be loaded.</p>` : "";
-    host.innerHTML = `<div class="digest">\n    <div class="digest-head"><h3>Since you were away</h3>\n      <span style="flex:1"></span>\n      <button class="btn" data-variant="quiet" data-size="sm" data-digest-dismiss>Dismiss</button>\n    </div>${rows.join("")}${partial}</div>`;
+    host.innerHTML = `<div class="digest">\n    <div class="digest-head"><h3>Since you were away</h3>\n      <span style="flex:1"></span>\n      <button class="btn" data-variant="quiet" data-size="sm" data-digest-dismiss>Hide</button>\n    </div>${rows.join("")}</div>${partial}`;
 }
 
 async function refreshWaiting() {
@@ -4982,7 +4997,7 @@ async function refreshWaiting() {
         if (host) host.innerHTML = "";
         return;
     }
-    const since = localStorage.getItem(SEEN_KEY) || "";
+    const since = localStorage.getItem(seenKey(context)) || "";
     try {
         const params = new URLSearchParams({session_id: context});
         if (since) params.set("since", since);
@@ -4995,7 +5010,8 @@ async function refreshWaiting() {
 }
 
 function markSeen() {
-    localStorage.setItem(SEEN_KEY, (new Date).toISOString());
+    const context = contextSessionId();
+    if (context) localStorage.setItem(seenKey(context), (new Date).toISOString());
 }
 
 function setThinking(on) {
@@ -7296,7 +7312,10 @@ document.addEventListener("click", e => {
         return;
     }
     const dismissInbox = e.target.closest("[data-inbox-dismiss]");
-    if (dismissInbox) dismissFounderInbox(dismissInbox.dataset.inboxDismiss);
+    if (dismissInbox) {
+        dismissFounderInbox(dismissInbox.dataset.inboxDismiss);
+        return;
+    }
     const profileAction = e.target.closest("[data-profile-action]");
     if (profileAction) resolveProfileProposal(profileAction);
 });
@@ -9402,6 +9421,7 @@ async function resolveFounderInbox(inboxId) {
         });
         toast("Message linked to the application.", "ok");
         await refreshFounderInbox();
+        await refreshWaiting();
         refresh();
     } catch (error) {
         toast(error.message || "The message could not be linked.", "danger");
@@ -9419,6 +9439,7 @@ async function dismissFounderInbox(inboxId) {
         });
         toast("Message dismissed.", "ok");
         await refreshFounderInbox();
+        await refreshWaiting();
     } catch (error) {
         toast(error.message || "The message could not be dismissed.", "danger");
     }
