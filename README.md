@@ -309,8 +309,11 @@ flowchart LR
     S --> I["Verified applicant-thread negotiation and interview"]
     I --> R{"Founder post-interview decision"}
     R -->|References| C["Candidate-authorized reference checks"]
-    R -->|Offer| O["Exact approved offer and signature event"]
+    R -->|Waive references| O["Exact approved offer and signature event"]
+    R -->|Conditional offer| O
+    C -->|Reference ready| O
     O --> N["Separate onboarding run"]
+    C -.->|Required before start| N
 ```
 
 Important boundaries:
@@ -327,8 +330,13 @@ Important boundaries:
   window. Provider effects remain idempotent, receipted, and uncertainty-safe.
 - Reference contacts are envelope encrypted; each outreach and response is
   bound to exact approval, a controlled Alex Mail action, and an opaque token.
+- The Founder may require references before an offer, explicitly waive them, or
+  bind them as a conditional-offer requirement before start. The choice is
+  durable and included in the exact offer approval; it is never inferred.
 - Offer acceptance creates exactly one separately permissioned onboarding run.
-  Onboarding completion refuses unresolved tasks or open external actions.
+  A conditional-offer onboarding run cannot enter its start date before
+  reference evidence is ready. Onboarding completion also refuses unresolved
+  tasks or open external actions.
 
 The H5/H6 workflow and execution core is implemented. Production H7 effects
 remain deliberately fail-closed until the deployment has its exact Founder

@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import hashlib
 import time
+from pathlib import Path
 
 import pytest
 
@@ -275,6 +277,208 @@ async def test_h5_offer_acceptance_creates_exactly_one_onboarding_child(monkeypa
     children = await store.list(
         "workflow_runs", filters={"parent_run_id": run_id}, limit=10)
     assert len(children) == 1
+
+
+@pytest.mark.asyncio
+async def test_founder_can_explicitly_waive_references_before_offer(monkeypatch):
+    monkeypatch.delenv("K_SERVICE", raising=False)
+    store = InMemoryDurableStore()
+    application_id, _ = await _seed(store)
+    founder = _founder()
+    service = HiringPostInterviewService(store)
+    evidence = await service.record_interview_evidence(
+        principal=founder, application_id=application_id,
+        payload=InterviewEvidenceInput.model_validate({
+            "interview_event_id": "calendar_event_h5",
+            "criteria": [{
+                "criterion_id": "criterion_delivery",
+                "observed_fact": "Described a bounded delivery example.",
+                "source_locator": "founder scorecard item 1",
+            }],
+            "client_request_id": "interview_waiver_001",
+            "expected_application_version": 1,
+        }),
+    )
+    app = await store.get("candidate_applications", application_id)
+    decision = await service.record_post_interview_decision(
+        principal=founder, application_id=application_id,
+        payload=PostInterviewDecisionInput(
+            decision=(
+                PostInterviewDecisionKind.
+                ADVANCE_TO_OFFER_WITH_REFERENCE_WAIVER
+            ),
+            reason_codes=["CRITERION_EVIDENCE_SUFFICIENT"],
+            interview_id=evidence["interview_id"],
+            note="Founder explicitly waived references for this candidate.",
+            client_request_id="waive_references_001",
+            expected_application_version=app["version"],
+        ),
+    )
+    assert decision["candidate_state"] == "AWAITING_OFFER_APPROVAL"
+    assert decision["reference_disposition"] == "WAIVED_BY_FOUNDER"
+    app = await store.get("candidate_applications", application_id)
+    assert app["reference_stage"] == "WAIVED"
+
+    mismatch = await service.prepare_offer(
+        principal=founder, application_id=application_id,
+        payload=OfferDraftInput(
+            title="Product Engineer", start_date="2026-10-01",
+            compensation="Approved band",
+            employment_terms="Full-time, remote in Nigeria.",
+            document_artifact_id="artifact_waiver_mismatch",
+            document_sha256="sha256:" + "c" * 64,
+            client_request_id="offer_waiver_mismatch",
+            expected_application_version=app["version"],
+        ),
+    )
+    assert mismatch["error_code"] == "offer_reference_condition_mismatch"
+
+    offer = await service.prepare_offer(
+        principal=founder, application_id=application_id,
+        payload=OfferDraftInput(
+            title="Product Engineer", start_date="2026-10-01",
+            compensation="Approved band",
+            employment_terms="Full-time, remote in Nigeria.",
+            reference_condition="WAIVED_BY_FOUNDER",
+            document_artifact_id="artifact_offer_waiver",
+            document_sha256="sha256:" + "d" * 64,
+            client_request_id="offer_waiver_001",
+            expected_application_version=app["version"],
+        ),
+    )
+    stored = await store.get("offers", offer["offer_id"])
+    assert stored["exact_terms"]["reference_condition"] == "WAIVED_BY_FOUNDER"
+
+
+@pytest.mark.asyncio
+async def test_conditional_offer_keeps_references_open_and_blocks_start(monkeypatch):
+    monkeypatch.delenv("K_SERVICE", raising=False)
+    store = InMemoryDurableStore()
+    application_id, _ = await _seed(store)
+    founder = _founder()
+    service = HiringPostInterviewService(store)
+    evidence = await service.record_interview_evidence(
+        principal=founder, application_id=application_id,
+        payload=InterviewEvidenceInput.model_validate({
+            "interview_event_id": "calendar_event_h5",
+            "criteria": [{
+                "criterion_id": "criterion_delivery",
+                "observed_fact": "Described a bounded delivery example.",
+                "source_locator": "founder scorecard item 1",
+            }],
+            "client_request_id": "interview_conditional_001",
+            "expected_application_version": 1,
+        }),
+    )
+    app = await store.get("candidate_applications", application_id)
+    decision = await service.record_post_interview_decision(
+        principal=founder, application_id=application_id,
+        payload=PostInterviewDecisionInput(
+            decision=PostInterviewDecisionKind.PREPARE_CONDITIONAL_OFFER,
+            reason_codes=["CRITERION_EVIDENCE_SUFFICIENT"],
+            interview_id=evidence["interview_id"],
+            client_request_id="conditional_offer_001",
+            expected_application_version=app["version"],
+        ),
+    )
+    assert decision["candidate_state"] == "AWAITING_OFFER_APPROVAL"
+    app = await store.get("candidate_applications", application_id)
+    assert app["reference_disposition"] == "REQUIRED_BEFORE_START"
+    assert app["reference_stage"] == "AWAITING_PERMISSION"
+    contact = await service.store_reference_contact(
+        principal=founder, application_id=application_id,
+        payload=ReferenceContactInput(
+            name="Reference Manager", email="manager@example.com",
+            label="Former manager",
+            client_request_id="conditional_reference_contact_001",
+        ),
+    )
+    assert not contact.get("error"), contact
+
+    await store.create("workflow_runs", "run_onboarding_conditional", {
+        "run_id": "run_onboarding_conditional", "workspace_id": "workspace_test",
+        "journey_id": "journey_hiring_h5", "run_kind": "ONBOARDING",
+        "domain_ref": "onboarding_conditional", "plan_hash": "sha256:" + "e" * 64,
+        "runtime_status": "QUEUED", "next_event_sequence": 2,
+        "provenance": {}, "version": 1,
+    })
+    await store.create("onboarding_runs", "onboarding_conditional", {
+        "onboarding_id": "onboarding_conditional",
+        "workspace_id": "workspace_test", "role_id": "role_h5",
+        "candidate_application_id": application_id,
+        "candidate_run_id": "run_candidate_h5",
+        "onboarding_run_id": "run_onboarding_conditional",
+        "offer_id": "offer_conditional", "state": "PRE_START",
+        "start_date": "2020-01-01",
+        "reference_condition": "REQUIRED_BEFORE_START",
+        "reference_condition_satisfied": False,
+        "plan_id": None, "permissions_transferred": False, "version": 1,
+    })
+    blocked = await service.progress_onboarding(
+        principal=founder,
+        payload=OnboardingProgressInput(
+            onboarding_run_id="run_onboarding_conditional",
+            transition="SYNC_START_DATE", client_request_id="sync_blocked_001",
+            expected_onboarding_version=1,
+        ),
+    )
+    assert blocked["error_code"] == "references_required_before_start"
+
+    nonce = "conditional-reference-nonce"
+    reference_id = "reference_conditional_001"
+    token = reference_response_token(reference_id, nonce)
+    assert token
+    await store.create("reference_checks", reference_id, {
+        "reference_check_id": reference_id, "workspace_id": "workspace_test",
+        "candidate_application_id": application_id,
+        "status": "AWAITING_RESPONSE",
+        "criterion_ids": ["criterion_delivery"],
+        "response_token_nonce": nonce,
+        "response_token_sha256": "sha256:" + hashlib.sha256(
+            token.encode()).hexdigest(),
+        "response_token_expires_at": "2099-01-01T00:00:00+00:00",
+        "version": 1,
+    })
+    app = await store.get("candidate_applications", application_id)
+    await store.compare_and_set(
+        "candidate_applications", application_id, int(app["version"]), {
+            "candidate_state": "OFFER_ACCEPTED",
+            "reference_stage": "REFERENCES_IN_PROGRESS",
+        },
+    )
+    report = await service.record_reference_evidence(
+        principal=founder, application_id=application_id,
+        payload=ReferenceEvidenceInput(
+            reference_check_id=reference_id, response_token=token,
+            criterion_id="criterion_delivery",
+            claim="The reference confirmed the candidate owned delivery.",
+            source_locator="reference reply paragraph 2",
+            client_request_id="conditional_reference_report_001",
+        ),
+    )
+    assert report["candidate_state"] == "OFFER_ACCEPTED"
+    assert report["reference_stage"] == "REPORT_READY"
+
+    onboarding = await store.get("onboarding_runs", "onboarding_conditional")
+    started = await service.progress_onboarding(
+        principal=founder,
+        payload=OnboardingProgressInput(
+            onboarding_run_id="run_onboarding_conditional",
+            transition="SYNC_START_DATE", client_request_id="sync_ready_001",
+            expected_onboarding_version=onboarding["version"],
+        ),
+    )
+    assert started["state"] == "FIRST_DAY"
+    onboarding = await store.get("onboarding_runs", "onboarding_conditional")
+    assert onboarding["reference_condition_satisfied"] is True
+
+
+def test_hiring_ui_exposes_all_post_interview_reference_paths():
+    html = (Path(__file__).parents[2] / "app" / "static" / "hiring.html").read_text()
+    assert "Advance to references" in html
+    assert "Advance directly to offer — waive references" in html
+    assert "Prepare conditional offer — references required before start" in html
+    assert "conditional-offer reference requirement is satisfied" in html
 
 
 @pytest.mark.asyncio

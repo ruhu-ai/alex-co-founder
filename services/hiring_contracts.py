@@ -74,6 +74,10 @@ class DecisionKind(str, Enum):
 class PostInterviewDecisionKind(str, Enum):
     ADDITIONAL_INTERVIEW = "ADDITIONAL_INTERVIEW"
     ADVANCE_TO_REFERENCES = "ADVANCE_TO_REFERENCES"
+    ADVANCE_TO_OFFER_WITH_REFERENCE_WAIVER = (
+        "ADVANCE_TO_OFFER_WITH_REFERENCE_WAIVER"
+    )
+    PREPARE_CONDITIONAL_OFFER = "PREPARE_CONDITIONAL_OFFER"
     ADVANCE_TO_OFFER = "ADVANCE_TO_OFFER"
     HOLD = "HOLD"
     DECLINE = "DECLINE"
@@ -411,6 +415,11 @@ class OfferDraftInput(ClosedModel):
     start_date: Annotated[str, Field(pattern=r"^\d{4}-\d{2}-\d{2}$")]
     compensation: Annotated[str, Field(min_length=1, max_length=500)]
     employment_terms: Annotated[str, Field(min_length=1, max_length=4000)]
+    reference_condition: Literal[
+        "COMPLETED_PRE_OFFER",
+        "WAIVED_BY_FOUNDER",
+        "REQUIRED_BEFORE_START",
+    ] = "COMPLETED_PRE_OFFER"
     document_artifact_id: OpaqueId
     document_sha256: Hash
     client_request_id: OpaqueId

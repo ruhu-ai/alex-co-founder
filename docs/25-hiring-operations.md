@@ -662,6 +662,8 @@ AWAITING_CONTACT_APPROVAL
 AWAITING_INTERVIEW_DECISION
 ├→ WAITING_FOR_ADDITIONAL_INTERVIEW
 ├→ AWAITING_REFERENCE_PERMISSION
+├→ AWAITING_OFFER_APPROVAL (explicit Founder reference waiver)
+├→ AWAITING_OFFER_APPROVAL (conditional offer; reference remains open)
 ├→ HELD
 └→ HUMAN_DECLINED
 
@@ -679,6 +681,13 @@ AWAITING_FINAL_DECISION
 AWAITING_OFFER_APPROVAL
 → WAITING_FOR_OFFER_RESPONSE
 → OFFER_ACCEPTED | OFFER_DECLINED
+
+For a conditional offer, the reference workflow is orthogonal to the offer
+state: `AWAITING_PERMISSION → REFERENCES_IN_PROGRESS → REPORT_READY`. Offer
+acceptance may create the separate onboarding run, but the onboarding start-date
+transition fails closed until `REPORT_READY`. A waiver is an explicit attributed
+Founder decision with approved job-related reason codes; silence or missing
+reference data can never create a waiver.
 
 Any nonterminal state → CANDIDATE_WITHDREW
 HELD → the immediately preceding human-decision state (attributed re-decision)
@@ -1424,16 +1433,26 @@ event, cited structured report, and final human-decision wait.
 
 ### 8.8 Offer
 
-Only an authenticated human `ADVANCE_TO_OFFER` decision can prepare an offer.
+Only an authenticated human offer decision can prepare an offer. The exact
+decision records one of three reference dispositions:
+
+- `COMPLETED_PRE_OFFER` after a reference report is ready;
+- `WAIVED_BY_FOUNDER` for an explicit direct-to-offer waiver; or
+- `REQUIRED_BEFORE_START` for a conditional offer whose reference workflow may
+  complete after offer preparation or acceptance but before the start date.
+
 The offer record binds candidate identity, role, compensation, equity, location,
 start date, contingencies, document versions, expiry, approvers, and legal-review
-status. Exact approval precedes generation of any binding signature request or
-send. Compensation or document drift invalidates approval.
+status, including the committed reference disposition. Exact approval precedes
+generation of any binding signature request or send. Compensation, document, or
+reference-condition drift invalidates approval.
 
 **Completion:** provider send/signature receipt. Acceptance requires an
 authoritative signature/acceptance event, not positive email sentiment. An
 accepted offer atomically completes the candidate branch and creates one
-OnboardingRun. Provider uncertainty blocks retry or duplicate offer creation.
+OnboardingRun. A `REQUIRED_BEFORE_START` onboarding run cannot enter `FIRST_DAY`
+until a permitted reference report is durably ready. Provider uncertainty blocks
+retry or duplicate offer creation.
 
 ### 8.9 Onboarding
 

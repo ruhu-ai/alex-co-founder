@@ -75,6 +75,11 @@ def _sha(value: str) -> str:
     return "sha256:" + hashlib.sha256(value.encode()).hexdigest()
 
 
+REFERENCE_COMPLETED_PRE_OFFER = "COMPLETED_PRE_OFFER"
+REFERENCE_WAIVED_BY_FOUNDER = "WAIVED_BY_FOUNDER"
+REFERENCE_REQUIRED_BEFORE_START = "REQUIRED_BEFORE_START"
+
+
 class HiringPostInterviewService:
     """Implement H5-H7 with version-fenced, workspace-scoped records."""
 
@@ -150,6 +155,40 @@ class HiringPostInterviewService:
         policy = await self.store.get(
             "hiring_policy_versions", str((role or {}).get("current_policy_version_id") or ""))
         return (role, policy) if role and policy else None
+
+    async def _has_ready_reference(self, application: dict[str, Any]) -> bool:
+        reports = await self.store.list(
+            "reference_checks",
+            filters={"workspace_id": application["workspace_id"],
+                     "candidate_application_id":
+                         application["candidate_application_id"]},
+            limit=100,
+        )
+        return any(row.get("status") == "REPORT_READY" for row in reports)
+
+    @staticmethod
+    def _conditional_reference_open(application: dict[str, Any]) -> bool:
+        return (
+            application.get("reference_disposition") ==
+            REFERENCE_REQUIRED_BEFORE_START
+            and application.get("reference_stage") in {
+                "AWAITING_PERMISSION", "REFERENCES_IN_PROGRESS"}
+        )
+
+    @classmethod
+    def _reference_intake_allowed(cls, application: dict[str, Any]) -> bool:
+        return (
+            application.get("candidate_state") ==
+            CandidateState.AWAITING_REFERENCE_PERMISSION.value
+            or (
+                cls._conditional_reference_open(application)
+                and application.get("candidate_state") in {
+                    CandidateState.AWAITING_OFFER_APPROVAL.value,
+                    CandidateState.WAITING_FOR_OFFER_RESPONSE.value,
+                    CandidateState.OFFER_ACCEPTED.value,
+                }
+            )
+        )
 
     async def application_release_projection(
             self, application: dict[str, Any]) -> dict[str, Any]:
@@ -317,6 +356,30 @@ class HiringPostInterviewService:
         if not interview or interview.get("candidate_application_id") != application_id:
             return _error("interview_evidence_missing",
                           "A committed interview evidence record is required.")
+        initial_decisions = {
+            PostInterviewDecisionKind.ADDITIONAL_INTERVIEW,
+            PostInterviewDecisionKind.ADVANCE_TO_REFERENCES,
+            PostInterviewDecisionKind.ADVANCE_TO_OFFER_WITH_REFERENCE_WAIVER,
+            PostInterviewDecisionKind.PREPARE_CONDITIONAL_OFFER,
+            PostInterviewDecisionKind.HOLD,
+            PostInterviewDecisionKind.DECLINE,
+        }
+        final_decisions = {
+            PostInterviewDecisionKind.ADVANCE_TO_OFFER,
+            PostInterviewDecisionKind.HOLD,
+            PostInterviewDecisionKind.DECLINE,
+        }
+        current_state = str(app.get("candidate_state") or "")
+        if not (
+            (current_state == CandidateState.AWAITING_INTERVIEW_DECISION.value
+             and payload.decision in initial_decisions)
+            or (current_state == CandidateState.AWAITING_FINAL_DECISION.value
+                and payload.decision in final_decisions)
+        ):
+            return _error(
+                "post_interview_stage_invalid",
+                "This Founder decision is not available in the current stage.",
+            )
         role_policy = await self._role_policy(app)
         if not role_policy:
             return _error("policy_missing", "Current role policy is unavailable.")
@@ -325,11 +388,7 @@ class HiringPostInterviewService:
         if not set(payload.reason_codes) <= allowed_reasons:
             return _error("reason_code_invalid", "Use an approved job-related reason.", 400)
         if payload.decision is PostInterviewDecisionKind.ADVANCE_TO_OFFER:
-            reports = await self.store.list(
-                "reference_checks", filters={"workspace_id": principal.workspace_id,
-                                              "candidate_application_id": application_id},
-                limit=100)
-            if not any(row.get("status") == "REPORT_READY" for row in reports):
+            if not await self._has_ready_reference(app):
                 return _error("reference_evidence_required",
                               "Final offer advancement requires reference evidence.")
         state = {
@@ -337,6 +396,10 @@ class HiringPostInterviewService:
                 CandidateState.WAITING_FOR_INTERVIEW.value,
             PostInterviewDecisionKind.ADVANCE_TO_REFERENCES:
                 CandidateState.AWAITING_REFERENCE_PERMISSION.value,
+            PostInterviewDecisionKind.ADVANCE_TO_OFFER_WITH_REFERENCE_WAIVER:
+                CandidateState.AWAITING_OFFER_APPROVAL.value,
+            PostInterviewDecisionKind.PREPARE_CONDITIONAL_OFFER:
+                CandidateState.AWAITING_OFFER_APPROVAL.value,
             PostInterviewDecisionKind.ADVANCE_TO_OFFER:
                 CandidateState.AWAITING_OFFER_APPROVAL.value,
             PostInterviewDecisionKind.HOLD: CandidateState.HELD.value,
@@ -351,6 +414,15 @@ class HiringPostInterviewService:
                 return _error("idempotency_conflict", "Request id names another decision.")
             return {"status": "success", "duplicate": True,
                     "decision_id": decision_id, "candidate_state": state}
+        reference_disposition = {
+            PostInterviewDecisionKind.ADVANCE_TO_REFERENCES: "PENDING_PRE_OFFER",
+            PostInterviewDecisionKind.ADVANCE_TO_OFFER_WITH_REFERENCE_WAIVER:
+                REFERENCE_WAIVED_BY_FOUNDER,
+            PostInterviewDecisionKind.PREPARE_CONDITIONAL_OFFER:
+                REFERENCE_REQUIRED_BEFORE_START,
+            PostInterviewDecisionKind.ADVANCE_TO_OFFER:
+                REFERENCE_COMPLETED_PRE_OFFER,
+        }.get(payload.decision)
         now = utc_now()
         row = {
             "schema_version": 2, "decision_id": decision_id,
@@ -362,17 +434,34 @@ class HiringPostInterviewService:
             "policy_hash": policy["canonical_hash"],
             "interview_id": payload.interview_id,
             "reason_codes": payload.reason_codes, "human_note": payload.note,
+            "reference_disposition": reference_disposition,
             "actor_id": principal.actor_id, "request_hash": request_hash,
             "commit_status": "COMMITTED", "created_at": now,
             "committed_at": now, "version": 1,
         }
+        application_updates: dict[str, Any] = {
+            "candidate_state": state,
+            "current_decision_id": decision_id,
+            "updated_at": now,
+        }
+        if reference_disposition:
+            application_updates["reference_disposition"] = reference_disposition
+        if payload.decision is PostInterviewDecisionKind.ADVANCE_TO_REFERENCES:
+            application_updates["reference_stage"] = "AWAITING_PERMISSION"
+        elif payload.decision is PostInterviewDecisionKind.PREPARE_CONDITIONAL_OFFER:
+            application_updates["reference_stage"] = "AWAITING_PERMISSION"
+        elif payload.decision in {
+                PostInterviewDecisionKind.ADVANCE_TO_OFFER_WITH_REFERENCE_WAIVER,
+                PostInterviewDecisionKind.ADVANCE_TO_OFFER}:
+            application_updates["reference_stage"] = (
+                "WAIVED" if payload.decision is
+                PostInterviewDecisionKind.ADVANCE_TO_OFFER_WITH_REFERENCE_WAIVER
+                else "REPORT_READY"
+            )
         committed = await self.store.atomic_compare_and_set((
             AtomicMutation("hiring_decisions", decision_id, None, record=row),
             AtomicMutation("candidate_applications", application_id,
-                           int(app["version"]), updates={
-                               "candidate_state": state,
-                               "current_decision_id": decision_id,
-                               "updated_at": now}),
+                           int(app["version"]), updates=application_updates),
         ))
         if not committed:
             return _error("version_conflict", "Decision was not committed.")
@@ -383,7 +472,8 @@ class HiringPostInterviewService:
                           "decision": payload.decision.value},
             actor_id=principal.actor_id)
         return {"status": "success", "duplicate": False,
-                "decision_id": decision_id, "candidate_state": state}
+                "decision_id": decision_id, "candidate_state": state,
+                "reference_disposition": reference_disposition}
 
     async def record_reference_permission(
             self, *, principal: ActorPrincipal, application_id: str,
@@ -397,8 +487,7 @@ class HiringPostInterviewService:
         application_gate = await self._application_release_gate(app)
         if application_gate.get("error"):
             return application_gate
-        if (app.get("candidate_state") !=
-                CandidateState.AWAITING_REFERENCE_PERMISSION.value):
+        if not self._reference_intake_allowed(app):
             return _error("reference_stage_invalid",
                           "References require a Founder decision and candidate permission.")
         if int(app["version"]) != payload.expected_application_version:
@@ -487,13 +576,22 @@ class HiringPostInterviewService:
             "provider_message_id": "", "report": None,
             "created_at": utc_now(), "version": 1,
         }
+        conditional = (
+            app.get("reference_disposition") == REFERENCE_REQUIRED_BEFORE_START
+        )
+        application_updates: dict[str, Any] = {
+            "current_reference_check_id": reference_id,
+            "reference_stage": "REFERENCES_IN_PROGRESS",
+            "updated_at": utc_now(),
+        }
+        if not conditional:
+            application_updates["candidate_state"] = (
+                CandidateState.REFERENCES_IN_PROGRESS.value
+            )
         committed = await self.store.atomic_compare_and_set((
             AtomicMutation("reference_checks", reference_id, None, record=row),
             AtomicMutation("candidate_applications", application_id,
-                           int(app["version"]), updates={
-                               "candidate_state": CandidateState.REFERENCES_IN_PROGRESS.value,
-                               "current_reference_check_id": reference_id,
-                               "updated_at": utc_now()}),
+                           int(app["version"]), updates=application_updates),
         ))
         if not committed:
             existing = await self.store.get("reference_checks", reference_id)
@@ -508,7 +606,10 @@ class HiringPostInterviewService:
                 "approval_id": approval["approval_id"],
                 "approval_status": approval["approval_status"],
                 "response_token": None,
-                "candidate_state": CandidateState.REFERENCES_IN_PROGRESS.value}
+                "candidate_state": (
+                    app["candidate_state"] if conditional else
+                    CandidateState.REFERENCES_IN_PROGRESS.value),
+                "reference_stage": "REFERENCES_IN_PROGRESS"}
 
     async def store_reference_contact(
             self, *, principal: ActorPrincipal, application_id: str,
@@ -523,7 +624,7 @@ class HiringPostInterviewService:
         application_gate = await self._application_release_gate(app)
         if application_gate.get("error"):
             return application_gate
-        if app.get("candidate_state") != CandidateState.AWAITING_REFERENCE_PERMISSION.value:
+        if not self._reference_intake_allowed(app):
             return _error("reference_stage_invalid",
                           "References require a Founder decision and candidate permission.")
         if not self.reference_vault:
@@ -838,7 +939,8 @@ class HiringPostInterviewService:
         if await self.store.get("candidate_evidence", evidence_id):
             return {"status": "success", "duplicate": True,
                     "evidence_id": evidence_id,
-                    "candidate_state": CandidateState.AWAITING_FINAL_DECISION.value}
+                    "candidate_state": app["candidate_state"],
+                    "reference_stage": app.get("reference_stage")}
         redacted = redact_block(
             payload.claim,
             block_id=f"reference:{payload.reference_check_id}:{payload.client_request_id}",
@@ -882,6 +984,20 @@ class HiringPostInterviewService:
             "contradictions": payload.contradictions,
             "summary": "A permitted reference response is cited.",
         }
+        conditional = (
+            app.get("reference_disposition") == REFERENCE_REQUIRED_BEFORE_START
+        )
+        application_updates: dict[str, Any] = {
+            "reference_stage": "REPORT_READY",
+            "updated_at": utc_now(),
+        }
+        if conditional:
+            application_updates["reference_condition_satisfied_at"] = utc_now()
+        else:
+            application_updates.update({
+                "candidate_state": CandidateState.AWAITING_FINAL_DECISION.value,
+                "reference_disposition": REFERENCE_COMPLETED_PRE_OFFER,
+            })
         committed = await self.store.atomic_compare_and_set((
             AtomicMutation("candidate_evidence", evidence_id, None, record=evidence),
             AtomicMutation("reference_checks", payload.reference_check_id,
@@ -889,15 +1005,16 @@ class HiringPostInterviewService:
                                "status": "REPORT_READY", "report": report,
                                "responded_at": utc_now()}),
             AtomicMutation("candidate_applications", application_id,
-                           int(app["version"]), updates={
-                               "candidate_state": CandidateState.AWAITING_FINAL_DECISION.value,
-                               "updated_at": utc_now()}),
+                           int(app["version"]), updates=application_updates),
         ))
         if not committed:
             return _error("version_conflict", "Reference report was not committed.")
         return {"status": "success", "duplicate": False,
                 "evidence_id": evidence_id,
-                "candidate_state": CandidateState.AWAITING_FINAL_DECISION.value}
+                "candidate_state": (
+                    app["candidate_state"] if conditional else
+                    CandidateState.AWAITING_FINAL_DECISION.value),
+                "reference_stage": "REPORT_READY"}
 
     async def reference_response_projection(
             self, *, reference_check_id: str, response_token: str) -> dict[str, Any]:
@@ -944,6 +1061,22 @@ class HiringPostInterviewService:
                           "A final Founder ADVANCE_TO_OFFER decision is required.")
         if int(app["version"]) != payload.expected_application_version:
             return _error("version_conflict", "Application changed; reload first.")
+        expected_reference_condition = str(
+            app.get("reference_disposition") or REFERENCE_COMPLETED_PRE_OFFER
+        )
+        if expected_reference_condition not in {
+                REFERENCE_COMPLETED_PRE_OFFER,
+                REFERENCE_WAIVED_BY_FOUNDER,
+                REFERENCE_REQUIRED_BEFORE_START}:
+            return _error(
+                "reference_disposition_invalid",
+                "The Founder must choose how references relate to this offer.",
+            )
+        if payload.reference_condition != expected_reference_condition:
+            return _error(
+                "offer_reference_condition_mismatch",
+                "The offer must preserve the committed Founder reference decision.",
+            )
         artifact = await self.store.get("hiring_candidate_artifacts",
                                         payload.document_artifact_id)
         if artifact and (artifact.get("candidate_application_id") != application_id
@@ -990,6 +1123,7 @@ class HiringPostInterviewService:
             "title": payload.title, "start_date": payload.start_date,
             "compensation": payload.compensation,
             "employment_terms": payload.employment_terms,
+            "reference_condition": payload.reference_condition,
         }
         approval = await request_approval(
             principal=principal, run_id=str(app["run_id"]),
@@ -1007,6 +1141,7 @@ class HiringPostInterviewService:
             "candidate_run_id": app["run_id"], "status": "AWAITING_APPROVAL",
             "offer_version": 1, "offer_sha256": offer_hash,
             "exact_terms": exact, "approval_id": approval["approval_id"],
+            "reference_condition": payload.reference_condition,
             "signature_event_id": None, "created_at": utc_now(), "version": 1,
         }
         if not await self.store.create("offers", offer_id, row):
@@ -1140,6 +1275,12 @@ class HiringPostInterviewService:
             "offer_id": payload.offer_id,
             "state": OnboardingState.ONBOARDING_INTAKE.value,
             "start_date": offer["exact_terms"]["start_date"],
+            "reference_condition": offer.get(
+                "reference_condition", REFERENCE_COMPLETED_PRE_OFFER),
+            "reference_condition_satisfied": (
+                offer.get("reference_condition") != REFERENCE_REQUIRED_BEFORE_START
+                or await self._has_ready_reference(app)
+            ),
             "plan_id": None, "permissions_transferred": False,
             "created_at": utc_now(), "version": 1,
         }
@@ -1321,12 +1462,25 @@ class HiringPostInterviewService:
         today = now.date().isoformat()
         transition = payload.transition
         target = ""
+        reference_condition_cleared = False
         if transition == "SYNC_START_DATE":
             if current not in {
                     OnboardingState.PRE_START.value,
                     OnboardingState.WAITING_FOR_START_DATE.value}:
                 return _error("onboarding_transition_invalid",
                               "Start-date sync is not valid in the current state.")
+            if row.get("reference_condition") == REFERENCE_REQUIRED_BEFORE_START:
+                application = await self.store.get(
+                    "candidate_applications",
+                    str(row.get("candidate_application_id") or ""),
+                )
+                if not application or not await self._has_ready_reference(application):
+                    return _error(
+                        "references_required_before_start",
+                        "The conditional offer requires completed reference evidence "
+                        "before the start date can activate.",
+                    )
+                reference_condition_cleared = True
             target = (OnboardingState.FIRST_DAY.value
                       if today >= str(row.get("start_date") or "")
                       else OnboardingState.WAITING_FOR_START_DATE.value)
@@ -1381,6 +1535,11 @@ class HiringPostInterviewService:
             "last_progressed_by": principal.actor_id,
             "last_progressed_at": now.isoformat(), "updated_at": now.isoformat(),
         }
+        if reference_condition_cleared:
+            updates.update({
+                "reference_condition_satisfied": True,
+                "reference_condition_satisfied_at": now.isoformat(),
+            })
         if target == OnboardingState.WAITING_FOR_START_DATE.value:
             updates["start_date_wait_active"] = True
         elif target == OnboardingState.FIRST_DAY.value:
@@ -1417,6 +1576,10 @@ class HiringPostInterviewService:
         onboarding = await self.store.list("onboarding_runs", filters=filters, limit=10)
         items = await self.store.list("onboarding_items", filters=filters, limit=200)
         return {"status": "success", "candidate_state": app["candidate_state"],
+                "reference_disposition": app.get("reference_disposition"),
+                "reference_stage": app.get("reference_stage"),
+                "reference_condition_satisfied_at":
+                    app.get("reference_condition_satisfied_at"),
                 "interviews": interviews, "references": references,
                 "offers": offers, "onboarding": onboarding,
                 "onboarding_items": items,
