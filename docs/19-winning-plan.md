@@ -25,8 +25,8 @@ embeddings, model breadth, and executable demo scenarios**.
 
 ## P0 — ship-readiness (nothing else matters until these are done)
 
-1. **Cloud Run deploy** (docs/13): app + mock portal, secrets in Secret
-   **Status (Aug 20): DEPLOYED + verified — app, mock portal, Cloud SQL,
+1. **Cloud Run deploy** (docs/13): app + private browser worker, secrets in Secret
+   **Status: DEPLOYED + verified — app, browser worker, Cloud SQL,
    deadline Scheduler/PubSub OIDC loop live.**
    Manager, `--min-instances 1` for the demo window, `/healthz` warm, Cloud
    SQL sessions, founder-invoked Cloud Tasks → `/tasks/discover`, and Scheduler
@@ -48,18 +48,15 @@ embeddings, model breadth, and executable demo scenarios**.
 
 ## P1 — Google-framework coverage (the four gaps)
 
-5. **A2A — the headline addition, REAL protocol only.** The mock portal
-   exposes an A2A agent card (`/.well-known/agent.json`) and handles
-   `message/send` via `a2a-sdk`: Alex *negotiates* with the program's own
-   agent — asks requirements, clarifies fields, receives deadline extensions,
-   confirms receipt. Demo beat: "watch our agent talk to THEIR agent."
+5. **A2A — real protocol only.** The provider-neutral client discovers an A2A
+   agent card (`/.well-known/agent.json`) and uses `message/send`: Alex can
+   negotiate with a real program's agent when that provider exposes A2A.
    **Never a custom lookalike endpoint** — a judge who knows A2A spots a fake
    instantly; the protocol is JSON-RPC over HTTP, so a minimal real
    implementation costs the same as a fake one. 1-day timebox; if the SDK
    fights back, cut entirely rather than ship a lookalike.
-   **Status (Aug 20): BUILT — spec-shaped agent card + message/send on the
-   portal, SDK-compatible client on Alex, live beat verified end-to-end,
-   5 unit tests; a2a-sdk pinned.**
+   **Status: BUILT — SDK-compatible client and provider-neutral in-process
+   contract tests; no bundled or publicly deployed demonstration provider.**
    *Criteria: Innovation headline, Google-tech breadth.*
 6. **Vertex text-embeddings** (`gemini-embedding-001`) for canonical-answer
    retrieval — replaces tag retrieval in `get_relevant_answers` (docs/06
@@ -101,7 +98,7 @@ embeddings, model breadth, and executable demo scenarios**.
    approval → refused, on camera, twice, idempotent).
 9. **Scenario buttons** on the UI: pre-staged, judge-clickable — "Deck → profile
    in 30s" · "Feedback → adaptation loop" ·
-   "A2A negotiation" · "Mock portal pre-fill & gate" · "Doc produced live".
+   "A2A negotiation" · "Provider pre-fill & gate" · "Doc produced live".
    Each seeds state and runs one beat, powered by `scripts/seed_demo.py
    --scenarios` (EXTEND the existing seed script — no duplicate seeders).
    *Criteria: Demo Readiness.*

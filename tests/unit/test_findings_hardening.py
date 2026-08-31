@@ -222,11 +222,8 @@ def test_agent_engine_deploy_reuses_one_scale_to_zero_resource():
     assert config["max_instances"] == 1
 
 
-def test_mock_portal_cloud_state_and_public_urls_are_durable():
-    source = (ROOT / "mock_portal/main.py").read_text()
+def test_retired_mock_portal_is_absent_from_runtime_and_deploy():
     deploy = (ROOT / "scripts/deploy.sh").read_text()
-    assert 'collection("mock_portal_submissions")' in source
-    assert 'collection("mock_portal_accounts")' in source
-    assert "_reserve_submission" in source
-    assert "MOCK_PORTAL_PUBLIC_URL=$MOCK_URL" in deploy
-    assert 'verify_url = f"{_AGENT_URL.rstrip' in source
+    assert not (ROOT / "mock_portal/main.py").exists()
+    assert "gcloud run deploy mock-portal" not in deploy
+    assert "MOCK_PORTAL_URL" not in deploy

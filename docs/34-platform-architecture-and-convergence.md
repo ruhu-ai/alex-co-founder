@@ -258,7 +258,7 @@ Start with two production trust zones, not a service per logical plane:
 |---|---|---|
 | `co-founder` modular monolith | Public API, authenticated internal task routes, control modules, outbox dispatch, bounded ADK work, projection/SSE, reconciliation | One versioned Cloud Run image; route-level user or task OIDC identity; provider credentials granted only to the capability-specific service account used by that revision |
 | `co-founder-browser-worker` | Playwright portal work and browser expiry | Separate Cloud Run service/account; strict egress, queue-only ingress, and single-flight resource ownership |
-| `mock-portal` | Demonstration provider only | Separate service; never production authority |
+| External application provider | Real portal or A2A endpoint | Outside the product trust boundary; provider policy, SSRF, approval, and idempotency checks apply |
 
 The public service never holds a Playwright `Browser`, `Context`, or `Page`.
 Browser calls cross a closed, versioned internal API using an audience-bound

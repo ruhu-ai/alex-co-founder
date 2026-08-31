@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
-# Start the complete local stack with one canonical founder-app origin. OAuth
-# callbacks, Cloud Tasks targets, and the mock portal all use AGENT_BASE_URL,
-# so deriving it here prevents a command-line port and callback port from
-# drifting apart.
+# Start the founder app with one canonical local origin. OAuth callbacks and
+# Cloud Tasks targets use AGENT_BASE_URL, so deriving it here prevents a
+# command-line port and callback port from drifting apart.
 set -euo pipefail
 umask 077
 
@@ -13,24 +12,20 @@ cd "$ROOT"
 # URI, and allowing an ad-hoc port here is how the connection flow drifted.
 HOST="127.0.0.1"
 PORT="8090"
-PORTAL_PORT="8091"
-START_PORTAL=true
 RELOAD=false
 VENV_DIR="${LOCAL_VENV_DIR:-.venv}"
 
 usage() {
   cat <<'EOF'
-Usage: ./scripts/run_local.sh [--reload] [--app-only]
+Usage: ./scripts/run_local.sh [--reload]
 
-  --reload    Restart both services when source files change (development only).
-  --app-only  Start only the founder app; use when the portal runs elsewhere.
+  --reload    Restart the app when source files change (development only).
 EOF
 }
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --reload) RELOAD=true ;;
-    --app-only) START_PORTAL=false ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Unknown option: $1" >&2; usage >&2; exit 2 ;;
   esac
@@ -75,7 +70,6 @@ if [[ -f "$LOCAL_ENV_FILE" ]]; then
   set +a
 fi
 export AGENT_BASE_URL="http://${HOST}:${PORT}"
-export MOCK_PORTAL_URL="http://${HOST}:${PORTAL_PORT}"
 
 port_must_be_free() {
   local port="$1"
@@ -87,9 +81,6 @@ port_must_be_free() {
 }
 
 port_must_be_free "$PORT" "founder app"
-if [[ "$START_PORTAL" == true ]]; then
-  port_must_be_free "$PORTAL_PORT" "mock portal"
-fi
 
 if [[ "$RELOAD" == true ]]; then
   echo "Hot reload enabled; active voice and OAuth requests may be interrupted by file changes."
@@ -104,14 +95,12 @@ run_uvicorn() {
 }
 
 APP_PID=""
-PORTAL_PID=""
 MAIL_SUBSCRIBER_PID=""
 
 cleanup() {
   trap - EXIT INT TERM
   local pids=()
   [[ -n "$APP_PID" ]] && pids+=("$APP_PID")
-  [[ -n "$PORTAL_PID" ]] && pids+=("$PORTAL_PID")
   [[ -n "$MAIL_SUBSCRIBER_PID" ]] && pids+=("$MAIL_SUBSCRIBER_PID")
   if [[ ${#pids[@]} -gt 0 ]]; then
     kill -TERM "${pids[@]}" >/dev/null 2>&1 || true
@@ -151,12 +140,6 @@ PY
   return 1
 }
 
-if [[ "$START_PORTAL" == true ]]; then
-  run_uvicorn mock_portal.main:app --host "$HOST" --port "$PORTAL_PORT" &
-  PORTAL_PID=$!
-  wait_for_health "Mock portal" "${MOCK_PORTAL_URL}/healthz" "$PORTAL_PID"
-fi
-
 run_uvicorn app.main:app --host "$HOST" --port "$PORT" &
 APP_PID=$!
 wait_for_health "Founder app" "${AGENT_BASE_URL}/health" "$APP_PID"
@@ -173,23 +156,16 @@ if [[ -n "${ALEX_MAIL_LOCAL_SUBSCRIPTION:-}" ]]; then
 fi
 
 echo
-echo "Local stack is ready:"
+echo "Local app is ready:"
 echo "  Founder app: ${AGENT_BASE_URL}"
-if [[ "$START_PORTAL" == true ]]; then
-  echo "  Mock portal: ${MOCK_PORTAL_URL}"
-fi
 if [[ -n "$MAIL_SUBSCRIBER_PID" ]]; then
   echo "  Alex Mail: automatic Pub/Sub wake enabled"
 fi
 echo "Press Ctrl-C to stop."
 
-# Bash 3.2 (still shipped by macOS) has no `wait -n`, so monitor both children
-# and make either process exiting a failure of the complete local stack.
+# Bash 3.2 (still shipped by macOS) has no `wait -n`, so monitor the app and
+# optional mailbox subscriber explicitly.
 while kill -0 "$APP_PID" >/dev/null 2>&1; do
-  if [[ -n "$PORTAL_PID" ]] && ! kill -0 "$PORTAL_PID" >/dev/null 2>&1; then
-    echo "Mock portal stopped; shutting down the local stack." >&2
-    exit 1
-  fi
   if [[ -n "$MAIL_SUBSCRIBER_PID" ]] && ! kill -0 "$MAIL_SUBSCRIBER_PID" >/dev/null 2>&1; then
     echo "Alex Mail local event subscriber stopped; shutting down the local stack." >&2
     exit 1

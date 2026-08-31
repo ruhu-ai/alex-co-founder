@@ -39,8 +39,8 @@ pypdf==6.1.1
 # Explicit still-image validation/normalization (docs/35). Pillow's decoded
 # pixel guards and EXIF transpose are part of the security boundary.
 Pillow==12.3.0
-# Form/File routes (app/main.py, mock_portal) — depend on it explicitly rather
-# than through transitive luck
+# Public Hiring intake and file routes — depend on it explicitly rather than
+# through transitive luck.
 python-multipart==0.0.32
 
 # 49.0.0 removed x86_64 macOS wheels. Our documented Python 3.11 local runtime

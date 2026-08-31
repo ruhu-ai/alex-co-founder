@@ -149,8 +149,8 @@ portal.post("/submit", payload, headers={"Idempotency-Key": key})
 - The key is **derived, not stored** — any retry path (ADK `ResumabilityConfig`
   at-least-once resume, `ADK_TRIGGER_MAX_RETRIES=3` redelivery, founder
   double-click) recomputes the identical key.
-- The **portal dedupes**: the mock portal honors `Idempotency-Key` by returning
-  the original confirmation instead of creating a second submission (see 09).
+- A compliant **provider dedupes** by `Idempotency-Key`, returning the original
+  confirmation instead of creating a second submission (see 09).
 - Our `submit_idempotency_key` audit check remains as a second, belt-and-braces
   layer: prior `audit` success → no-op with the original confirmation id.
 - All other external writes use `{entity_id}:{action}:{entity_version}` as natural keys.

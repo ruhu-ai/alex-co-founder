@@ -61,7 +61,7 @@ The founder's real pain: repetitive re-entry, lost deadlines, and hours of draft
 ### Explicitly out of scope for v1
 
 - General business advice (pricing, hiring, strategy chat) — mention only as future scope in the write-up.
-- "Works on any website" browser automation — target **1–2 real application portals** plus **one self-hosted mock portal** (deployed on Cloud Run) as a demo reliability fallback.
+- "Works on any website" browser automation — target only reviewed real providers; use provider-neutral in-process fixtures for deterministic tests.
 - Payment, taxes, legal, or any other workflow beyond applications.
 
 ## 6. Architecture
@@ -70,7 +70,7 @@ The founder's real pain: repetitive re-entry, lost deadlines, and hours of draft
 
 - **Gemini 3.5+** via Gemini API or Vertex AI — all reasoning, extraction, drafting, distillation.
 - **Google ADK** — agent framework (multi-agent orchestration, tools, sessions, state).
-- **Google Cloud infra (minimum one; we use several):** Cloud Run (hosting + mock portal), Firestore (pipeline store), Pub/Sub + Cloud Scheduler (wake-up triggers), Cloud Storage (artifacts: decks, documents), Secret Manager (portal credentials).
+- **Google Cloud infra (minimum one; we use several):** Cloud Run (hosting + private browser worker), Firestore (pipeline store), Pub/Sub + Cloud Scheduler (wake-up triggers), Cloud Storage (artifacts: decks, documents), Secret Manager (provider credentials).
 
 ### Workflow engine (design for the future, build one instance)
 
@@ -97,7 +97,7 @@ Concrete rules for the implementation:
 - **Explicit state schema** in session state (`current_step`, `active_program`, `checklist_status`, `pending_signals`) — the agent is grounded in a state machine, not conversation replay. State variables are injected into the system instruction (`{current_step}` etc.) so the model always sees exact workflow position. State is initialized in a `before_agent_callback`.
 - **Persistent sessions:** ADK DatabaseSessionService backed by Cloud SQL (or SQLite locally) so the agent survives restarts and can pause for days waiting on the founder or a deadline.
 - **Founder Profile (long-term memory):** structured document(s) in Firestore + Memory Bank: canonical facts, approved answer library, style/voice rules, rejection history with reasons. This is the "constantly adapts" evidence.
-- **Event-driven dormancy + resume:** instead of polling, the agent sleeps (container may scale to zero) and is woken by external events — Pub/Sub messages (deadline tick) and **FastAPI webhook endpoints** (founder reply, portal confirmation, mock-portal events). Discovery starts only from a founder action. On wake, a resume handler hydrates the persisted session and calls `runner.run_async(..., state_delta={...})` so the state transition is applied atomically *before* the next inference call — no replayed chat history, no hallucinated intermediate steps.
+- **Event-driven dormancy + resume:** instead of polling, the agent sleeps (container may scale to zero) and is woken by external events — Pub/Sub messages (deadline tick) and verified **FastAPI webhook endpoints** (founder reply or provider confirmation). Discovery starts only from a founder action. On wake, a resume handler hydrates the persisted session and calls `runner.run_async(..., state_delta={...})` so the state transition is applied atomically *before* the next inference call — no replayed chat history, no hallucinated intermediate steps.
 - **Idempotency + audit log:** every external action (form fill, submission, email) carries an idempotency key and writes an audit record (who/what/when/result).
 
 ### Evaluation (judges reward this; most entrants skip it)
@@ -108,7 +108,7 @@ Concrete rules for the implementation:
 
 ### Deployment & observability
 
-- Primary: **Cloud Run** (FastAPI app via ADK's `get_fast_api_app`) with scale-to-zero during dormancy; mock portal on a second Cloud Run service.
+- Primary: **Cloud Run** (FastAPI app via ADK's `get_fast_api_app`) with scale-to-zero during dormancy; browser automation uses a separately isolated private worker.
 - Optional/stronger: deploy via **Agent Runtime (Vertex AI Agent Engine)** using the `AdkApp` wrapper and `agents-cli deploy` — session persistence, auto-scaling, and Cloud Trace built in. Pick one per environment; note the choice in the README.
 - **Cloud Trace / structured logs** for end-to-end reasoning chains — show these in the video as production-readiness proof.
 
@@ -144,12 +144,12 @@ Script beats:
 6. **Cloud proof (20s):** Cloud Run dashboard, Vertex AI logs, `.run.app` URL on screen.
 7. **Roadmap (10s, trim beats 2–3 slightly to fit):** one slide showing the future workflows from Section 6.5 — "same engine, new definitions" — closing on "the agent does the work; the founder keeps the judgment."
 
-Fallback: if the live portal breaks on recording day, use the self-hosted mock portal (same flow, same code path).
+Fallback: if a live provider is unavailable during recording, demonstrate the Hiring workflow and provider-neutral contract tests rather than deploying a fake provider.
 
 ## 8. Submission checklist (from the rules)
 
 - Public/private repo with **spin-up README** (reproducible setup); if private, grant access to testing@devpost.com and cloudhackathons@google.com.
-- **Architecture diagram** (Gemini ↔ ADK agents ↔ Firestore/Cloud SQL ↔ Pub/Sub/Scheduler ↔ browser tool ↔ mock portal).
+- **Architecture diagram** (Gemini ↔ ADK agents ↔ Firestore/Cloud SQL ↔ Pub/Sub/Scheduler ↔ browser tool ↔ reviewed external provider).
 - ≤4-min video on YouTube/Vimeo (publicly visible), English, showing Google Cloud deployment. No third-party logos/ads in any submission material.
 - Text description: features, technologies, data sources, findings/learnings.
 - Hosted URL strongly encouraged; **the project must remain available, free of charge, for judge testing until the Judging Period ends (~Oct 1, 2026)** — plan Cloud costs accordingly (scale-to-zero config).

@@ -16,7 +16,6 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 INDEX = ROOT / "app" / "static" / "index.html"
-PORTAL = ROOT / "mock_portal" / "main.py"
 
 # (foreground token, background token, floor, what it is)
 CONTRACT: list[tuple[str, str, float, str]] = [
@@ -50,30 +49,6 @@ CONTRACT: list[tuple[str, str, float, str]] = [
     ("attn", "surface-1", 3.0, "attention stripe"),
     ("danger", "surface-1", 3.0, "severity stripe"),
     ("info", "surface-1", 3.0, "state dot"),
-]
-
-
-# The mock portal is a separate visual identity (docs/16 §12) with its own
-# token names, held to the same floors so "looks like someone else's software"
-# never becomes "is less accessible than ours".
-PORTAL_CONTRACT: list[tuple[str, str, float, str]] = [
-    ("ink", "paper", 12.0, "body on paper"),
-    ("ink", "card", 12.0, "body on card"),
-    ("ink2", "card", 7.0, "secondary on card"),
-    ("ink2", "paper", 7.0, "secondary on paper"),
-    ("ink3", "card", 4.5, "hint on card"),
-    ("ink3", "paper", 4.5, "hint on paper"),
-    ("ink3", "sunk", 4.5, "hint on sunk"),
-    ("brand", "card", 4.5, "brand text on card"),
-    ("brand", "paper", 4.5, "brand text on paper"),
-    ("brand-on", "brand", 4.5, "button label on brand"),
-    ("gold", "card", 4.5, "deadline emphasis on card"),
-    ("gold", "paper", 4.5, "deadline emphasis on paper"),
-    ("danger", "card", 4.5, "error text"),
-    ("ok", "card", 4.5, "confirmed text"),
-    ("rule", "card", 1.5, "hairline on card"),
-    ("field", "card", 3.0, "input border"),
-    ("brand", "paper", 3.0, "focus ring on paper"),
 ]
 
 
@@ -151,10 +126,6 @@ def main() -> int:
     else:
         print(f"\nlight palette: media and toggle blocks agree ({len(light)} tokens)")
 
-    portal_css = PORTAL.read_text(encoding="utf-8")
-    portal = {m[1]: m[2] for m in re.finditer(
-        r"--([a-z0-9-]+)\s*:\s*(#[0-9a-fA-F]{3,6})\s*;", portal_css)}
-    total += check("mock portal", portal, verbose, PORTAL_CONTRACT)
     if total:
         print("\ndocs/16-design-system.md §2 violated — fix the tokens in "
               "app/static/index.html and re-run.")

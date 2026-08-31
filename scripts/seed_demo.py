@@ -13,7 +13,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from services import firestore, pipeline_service  # noqa: E402
+from services import firestore  # noqa: E402
 from services.actor_identity import WorkspaceRole, create_membership  # noqa: E402
 
 USER_IDS = ["user", "eval_founder", os.environ.get("FOUNDER_ID", "founder")]
@@ -54,29 +54,6 @@ PROFILE = {
     ],
 }
 
-OPPORTUNITIES = [
-    {  # strong fit for the seeded profile
-        "name": "Meridian Pre-Seed Grant", "source_url": "http://127.0.0.1:8091/",
-        "source_type": "web_page", "award": "$25,000", "deadline": "2026-09-30",
-        "eligibility": ["pre-seed", "Africa-based", "non-dilutive"],
-        "application_url": "http://127.0.0.1:8091/apply/mp-grant",
-        "required_materials": ["problem statement", "traction summary", "deck"],
-        "description": "Non-dilutive grant for early-stage African startups.",
-        "raw_excerpt": "The Meridian Pre-Seed Grant awards $25,000 non-dilutive…",
-    },
-    {  # obvious non-fit (the matchmaker must archive it with a specific reason)
-        "name": "Growth-Stage Energy Infrastructure Fund",
-        "source_url": "https://example.org/energy", "source_type": "web_page",
-        "award": "$2,000,000", "deadline": "2026-12-01",
-        "eligibility": ["Series B+", "energy infrastructure", "$1m+ ARR"],
-        "application_url": "https://example.org/energy/apply",
-        "required_materials": ["audited financials", "3-year operating history"],
-        "description": "Growth capital for energy infrastructure companies.",
-        "raw_excerpt": "Applicants must demonstrate $1m+ ARR and Series B or later…",
-    },
-]
-
-
 async def main() -> None:
     for user_id in USER_IDS:
         existing = await firestore.get_profile(user_id)
@@ -95,14 +72,8 @@ async def main() -> None:
         elif membership.get("error_code") != "version_conflict":
             raise RuntimeError(membership.get("message") or "membership seed failed")
 
-    for record in OPPORTUNITIES:
-        record["dedup_hash"] = pipeline_service.dedup_hash(
-            record["name"], record["application_url"])
-        opp_id = await firestore.create_opportunity(record)
-        print(f"opportunity seeded: {record['name']} ({opp_id[:8]})")
-
-    print("\nDone. Board: 1 strong fit + 1 obvious non-fit; profile has the seeded")
-    print("'revolutionary' voice rule for the adaptation money shot.")
+    print("\nDone. Founder/evaluation identities and the profile adaptation rule are seeded.")
+    print("Start the Hiring demo from Alex chat with the README `/hiring` prompt.")
 
 
 if __name__ == "__main__":

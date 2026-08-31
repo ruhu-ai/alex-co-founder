@@ -8,10 +8,10 @@ walk a judge through every row.
 
 | Rule | Implementation |
 |---|---|
-| Portal credentials live only in Secret Manager | secret `mock-portal-creds` (and any real-portal secret); `services/secrets.get(name)` fetches at **execution time**, in-memory cache ≤ 5 min |
+| Portal credentials live only in Secret Manager | per-host real-provider secret names; `services/secrets.get(name)` fetches at **execution time**, in-memory cache ≤ 5 min |
 | Secrets never in prompts | credentials are fetched inside `open_portal`/`submit_form` — they never appear in tool return values, so they never enter the conversation the model sees |
 | Secrets never in state or logs | log scrubber is a `logging.Filter` (in `services/`) installed on the logging path when the first secret is fetched; every value returned by `services/secrets.get` is registered with it, and the filter rewrites any registered secret value to `***` in a log record before it is emitted |
-| Webhook authenticity | mock portal signs calls with `X-Portal-Token` shared secret; agent verifies before acting on `portal_event` |
+| Webhook authenticity | a configured provider signs calls with `X-Portal-Token`; the agent verifies the secret before acting on `portal_event`; an unconfigured endpoint fails closed |
 | Company documents | uploaded docs live only in the founder's own GCS bucket. Extension/MIME are not trusted: PDF structure and bounded OOXML archives are validated before storage. Native parsers retain citations; legacy Office, encryption, traversal, links, duplicate members, expansion bombs, and malformed content fail closed. Contents are model data, never instructions/approval, and are not sent to the Evidence Checker. |
 | Founder Drive connector | OAuth `drive.readonly` + `drive.file`; the founder selects specific readable files (no blanket indexing), and `drive.file` can create only app-produced exports. Refresh tokens minted in-app persist to Secret Manager on Cloud Run / to the explicit `LOCAL_ENV_FILE` (mode `0600`) locally, never to state or logs. |
 | Alex's Drive | Separate role-owned Google account (`alex@ruhu.ai`) using the full Google Drive OAuth scope so Alex can read and write its own operational files. The broad provider grant does not widen product authority: generated-document writes require the exact visible Founder click and a durable action receipt; no silent delete, external share, or cross-workspace access path is exposed. |

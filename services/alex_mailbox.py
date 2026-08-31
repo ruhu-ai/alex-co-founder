@@ -362,68 +362,40 @@ def _extract_link_or_code(body: str, expected_host: str = "") -> tuple[str, str]
 
 async def wait_for_email(*, from_contains: str = "", subject_contains: str = "",
                          timeout_s: int = 180, poll_s: int = 10,
-                         mailbox_url: str = "", workspace_id: str = "") -> dict:
+                         workspace_id: str = "") -> dict:
     """Poll until a matching message arrives; return its verification payload.
 
-    Two backends: the real mailbox (Gmail, read-only) or a mock mailbox URL
-    (docs/17 — the mock portal's /_mailbox seam for offline tests). Timeouts
-    are error-as-data — never an infinite poll."""
+    Reads Alex's real workspace mailbox. Timeouts are error-as-data — never an
+    infinite poll."""
     import asyncio as _asyncio
     import time as _time
 
     deadline = _time.monotonic() + timeout_s
     while True:
         body, sender, subject = "", "", ""
-        if mailbox_url:
-            try:
-                import os as _os
-
-                import httpx as _httpx
-
-                # The mock portal's /_mailbox is token-gated in production
-                # (K_SERVICE); send the shared portal token so the poll is
-                # authorized. In local dev the token is empty and the seam is
-                # open, so the header is simply absent.
-                token = _os.environ.get("PORTAL_WEBHOOK_TOKEN", "")
-                headers = {"X-Portal-Token": token} if token else {}
-                async with _httpx.AsyncClient(timeout=10) as client:
-                    resp = await client.get(mailbox_url, headers=headers)
-                messages = resp.json().get("messages", [])
-            except Exception as exc:
-                return {"status": "error", "error": True,
-                        "message": f"mailbox poll failed: {exc}"[:200]}
-            for msg in reversed(messages):
-                if ((from_contains.lower() in msg.get("from", "").lower()
-                     or not from_contains)
-                        and (not subject_contains or subject_contains.lower()
-                             in msg.get("subject", "").lower())):
-                    sender, subject = msg.get("from", ""), msg.get("subject", "")
-                    body = msg.get("body", "") + " " + msg.get("link", "")
-                    break
-        else:
-            svc = await asyncio.to_thread(_service, workspace_id)
-            if svc is None:
-                return _no_oauth()
-            try:
-                q = "is:unread"
-                if from_contains:
-                    q += f" from:{from_contains}"
-                resp = await asyncio.to_thread(lambda: svc.users().messages().list(
-                    userId="me", q=q, maxResults=5).execute())
-                stubs = resp.get("messages", [])
-            except Exception as exc:
-                return {"status": "error", "error": True,
-                        "message": f"mailbox poll failed: {exc}"[:200]}
-            for stub in stubs:
-                event = await asyncio.to_thread(_message_to_event, svc, stub)
-                if event and (not subject_contains
-                              or subject_contains.lower() in event["subject"].lower()):
-                    # link/code extraction needs the FULL body, not the
-                    # 280-char display excerpt
-                    body = (await asyncio.to_thread(_full_body, svc, stub["id"])
-                            or event["excerpt"])
-                    sender, subject = event["from"], event["subject"]
-                    break
+        svc = await asyncio.to_thread(_service, workspace_id)
+        if svc is None:
+            return _no_oauth()
+        try:
+            q = "is:unread"
+            if from_contains:
+                q += f" from:{from_contains}"
+            resp = await asyncio.to_thread(lambda: svc.users().messages().list(
+                userId="me", q=q, maxResults=5).execute())
+            stubs = resp.get("messages", [])
+        except Exception as exc:
+            return {"status": "error", "error": True,
+                    "message": f"mailbox poll failed: {exc}"[:200]}
+        for stub in stubs:
+            event = await asyncio.to_thread(_message_to_event, svc, stub)
+            if event and (not subject_contains
+                          or subject_contains.lower() in event["subject"].lower()):
+                # link/code extraction needs the FULL body, not the
+                # 280-char display excerpt
+                body = (await asyncio.to_thread(_full_body, svc, stub["id"])
+                        or event["excerpt"])
+                sender, subject = event["from"], event["subject"]
+                break
         if body:
             link, code = _extract_link_or_code(body, expected_host=from_contains)
             return {"status": "success", "link": link, "code": code,

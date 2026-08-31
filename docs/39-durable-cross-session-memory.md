@@ -2203,7 +2203,7 @@ Evidence captured in this worktree on 2026-08-28:
 - `pytest -q tests/unit` — **1,146 passed, 2 skipped**.
 - Focused M1/M2 privacy, tenancy, correction, deletion, restore, private-session,
   disclosure, injection, and release-boundary suite — **36 passed**.
-- `python scripts/check_contrast.py` — all dark, light, and mock-portal pairs
+- `python scripts/check_contrast.py` — all then-configured contrast pairs
   passed the Document 16 contrast contract.
 - `python -m py_compile` over the changed application, agent, service, migration,
   and TTL deployment modules — passed.
@@ -2480,7 +2480,7 @@ Evidence captured in this isolated worktree without cloud mutation:
 - `pytest -q tests/unit` — **1,168 passed, 2 skipped**;
 - focused M1/M2/release-readiness/safe-path suite — **50 passed**;
 - `python scripts/check_contrast.py` — all Document 16 dark, light, and
-  mock-portal contrast pairs passed;
+  all then-configured contrast pairs passed;
 - changed Python modules compiled and both the TTL and attestation JSON files
   parsed successfully;
 - TTL helper dry-run declared exactly one
@@ -2602,7 +2602,7 @@ Local verification on 2026-08-28 completed with normal-app M2 unchanged:
 - the release example returned `BLOCKED` and the independent-ledger restore
   probe remained only `PROVISIONAL`;
 - the TTL helper dry-run declared one command and applied zero changes;
-- the Document 16 contrast checker passed all dark, light, and mock-portal
+- the Document 16 contrast checker passed all then-configured
   pairs;
 - the normal listener remained untouched on port 8090; only the isolated 8093
   pilot may be restarted to load and validate the exact candidate; and

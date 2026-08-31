@@ -83,8 +83,6 @@ cp .env.example .env   # fill values
 # back to the same locked file even when the code runs from another checkout.
 # terminal 1
 ./scripts/run_local.sh
-# terminal 2
-uvicorn mock_portal.main:app --port 8091
 # optional dev inspector
 adk web agents --port 8000 \
   --session_service_uri="sqlite+aiosqlite:///sessions.db" \
@@ -137,7 +135,7 @@ not alter any other collection. Bootstrap the one-role workspace after reset.
 | Firestore | native mode, `(default)` db | pipeline store |
 | Cloud SQL | Postgres 16, `db-f1-micro`, private IP optional | ADK sessions in prod |
 | GCS bucket | `gs://<project>-artifacts` | artifact service URI |
-| Secret Manager | `mock-portal-creds`, `portal-webhook-token` | |
+| Secret Manager | application, connector and optional real-provider webhook secrets | no demo-provider credential |
 | Pub/Sub topics | `deadline-tick`, `alex-mail-events` | Gmail publishes content-free history notifications to `alex-mail-events`. Authenticated Cloud Run push and the dedicated local streaming-pull subscription consume the same idempotent event stream. Discovery is founder-invoked through Cloud Tasks; **no discovery or distill topic**. |
 | Scheduler jobs | `deadline-scan-6h` (`0 */6 * * *`), legacy-named `command-outbox-recovery-1m` (`*/15 * * * *`), `alex-mail-watch-renew-daily` (`17 3 * * *`) | The first publishes the deadline tick. The second is a low-frequency crash-window safety net for the primary event-driven dispatch. The third renews the expiring unfiltered Gmail watch through the timers workload identity; it does not poll mail or run a model. Discovery is never scheduled. |
 | Cloud Tasks queue | `co-founder-events` | Durable HTTP dispatch for portal-event/agent wakes; OIDC-authenticated as `scheduler-invoker@`, max concurrency 1, max attempts 5. Browser expiry does not share this queue. |
@@ -149,7 +147,7 @@ not alter any other collection. Bootstrap the one-role workspace after reset.
 | Cloud Tasks queue | `co-founder-interactive` | Bounded founder-triggered reasoning/distillation; route-scoped `interactive-worker@` identity, max concurrency 4, max attempts 3. |
 | Cloud Tasks queue | `co-founder-background-pilot` | Default-off founder artifact-analysis pilot only; route-scoped `background-pilot-worker@` identity, max concurrency 1, max attempts 3, zero provider/model/effect authority. |
 | Cloud Tasks queue | `co-founder-background-skill-live-v1` | Default-off Founder grounded-artifact pilot only; route-scoped `background-skill-worker@` identity, max concurrency 1, max attempts 3, one bounded model call and no external/effect authority. |
-| Cloud Run ×3 | `co-founder`, `co-founder-browser-worker`, `mock-portal` | `co-founder` scales independently (`0..10`) and reaches browser work only through the typed OIDC gateway. `co-founder-browser-worker` is private, `0..1`, concurrency 1, owns every Playwright object, and accepts only the API service identity. `mock-portal` is a non-authoritative demo provider (`0..2`). |
+| Cloud Run ×2 | `co-founder`, `co-founder-browser-worker` | `co-founder` scales independently (`0..10`) and reaches browser work only through the typed OIDC gateway. `co-founder-browser-worker` is private, `0..1`, concurrency 1, owns every Playwright object, and accepts only the API service identity. |
 
 Reference commands (`scripts/deploy.sh` implements them idempotently):
 
@@ -168,9 +166,6 @@ gcloud tasks queues create co-founder-browser-expiry --location="$REGION" \
 gcloud tasks queues create co-founder-timers --location="$REGION" \
   --max-concurrent-dispatches=8 --max-attempts=5
 
-gcloud run deploy mock-portal --source ./mock_portal --region=$REGION \
-  --allow-unauthenticated --min-instances 0
-
 gcloud run deploy co-founder-browser-worker --source . --region=$REGION \
   --no-allow-unauthenticated --min-instances 0 --max-instances 1 \
   --concurrency=1 --service-account=browser-worker@<proj>.iam.gserviceaccount.com \
@@ -179,7 +174,7 @@ gcloud run deploy co-founder-browser-worker --source . --region=$REGION \
 gcloud run deploy co-founder --source . --region=$REGION \
   --allow-unauthenticated --min-instances 0 --max-instances 10 --timeout=3600s --memory 2Gi \
   --add-cloudsql-instances <proj>:<region>:co-founder-sessions \
-  --set-env-vars-from-file .env.prod   # contains PORTAL_SECRET_NAME=mock-portal-creds
+  --set-env-vars-from-file .env.prod
 # .env.prod must NOT set BROWSE_OPEN_WEB (or must set it false) — production
 # browsing is fail-closed to the allowlist (18). scripts/deploy.sh asserts this
 # on either service. The isolated worker, not the public API, owns the
@@ -202,11 +197,8 @@ python3 scripts/deploy_firestore_ttl.py --project "$GOOGLE_CLOUD_PROJECT"
 # scripts/deploy.sh applies and verifies a reviewed bucket lifecycle JSON with a
 # matchesPrefix rule for the browser-frame object prefix.
 
-# secrets are fetched BY NAME via the API at execution time (12), never injected
-# as env values — grant the service account accessor instead:
-gcloud secrets add-iam-policy-binding mock-portal-creds \
-  --role=roles/secretmanager.secretAccessor \
-  --member="serviceAccount:<run-sa>@<proj>.iam.gserviceaccount.com"
+# connector and portal-account secrets are fetched by canonical name at
+# execution time (12), never included in source or a plain env-vars file.
 
 gcloud pubsub topics create deadline-tick
 gcloud scheduler jobs create pubsub deadline-scan-6h --schedule="0 */6 * * *" \
@@ -220,7 +212,6 @@ Dockerfile notes: Playwright needs system Chromium — use
 `playwright install --with-deps chromium` in the build). The image also
 installs `libreoffice-writer/-calc/-impress` (pinned apt — document previews
 and PDF output, docs/15 §LibreOffice) and runs as the non-root `pwuser`.
-Mock portal image is a plain slim Python image.
 
 ## Telemetry
 
@@ -265,7 +256,7 @@ does not perform rollback deletion.
 
 - [ ] `GET https://co-founder-<hash>.run.app/healthz` → 200
 - [ ] UI loads at the `.run.app` URL; chat round-trip works
-- [ ] Mock portal reachable; full demo sequence runs in the cloud
+- [ ] Public Hiring intake and the authenticated Founder workflow run end to end
 - [ ] Founder sends `/discover` → Cloud Task runs once and opportunities appear in Firestore
 - [ ] Kill/restart proof: Cloud Run revision swap mid-workflow → session resumes
 - [ ] Vertex AI: model calls visible in console (video proof source)
@@ -291,14 +282,14 @@ does not perform rollback deletion.
 - README.md spin-up instructions: prereqs → setup.sh → env → run local → run
   tests → deploy. A judge must be able to reproduce without guessing.
 - Architecture diagram in repo (Gemini ↔ ADK agents ↔ Firestore/Cloud SQL ↔
-  Pub/Sub/Scheduler ↔ browser tool ↔ mock portal).
+  Pub/Sub/Scheduler ↔ private browser worker and real providers).
 - Video must show Google Cloud proof: Cloud Run dashboard, Vertex logs,
   `.run.app` URL.
 
 ## Acceptance checks
 
 - [ ] Fresh clone → `./scripts/setup.sh` → local demo works in ≤ 15 min (time it).
-- [ ] `./scripts/deploy.sh` from clean state → all three services live, demo sequence passes in cloud.
+- [ ] `./scripts/deploy.sh` from clean state → both services live and the Hiring demo sequence passes in cloud.
 - [ ] Production verification: `co-founder-browser-worker` is private,
   `--max-instances 1`, concurrency 1, runs as `browser-worker@`, and accepts an
   audience-bound call from the API identity while rejecting another service

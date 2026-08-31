@@ -57,49 +57,62 @@ class TestPortalAccounts:
         assert portal_accounts.pending_registrations() == []
 
 
-class _MockMailbox:
+class _Execute:
+    def __init__(self, payload):
+        self.payload = payload
+
+    def execute(self):
+        return self.payload
+
+
+class _Messages:
     def __init__(self, messages):
         self.messages = messages
 
+    def list(self, **_kwargs):
+        return _Execute({"messages": self.messages})
+
+
+class _Users:
+    def __init__(self, messages):
+        self._messages = _Messages(messages)
+
+    def messages(self):
+        return self._messages
+
+
+class _Service:
+    def __init__(self, messages):
+        self._users = _Users(messages)
+
+    def users(self):
+        return self._users
+
 
 class TestWaitForEmail:
-    async def test_mock_mailbox_link_extraction(self, monkeypatch):
-        import httpx
-
-        class _Resp:
-            def json(self):
-                return {"messages": [{"from": "noreply@mockportal.dev",
-                                      "subject": "Verify your account",
-                                      "body": "Welcome! Click: http://portal/verify?token=abc123",
-                                      "link": "http://portal/verify?token=abc123"}]}
-
-        class _Client:
-            async def __aenter__(self): return self
-            async def __aexit__(self, *a): pass
-            async def get(self, url, headers=None): return _Resp()
-
-        monkeypatch.setattr(httpx, "AsyncClient", lambda timeout: _Client())
+    async def test_workspace_mailbox_link_extraction(self, monkeypatch):
+        monkeypatch.setattr(alex_mailbox, "_service",
+                            lambda workspace_id="": _Service([{"id": "m1"}]))
+        monkeypatch.setattr(alex_mailbox, "_message_to_event", lambda _svc, _stub: {
+            "from": "noreply@portal.example",
+            "subject": "Verify your account",
+            "excerpt": "Welcome",
+        })
+        monkeypatch.setattr(
+            alex_mailbox, "_full_body",
+            lambda _svc, _message_id: "Click: https://portal.example/verify?token=abc123")
         result = await alex_mailbox.wait_for_email(
-            from_contains="mockportal", timeout_s=1, poll_s=0,
-            mailbox_url="http://mock/_mailbox/alex@ruhu.ai")
+            from_contains="portal.example", timeout_s=1, poll_s=0,
+            workspace_id="founder")
         assert result["status"] == "success"
-        assert result["link"] == "http://portal/verify?token=abc123"
+        assert result["link"] == "https://portal.example/verify?token=abc123"
         assert result["code"] == ""
 
     async def test_timeout_is_error_data(self, monkeypatch):
-        import httpx
-
-        class _Resp:
-            def json(self): return {"messages": []}
-
-        class _Client:
-            async def __aenter__(self): return self
-            async def __aexit__(self, *a): pass
-            async def get(self, url, headers=None): return _Resp()
-
-        monkeypatch.setattr(httpx, "AsyncClient", lambda timeout: _Client())
+        monkeypatch.setattr(alex_mailbox, "_service",
+                            lambda workspace_id="": _Service([]))
         result = await alex_mailbox.wait_for_email(
-            timeout_s=0, poll_s=0, mailbox_url="http://mock/_mailbox/x@y.z")
+            timeout_s=0, poll_s=0, workspace_id="founder")
         assert result["status"] == "error" and result["error"] is True
 
     def test_extract_code(self):

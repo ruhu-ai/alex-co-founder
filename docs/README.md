@@ -53,7 +53,7 @@ founder's voice and thinking through explicit feedback capture.
 | `06-memory-profile.md` | Memory tiers, Founder Profile, Distiller, retrieval | Day 3–4 |
 | `07-server-webhooks.md` | FastAPI app, Runner wiring, webhook endpoints, resume handler | Day 8 |
 | `08-discovery-pipeline.md` | Scout sweep, source adapters, deadline sentinel, Scheduler/Pub/Sub | Day 5, 8 |
-| `09-form-filler.md` | Browser automation, mock portal, approval gate, staleness guards | Day 7 |
+| `09-form-filler.md` | Browser automation, real provider boundary, approval gate, staleness guards | Day 7 |
 | `10-ui.md` | Demo web UI: pipeline board, chat, review controls, approval modal | Day 6, 11 |
 | `11-evaluations.md` | Golden eval sets, safety-gate tests, adaptation integration test, CI | Day 9 |
 | `12-security.md` | Secrets, tool scoping, approval tokens, audit, PII | Throughout |

@@ -19,8 +19,7 @@ REPO = Path(__file__).resolve().parents[2]
 # `.collection("literal")` — the only sanctioned way code names a collection.
 _COLLECTION_LITERAL = re.compile(r"\.collection\(\s*[\"']([A-Za-z0-9_]+)[\"']")
 
-# Scanned trees. mock_portal/ is a separate service with its own store and is
-# deliberately out of scope; tests fabricate collections freely.
+# Scanned runtime trees; tests fabricate collections freely.
 _SCANNED_DIRS = ("services", "app", "agents")
 
 

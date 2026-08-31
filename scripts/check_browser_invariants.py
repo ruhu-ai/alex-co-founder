@@ -56,7 +56,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-PRODUCTION_ROOTS = ("agents", "app", "services", "scripts", "mock_portal")
+PRODUCTION_ROOTS = ("agents", "app", "services", "scripts")
 
 WEB_SUFFIXES = {
     ".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs",

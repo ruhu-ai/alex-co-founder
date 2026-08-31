@@ -29,12 +29,8 @@ gcloud firestore databases describe --database="(default)" >/dev/null 2>&1 \
 "$PYTHON" scripts/migrate_browser_runs.py
 
 echo "==> Secrets (idempotent)"
-for SECRET in mock-portal-creds portal-webhook-token app-auth-token; do
-  gcloud secrets describe "$SECRET" >/dev/null 2>&1 || gcloud secrets create "$SECRET" --replication-policy=automatic
-done
-gcloud secrets versions list portal-webhook-token \
-  --filter='state=ENABLED' --format='value(name)' | grep -q . \
-  || { echo "portal-webhook-token has no enabled value; add one before deploying"; exit 1; }
+gcloud secrets describe app-auth-token >/dev/null 2>&1 \
+  || gcloud secrets create app-auth-token --replication-policy=automatic
 # Founder app gate (app/auth.py): mint the token once, reuse forever.
 gcloud secrets versions list app-auth-token \
   --filter='state=ENABLED' --format='value(name)' | grep -q . \
@@ -44,14 +40,14 @@ echo "==> Sensitive env → Secret Manager (never plaintext env vars, docs/12)"
 # These keys are stripped from the env-vars file below and bound with
 # --set-secrets instead. SESSION_SERVICE_URI carries the DB password inside
 # the URL, so it is secret-managed too.
-SECRET_ENV_KEYS=(DB_PASSWORD SESSION_SERVICE_URI GOOGLE_OAUTH_CLIENT_SECRET ALEX_MAIL_WEBHOOK_TOKEN APP_SESSION_SECRET HIRING_SYNTHETIC_ENCRYPTION_KEY HIRING_TEST_DISPATCH_SECRET)
+SECRET_ENV_KEYS=(DB_PASSWORD SESSION_SERVICE_URI GOOGLE_OAUTH_CLIENT_SECRET ALEX_MAIL_WEBHOOK_TOKEN APP_SESSION_SECRET HIRING_SYNTHETIC_ENCRYPTION_KEY HIRING_TEST_DISPATCH_SECRET PORTAL_WEBHOOK_TOKEN)
 RUNTIME_SECRET_KEYS=(GOOGLE_OAUTH_REFRESH_TOKEN ALEX_OAUTH_REFRESH_TOKEN)
 # These names are bound to existing, canonical Secret Manager secrets below.
 # They must never also appear in the generated plain env-vars file: Cloud Run
 # rejects duplicate env/secret bindings, and a plaintext fallback would defeat
 # the reviewed secret boundary.
-FIXED_SECRET_BINDING_KEYS=(APP_AUTH_TOKEN PORTAL_WEBHOOK_TOKEN)
-SET_SECRETS="PORTAL_WEBHOOK_TOKEN=portal-webhook-token:latest,APP_AUTH_TOKEN=app-auth-token:latest"
+FIXED_SECRET_BINDING_KEYS=(APP_AUTH_TOKEN)
+SET_SECRETS="APP_AUTH_TOKEN=app-auth-token:latest"
 for KEY in "${SECRET_ENV_KEYS[@]}"; do
   VAL="${!KEY:-}"
   [[ -z "$VAL" ]] && continue
@@ -192,14 +188,6 @@ gcloud pubsub subscriptions describe alex-mail-local-dev >/dev/null 2>&1 \
   || gcloud pubsub subscriptions create alex-mail-local-dev \
        --topic=alex-mail-events --ack-deadline=60
 
-echo "==> Deploy mock-portal"
-gcloud run deploy mock-portal --source ./mock_portal --region="$REGION" \
-  --allow-unauthenticated --min-instances 0 --max-instances 2 \
-  --set-env-vars="GOOGLE_CLOUD_PROJECT=$GOOGLE_CLOUD_PROJECT" \
-  --set-secrets="PORTAL_WEBHOOK_TOKEN=portal-webhook-token:latest"
-MOCK_URL="$(gcloud run services describe mock-portal --region="$REGION" --format='value(status.url)')"
-echo "    mock portal: $MOCK_URL"
-
 echo "==> Prepare isolated service identities"
 # scheduler-invoker SA is created below (idempotent) but the OIDC caller
 # check in app/main.py needs its email at boot, so pin it here too.
@@ -223,17 +211,16 @@ for browser_role in roles/datastore.user roles/storage.objectAdmin roles/secretm
     --format=none >/dev/null
 done
 # Env file: secret keys stripped (bound via --set-secrets), duplicate keys
-# deduped keep-last, values JSON-quoted so ", ', and : survive YAML. The
-# freshly-deployed mock-portal URL is threaded in via env var (like the
-# invoker SA) rather than rewritten into .env.prod — no in-place mutation of
-# the file, and no BSD-vs-GNU `sed -i` portability trap.
+# deduped keep-last, values JSON-quoted so ", ', and : survive YAML. Runtime
+# identities are injected without rewriting .env.prod, avoiding an in-place
+# configuration mutation and BSD-vs-GNU `sed -i` portability traps.
 EXCLUDE_KEYS="${SECRET_ENV_KEYS[*]} ${RUNTIME_SECRET_KEYS[*]} ${FIXED_SECRET_BINDING_KEYS[*]} BROWSER_WORKER_URL BROWSER_WORKER_ROLE BROWSER_CALLER_SA" TASKS_INVOKER_SA="$SA" \
   TASKS_PROVIDER_EVENTS_SA="$PROVIDER_EVENTS_SA" TASKS_DISCOVERY_INGESTION_SA="$DISCOVERY_INGESTION_SA" \
   TASKS_TIMERS_SA="$TIMERS_SA" TASKS_BROWSER_SA="$BROWSER_SA" \
   TASKS_RECONCILIATION_SA="$RECONCILIATION_SA" TASKS_INTERACTIVE_SA="$INTERACTIVE_SA" \
   TASKS_BACKGROUND_PILOT_SA="$BACKGROUND_PILOT_SA" \
   TASKS_BACKGROUND_SKILL_SA="$BACKGROUND_SKILL_SA" \
-  MOCK_PORTAL_URL="$MOCK_URL" GOOGLE_CLOUD_REGION="$REGION" \
+  GOOGLE_CLOUD_REGION="$REGION" \
   "$PYTHON" - <<'PY' > /tmp/co_founder_env.yaml
 import json, os, re
 exclude = set(os.environ["EXCLUDE_KEYS"].split())
@@ -248,7 +235,6 @@ for key in ("TASKS_PROVIDER_EVENTS_SA", "TASKS_DISCOVERY_INGESTION_SA",
             "TASKS_RECONCILIATION_SA", "TASKS_INTERACTIVE_SA",
             "TASKS_BACKGROUND_PILOT_SA", "TASKS_BACKGROUND_SKILL_SA"):
     vals[key] = os.environ[key]
-vals["MOCK_PORTAL_URL"] = os.environ["MOCK_PORTAL_URL"]  # override with live URL
 vals["GOOGLE_CLOUD_REGION"] = os.environ["GOOGLE_CLOUD_REGION"]
 vals["ALEX_MAIL_PUBSUB_TOPIC"] = (
     f"projects/{os.environ.get('GOOGLE_CLOUD_PROJECT', '')}/topics/alex-mail-events")
@@ -287,8 +273,8 @@ cat >> /tmp/co_founder_env.yaml <<EOF
 BROWSER_WORKER_URL: "$BROWSER_URL"
 EOF
 echo "    browser worker: $BROWSER_URL"
-# --allow-unauthenticated stays: the mock portal webhook and Pub/Sub push have
-# no platform identity; the app-layer founder gate (app/auth.py) is the fence.
+# --allow-unauthenticated stays because browser login and public hiring intake
+# enter through application-layer authentication and route-specific fences.
 # Request-bound workers and durable Cloud Tasks allow true scale-to-zero — the
 # ack-then-background pattern that would have needed CPU-always-allocated was
 # redesigned away, so that throttling flag is intentionally left off (enforced
@@ -304,17 +290,15 @@ rm -f /tmp/co_founder_env.yaml
 APP_URL="$(gcloud run services describe co-founder --region="$REGION" --format='value(status.url)')"
 echo "    app: $APP_URL"
 
-echo "==> Wire URLs both ways (mock portal webhooks → app; app → mock portal)"
+echo "==> Wire canonical service URLs"
 # AGENT_BASE_URL is applied to the live service below; no need to rewrite it
 # into .env.prod (that in-place edit was BSD-only `sed -i ''` and a surprising
 # side effect on a tracked-ish config file — the deployed env is the source
 # of truth here).
 gcloud run services update co-founder --region="$REGION" \
-  --update-env-vars "AGENT_BASE_URL=$APP_URL,MOCK_PORTAL_URL=$MOCK_URL"
+  --update-env-vars "AGENT_BASE_URL=$APP_URL"
 gcloud run services update co-founder-browser-worker --region="$REGION" \
-  --update-env-vars "AGENT_BASE_URL=$APP_URL,BROWSER_WORKER_URL=$BROWSER_URL,MOCK_PORTAL_URL=$MOCK_URL"
-gcloud run services update mock-portal --region="$REGION" \
-  --update-env-vars "AGENT_BASE_URL=$APP_URL,MOCK_PORTAL_PUBLIC_URL=$MOCK_URL"
+  --update-env-vars "AGENT_BASE_URL=$APP_URL,BROWSER_WORKER_URL=$BROWSER_URL"
 
 echo "==> Deadline scheduler job (idempotent)"
 gcloud scheduler jobs describe deadline-scan-6h --location="$REGION" >/dev/null 2>&1 \
@@ -402,6 +386,5 @@ fi
 
 echo "==> Done. Verify: docs/13 §verification checklist."
 echo "    APP:  $APP_URL"
-echo "    MOCK: $MOCK_URL"
 echo "    Founder access (sets the auth cookie once):"
 echo "    $APP_URL/?key=\$(gcloud secrets versions access latest --secret app-auth-token)"

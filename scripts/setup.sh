@@ -68,7 +68,6 @@ grep -q '^SESSION_SERVICE_URI=' "$ENV_FILE"      || echo "SESSION_SERVICE_URI=sq
 grep -q '^ARTIFACT_SERVICE_URI=' "$ENV_FILE"     || echo "ARTIFACT_SERVICE_URI=file://./artifacts" >> "$ENV_FILE"
 grep -q '^WORKFLOW_FILE=' "$ENV_FILE"            || echo "WORKFLOW_FILE=workflows/grant_applications.yaml" >> "$ENV_FILE"
 grep -q '^AGENT_BASE_URL=' "$ENV_FILE"           || echo "AGENT_BASE_URL=http://127.0.0.1:8090" >> "$ENV_FILE"
-grep -q '^MOCK_PORTAL_URL=' "$ENV_FILE"          || echo "MOCK_PORTAL_URL=http://127.0.0.1:8091" >> "$ENV_FILE"
 grep -q '^APPROVAL_TTL_MINUTES=' "$ENV_FILE"     || echo "APPROVAL_TTL_MINUTES=30" >> "$ENV_FILE"
 echo "    .env complete"
 

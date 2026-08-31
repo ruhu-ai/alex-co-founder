@@ -27,14 +27,13 @@
                                │           │            │           │
               ┌────────────────▼─┐   ┌─────▼─────┐  ┌───▼────┐  ┌───▼─────────┐
               │ Cloud SQL (PG)   │   │ Firestore │  │  GCS   │  │ Secret Mgr  │
-              │ ADK sessions     │   │ pipeline  │  │artifacts│  │ portal creds│
+              │ ADK sessions     │   │ pipeline  │  │artifacts│  │ connector + │
+              │                  │   │           │  │         │  │ action keys │
               └──────────────────┘   └───────────┘  └────────┘  └─────────────┘
                                ▲           ▲
         Cloud Scheduler ──► Pub/Sub ──────┘  (deadline-tick only)
         Founder command ──► Cloud Tasks ──► /tasks/discover
         Signed webhook ──► Cloud Tasks ──► /tasks/portal_wake (durable agent wake)
-
-   Cloud Run: mock-portal (separate service) ──webhook──► /webhooks/portal_event
 ```
 
 ## Repository layout
@@ -83,9 +82,6 @@ co-founder/
 │   ├── browser_runtime.py         # process/context ownership, watchdogs, quotas (22)
 │   ├── browser_events.py          # snapshot-first in-app browser event projection (22)
 │   └── storage.py                 # GCS artifact helpers
-├── mock_portal/
-│   ├── main.py                    # standalone FastAPI mock application portal
-│   └── templates/form.html
 ├── workflows/
 │   └── grant_applications.yaml    # workflow instance #1 (declarative definition)
 ├── scripts/
@@ -122,7 +118,7 @@ co-founder/
 | Artifacts | local `file://` dev, `gs://` bucket prod | ADK artifact service URI |
 | Durable task dispatch | Cloud Tasks queues `co-founder-events`, `co-founder-browser-expiry` | `co-founder-events` carries portal-event wakes that must outlive the webhook request; generation-safe browser expiry is isolated on its own queue so resource cleanup cannot head-of-line block behind an agent wake (22). 21 extends the event primitive into bounded workflow-step/timer dispatch. |
 | Browser automation | Playwright-managed Chromium; one single-flight process, literal `headless=True`, no headed/attach/system-profile mode | see 09, 18, 22 |
-| Deploy | Cloud Run ×2 (agent, mock-portal), scale-to-zero | see 13 |
+| Deploy | Cloud Run ×2 (public app, private browser worker), scale-to-zero | see 13 |
 
 ## Environment variables (`.env.example` must list all)
 
@@ -140,9 +136,7 @@ co-founder/
 | `LIBREOFFICE_CONVERSION_ENABLED` | `false` on native macOS; `true` in Docker | prevents the macOS GUI app bundle from being launched by the local server; production uses the pinned headless Linux package |
 | `FIRESTORE_DATABASE` | `(default)` | pipeline store |
 | `WORKFLOW_FILE` | `workflows/grant_applications.yaml` | active workflow definition |
-| `PORTAL_SECRET_NAME` | `mock-portal-creds` | Secret Manager secret id |
-| `AGENT_BASE_URL` | `http://127.0.0.1:8090` | used by mock portal to call webhooks |
-| `MOCK_PORTAL_URL` | `http://127.0.0.1:8091` | form-filler target |
+| `AGENT_BASE_URL` | `http://127.0.0.1:8090` | canonical callback and task origin |
 | `TASKS_INVOKER_SA` | `scheduler-invoker@project.iam.gserviceaccount.com` | OIDC identity on authenticated Cloud Tasks HTTP delivery |
 | `DISCOVER_COMMAND_ENABLED` | `false` | pre-Phase-0 `/discover` compatibility adapter; production remains off until its tests and full eval gate pass |
 | Browser execution | always headless | Portal pages are shown only in the in-app Browser panel |
@@ -219,7 +213,7 @@ changes to load it (only instance #1 is built, but the loader must be real).
 - **One Runner per surface:** built once at startup, reused across requests (07). Never per-request.
 - **Agents-dir hygiene:** every folder under `agents/` must be a valid agent
   package or `adk web` fails to load the entire list (reference-lab warning).
-  Never move `services/`, `app/`, `mock_portal/`, or stray `memory/` /
+  Never move `services/`, `app/`, or stray `memory/` /
   `artifacts/` folders under `agents/`.
 
 ## Data flows (narratives — implement these end-to-end)

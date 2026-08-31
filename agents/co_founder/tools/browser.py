@@ -7,7 +7,6 @@ Page sessions are resolved through the central browser runtime supervisor.
 """
 
 import logging
-import os
 from urllib.parse import urlparse
 
 from google.adk.tools import ToolContext
@@ -88,42 +87,6 @@ def _close_result(result: dict, reason: str = "agent_close") -> None:
         run(browser_service.close_run(run_id, reason, "agent:form_filler"))
 
 
-def _mock_mailbox_url(portal_url: str, email: str) -> str:
-    """Mock portal seam (docs/17): its /_mailbox endpoint stands in for the
-    real inbox during offline registration tests."""
-    parsed = urlparse(portal_url)
-    host = parsed.netloc
-    configured_mock = urlparse(os.environ.get("MOCK_PORTAL_URL", "")).netloc
-    if host.startswith(("127.0.0.1", "localhost")) or (
-            configured_mock and host == configured_mock):
-        return f"{parsed.scheme or 'http'}://{host}/_mailbox/{email}"
-    return ""
-
-
-def _creds() -> tuple[str, str] | None:
-    """Portal creds: Secret Manager in prod (docs/12); env fallback for local dev."""
-    try:
-        import json
-
-        from services import secrets
-
-        raw = secrets.get(os.environ.get("PORTAL_SECRET_NAME", "mock-portal-creds"))
-        data = json.loads(raw)
-        return data["username"], data["password"]
-    except Exception:
-        if os.environ.get("K_SERVICE"):
-            return None
-        # Local-dev fallback bypasses secrets.get(), which is what normally
-        # registers a credential with the scrubber — do it here too so dev logs
-        # and error data redact it the same way production does.
-        from services import log_scrub
-
-        username = os.environ.get("MOCK_PORTAL_USERNAME", "demo-founder")
-        password = os.environ.get("MOCK_PORTAL_PASSWORD", "demo-pass-2026")
-        log_scrub.register_secret(password)
-        return (username, password)
-
-
 def register_account(portal_url: str, email: str, tool_context: ToolContext) -> dict:
     """Create an account on a program portal as Alex (docs/17).
 
@@ -162,7 +125,6 @@ def register_account(portal_url: str, email: str, tool_context: ToolContext) -> 
     if existing:
         mail = run(alex_mailbox.wait_for_email(
             from_contains=host.split(":")[0], timeout_s=0, poll_s=0,
-            mailbox_url=_mock_mailbox_url(portal_url, email),
             workspace_id=tool_context.state.get(
                 "user:profile_id", "founder")))
         if mail.get("status") != "success":
@@ -327,7 +289,6 @@ def register_account(portal_url: str, email: str, tool_context: ToolContext) -> 
         mail = run(alex_mailbox.wait_for_email(
             from_contains=host.split(":")[0],
             timeout_s=0, poll_s=0,
-            mailbox_url=_mock_mailbox_url(portal_url, email),
             workspace_id=tool_context.state.get(
                 "user:profile_id", "founder")))
         if mail.get("status") != "success":
@@ -445,15 +406,14 @@ def sign_in(portal_url: str, tool_context: ToolContext) -> dict:
 
 
 def open_portal(application_url: str, tool_context: ToolContext) -> dict:
-    """Open the application portal and log in (guard G3: refuses before APPROVED).
+    """Open an application portal using its stored per-portal credential.
 
     Args:
         application_url: The portal's application URL from the opportunity record.
 
     Returns:
-        dict with status, page title, and field count. Credentials are fetched
-        by name from Secret Manager at execution time and never enter state,
-        prompts, or logs.
+        dict with status, page title, and field count. The credential is looked
+        up by portal host and never enters state, prompts, or logs.
     """
     if tool_context.state.get(ss.K_CURRENT_STEP) not in (
             ss.ApplicationStep.APPROVED, ss.ApplicationStep.FORM_FILLING,
@@ -461,29 +421,7 @@ def open_portal(application_url: str, tool_context: ToolContext) -> dict:
         return {"status": "error", "error": True,
                 "message": "Gate G3: portal access only after the application is APPROVED."}
 
-    from services import browser_gateway as browser_service
-
-    credentials = _creds()
-    if credentials is None:
-        return {"status": "error", "error": True,
-                "message": "Portal credentials are unavailable in Secret Manager."}
-    username, password = credentials
-    app_id = tool_context.state.get(ss.K_ACTIVE_APPLICATION_ID, "")
-    result = run(browser_service.open_and_login(
-        application_url, username, password,
-        session_key=_session_key(tool_context), application_id=app_id))
-    if result.get("status") != "success":
-        return result
-    _register_fill(result, app_id, tool_context)
-    inspect = run(browser_service.inspect(result["page"]))
-    if inspect.get("status") == "success":
-        _remember_questions(app_id, inspect["fields"])
-        _remember_signature(app_id, inspect["signature"])
-        tool_context.state[ss.K_PORTAL_SIGNATURE] = inspect["signature"]
-        return {"status": "success", "title": result["title"],
-                "field_count": len(inspect["fields"]), "signature": inspect["signature"]}
-    return {"status": "success", "title": result["title"], "field_count": 0,
-            "note": "no form fields detected on landing page"}
+    return sign_in(application_url, tool_context)
 
 
 def inspect_form(tool_context: ToolContext) -> dict:
@@ -842,11 +780,14 @@ def _reopen_for_submit(app_id: str, founder_id: str,
     cred = portal_accounts.get_credential(host)
     if cred and cred.get("email"):  # a registered-account portal (sign_in path)
         email, password = cred.get("email"), cred.get("password")
-    else:  # the demo / mock portal path (open_portal creds)
-        creds = _creds()
-        if creds is None:
-            return None, recovery_hint
-        email, password = creds
+    else:
+        return None, {
+            **recovery_hint,
+            "error_code": "portal_credentials_unavailable",
+            "message": ("The portal page cannot be recovered because no stored "
+                        "credential exists for its host. Register or reconnect the "
+                        "portal account, then prepare a fresh fill report."),
+        }
 
     opened = run(browser_service.open_and_login(
         application_url, email, password,
@@ -1086,14 +1027,8 @@ def submit_form(tool_context: ToolContext) -> dict:
                 "error_code": "version_conflict",
                 "message": "Submission is already in progress; no second submit was sent."}
 
-    page_host = urlparse(session["page"].url).netloc
-    mock_host = urlparse(os.environ.get("MOCK_PORTAL_URL", "")).netloc
-    routing = None
-    if page_host.startswith(("127.0.0.1", "localhost")) or (mock_host and page_host == mock_host):
-        routing = {"session_id": identity["session_id"], "application_id": app_id,
-                   "user_id": identity["user_id"]}
     run(browser_service.set_fill_phase(app_id, "submitting"))
-    result = run(browser_service.submit(session["page"], key, routing=routing))
+    result = run(browser_service.submit(session["page"], key))
     if result.get("status") != "success":
         # The browser call crossed the provider boundary. Even a timeout or a
         # missing receipt may have submitted, so never release the approval or

@@ -274,7 +274,7 @@ class TestSubmitBinding:
         fake_store.opportunities["opp-1"] = {
             "id": "opp-1",
             "workspace_id": "founder", "founder_id": "founder",
-            "application_url": "http://127.0.0.1:8091/apply/mp-grant"}
+            "application_url": "https://applications.example.test/apply/role"}
         armed = await arm_submit_binding(
             fake_store, app_id,
             signature=_descriptor_signature(approved_fields),
@@ -286,7 +286,7 @@ class TestSubmitBinding:
             await firestore.update_application(
                 app_id, form_fill_report=report_override)
 
-        page = SimpleNamespace(url="http://127.0.0.1:8091/apply/mp-grant")
+        page = SimpleNamespace(url="https://applications.example.test/apply/role")
         session = {"page": page, "signature": None, "run_id": ""}
         reopened = {"done": False}
         typed: dict[str, dict] = {}
@@ -307,7 +307,7 @@ class TestSubmitBinding:
 
         async def _submit(_page, _key, routing=None):
             return submit_result or {"status": "success",
-                                     "confirmation_id": "MP-1042"}
+                                     "confirmation_id": "FIXTURE-1042"}
 
         async def _close_run(_run_id, _reason, _actor):
             return {"status": "success"}
@@ -321,7 +321,10 @@ class TestSubmitBinding:
                          ("set_fill_phase", _set_fill_phase)):
             monkeypatch.setattr("services.browser_service." + name, fn)
         monkeypatch.setattr("services.portal_accounts.get_credential",
-                            lambda _host: None)
+                            lambda _host: {
+                                "email": "alex@example.test",
+                                "password": "fixture-secret",
+                            })
 
         def _register(result, _app_id, _ctx):
             reopened["done"] = True
@@ -348,7 +351,7 @@ class TestSubmitBinding:
             fake_store, monkeypatch)
         result = browser.submit_form(ctx)
         assert result["status"] == "success"
-        assert result["confirmation_id"] == "MP-1042"
+        assert result["confirmation_id"] == "FIXTURE-1042"
         assert fake_store.approvals[armed["approval_id"]]["status"] == "CONSUMED"
         assert fake_store.applications[app_id]["state"] == ApplicationStep.SUBMITTED
         assert typed["mapping"] == armed["mapping"]  # the approved answers

@@ -13,8 +13,8 @@ Two independent ways to be "the founder":
    ALLOWED_LOGIN_EMAILS allowlist, and mints its own signed HttpOnly session
    cookie. /auth/me feeds the account menu; /auth/logout clears the cookie.
 
-Cloud Run stays --allow-unauthenticated at the platform layer because the
-mock portal webhook and Pub/Sub push must reach us without IAM identities —
+Cloud Run stays --allow-unauthenticated at the platform layer because verified
+provider webhooks and Pub/Sub push must reach us without user IAM identities —
 so the app enforces its own gate instead: every route requires one of the two
 credentials above except /healthz, /login.html, /auth/*, and the routes that
 carry their own verification (portal/alex webhooks, OIDC task routes).

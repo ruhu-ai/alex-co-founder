@@ -1,9 +1,9 @@
 # 17 — Real Portal Access: registration + sign-in
 
-The form-filler can navigate, map, fill, and submit on portals (09) — but only
-on the mock portal, because real portals sit behind auth. This spec adds the
-auth layer: **registering and signing in on real program portals**, with the
-Gmail connector closing the email-verification loop. Un-cuts 14 §cut-list #1.
+The form-filler can navigate, map, fill, and submit on approved portals (09).
+This spec adds the authentication layer for **registering and signing in on
+real program portals**, with the Gmail connector closing the
+email-verification loop.
 
 ## Boundaries (binding)
 
@@ -67,8 +67,8 @@ register_account(portal)
   delegated identity), every sign-in **audited**; both behind the existing
   staleness fence; every step emits the ordered JPEG frames from 22, with PNG
   reserved for blocked/final milestones.
-- Mock portal gains a signup + verification-email simulation page so the whole
-  flow is testable end-to-end offline.
+- Provider-neutral in-process fixtures simulate signup and verification email
+  so the contract remains testable offline without shipping a demo service.
 
 ## After auth
 
@@ -80,7 +80,7 @@ approval-gated submit. Real portals simply become reachable.
 
 - [ ] every registration writes an audit row (actor `agent:form_filler`, target host)
 - [ ] `register_account` without a GRANTED `create_portal_account` approval refuses with an error dict + audit `refused`; `sign_in` needs no approval but is always audited
-- [ ] full loop vs the mock portal's signup page: register → verification email → verified → signed in → form mapped
+- [ ] provider-neutral integration loop: register → verification email → verified → signed in → form mapped
 - [ ] password never appears in state, logs, chat, or artifacts (grep test)
 - [ ] CAPTCHA/SSO-via-founder-account → clean blocker report, no retry cleverness
 - [ ] verification wait creates no polling loop: wake arrives via Gmail push or the scheduled `verification_timeout` event; timeout → `needs_human` error-as-data

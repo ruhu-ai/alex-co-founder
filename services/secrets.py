@@ -24,7 +24,7 @@ def _register(value: str) -> None:
 
 
 def get(name: str) -> str:
-    """Fetch a secret's value by name (env PORTAL_SECRET_NAME-style ids)."""
+    """Fetch a secret's value by its configured Secret Manager id."""
     now = time.time()
     if name in _cache and now - _cache[name][0] < _TTL_SECONDS:
         return _cache[name][1]

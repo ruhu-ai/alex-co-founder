@@ -97,7 +97,7 @@ def test_deploy_uses_least_privilege_and_never_duplicates_fixed_secrets():
     admin_role = deploy.index("--role='roles/secretmanager.admin'")
     assert deploy.rfind("remove-iam-policy-binding", 0, admin_role) > deploy.rfind(
         "add-iam-policy-binding", 0, admin_role)
-    assert "FIXED_SECRET_BINDING_KEYS=(APP_AUTH_TOKEN PORTAL_WEBHOOK_TOKEN)" in deploy
+    assert "FIXED_SECRET_BINDING_KEYS=(APP_AUTH_TOKEN)" in deploy
     assert '${FIXED_SECRET_BINDING_KEYS[*]}' in deploy
 
 

@@ -81,25 +81,24 @@ search works on Vertex AI + gemini-3.5-flash, returning real, current programs
 - `app/main.py`: 13 routes — chat, webhooks (token-verified), tasks (durable
   request-bound acknowledgement),
   api (pipeline, applications, feedback, approvals resolve, voice-note, ingest).
-- `mock_portal/`: 16-field form, deliberate friction (file upload, dynamic
-  select), `?v=2` renamed-fields mode, idempotent submit honoring
-  `Idempotency-Key`, signed webhook, `/admin/reset`, `/admin/ping-agent`.
+- Provider-neutral test fixtures cover form friction, renamed fields,
+  idempotent submission, signed events, and A2A contracts without shipping a
+  public demonstration service.
 - UI `app/static/index.html`: board, chat, review controls (reject requires a
   reason), approval modal, audit tail, mic + upload buttons.
 - Evals: 4 golden sets in the verified reference envelope + eval_config.
 - Tests: **38/38 pass** (state machine, urgency, derived keys, approval
   lifecycle, schema validation, ingestion gate, retrieval ranking, vision
   allowlist, adaptation loop integration, approve-all → APPROVED + key minted).
-- `scripts/e2e_portal_check.py`: **ALL GREEN** against the live mock portal —
-  login, 16-field inspect, 14-field fill, idempotent retry (same confirmation
-  `MP-ED75`), staleness signature change on `?v=2`. No model creds needed.
+- Browser and A2A integration tests are in-process and provider-neutral; live
+  access is reserved for reviewed real providers.
 - `scripts/deploy.sh` (idempotent full deploy), `scripts/seed_demo.py`
   (3-user-id seeding + money-shot voice rule), CI workflow.
 
 **Bugs found by testing (fixed):** relative `file://` artifact URIs rejected by
 ADK 2.7; login landing-page re-navigation; `select-one` vs `select` field-type
-detection; HTML5 `required` blocking founder-owned fields; sync-vs-async mock
-mismatches in tests.
+detection; HTML5 `required` blocking founder-owned fields; sync-vs-async
+provider-fixture mismatches in tests.
 
 **Still gated on `gcloud auth application-default login`:** live Gemini calls
 (distiller agent, extraction, search grounding, voice transcription, vision

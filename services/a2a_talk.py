@@ -6,9 +6,8 @@ Both the model-supplied ``base_url`` and the card-supplied POST URL are run
 through the same SSRF/public-URL policy the rest of the codebase uses
 (services/browser_service): non-http(s) schemes, credential URLs, and every
 private/reserved/loopback/link-local/metadata address are refused before a
-request is made. Loopback is exempt only in local dev (no ``K_SERVICE``) so the
-mock portal on 127.0.0.1 keeps working — identical to the credentialed portal
-paths in browser_service._validate_portal_target.
+request is made. Loopback is exempt only in local dev (no ``K_SERVICE``) so
+provider-neutral in-process and local contract fixtures remain testable.
 """
 
 from __future__ import annotations
@@ -39,7 +38,7 @@ async def _refuse_unsafe(url: str) -> str | None:
         return message or "invalid URL"
     host = (parts.hostname or "").lower()
     if not os.environ.get("K_SERVICE") and host in ("127.0.0.1", "localhost", "::1"):
-        return None  # local dev: the mock portal / a local A2A agent on loopback
+        return None  # local dev: an explicit local A2A contract fixture
     code, msg, _canonical, _ips = await browser_service._validate_url_async(
         url, enforce_domain_policy=False)
     if code in ("ssrf_blocked", "policy_refused", "credential_url"):

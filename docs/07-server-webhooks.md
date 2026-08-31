@@ -203,10 +203,8 @@ framework (see 10).
 ## Local run
 
 ```bash
-# terminal 1: agent server
+# founder app
 ./scripts/run_local.sh
-# terminal 2: mock portal (see 09)
-uvicorn mock_portal.main:app --port 8091
 # dev chat surface (separate, never deployed)
 adk web agents --port 8000 \
   --session_service_uri="sqlite+aiosqlite:///sessions.db" \

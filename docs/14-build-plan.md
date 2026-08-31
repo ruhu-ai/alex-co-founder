@@ -15,12 +15,12 @@ order; do not gold-plate.
 | 4 | Aug 21 | Drafter + feedback capture + **synchronous distiller** + adaptation loop | 04, 05, 06 | 06 §adaptation checklist green (rule cited in next draft's notes); distill completes inline before resume — no race |
 | 5 | Aug 22 | Scout + discovery lanes (search, configured, crawl) + task endpoint | 05, 08 | `POST /tasks/discover` shortlists a fit, archives a non-fit with reason, and the search lane finds ≥1 program outside configured sources |
 | 6 | Aug 23 | Matchmaker polish + UI v1: board + chat + review controls | 04, 10 | Full review loop (approve/edit/reject) works in UI |
-| 7 | Aug 24 | **Mock portal + Tier 0 DOM fill + approval gate + idempotency** | 09, 12 | End-to-end vs mock portal twice (idempotent), token refusals audited, gate flow green |
+| 7 | Aug 24 | **Provider-neutral Tier 0 DOM fill + approval gate + idempotency** | 09, 12 | Deterministic integration fixture twice (idempotent), token refusals audited, gate flow green |
 | 8 | Aug 25 | **Tier 1 vision recon + recovery** (time-boxed 90s) | 09 | Recon coverage + no-submit allowlist + `?v=2` recovery beat green |
 | 9 | Aug 26 | Webhooks, resume handler, Scheduler/Pub/Sub + **evals start** | 07, 08, 11 | 07 §acceptance green (portal_event → FOLLOW_UP; feedback resume); eval sets written |
 | 10 | Aug 27 | **Cloud deploy** + **finish evals** (CI green by mid-day) | 13, 11 | 13 §verification checklist complete; CI green (Cloud SQL + Playwright-in-Docker already de-risked by Day-2 skeleton) |
 | 11 | Aug 28 | UI polish, **voice-note intake** (Best Multimodal UX angle), adaptation money-shot rehearsal, architecture diagram, README spin-up | 10, 13 | Full demo script runs clean twice, timed ≤ 4 min; voice note → transcript → distilled rule works once end-to-end |
-| 12 | Aug 29 | **Record video** (unedited action beats + cloud proof); draft Devpost text | brief §7–8 | Video ≤ 4 min incl. Cloud Run dashboard + Vertex logs. Pre-record checklist: `--min-instances 1` set, `/healthz` pre-warm, mock portal `/admin/ping-agent` green, board pre-seeded, live **PDF → structured record + citation** beat captured |
+| 12 | Aug 29 | **Record video** (unedited action beats + cloud proof); draft Devpost text | brief §7–8 | Video ≤ 4 min incl. Cloud Run dashboard + Vertex logs. Pre-record checklist: `/healthz` pre-warm, Hiring workflow prepared, board pre-seeded, live **PDF → structured record + citation** beat captured |
 | 13 | Aug 30 | Submit; bonus: build-log post + social post (#AllThingsAgenticHackathon); Gemma/Veo/Lyria extra-model bonus only if trivial | brief §8 | Submission complete with 24 h buffer for Devpost surprises |
 
 Aug 31 is buffer only. If any day slips, apply the cut list immediately — do not
@@ -28,7 +28,7 @@ Aug 31 is buffer only. If any day slips, apply the cut list immediately — do n
 
 ## Cut list (pre-agreed, in order)
 
-1. **Real-portal adapter** — mock portal is the primary demo path anyway. (Cut first.)
+1. **Additional real-portal adapters** — retain the generic browser/A2A boundary and add providers only when their policies and test accounts are available.
 2. **Lane 3 crawl** — depth-2 crawling is a flakiness multiplier for near-zero demo value; lanes 1+2 prove ingestion.
 3. **`generate_application_pack` PDF rendering** — the document-surface story survives as a write-up paragraph.
 4. **Live `?v=2` vision beat** — fall back to the cached `form_map` artifact + a pre-recorded segment.
@@ -40,7 +40,7 @@ Aug 31 is buffer only. If any day slips, apply the cut list immediately — do n
 
 Note: **Tier 1 vision recon is NOT on the cut list** — it is core to the
 requirement-discovery story and the upgraded demo beat. If it slips despite
-that, fall back to Tier-0-only demo (mock portal DOM fill) and describe vision
+that, fall back to a provider-neutral Tier-0 fixture and describe vision
 as roadmap in the write-up; do not sacrifice the approval gate or evals to save it.
 **Voice-note intake IS on the cut list** (Day-11 bonus for the Multimodal UX
 prize): skip it without ceremony if anything above it is unfinished. ~~Live

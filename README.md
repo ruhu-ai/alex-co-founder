@@ -580,7 +580,6 @@ all-things-ai/
 ├── services/                   # Firestore, artifacts, memory, connectors and domain services
 │   ├── hiring_*.py             # Intake, evidence, coordination, references, offers, onboarding
 │   └── durable_memory*.py      # Founder-controlled M2 memory and release boundary
-├── mock_portal/                # Demo application portal and A2A program agent
 ├── workflows/                  # Domain-neutral declarative workflow definitions
 ├── tests/
 │   ├── unit/                   # Guards, state, security, documents, browser contracts
@@ -639,14 +638,14 @@ python -m playwright install chromium
 python scripts/seed_demo.py
 ```
 
-Run the complete local stack (founder app plus mock portal):
+Run the local founder app:
 
 ```bash
 ./scripts/run_local.sh
 ```
 
 The launcher validates Google Application Default Credentials before opening a
-port, waits for both health endpoints, and shuts both services down together.
+port, waits for the health endpoint, and shuts down cleanly.
 It deliberately runs without hot reload so file edits cannot interrupt voice
 conversations, approval flows, or OAuth callbacks. For active development, opt
 in explicitly:
@@ -654,9 +653,6 @@ in explicitly:
 ```bash
 ./scripts/run_local.sh --reload
 ```
-
-Use `./scripts/run_local.sh --app-only` only when the mock portal is already
-running elsewhere.
 
 Open [http://127.0.0.1:8090](http://127.0.0.1:8090). `run_local.sh` makes this
 the single canonical founder-app origin: it starts Uvicorn on the same address
@@ -711,15 +707,14 @@ silently updating the Founder Profile.
 |---|---|
 | `./scripts/setup.sh` | Create/update the complete local environment and verify credentials/model access. |
 | `python -m playwright install chromium` | Install the local browser used by guarded automation. |
-| `python scripts/seed_demo.py` | Seed `founder`, `eval_founder`, demo opportunities, and workflow data. |
-| `./scripts/run_local.sh` | Run and health-check the stable founder app and mock portal together. |
-| `./scripts/run_local.sh --reload` | Run both local services with development hot reload. |
+| `python scripts/seed_demo.py` | Seed `founder`, `eval_founder`, and the Founder Profile fixture. |
+| `./scripts/run_local.sh` | Run and health-check the stable founder app. |
+| `./scripts/run_local.sh --reload` | Run the local app with development hot reload. |
 | `LOCAL_ENV_FILE=/saved/project/.env LOCAL_VENV_DIR=/saved/project/.venv ./scripts/run_local.sh` | Run an isolated clean checkout while keeping one authoritative local credential/session configuration. |
 | `python -m pytest tests/unit tests/integration -q` | Run deterministic unit, service, and integration tests. |
 | `ruff check .` | Run Python static checks. |
 | `python scripts/check_contrast.py` | Verify the founder UI's semantic color contrast. |
-| `python scripts/e2e_browser_story.py` | Run the real Gemini + Chromium end-to-end story against running services. |
-| `./scripts/deploy.sh` | Deploy the application, portal, sessions, tasks, and schedules to Google Cloud. |
+| `./scripts/deploy.sh` | Deploy the application, browser worker, sessions, tasks, and schedules to Google Cloud. |
 | `.venv/bin/python scripts/migrate_data_sources.py` | Dry-run the additive docs/24 connection/source migration (no writes). |
 | `.venv/bin/python scripts/migrate_data_sources.py --apply` | Idempotently backfill canonical connection/source rows; preserves every legacy row. |
 

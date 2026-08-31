@@ -126,5 +126,5 @@ def test_stable_path_invokes_uvicorn_without_empty_array_failure(tmp_path):
     )
 
     assert result.returncode == 1
-    assert "Mock portal" in result.stderr or "Founder app" in result.stderr
+    assert "Founder app" in result.stderr
     assert "unbound variable" not in result.stderr

@@ -297,8 +297,8 @@ def test_launch_sites_counts_a_rogue_launch_in_any_scanned_suffix(tmp_path: Path
     assert len(guard.launch_sites([single])) == 1
 
 
-def test_production_scope_covers_mock_portal_and_new_suffixes():
-    assert "mock_portal" in guard.PRODUCTION_ROOTS
+def test_production_scope_covers_runtime_roots_and_new_suffixes():
+    assert guard.PRODUCTION_ROOTS == ("agents", "app", "services", "scripts")
     assert {".mjs", ".cjs", ".htm", ".vue", ".svelte", ".ps1"} <= guard.TEXT_SUFFIXES
 
 

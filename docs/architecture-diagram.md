@@ -31,12 +31,12 @@ flowchart LR
     SQL[("Cloud SQL<br/>ADK sessions")]
     FS[("Firestore<br/>pipeline · profiles ·<br/>approvals · audit")]
     GCS[("Cloud Storage<br/>artifacts")]
-    SM["Secret Manager<br/>portal creds (by name)"]
+    SM["Secret Manager<br/>connector + portal-account secrets"]
     SCHED["Cloud Scheduler"]
     PS["Pub/Sub"]
     CT["Cloud Tasks<br/>co-founder-events"]
     BXT["Cloud Tasks<br/>co-founder-browser-expiry"]
-    MP["Cloud Run: mock-portal<br/>(16-field form, idempotent submit)"]
+    PORTAL["External application provider<br/>(real portal or A2A agent)"]
 
     UI -->|HTTPS| API
     API --> R1 & R2
@@ -52,8 +52,8 @@ flowchart LR
     CT -->|OIDC /tasks/portal_wake| API
     API -->|generation-safe lease task| BXT
     BXT -->|OIDC /tasks/browser_expire| API
-    FILL -->|Playwright DOM + vision recon| MP
-    MP -->|signed webhook| API
+    FILL -->|Playwright DOM + vision recon| PORTAL
+    PORTAL -.->|optional signed event| API
 ```
 
 ## One-paragraph walkthrough (for the caption)
@@ -66,12 +66,12 @@ with zero replay. The orchestrator routes by an explicit state machine
 (`current_step` injected into every instruction), delegating to five scoped
 sub-agents. Firestore holds the pipeline, the Founder Profile (long-term
 memory), approval tokens (never in model context), and an append-only audit
-trail. The Form-Filler drives Playwright against portals — DOM-first, vision
-recon as tier-1 fallback — and submits only behind a founder-granted,
-server-resolved approval, with a derived idempotency key. Founder commands
-enqueue discovery through Cloud Tasks; Cloud Scheduler → Pub/Sub wakes only
-the deadline sentinel. The mock portal calls back over a signed webhook when a
-submission confirms. Agent wakes
+trail. The Form-Filler drives Playwright against configured real portals —
+DOM-first, vision recon as tier-1 fallback — and submits only behind a
+founder-granted, server-resolved approval, with a derived idempotency key.
+Founder commands enqueue discovery through Cloud Tasks; Cloud Scheduler →
+Pub/Sub wakes only the deadline sentinel. Optional signed provider events wake
+the corresponding workflow. Agent wakes
 that must outlive the webhook request are durably enqueued in the existing
 `co-founder-events` Cloud Tasks queue before the webhook acknowledges.
 Generation-safe browser lease expiry uses the separate

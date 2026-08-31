@@ -29,7 +29,7 @@ pytestmark = pytest.mark.asyncio
 class TestA2ASsrf:
     async def test_private_and_scheme_blocked_loopback_dev_only(self, monkeypatch):
         monkeypatch.delenv("K_SERVICE", raising=False)
-        # local dev: mock portal / local A2A agent on loopback is allowed
+        # local dev: provider-neutral local A2A fixtures on loopback are allowed
         assert await a2a_talk._refuse_unsafe("http://127.0.0.1:8091/a2a") is None
         # private, link-local, and non-http targets are refused as data
         assert await a2a_talk._refuse_unsafe("http://10.0.0.5/a2a")

@@ -591,7 +591,7 @@ after their deadline.
 ## Static external-launch guard
 
 CI runs `scripts/check_browser_invariants.py` across every production root
-(`agents`, `app`, `services`, `scripts`, `mock_portal`) for Python, JavaScript
+(`agents`, `app`, `services`, `scripts`) for Python, JavaScript
 (`.js/.jsx/.mjs/.cjs`), TypeScript, component templates (`.vue/.svelte`),
 HTML (`.html/.htm`), and shell (`.sh/.bash/.zsh/.ps1`). Build artefacts
 (`node_modules`, `__pycache__`, `.venv`) are skipped by name; everything else

@@ -850,8 +850,8 @@ async def _credentialed_context(
     direct context re-resolves at navigation time, leaving a DNS-rebind / TOCTOU
     window. Route public targets through the DNS-validating proxy, which
     resolves once and dials the validated IP (over HTTPS the CONNECT tunnel
-    carries the login POST). The loopback mock portal in local dev keeps a
-    direct context — the proxy's private/reserved-IP fence would refuse it."""
+    carries the login POST). Explicit loopback contract fixtures in local dev
+    keep a direct context because the public proxy correctly refuses them."""
     host = (urlsplit(target_url).hostname or "").lower()
     options: dict[str, Any] = {}
     if os.environ.get("K_SERVICE") or host not in ("127.0.0.1", "localhost"):
@@ -1076,11 +1076,12 @@ async def screenshot(page, path: str) -> str:
 
 
 async def _scoped_confirmation(page) -> str | None:
-    """Read the portal's dedicated confirmation element, if the current page is
-    a receipt. The mock portal renders the reference inside ``.receipt .id``
-    (mock_portal/main.py::_receipt) — anchoring on that element, rather than
-    scanning the whole body, is what keeps an ordinary hyphenated token in the
-    page text ("ISO-8601", "REF-2026") from reading as a false submit success."""
+    """Read a portal's dedicated confirmation element, if the page is a receipt.
+
+    Anchoring on an explicit receipt element, rather than scanning the whole
+    body, keeps ordinary hyphenated tokens ("ISO-8601", "REF-2026") from being
+    misread as submit confirmations.
+    """
     try:
         element = await page.query_selector(
             ".receipt .id, [data-confirmation-id], .confirmation-id")
@@ -1202,7 +1203,7 @@ async def _validate_portal_target(url: str) -> dict | None:
     The read-only browse stack routes through the validating proxy; these
     interactive POST-ing contexts validate the target up front instead:
     scheme/credential checks plus DNS resolution with the private/reserved
-    tables. Loopback is exempt in local dev only (the mock portal)."""
+    tables. Loopback is exempt only for explicit local development fixtures."""
     parts, message = _url_parts(url)
     if parts is None:
         return _error("policy_refused", message)

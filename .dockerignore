@@ -1,7 +1,7 @@
 # Build-context excludes for `docker build .` / Cloud Build.
 # The Dockerfile does `COPY . .`, so anything not excluded here is baked into
 # the image layers. Keep ONLY runtime source: agents/ app/ services/
-# mock_portal/ workflows/ (+ requirements.txt). Everything below is a secret,
+# scripts/ workflows/ (+ requirements.txt). Everything below is a secret,
 # local state, cache, VCS artifact, doc, or large binary — never needed at
 # runtime and, for the secret/state files, actively dangerous to ship.
 
