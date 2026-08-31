@@ -171,7 +171,11 @@ in an issue, commit, recording, or shared URL.
 
 ---
 
-## Core design patterns: architecting for long-running work
+## Long-running operations
+
+The same durable-state and event-wake architecture supports multiple product
+workflows. Hiring appears first because it is the primary demo and the most
+complete long-running workflow; Funding follows as a separate state machine.
 
 | Fragile agent pattern | Co-Founder pattern | Why it matters |
 |---|---|---|
@@ -182,93 +186,12 @@ in an issue, commit, recording, or shared URL.
 | Store feedback as an inert transcript | Distill verbatim feedback into structured profile rules | Later work demonstrably changes rather than merely claiming to remember. |
 | Treat a polished response as success | Validate tool outcomes, artifacts, audit rows, and eval result JSON | The system must prove that the side effect happened. |
 
-### End-to-end funding journey
+### Hiring operations
 
-The shipped application connects discovery to the complete application
-lifecycle. The **Run discovery sweep** button or the feature-flagged `/discover`
-chat command starts discovery and matching only when a founder asks. Alex then waits for the
-founder to choose a ranked opportunity before the guarded application lifecycle
-begins.
-
-```mermaid
-flowchart LR
-    CURRENT["Run discovery sweep"] --> D["Discover opportunities"]
-    CMD["/discover + optional prose context"] --> D
-    D --> M["Match, rank, and archive weak fits"]
-    M --> S["Ranked shortlist ready<br/>Wait for founder selection"]
-    S -->|"choose_opportunity()"| A["Existing application lifecycle"]
-    A --> W["Interview, draft, review, and fill"]
-    W --> G["Founder submission approval"]
-    G --> F["Submit, follow up, and close"]
-```
-
-Set `DISCOVER_COMMAND_ENABLED=true` to enable the competition-safe adapter. It
-accepts prose context only, reuses the existing discovery, matching, selection,
-and application path, and never chooses or submits for the founder. Task-scoped
-attachments, `/apply`, linked run records, and durable selection waits remain
-the [north-star Phase 2 design](docs/21-alex-platform-north-star.md#151-funding-and-program-applications),
-not claims about this adapter.
-
-### Current application state machine and dormant pause gates
-
-Co-Founder does not keep a model invocation or worker alive from discovery to
-submission. Firestore owns the application state; the session contains only a
-reconciled model-facing projection. At a human, provider, or timer boundary the
-run records what it is waiting for and becomes dormant. A verified event first
-commits authoritative state and a durable wake receipt, then resumes the same
-session with a minimal `state_delta` before the next model inference.
-
-```mermaid
-stateDiagram-v2
-    [*] --> IDLE : Initialize session
-    IDLE --> TRIAGE : Founder opens pipeline
-
-    TRIAGE --> IDLE : Founder closes triage
-    TRIAGE --> INTERVIEWING : choose_opportunity()
-    INTERVIEWING --> DRAFTING : Required facts complete
-    DRAFTING --> AWAITING_REVIEW : complete_drafting()
-    AWAITING_REVIEW --> DRAFTING : Founder rejects or edits a section
-    AWAITING_REVIEW --> APPROVED : Founder approves every section
-    APPROVED --> FORM_FILLING : Founder starts portal fill
-    FORM_FILLING --> AWAITING_SUBMIT_APPROVAL : Fill report committed
-    AWAITING_SUBMIT_APPROVAL --> SUBMITTED : Bound, fresh approval + submit_form()
-    SUBMITTED --> FOLLOW_UP : Confirmation recorded
-    FOLLOW_UP --> FOLLOW_UP : Reply or deadline wake
-    FOLLOW_UP --> CLOSED : Result received or deadline passed
-    CLOSED --> [*] : Workflow complete
-```
-
-The registered dormant gates are deliberately small and inspectable:
-
-| Durable state | Waiting for | Trusted wake | What the wake may change |
-|---|---|---|---|
-| `AWAITING_REVIEW` | `founder_feedback` | Founder feedback submitted in the UI | Records feedback; either returns one section to `DRAFTING` or completes review when all sections are approved. |
-| `AWAITING_SUBMIT_APPROVAL` | `founder_approval` | Server-resolved approval bound to the current fill report | Grants only the matching, unexpired, unconsumed submission action. Chat text cannot satisfy this gate. |
-| `SUBMITTED` | `portal_confirmation` | Signed portal webhook | Records the confirmation and advances the durable application to `FOLLOW_UP`. |
-| `FOLLOW_UP` | `deadline_tick` or a verified result event | Authenticated task or provider event | Refreshes urgency/status or closes the application; silence never fabricates a result. |
-
-`TRIAGE`, browser Stop, and closed/cold containers do not weaken these rules.
-No wake is authorized by chat history, and no wait is implemented by polling or
-by keeping a long model call parked.
-
-The opportunity pipeline has its own smaller lifecycle:
-
-```text
-DISCOVERED ── fit ≥ 70 ──▶ SHORTLISTED
-     └────── fit < 70 ───▶ ARCHIVED (audited reason required)
-```
-
-The binding transition guards and side effects are documented in
-[docs/03-state-machine.md](docs/03-state-machine.md).
-
----
-
-## Hiring operations
-
-Hiring is a separate, role-scoped workflow, not a synthetic package attached to
-the funding pipeline. The fixed Forward Deployment Engineer case remains an
-optional, visibly synthetic fixture; normal `/hiring` intake starts from the
-Founder's real description.
+Hiring is the primary demonstrated long-running workflow. It is separate and
+role-scoped, not a synthetic package attached to the funding pipeline. The
+fixed Forward Deployment Engineer case remains an optional, visibly synthetic
+fixture; normal `/hiring` intake starts from the Founder's real description.
 
 ```mermaid
 flowchart TB
@@ -354,6 +277,85 @@ normalized advertised location is the operating-jurisdiction binding; it is
 not legal advice or proof that laws were reviewed. Missing values are reported
 as blockers; the application never invents release evidence. See
 [docs/25-hiring-operations.md](docs/25-hiring-operations.md).
+
+### Funding operations
+
+The shipped application connects discovery to the complete application
+lifecycle. The **Run discovery sweep** button or the feature-flagged `/discover`
+chat command starts discovery and matching only when a founder asks. Alex then waits for the
+founder to choose a ranked opportunity before the guarded application lifecycle
+begins.
+
+```mermaid
+flowchart LR
+    CURRENT["Run discovery sweep"] --> D["Discover opportunities"]
+    CMD["/discover + optional prose context"] --> D
+    D --> M["Match, rank, and archive weak fits"]
+    M --> S["Ranked shortlist ready<br/>Wait for founder selection"]
+    S -->|"choose_opportunity()"| A["Existing application lifecycle"]
+    A --> W["Interview, draft, review, and fill"]
+    W --> G["Founder submission approval"]
+    G --> F["Submit, follow up, and close"]
+```
+
+Set `DISCOVER_COMMAND_ENABLED=true` to enable the competition-safe adapter. It
+accepts prose context only, reuses the existing discovery, matching, selection,
+and application path, and never chooses or submits for the founder. Task-scoped
+attachments, `/apply`, linked run records, and durable selection waits remain
+the [north-star Phase 2 design](docs/21-alex-platform-north-star.md#151-funding-and-program-applications),
+not claims about this adapter.
+
+#### Funding application state machine and dormant pause gates
+
+Co-Founder does not keep a model invocation or worker alive from discovery to
+submission. Firestore owns the application state; the session contains only a
+reconciled model-facing projection. At a human, provider, or timer boundary the
+run records what it is waiting for and becomes dormant. A verified event first
+commits authoritative state and a durable wake receipt, then resumes the same
+session with a minimal `state_delta` before the next model inference.
+
+```mermaid
+stateDiagram-v2
+    [*] --> IDLE : Initialize session
+    IDLE --> TRIAGE : Founder opens pipeline
+
+    TRIAGE --> IDLE : Founder closes triage
+    TRIAGE --> INTERVIEWING : choose_opportunity()
+    INTERVIEWING --> DRAFTING : Required facts complete
+    DRAFTING --> AWAITING_REVIEW : complete_drafting()
+    AWAITING_REVIEW --> DRAFTING : Founder rejects or edits a section
+    AWAITING_REVIEW --> APPROVED : Founder approves every section
+    APPROVED --> FORM_FILLING : Founder starts portal fill
+    FORM_FILLING --> AWAITING_SUBMIT_APPROVAL : Fill report committed
+    AWAITING_SUBMIT_APPROVAL --> SUBMITTED : Bound, fresh approval + submit_form()
+    SUBMITTED --> FOLLOW_UP : Confirmation recorded
+    FOLLOW_UP --> FOLLOW_UP : Reply or deadline wake
+    FOLLOW_UP --> CLOSED : Result received or deadline passed
+    CLOSED --> [*] : Workflow complete
+```
+
+The registered dormant gates are deliberately small and inspectable:
+
+| Durable state | Waiting for | Trusted wake | What the wake may change |
+|---|---|---|---|
+| `AWAITING_REVIEW` | `founder_feedback` | Founder feedback submitted in the UI | Records feedback; either returns one section to `DRAFTING` or completes review when all sections are approved. |
+| `AWAITING_SUBMIT_APPROVAL` | `founder_approval` | Server-resolved approval bound to the current fill report | Grants only the matching, unexpired, unconsumed submission action. Chat text cannot satisfy this gate. |
+| `SUBMITTED` | `portal_confirmation` | Signed portal webhook | Records the confirmation and advances the durable application to `FOLLOW_UP`. |
+| `FOLLOW_UP` | `deadline_tick` or a verified result event | Authenticated task or provider event | Refreshes urgency/status or closes the application; silence never fabricates a result. |
+
+`TRIAGE`, browser Stop, and closed/cold containers do not weaken these rules.
+No wake is authorized by chat history, and no wait is implemented by polling or
+by keeping a long model call parked.
+
+The opportunity pipeline has its own smaller lifecycle:
+
+```text
+DISCOVERED ── fit ≥ 70 ──▶ SHORTLISTED
+     └────── fit < 70 ───▶ ARCHIVED (audited reason required)
+```
+
+The binding transition guards and side effects are documented in
+[docs/03-state-machine.md](docs/03-state-machine.md).
 
 ---
 
