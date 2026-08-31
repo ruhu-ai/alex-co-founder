@@ -452,15 +452,15 @@ def _mutation_allowed(request: Request) -> dict[str, Any]:
 
 def _services() -> tuple[HiringService, HiringMailboxService] | None:
     raw = os.environ.get("HIRING_SYNTHETIC_ENCRYPTION_KEY", "")
-    if not raw:
-        if os.environ.get("K_SERVICE"):
-            return None
-        raw = os.environ.get("APP_SESSION_SECRET", "local-hiring-fixture-only")
-    key = hashlib.sha256(raw.encode()).digest()
-    wrap, unwrap = fixture_key_wrapper(key)
     store = production_store()
-    vault = CandidateIdentityVault(wrap_key=wrap, unwrap_key=unwrap,
-                                   dedup_key=key, store=store)
+    vault = None
+    if raw or not os.environ.get("K_SERVICE"):
+        raw = raw or os.environ.get(
+            "APP_SESSION_SECRET", "local-hiring-fixture-only")
+        key = hashlib.sha256(raw.encode()).digest()
+        wrap, unwrap = fixture_key_wrapper(key)
+        vault = CandidateIdentityVault(
+            wrap_key=wrap, unwrap_key=unwrap, dedup_key=key, store=store)
     hiring = HiringService(store=store, identity_vault=vault)
     return hiring, HiringMailboxService(hiring, store=store)
 
@@ -1999,6 +1999,12 @@ document.querySelector('#form').addEventListener('submit',async e=>{e.preventDef
                 store=store).reveal_restricted_identity(
                     application=application, principal=principal)
         else:
+            if services[0].identity_vault is None:
+                return _response({
+                    "status": "error", "error": True,
+                    "error_code": "synthetic_identity_vault_unavailable",
+                    "message": "Synthetic candidate identity access is not enabled.",
+                })
             revealed = await services[0].identity_vault.reveal_identity(
                 identity_id=application["candidate_id"],
                 workspace_id=application["workspace_id"],

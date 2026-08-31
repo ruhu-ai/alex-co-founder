@@ -192,7 +192,7 @@ async def get_public_role_projection(
 
 class HiringService:
     def __init__(self, *, store: DurableStore | None = None,
-                 identity_vault: CandidateIdentityVault,
+                 identity_vault: CandidateIdentityVault | None,
                  runtime: WorkflowRuntime | None = None):
         self.store = store or production_store()
         self.identity_vault = identity_vault
@@ -740,6 +740,10 @@ class HiringService:
                 provenance=hiring_provenance(synthetic_guard))
             if run.get("error"):
                 return run
+            if self.identity_vault is None:
+                return _error(
+                    "synthetic_identity_vault_unavailable",
+                    "Synthetic candidate intake is not enabled in this runtime.", 503)
             identity = await self.identity_vault.store_identity(
                 workspace_id=role["workspace_id"], role_id=role_id,
                 candidate_application_id=application_id,

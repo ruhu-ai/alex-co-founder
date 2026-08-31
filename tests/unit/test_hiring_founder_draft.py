@@ -1320,7 +1320,6 @@ def test_cloud_public_application_route_uses_dedicated_intake_key(monkeypatch):
     from app import hiring_routes
 
     store = InMemoryDurableStore()
-    service = _service(store)
     package = _package()
     contract = package["contract"]
     policy_id = "policy_route_intake"
@@ -1344,7 +1343,8 @@ def test_cloud_public_application_route_uses_dedicated_intake_key(monkeypatch):
     }))
     asyncio.run(store.create("workflow_runs", "run_role_route_intake", {
         "run_id": "run_role_route_intake", "workspace_id": "workspace_test",
-        "journey_id": "journey_route_intake", "run_kind": "ROLE", "version": 1,
+        "journey_id": "journey_route_intake", "run_kind": "ROLE",
+        "runtime_status": "WAITING", "version": 1,
     }))
     asyncio.run(store.create("hiring_roles", role_id, {
         "role_id": role_id, "workspace_id": "workspace_test",
@@ -1362,6 +1362,7 @@ def test_cloud_public_application_route_uses_dedicated_intake_key(monkeypatch):
     monkeypatch.delenv("HIRING_SYNTHETIC_ENCRYPTION_KEY", raising=False)
     monkeypatch.setenv("HIRING_PUBLIC_INTAKE_ENABLED", "1")
     monkeypatch.setenv("HIRING_PUBLIC_INTAKE_KEY", "53" * 32)
+    monkeypatch.setenv("AGENT_BASE_URL", "https://co-founder.example.test")
     saved: dict[str, bytes] = {}
     monkeypatch.setattr(
         "services.hiring_public_intake.storage.save_bytes",
@@ -1370,7 +1371,7 @@ def test_cloud_public_application_route_uses_dedicated_intake_key(monkeypatch):
         "services.hiring_public_intake.storage.delete_artifact",
         lambda name: bool(saved.pop(name, None)))
     monkeypatch.setattr(hiring_routes, "production_store", lambda: store)
-    monkeypatch.setattr(hiring_routes, "_services", lambda: (service, object()))
+    monkeypatch.setattr(hiring_routes, "_mutation_allowed", lambda _request: {})
     monkeypatch.setattr(
         hiring_routes.task_queue, "enqueue_hiring",
         lambda *_args, **_kwargs: {"status": "success"})
@@ -1382,6 +1383,15 @@ def test_cloud_public_application_route_uses_dedicated_intake_key(monkeypatch):
     app = FastAPI()
     hiring_routes.register(app)
     client = TestClient(app)
+    published = client.post(
+        f"/api/hiring/roles/{role_id}/publish",
+        json={
+            "expected_role_version": 1,
+            "client_request_id": "cloud_publication_route_001",
+        })
+    assert published.status_code == 200
+    assert published.json()["status"] == "success"
+    assert published.json()["role_version"] == 2
     projection = client.get(
         f"/api/public/hiring/roles/{role_id}").json()["open_role"]["intake"]
     response = client.post(

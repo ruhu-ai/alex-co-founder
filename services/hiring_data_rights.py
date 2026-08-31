@@ -17,7 +17,7 @@ def _error(code: str, message: str, http_status: int = 409) -> dict[str, Any]:
 
 
 class HiringDataRightsService:
-    def __init__(self, *, identity_vault: CandidateIdentityVault,
+    def __init__(self, *, identity_vault: CandidateIdentityVault | None,
                  store: DurableStore | None = None):
         self.store = store or production_store()
         self.identity_vault = identity_vault
@@ -29,10 +29,22 @@ class HiringDataRightsService:
         gate = await self._authorize(principal, application)
         if gate.get("error"):
             return gate
-        identity = await self.identity_vault.reveal_identity(
-            identity_id=application["candidate_id"],
-            workspace_id=application["workspace_id"], role_id=application["role_id"],
-            candidate_application_id=application_id, principal=principal)
+        if (application.get("source_kind") == "PUBLIC_FORM"
+                and application.get("synthetic") is False):
+            from services.hiring_public_intake import HiringPublicIntakeService
+            identity = await HiringPublicIntakeService(
+                store=self.store).reveal_restricted_identity(
+                    application=application, principal=principal)
+        elif self.identity_vault is not None:
+            identity = await self.identity_vault.reveal_identity(
+                identity_id=application["candidate_id"],
+                workspace_id=application["workspace_id"],
+                role_id=application["role_id"],
+                candidate_application_id=application_id, principal=principal)
+        else:
+            return _error(
+                "synthetic_identity_vault_unavailable",
+                "Synthetic candidate identity access is not enabled.", 503)
         if identity.get("error"):
             return identity
         inventory = await self._inventory(application)
