@@ -1523,6 +1523,38 @@ def fake_store(monkeypatch):
         return {"status": "success", "duplicate": False,
                 "effect_ref": effect_ref, "session_id": session_id}
 
+    async def _resolve_inboxed_external_event_signal(
+            founder_id, event_id, inbox_item_id, *, session_id, resource_id,
+            correlation_basis):
+        event = await _get_external_event(founder_id, event_id)
+        inbox = await _get_founder_inbox_item(founder_id, inbox_item_id)
+        if not event or not inbox or inbox.get("event_id") != event_id:
+            return {"status": "error", "error": True,
+                    "error_code": "owner_mismatch", "message": "not found"}
+        if (event.get("processing_status") == "APPLIED"
+                and inbox.get("status") == "RESOLVED"):
+            return {"status": "success", "duplicate": True,
+                    "effect_ref": event.get("effect_ref")}
+        if (event.get("processing_status") != "INBOXED"
+                or inbox.get("status") != "UNREAD"):
+            return {"status": "error", "error": True,
+                    "error_code": "version_conflict", "message": "changed"}
+        effect_ref = f"signals/{event_id}"
+        now = store._now()
+        event.update(
+            processing_status="APPLIED", business_disposition="APPLIED",
+            correlation_status="EXACT", application_id=resource_id,
+            resource_id=resource_id, session_id=session_id,
+            correlation_basis=correlation_basis, effect_ref=effect_ref,
+            delivery_status="NOT_REQUIRED", updated_at=now)
+        inbox.update(
+            status="RESOLVED", resolved_resource_id=resource_id,
+            resolved_session_id=session_id,
+            resolution="LINKED_TO_APPLICATION", updated_at=now,
+            resolved_at=now)
+        return {"status": "success", "duplicate": False,
+                "effect_ref": effect_ref}
+
     async def _claim_external_event_delivery(founder_id, event_id,
                                               lease_seconds=120):
         event = await _get_external_event(founder_id, event_id)
@@ -2138,6 +2170,8 @@ def fake_store(monkeypatch):
         "dismiss_founder_inbox_item": _dismiss_founder_inbox_item,
         "apply_external_event_to_application": _apply_external_event_to_application,
         "apply_external_event_signal": _apply_external_event_signal,
+        "resolve_inboxed_external_event_signal": (
+            _resolve_inboxed_external_event_signal),
         "claim_external_event_delivery": _claim_external_event_delivery,
         "finish_external_event_delivery": _finish_external_event_delivery,
         "create_wake_delivery": _create_wake_delivery,

@@ -4002,6 +4002,78 @@ async def apply_external_event_signal(
     return await _apply(transaction)
 
 
+async def resolve_inboxed_external_event_signal(
+        founder_id: str, event_id: str, inbox_item_id: str, *,
+        session_id: str, resource_id: str,
+        correlation_basis: str) -> dict[str, Any]:
+    """Atomically close one stale inbox item after exact replay correlation.
+
+    This does not infer a candidate or create a domain effect. The caller must
+    first reload the immutable provider message and prove one exact causal
+    candidate. Repeated calls converge on the same terminal receipt.
+    """
+    from google.cloud import firestore as gc_firestore
+
+    from services import data_source_contracts as dsc
+
+    try:
+        basis = dsc.require_closed(correlation_basis, dsc.CorrelationBasis)
+    except ValueError:
+        return _contract_error("invalid correlation basis")
+    event_ref = get_client().collection("external_events").document(event_id)
+    inbox_ref = get_client().collection("founder_inbox").document(inbox_item_id)
+    transaction = get_client().transaction()
+
+    @gc_firestore.async_transactional
+    async def _resolve(txn):
+        event_snapshot = await event_ref.get(transaction=txn)
+        inbox_snapshot = await inbox_ref.get(transaction=txn)
+        if not event_snapshot.exists or not inbox_snapshot.exists:
+            return _contract_error("inbox event not found", "owner_mismatch")
+        event = event_snapshot.to_dict()
+        inbox = inbox_snapshot.to_dict()
+        if (not _workspace_owner_matches(event, founder_id)
+                or not _workspace_owner_matches(inbox, founder_id)
+                or inbox.get("event_id") != event_id):
+            return _contract_error("inbox event not found", "owner_mismatch")
+        if (event.get("processing_status") ==
+                dsc.EventProcessingStatus.APPLIED.value
+                and inbox.get("status") ==
+                dsc.FounderInboxStatus.RESOLVED.value):
+            return {"status": "success", "duplicate": True,
+                    "effect_ref": event.get("effect_ref")}
+        if (event.get("processing_status") !=
+                dsc.EventProcessingStatus.INBOXED.value
+                or inbox.get("status") !=
+                dsc.FounderInboxStatus.UNREAD.value):
+            return _contract_error(
+                "inbox event changed", "version_conflict")
+        now = _now()
+        effect_ref = f"signals/{event_id}"
+        txn.update(event_ref, {
+            "processing_status": dsc.EventProcessingStatus.APPLIED.value,
+            "business_disposition": "APPLIED",
+            "correlation_status": dsc.CorrelationStatus.EXACT.value,
+            "application_id": resource_id, "resource_id": resource_id,
+            "session_id": session_id, "correlation_basis": basis.value,
+            "effect_ref": effect_ref,
+            "delivery_status": dsc.DeliveryStatus.NOT_REQUIRED.value,
+            "lease_owner": None, "lease_started_at": None,
+            "updated_at": now,
+        })
+        txn.update(inbox_ref, {
+            "status": dsc.FounderInboxStatus.RESOLVED.value,
+            "resolved_resource_id": resource_id,
+            "resolved_session_id": session_id,
+            "resolution": dsc.InboxResolution.LINKED_TO_APPLICATION.value,
+            "updated_at": now, "resolved_at": now,
+        })
+        return {"status": "success", "duplicate": False,
+                "effect_ref": effect_ref}
+
+    return await _resolve(transaction)
+
+
 async def claim_external_event_delivery(founder_id: str,
                                         event_id: str,
                                         lease_seconds: int = 120) -> dict[str, Any]:

@@ -340,3 +340,67 @@ async def test_exact_hiring_thread_records_candidate_reply_without_chat_wake(
     assert len(await durable.list(
         "hiring_reply_correlations", filters={"workspace_id": "founder"})) == 3
     assert fake_store.founder_inbox == {}
+
+
+async def test_exact_replay_closes_old_hiring_inbox_receipt_once(
+        fake_store, monkeypatch):
+    durable = InMemoryDurableStore()
+    run_id = "run_hiring_inbox_replay"
+    application_id = "candidateapp_" + "c" * 28
+    await durable.create("workflow_runs", run_id, {
+        "schema_version": 2, "run_id": run_id, "workspace_id": "founder",
+        "journey_id": "journey_hiring", "run_kind": "CANDIDATE",
+        "domain_ref": application_id, "runtime_status": "WAITING",
+        "next_event_sequence": 1, "provenance": {}, "version": 1,
+    })
+    action = {
+        "schema_version": 2, "action_id": "hiring_action_replay",
+        "workspace_id": "founder", "founder_id": "founder",
+        "approval_domain": "HIRING", "application_id": application_id,
+        "session_id": run_id, "run_id": run_id,
+        "action_kind": "HIRING_SEND_EMAIL", "status": "SUCCEEDED",
+        "exact_action": {"payload": {
+            "candidate_recipient": "ada@example.test"}},
+        "result_ref": {
+            "provider_thread_id": "gmail-thread-replay",
+            "rfc822_message_id": "<replay@ruhu.ai>"},
+        "created_at": "2026-08-30T10:00:00+00:00", "version": 1,
+    }
+    await durable.create("external_actions", action["action_id"], action)
+    from services import durable_store
+
+    monkeypatch.setattr(durable_store, "production_store", lambda: durable)
+    provider_event = _event(
+        message_id="gmail-old-inbox-reply", thread_id="gmail-thread-replay",
+        sender="Ada Candidate <ada@example.test>",
+        subject="Re: Interview availability", excerpt="Tuesday works.",
+        kind="update", rfc822_message_id="<candidate@reply.test>",
+        in_reply_to="<replay@ruhu.ai>")
+    stranded = await external_event_service.process_mail_event(
+        "founder", "alex_mail", provider_event)
+    assert stranded.get("inbox_item_id")
+
+    fake_store.external_actions[action["action_id"]] = dict(action)
+
+    async def load(message_id, workspace_id):
+        assert (message_id, workspace_id) == (
+            "gmail-old-inbox-reply", "founder")
+        return {"status": "success", "event": provider_event}
+
+    monkeypatch.setattr("services.alex_mailbox.load_provider_event", load)
+    preview = await external_event_service.replay_inboxed_hiring_reply(
+        "founder", stranded["event_id"], stranded["inbox_item_id"])
+    replay = await external_event_service.replay_inboxed_hiring_reply(
+        "founder", stranded["event_id"], stranded["inbox_item_id"],
+        execute=True)
+    duplicate = await external_event_service.replay_inboxed_hiring_reply(
+        "founder", stranded["event_id"], stranded["inbox_item_id"],
+        execute=True)
+
+    assert preview["eligible"] is True
+    assert replay["replayed"] is True
+    assert fake_store.external_events[stranded["event_id"]][
+        "processing_status"] == "APPLIED"
+    assert fake_store.founder_inbox[stranded["inbox_item_id"]][
+        "status"] == "RESOLVED"
+    assert duplicate["error_code"] == "reply_replay_not_eligible"

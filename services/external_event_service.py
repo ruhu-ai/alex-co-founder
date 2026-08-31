@@ -371,6 +371,81 @@ async def process_mail_event(founder_id: str, connector_id: str,
             "duplicate": inbox.get("duplicate", False)}
 
 
+async def replay_inboxed_hiring_reply(
+        founder_id: str, event_id: str, inbox_item_id: str, *,
+        execute: bool = False) -> dict[str, Any]:
+    """Re-evaluate one old inboxed Alex-mail receipt under current exact rules.
+
+    Dry-run reads no provider content. Execute reloads only the immutable Gmail
+    message already named by the receipt, proves one candidate from durable
+    causal facts, runs the idempotent Hiring continuation, then atomically
+    closes the stale ambiguity item. It cannot select by subject, name, or
+    model inference.
+    """
+    event = await firestore.get_external_event(founder_id, event_id)
+    inbox = await firestore.get_founder_inbox_item(founder_id, inbox_item_id)
+    eligible = bool(
+        event and inbox
+        and event.get("connector_id") == "alex_mail"
+        and event.get("processing_status") == "INBOXED"
+        and inbox.get("status") == "UNREAD"
+        and inbox.get("event_id") == event_id
+        and (event.get("source_ref") or {}).get("message_id"))
+    if not execute:
+        return {"status": "success", "dry_run": True,
+                "eligible": eligible, "event_id": event_id,
+                "inbox_item_id": inbox_item_id}
+    if not eligible:
+        return {"status": "error", "error": True,
+                "error_code": "reply_replay_not_eligible",
+                "message": "Inbox receipt is not eligible for replay."}
+
+    from services import alex_mailbox
+    from services.durable_store import production_store
+    from services.hiring_coordination import HiringCoordinationService
+
+    provider_message_id = str((event.get("source_ref") or {})["message_id"])
+    loaded = await alex_mailbox.load_provider_event(
+        provider_message_id, founder_id)
+    if loaded.get("error"):
+        return loaded
+    provider_event = dict(loaded.get("event") or {})
+    if (provider_event.get("id") != provider_message_id
+            or provider_event.get("thread_id") != event.get(
+                "provider_thread_id")):
+        return {"status": "error", "error": True,
+                "error_code": "reply_replay_source_changed",
+                "message": "Provider source no longer matches the receipt."}
+    exact = await _causal_candidates(founder_id, event, provider_event)
+    if (len(exact) != 1
+            or exact[0].get("resource_kind") != "hiring_candidate"):
+        return {"status": "error", "error": True,
+                "error_code": "reply_not_correlatable",
+                "message": "Reply is not uniquely linked to Hiring."}
+    match = exact[0]
+    correlated = await HiringCoordinationService(
+        production_store()).correlate_reply(
+            workspace_id=founder_id, provider_event=provider_event)
+    if correlated.get("error"):
+        return correlated
+    finalized = await firestore.resolve_inboxed_external_event_signal(
+        founder_id, event_id, inbox_item_id,
+        session_id=str(match["session_id"]),
+        resource_id=str(match["application_id"]),
+        correlation_basis=str(match["basis"]))
+    if finalized.get("error"):
+        return finalized
+    return {
+        "status": "success", "replayed": True,
+        "duplicate": bool(correlated.get("duplicate")),
+        "event_id": event_id, "inbox_item_id": inbox_item_id,
+        "candidate_application_id": match["application_id"],
+        "correlation_id": correlated.get("correlation_id"),
+        "continuation_status": correlated.get("continuation_status"),
+        "continuation_error_code": correlated.get("continuation_error_code"),
+    }
+
+
 async def process_mail_batch(founder_id: str, connector_id: str,
                              events: list[dict[str, Any]], *,
                              wake: WakeFn | None = None) -> dict[str, Any]:
