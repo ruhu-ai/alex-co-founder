@@ -1,0 +1,33 @@
+app/static/index.html
+  s_bf598a20bfcdaa::t_4d05543236eb03 4235,4238-4254,4261-4299,4310-4322,4324-4362,4366
+  s_bf598a20bfcdaa::t_39cac6342d19f5 1759-1762,1765-1766,1775-1778,1780-1781,1785,1789,1792-1848
+  s_bf598a20bfcdaa::t_586ee1693888e0 5008,5052,5144,5173
+  s_bf598a20bfcdaa::t_ed3854371a0ff9 6902-6911,6936-6938,6941,6943,6945-6946,6957,6965-6968,6973,6978,6981,6986,6989,6998-7000
+  s_bf598a20bfcdaa::t_769f1dc6cd6fe5 1779,4236-4237
+  s_bf598a20bfcdaa::t_e51b8bc3e94098 3898-3908
+  s_bf598a20bfcdaa::t_55f294e8d3be4e 4627
+  s_bf598a20bfcdaa::t_55650fe58b2a0d 4255-4260,4300-4309,4323,7001
+docs/16-design-system.md
+  s_bf598a20bfcdaa::t_0d1de33ab72b85 341-342,344-350
+  s_bf598a20bfcdaa::t_769f1dc6cd6fe5 343
+tests/unit/test_attachment_ui_contract.py
+  s_bf598a20bfcdaa::t_3a86f416f1b532 20-21
+  s_bf598a20bfcdaa::t_acd327b3758cc0 31-36,38-56
+  s_bf598a20bfcdaa::t_769f1dc6cd6fe5 37
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "a5b772b96a58f06572264b7a4f3b7d1d52b08c88",
+  "prompts": {},
+  "sessions": {
+    "s_bf598a20bfcdaa": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a04860-dde3-79c3-b2bd-2987b04adc68",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Ijidai Lassa <ijidai@cued.app>"
+    }
+  }
+}
