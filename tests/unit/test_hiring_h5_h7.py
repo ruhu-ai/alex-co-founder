@@ -257,6 +257,13 @@ async def test_h5_offer_acceptance_creates_exactly_one_onboarding_child(monkeypa
             offer_id=draft["offer_id"], approval_id=draft["approval_id"],
             client_request_id="offer_approve_001"))
     assert approved["candidate_state"] == "WAITING_FOR_OFFER_RESPONSE"
+    assert (await store.get("approvals", draft["approval_id"]))["status"] == "CONSUMED"
+    duplicate_approval = await service.approve_offer(
+        principal=founder, application_id=application_id,
+        payload=OfferApprovalInput(
+            offer_id=draft["offer_id"], approval_id=draft["approval_id"],
+            client_request_id="offer_approve_001"))
+    assert duplicate_approval["duplicate"] is True
 
     accepted_payload = OfferSignatureEventInput(
         offer_id=draft["offer_id"], provider_event_id="signature_event_001",
@@ -527,6 +534,11 @@ async def test_h6_plan_requires_exact_approval_and_never_provisions(monkeypatch)
         principal=founder, onboarding_run_id="run_onboarding_h6",
         approval_id=prepared["approval_id"])
     assert approved["state"] == "PRE_START"
+    assert (await store.get("approvals", prepared["approval_id"]))["status"] == "CONSUMED"
+    duplicate_approval = await service.approve_onboarding_plan(
+        principal=founder, onboarding_run_id="run_onboarding_h6",
+        approval_id=prepared["approval_id"])
+    assert duplicate_approval["duplicate"] is True
     onboarding = await store.get("onboarding_runs", "onboarding_h6")
     assert onboarding["onboarding_scope_activated"] is True
     assert onboarding["permissions_transferred"] is False

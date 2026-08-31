@@ -1160,27 +1160,45 @@ class HiringPostInterviewService:
         offer = await self.store.get("offers", payload.offer_id)
         approval = await self.store.get("approvals", payload.approval_id)
         if (not app or not offer or offer.get("candidate_application_id") != application_id
-                or not approval or approval.get("status") != "GRANTED"
-                or approval.get("approval_id") != offer.get("approval_id")
-                or (approval.get("exact_action") or {}).get("offer_sha256") !=
-                offer.get("offer_sha256")):
+                or not approval or approval.get("approval_id") != offer.get("approval_id")):
             return _error("offer_approval_invalid",
                           "A fresh exact granted offer approval is required.")
         application_gate = await self._application_release_gate(app)
         if application_gate.get("error"):
             return application_gate
-        if offer.get("status") == "WAITING_FOR_RESPONSE":
+        if (offer.get("status") == "WAITING_FOR_RESPONSE"
+                and approval.get("status") == "CONSUMED"
+                and app.get("current_offer_id") == payload.offer_id):
             return {"status": "success", "duplicate": True,
                     "offer_id": payload.offer_id}
+        claim = await validate_approval_claim(
+            principal=principal,
+            approval_id=payload.approval_id,
+            run_id=str(app["run_id"]),
+            policy_version_id=str(approval.get("policy_version_id") or ""),
+            action_kind="HIRING_SEND_OFFER",
+            exact_action=dict(offer.get("exact_terms") or {}),
+            store=self.store,
+            require_fresh=True,
+        )
+        if claim.get("error"):
+            return _error("offer_approval_invalid",
+                          "A fresh exact granted offer approval is required.")
+        now = utc_now()
         committed = await self.store.atomic_compare_and_set((
             AtomicMutation("offers", payload.offer_id, int(offer["version"]), updates={
-                "status": "WAITING_FOR_RESPONSE", "approved_at": utc_now(),
+                "status": "WAITING_FOR_RESPONSE", "approved_at": now,
                 "approved_by": principal.actor_id}),
             AtomicMutation("candidate_applications", application_id,
                            int(app["version"]), updates={
                                "candidate_state": CandidateState.WAITING_FOR_OFFER_RESPONSE.value,
                                "current_offer_id": payload.offer_id,
-                               "updated_at": utc_now()}),
+                               "updated_at": now}),
+            AtomicMutation("approvals", payload.approval_id,
+                           int(approval["version"]), updates={
+                               "status": "CONSUMED",
+                               "consumed_by_actor_id": principal.actor_id,
+                               "consumed_at": now, "updated_at": now}),
         ))
         if not committed:
             return _error("version_conflict", "Offer approval was not committed.")
@@ -1383,25 +1401,48 @@ class HiringPostInterviewService:
             "onboarding_runs", filters={"workspace_id": principal.workspace_id,
                                         "onboarding_run_id": onboarding_run_id}, limit=2)
         approval = await self.store.get("approvals", approval_id)
-        if (len(rows) != 1 or not approval or approval.get("status") != "GRANTED"
-                or rows[0].get("approval_id") != approval_id
-                or (approval.get("exact_action") or {}).get("plan_id") !=
-                rows[0].get("plan_id")):
+        if (len(rows) != 1 or not approval or rows[0].get("approval_id") != approval_id):
             return _error("onboarding_approval_invalid",
                           "A fresh exact onboarding-plan approval is required.")
         row = rows[0]
         application_gate = await self._onboarding_release_gate(row)
         if application_gate.get("error"):
             return application_gate
-        committed = await self.store.compare_and_set(
-            "onboarding_runs", str(row["onboarding_id"]), int(row["version"]), {
-                "state": OnboardingState.PRE_START.value,
-                "onboarding_scope_activated": True,
-                "permissions_transferred": False,
-                "approved_at": utc_now(), "approved_by": principal.actor_id})
+        if (row.get("state") == OnboardingState.PRE_START.value
+                and approval.get("status") == "CONSUMED"):
+            return {"status": "success", "duplicate": True,
+                    "state": OnboardingState.PRE_START.value}
+        claim = await validate_approval_claim(
+            principal=principal,
+            approval_id=approval_id,
+            run_id=onboarding_run_id,
+            policy_version_id="onboarding_v1",
+            action_kind="HIRING_APPROVE_ONBOARDING_PLAN",
+            exact_action=dict(row.get("plan") or {}),
+            store=self.store,
+            require_fresh=True,
+        )
+        if claim.get("error"):
+            return _error("onboarding_approval_invalid",
+                          "A fresh exact onboarding-plan approval is required.")
+        now = utc_now()
+        committed = await self.store.atomic_compare_and_set((
+            AtomicMutation("onboarding_runs", str(row["onboarding_id"]),
+                           int(row["version"]), updates={
+                               "state": OnboardingState.PRE_START.value,
+                               "onboarding_scope_activated": True,
+                               "permissions_transferred": False,
+                               "approved_at": now,
+                               "approved_by": principal.actor_id}),
+            AtomicMutation("approvals", approval_id, int(approval["version"]), updates={
+                "status": "CONSUMED",
+                "consumed_by_actor_id": principal.actor_id,
+                "consumed_at": now, "updated_at": now}),
+        ))
         if not committed:
             return _error("version_conflict", "Onboarding plan was not approved.")
-        return {"status": "success", "state": OnboardingState.PRE_START.value}
+        return {"status": "success", "duplicate": False,
+                "state": OnboardingState.PRE_START.value}
 
     async def resolve_onboarding_item(
             self, *, principal: ActorPrincipal,
