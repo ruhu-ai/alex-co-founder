@@ -1855,18 +1855,19 @@ this document may not create a separate Hiring product shell.
 | document preview/download | exists | reuse with candidate authorization and search isolation |
 | session resources/global search | exists | role/run only; candidate data excluded in v1 |
 | founder ambiguity inbox | generic event/inbox primitives exist | extend with hiring schemas, actor authorization, and cockpit projections |
-| role/candidate run hierarchy | implemented for real public intake and synthetic fixtures | durable state, evidence preparation, human decision and H4 communication events are candidate-run-bound; H5–H7 remain absent |
+| role/candidate run hierarchy | implemented through accepted offer and onboarding handoff | durable state, evidence, decisions and H4 communication remain candidate-run-bound; a verified accepted-offer event atomically creates exactly one separately permissioned onboarding child run |
 | hiring role cockpit | synthetic H3 now uses the shared token/type/icon/navigation source, a role-index home, focused cockpit, Quiet contextual workspace, and grouped mobile candidate rows; committed role/runtime/mailbox/publication truth remains backend-authoritative | complete the remaining shared component extraction and add the still-missing production workflow fields only behind their reviewed stage gates |
 | candidate intake inbox and evidence passport | the authenticated Founder sees applicant name/email in Hiring, can open the exact restricted CV through a no-store audited route, and reviews `PRESENT` / `MISSING` / `UNCLEAR` criterion evidence without scores or recommendations | keep identity/CV out of general search, memory, logs and model context; retain Founder-only decisions and backend authority |
 | policy version/diff/impact view | implemented for synthetic H2–H3 | approved role brief, scorecard, interview plan, job post, version and impact |
-| interview/reference/offer/onboarding views | live candidate communication and interview create/update/cancel receipts implemented; reference/offer/onboarding missing | keep the bounded H4 consent, exact H5–H7 approvals and provider reconciliation; build H5–H7 separately |
+| interview/reference/offer/onboarding views | H4 communication plus H5 interview/reference/offer and H6 onboarding projections implemented | retain exact approvals, signature-adapter verification, provider reconciliation, H7 workspace/jurisdiction/reviewer gates and kill switch |
 | application-mailbox operations | normal Alex mailbox push/history is reused; successful Hiring sends persist exact provider thread ids and applicant replies correlate only by that thread plus the server-resolved candidate address; ambiguous mail remains in the Founder inbox | no subject/name/model correlation; automatic/DSN-like mail is receipt-only; every reply message is untrusted and injection-shaped previews are withheld |
 | candidate-facing application portal | a receipt-gated public job description and encrypted role-scoped form exist; the form is default-off until a dedicated intake key is configured, exact role approval and a separate Founder publish click are committed; synthetic fixtures are never eligible | production rollout preserves bounded uploads, encrypted identity/artifact storage, explicit privacy consent, deletion/export controls, and monitoring; no third-party post, contact, ranking, recommendation, or employment decision is enabled |
 
 **Answer:** H0–H4 now cover real app-owned application intake, automatic
 evidence preparation, human decision, one-consent candidate email and
 reply/availability coordination, and receipt-backed interview lifecycle.
-Reference, offer and onboarding remain H5–H7 work and are not implied by H4.
+Reference, offer and onboarding are separately authorized H5–H6 work and are
+never implied by the H4 scheduling mandate.
 
 ### 12.2 Backend-authoritative surface contract
 
@@ -2771,6 +2772,41 @@ exact approval; duplicates and uncertain effects converge.
   checks, or automatic provisioning.
 
 **Exit:** qualified reviewers—not the engineering team alone—accept expansion.
+
+### H5–H7 implementation status (2026-08-31)
+
+The H5 and H6 durable workflow core is implemented:
+
+- criterion-bound interview evidence is non-scoring and requires the exact
+  Hiring-owned Calendar receipt; consent is mandatory before attaching a
+  transcript;
+- post-interview and final Founder decisions append to the decision ledger;
+- candidate permission, exact approved questions and an opaque response token
+  bind each reference report;
+- an offer is an immutable version/hash plus a fresh exact Founder approval;
+  only an HMAC-verified signature-adapter event can accept or decline it;
+- accepted-offer projection, offer terminal state and creation of exactly one
+  `ONBOARDING` child run commit in one atomic database transaction;
+- onboarding has a separate approved plan, separate items and human-owner
+  completion/waiver. `ACCESS_REQUEST` means preparation only and grants no
+  provisioning authority.
+
+This is not yet a production-complete H5 release. Real reference outreach must
+still be bound to the reviewed `alex_mail_v1` adapter and secure reference
+contact resolver, and the signature adapter must supply its verified event
+contract. Until then, candidate permission/questions and token-bound reference
+intake can be exercised locally, but the system does not claim a real outreach
+receipt. Reference content that contains protected-category data or prompt
+injection is withheld and cannot advance the candidate.
+
+H7 remains deliberately fail-closed in production. The executable release
+projection requires the exact workspace allowlist, reviewed jurisdiction ref,
+signature adapter secret, a reviewed executable reference-contact resolver and
+outreach adapter, qualified-review ref, feature enable and inactive kill switch.
+The current source deliberately emits
+`reference_outreach_adapter_not_implemented`; no environment value can bypass
+that executable gap. Missing values are returned as content-free blockers.
+Local test execution does not constitute H7 production approval.
 
 ---
 

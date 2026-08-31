@@ -45,6 +45,17 @@ class CandidateState(str, Enum):
     HELD = "HELD"
     EVIDENCE_REQUESTED = "EVIDENCE_REQUESTED"
     ADVANCED = "ADVANCED"
+    WAITING_FOR_INTERVIEW = "WAITING_FOR_INTERVIEW"
+    INTERVIEW_EVIDENCE_READY = "INTERVIEW_EVIDENCE_READY"
+    AWAITING_INTERVIEW_DECISION = "AWAITING_INTERVIEW_DECISION"
+    AWAITING_REFERENCE_PERMISSION = "AWAITING_REFERENCE_PERMISSION"
+    REFERENCES_IN_PROGRESS = "REFERENCES_IN_PROGRESS"
+    REFERENCE_EVIDENCE_READY = "REFERENCE_EVIDENCE_READY"
+    AWAITING_FINAL_DECISION = "AWAITING_FINAL_DECISION"
+    AWAITING_OFFER_APPROVAL = "AWAITING_OFFER_APPROVAL"
+    WAITING_FOR_OFFER_RESPONSE = "WAITING_FOR_OFFER_RESPONSE"
+    OFFER_ACCEPTED = "OFFER_ACCEPTED"
+    OFFER_DECLINED = "OFFER_DECLINED"
     DECLINED = "DECLINED"
     WITHDRAWN = "WITHDRAWN"
     CLOSED = "CLOSED"
@@ -57,6 +68,31 @@ class DecisionKind(str, Enum):
     DECLINE = "DECLINE"
     REOPEN = "REOPEN"
     CORRECT = "CORRECT"
+
+
+class PostInterviewDecisionKind(str, Enum):
+    ADDITIONAL_INTERVIEW = "ADDITIONAL_INTERVIEW"
+    ADVANCE_TO_REFERENCES = "ADVANCE_TO_REFERENCES"
+    ADVANCE_TO_OFFER = "ADVANCE_TO_OFFER"
+    HOLD = "HOLD"
+    DECLINE = "DECLINE"
+
+
+class OfferResponseKind(str, Enum):
+    ACCEPTED = "ACCEPTED"
+    DECLINED = "DECLINED"
+
+
+class OnboardingState(str, Enum):
+    ONBOARDING_INTAKE = "ONBOARDING_INTAKE"
+    AWAITING_PLAN_APPROVAL = "AWAITING_PLAN_APPROVAL"
+    PRE_START = "PRE_START"
+    WAITING_FOR_START_DATE = "WAITING_FOR_START_DATE"
+    FIRST_DAY = "FIRST_DAY"
+    FIRST_WEEK = "FIRST_WEEK"
+    AWAITING_COMPLETION_REVIEW = "AWAITING_COMPLETION_REVIEW"
+    COMPLETE = "COMPLETE"
+    CLOSED = "CLOSED"
 
 
 class EvidenceStatus(str, Enum):
@@ -272,6 +308,135 @@ class HumanDecisionInput(ClosedModel):
         # FastAPI presents a parsed JSON string to Pydantic's Python path;
         # convert only the exact closed enum, never arbitrary coercions.
         return DecisionKind(value) if isinstance(value, str) else value
+
+
+class InterviewCriterionEvidenceInput(ClosedModel):
+    criterion_id: OpaqueId
+    observed_fact: Annotated[str, Field(max_length=1200)] = ""
+    unknowns: list[Annotated[str, Field(max_length=500)]] = Field(
+        default_factory=list, max_length=20)
+    contradictions: list[Annotated[str, Field(max_length=500)]] = Field(
+        default_factory=list, max_length=20)
+    source_locator: Annotated[str, Field(max_length=240)] = ""
+
+    @model_validator(mode="after")
+    def _requires_bounded_evidence(self):
+        if not (self.observed_fact.strip() or self.unknowns or self.contradictions):
+            raise ValueError("interview evidence cannot be empty")
+        return self
+
+
+class InterviewEvidenceInput(ClosedModel):
+    schema_version: Literal[1] = 1
+    interview_event_id: Annotated[str, Field(min_length=3, max_length=512)]
+    criteria: list[InterviewCriterionEvidenceInput] = Field(
+        min_length=1, max_length=30)
+    founder_note: Annotated[str, Field(max_length=2000)] = ""
+    transcript_consent: bool = False
+    transcript_artifact_id: OpaqueId | None = None
+    client_request_id: OpaqueId
+    expected_application_version: Annotated[int, Field(ge=1)]
+
+    @model_validator(mode="after")
+    def _transcript_requires_consent(self):
+        if self.transcript_artifact_id and not self.transcript_consent:
+            raise ValueError("interview transcript requires recorded consent")
+        return self
+
+
+class PostInterviewDecisionInput(ClosedModel):
+    schema_version: Literal[1] = 1
+    decision: PostInterviewDecisionKind
+    reason_codes: list[
+        Annotated[str, Field(pattern=r"^[A-Z][A-Z0-9_]{2,63}$")]
+    ] = Field(min_length=1, max_length=20)
+    interview_id: OpaqueId
+    note: Annotated[str, Field(max_length=1000)] = ""
+    client_request_id: OpaqueId
+    expected_application_version: Annotated[int, Field(ge=1)]
+
+
+class ReferencePermissionInput(ClosedModel):
+    schema_version: Literal[1] = 1
+    permission_granted: Literal[True]
+    permission_receipt_ref: Annotated[str, Field(min_length=3, max_length=512)]
+    reference_contact_ref: OpaqueId
+    reference_label: Annotated[str, Field(min_length=1, max_length=160)]
+    approved_questions: list[Annotated[str, Field(min_length=1, max_length=1000)]] = Field(
+        min_length=1, max_length=20)
+    criterion_ids: list[OpaqueId] = Field(min_length=1, max_length=30)
+    client_request_id: OpaqueId
+    expected_application_version: Annotated[int, Field(ge=1)]
+
+
+class ReferenceEvidenceInput(ClosedModel):
+    schema_version: Literal[1] = 1
+    reference_check_id: OpaqueId
+    response_token: Annotated[str, Field(min_length=20, max_length=512)]
+    criterion_id: OpaqueId
+    claim: Annotated[str, Field(min_length=1, max_length=1200)]
+    source_locator: Annotated[str, Field(min_length=1, max_length=240)]
+    contradictions: list[Annotated[str, Field(max_length=500)]] = Field(
+        default_factory=list, max_length=20)
+    unknowns: list[Annotated[str, Field(max_length=500)]] = Field(
+        default_factory=list, max_length=20)
+    client_request_id: OpaqueId
+
+
+class OfferDraftInput(ClosedModel):
+    schema_version: Literal[1] = 1
+    title: Annotated[str, Field(min_length=1, max_length=160)]
+    start_date: Annotated[str, Field(pattern=r"^\d{4}-\d{2}-\d{2}$")]
+    compensation: Annotated[str, Field(min_length=1, max_length=500)]
+    employment_terms: Annotated[str, Field(min_length=1, max_length=4000)]
+    document_artifact_id: OpaqueId
+    document_sha256: Hash
+    client_request_id: OpaqueId
+    expected_application_version: Annotated[int, Field(ge=1)]
+
+
+class OfferApprovalInput(ClosedModel):
+    schema_version: Literal[1] = 1
+    offer_id: OpaqueId
+    approval_id: OpaqueId
+    client_request_id: OpaqueId
+
+
+class OfferSignatureEventInput(ClosedModel):
+    schema_version: Literal[1] = 1
+    offer_id: OpaqueId
+    provider_event_id: OpaqueId
+    provider_envelope_sha256: Hash
+    offer_sha256: Hash
+    response: OfferResponseKind
+    occurred_at: Annotated[str, Field(min_length=20, max_length=80)]
+
+
+class OnboardingItemInput(ClosedModel):
+    item_id: OpaqueId
+    label: Annotated[str, Field(min_length=1, max_length=240)]
+    owner: Literal["FOUNDER", "NEW_HIRE", "ALEX"]
+    due_date: Annotated[str, Field(pattern=r"^\d{4}-\d{2}-\d{2}$")]
+    action_kind: Literal["CHECKLIST", "MEETING_PREPARATION", "ACCESS_REQUEST"]
+
+
+class OnboardingPlanInput(ClosedModel):
+    schema_version: Literal[1] = 1
+    onboarding_run_id: OpaqueId
+    start_date: Annotated[str, Field(pattern=r"^\d{4}-\d{2}-\d{2}$")]
+    items: list[OnboardingItemInput] = Field(min_length=1, max_length=100)
+    client_request_id: OpaqueId
+    expected_onboarding_version: Annotated[int, Field(ge=1)]
+
+
+class OnboardingItemResolutionInput(ClosedModel):
+    schema_version: Literal[1] = 1
+    onboarding_run_id: OpaqueId
+    item_id: OpaqueId
+    resolution: Literal["COMPLETE", "WAIVED"]
+    note: Annotated[str, Field(max_length=1000)] = ""
+    client_request_id: OpaqueId
+    expected_item_version: Annotated[int, Field(ge=1)]
 
 
 class SyntheticEnvelope(ClosedModel):

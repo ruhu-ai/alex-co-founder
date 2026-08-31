@@ -2738,8 +2738,12 @@
           document.querySelector("#candidateIdentityScope").textContent =
             j.identity ? "Founder view" : "Identity unavailable";
           body.innerHTML = `<div class="role-summary-head"><div class="candidate-identity"><strong>${esc(displayName)}</strong>${identity.email ? `<span>${esc(identity.email)}</span>` : '<span class="micro">Candidate identity is temporarily unavailable.</span>'}<span class="micro">${esc(a.candidate_code)} · ${esc(a.candidate_state)}</span></div><a class="btn" data-variant="secondary" href="${esc(discussLink)}"><svg class="ico" aria-hidden="true"><use href="#i-chat"/></svg>Discuss with Alex</a></div><nav class="candidate-section-nav" role="tablist" aria-label="Candidate workspace"><button class="btn" data-variant="ghost" role="tab" aria-selected="true" data-candidate-tab="work" onclick="selectCandidateTab('work')">Work</button><button class="btn" data-variant="ghost" role="tab" aria-selected="false" data-candidate-tab="evidence" onclick="selectCandidateTab('evidence')">Evidence</button><button class="btn" data-variant="ghost" role="tab" aria-selected="false" data-candidate-tab="decisions" onclick="selectCandidateTab('decisions')">Decisions ${decisionBadge}</button><button class="btn" data-variant="ghost" role="tab" aria-selected="false" data-candidate-tab="activity" onclick="selectCandidateTab('activity')">Activity</button></nav><section class="candidate-pane" id="candidate-pane-work" role="tabpanel"><h2>Candidate application</h2><p class="micro">${artifacts.length} restricted document${artifacts.length === 1 ? "" : "s"}. CVs and application material stay in this role and are excluded from general search, profile memory, and company knowledge.</p><ul>${artifacts.map((item) => `<li>${esc(item.source_kind || "CV or resume")} · ${esc(item.content_type || "restricted document")} · ${esc(item.scope || "HIRING_RESTRICTED")} <button class="btn" data-variant="secondary" data-size="sm" onclick='openCandidateResume(${JSON.stringify(id)})'>Open CV</button></li>`).join("") || "<li>No candidate document record is available yet.</li>"}</ul><section class="card" id="candidateDocumentViewer" hidden><div class="role-summary-head"><h3>Restricted CV</h3><button class="btn" data-variant="ghost" onclick="closeCandidateResume()">Close</button></div><p id="candidateDocumentContext" class="micro"></p><iframe id="candidateDocumentFrame" title="Restricted candidate CV" style="width:100%;height:70vh;border:1px solid var(--divider)" hidden></iframe><a class="btn" id="candidateDocumentDownload" download hidden>Download CV</a></section><section class="card" id="hiringCoordination"><h3>Candidate communication &amp; interview</h3><p class="micro">Loading receipt-backed coordination…</p></section><section class="card"><h3>Candidate data rights</h3><button onclick='exportCandidate(${JSON.stringify(id)})'>Export candidate data</button> <button onclick='deleteCandidate(${JSON.stringify(id)})'>Review deletion plan</button><p id="dataRightsStatus" class="micro">Recent sign-in is required. Provider email remains subject to the stated provider limitations.</p></section></section><section class="candidate-pane" id="candidate-pane-evidence" role="tabpanel" hidden><p class="state" id="candidateEvidenceStatus">${esc(evidenceLabel)}</p>${preparationStatus}<h2>Evidence by approved criterion</h2><p class="micro">Policy ${esc(p?.policy_version_id || a.current_policy_version_id || "pending")} · hover or focus a citation for its bounded passage; activate it to open the restricted source. Labels report candidate-provided information as present, missing, or unclear. They are not scores or hiring advice.</p><div class="passport">${evidenceCards}</div></section><section class="candidate-pane" id="candidate-pane-decisions" role="tabpanel" hidden>${decisionPanel}</section><section class="candidate-pane" id="candidate-pane-activity" role="tabpanel" hidden><h2>Causal timeline</h2><ol>${(j.timeline || []).map((e) => `<li><strong>${esc(e.event_kind)}</strong> <span class="micro">sequence ${esc(e.sequence)} · ${esc(e.occurred_at)}</span></li>`).join("") || "<li>Application received; no later workflow event is committed.</li>"}</ol></section>`;
+          document.querySelector("#hiringCoordination")?.insertAdjacentHTML(
+            "afterend",
+            '<section class="card" id="hiringPostInterview"><h3>After the interview</h3><p class="micro">Loading interview, references, offer, and onboarding state…</p></section>',
+          );
           selectCandidateTab("work", false);
-          await loadHiringCoordination(id);
+          await Promise.all([loadHiringCoordination(id), loadHiringPostInterview(id, j)]);
         } catch (e) {
           body.innerHTML = `<p class="error">${esc(e.message)}</p>`;
         }
@@ -2750,6 +2754,80 @@
       }
       function hiringActionLabel(kind) {
         return ({HIRING_SEND_EMAIL: "Send email", HIRING_CREATE_INTERVIEW: "Book interview", HIRING_UPDATE_INTERVIEW: "Update interview", HIRING_CANCEL_INTERVIEW: "Cancel interview"})[kind] || kind;
+      }
+      async function loadHiringPostInterview(id, detail) {
+        const host = document.querySelector("#hiringPostInterview");
+        if (!host) return;
+        try {
+          const [state, coordination] = await Promise.all([
+              api(`/api/hiring/applications/${encodeURIComponent(id)}/post-interview`),
+              api(`/api/hiring/applications/${encodeURIComponent(id)}/coordination`),
+            ]),
+            candidateState = state.candidate_state,
+            interviews = state.interviews || [], references = state.references || [],
+            offers = state.offers || [], onboarding = state.onboarding || [],
+            latestInterview = interviews.at(-1), latestReference = references.at(-1),
+            latestOffer = offers.at(-1), latestOnboarding = onboarding.at(-1),
+            eventId = coordination.mandate?.current_event_id || "",
+            criteria = detail.evidence_coverage || [],
+            release = state.release || {};
+          let action = "";
+          if (["ADVANCED", "WAITING_FOR_INTERVIEW"].includes(candidateState) && eventId && !latestInterview) {
+            action = `<h4>Record interview evidence</h4><p class="micro">Use approved job criteria only. Do not record scores, rank, personality, accent, emotion, or protected traits.</p>${criteria.map((item) => `<label>${esc(item.criterion_label)}<textarea data-interview-criterion="${esc(item.criterion_id)}" maxlength="1200" placeholder="Observed job-related fact, or leave blank and record as unknown"></textarea></label>`).join("")}<label>Founder note<textarea id="interviewFounderNote" maxlength="2000"></textarea></label><button class="btn" data-variant="primary" onclick='submitInterviewEvidence(${JSON.stringify(eventId)})'>Commit interview evidence</button>`;
+          } else if (candidateState === "AWAITING_INTERVIEW_DECISION" && latestInterview) {
+            action = `<h4>Founder interview decision</h4><label>Decision<select id="postInterviewDecision"><option value="ADDITIONAL_INTERVIEW">Additional interview</option><option value="ADVANCE_TO_REFERENCES">Advance to references</option><option value="HOLD">Hold</option><option value="DECLINE">Decline</option></select></label><label>Job-related reason<select id="postInterviewReason">${(window.currentApprovedDecisionReasons || []).map((reason) => `<option value="${esc(reason)}">${esc(readableCode(reason))}</option>`).join("")}</select></label><label>Optional note<textarea id="postInterviewNote" maxlength="1000"></textarea></label><button class="btn" data-variant="primary" onclick='submitPostInterviewDecision(${JSON.stringify(latestInterview.interview_id)})'>Commit Founder decision</button>`;
+          } else if (candidateState === "AWAITING_REFERENCE_PERMISSION") {
+            action = `<h4>Candidate-permitted reference</h4><p class="micro">Do not contact a reference until candidate permission is recorded. Questions remain exact and job-related.</p><label>Permission receipt reference<input id="referencePermissionRef" maxlength="512"></label><label>Reference contact vault reference<input id="referenceContactRef" maxlength="128"></label><label>Reference label<input id="referenceLabel" maxlength="160" placeholder="Former manager"></label><label>Approved question<textarea id="referenceQuestion" maxlength="1000"></textarea></label><button class="btn" data-variant="primary" onclick="recordReferencePermission()">Record permission and prepare reference</button>`;
+          } else if (candidateState === "REFERENCES_IN_PROGRESS") {
+            action = `<p class="micro">Reference check ${esc(latestReference?.status || "in progress")}. The response must return through its opaque token and exact approved questions.</p>`;
+          } else if (candidateState === "AWAITING_FINAL_DECISION" && latestInterview) {
+            action = `<h4>Final Founder decision</h4><p class="micro">Reference evidence is ready. Only the Founder can advance this candidate to an offer.</p><label>Job-related reason<select id="postInterviewReason">${(window.currentApprovedDecisionReasons || []).map((reason) => `<option value="${esc(reason)}">${esc(readableCode(reason))}</option>`).join("")}</select></label><label>Optional note<textarea id="postInterviewNote" maxlength="1000"></textarea></label><button class="btn" data-variant="primary" onclick='submitPostInterviewDecision(${JSON.stringify(latestInterview.interview_id)},"ADVANCE_TO_OFFER")'>Advance to offer</button>`;
+          } else if (candidateState === "AWAITING_OFFER_APPROVAL") {
+            action = `<h4>Prepare exact offer</h4><label>Role title<input id="offerTitle" maxlength="160"></label><label>Start date<input id="offerStartDate" type="date"></label><label>Compensation terms<input id="offerCompensation" maxlength="500"></label><label>Employment terms<textarea id="offerTerms" maxlength="4000"></textarea></label><button class="btn" data-variant="primary" onclick="prepareExactOffer()">Create exact offer approval</button>`;
+          } else if (candidateState === "WAITING_FOR_OFFER_RESPONSE") {
+            action = `<p class="micro">The exact approved offer is waiting for an authoritative signature-adapter event. A positive email reply cannot accept it.</p>`;
+          } else if (candidateState === "OFFER_ACCEPTED") {
+            action = `<p class="supported">Offer accepted through a verified signature event.</p><p class="micro">Onboarding is a separate least-privilege child run: ${esc(latestOnboarding?.state || "ONBOARDING_INTAKE")}.</p>`;
+          }
+          const history = `<div class="grid"><div class="stat"><span class="muted">Interview</span><strong>${esc(latestInterview ? "Evidence ready" : "Pending")}</strong></div><div class="stat"><span class="muted">References</span><strong>${esc(latestReference?.status || "Not started")}</strong></div><div class="stat"><span class="muted">Offer</span><strong>${esc(latestOffer?.status || "Not started")}</strong></div><div class="stat"><span class="muted">Onboarding</span><strong>${esc(latestOnboarding?.state || "Not started")}</strong></div></div>`,
+            interviewDetail = latestInterview ? `<details><summary>Interview evidence</summary><div class="passport">${(latestInterview.criteria || []).map((item) => `<article class="criterion"><strong>${esc(item.criterion_id)}</strong><p>${esc(item.observed_fact || "No supported observation recorded.")}</p><p class="micro">Unknowns: ${esc((item.unknowns || []).join("; ") || "none")}<br>Contradictions: ${esc((item.contradictions || []).join("; ") || "none")}<br>Source: ${esc(item.source_locator || "committed scorecard")}</p></article>`).join("") || '<p class="micro">No criterion evidence is committed.</p>'}</div></details>` : "",
+            referenceDetail = latestReference?.report ? `<details><summary>Reference evidence</summary><article class="criterion"><strong>${esc(latestReference.reference_label || "Permitted reference")}</strong><p>${esc(latestReference.report.summary || "A permitted reference response is cited.")}</p><p class="micro">Criterion: ${esc(latestReference.report.criterion_id || "")}. Unknowns: ${esc((latestReference.report.unknowns || []).join("; ") || "none")}. Contradictions: ${esc((latestReference.report.contradictions || []).join("; ") || "none")}.</p></article></details>` : "";
+          host.innerHTML = `<h3>After the interview</h3><p class="micro">Durable H5–H6 progression. Interview and reference evidence remain cited and non-scoring; offer acceptance creates exactly one separate onboarding run; access is never provisioned automatically.</p>${history}${interviewDetail}${referenceDetail}${action}<p id="postInterviewStatus" class="micro" role="status" aria-live="polite"></p>${release.production_ready ? "" : `<p class="micro">H7 production expansion remains fail-closed: ${esc((release.blockers || []).join(", ") || "local verification")}</p>`}`;
+        } catch (e) {
+          host.innerHTML = `<h3>After the interview</h3><p class="error">${esc(e.message)}</p>`;
+        }
+      }
+      async function submitInterviewEvidence(eventId) {
+        const fields = [...document.querySelectorAll("[data-interview-criterion]")],
+          application = (await api(`/api/hiring/applications/${encodeURIComponent(currentCandidateId)}`)).application,
+          criteria = fields.map((field) => ({criterion_id: field.dataset.interviewCriterion, observed_fact: field.value.trim(), unknowns: field.value.trim() ? [] : ["No job-related observation was recorded."], contradictions: [], source_locator: `Founder scorecard · ${field.dataset.interviewCriterion}`}));
+        try {
+          await hiringMutation(`/api/hiring/applications/${encodeURIComponent(currentCandidateId)}/interview-evidence`, {schema_version: 1, interview_event_id: eventId, criteria, founder_note: document.querySelector("#interviewFounderNote")?.value || "", transcript_consent: false, transcript_artifact_id: null, client_request_id: `interview_${crypto.randomUUID().replaceAll("-", "_")}`, expected_application_version: application.version});
+          await openCandidate(currentCandidateId);
+        } catch (e) { document.querySelector("#postInterviewStatus").textContent = e.message; }
+      }
+      async function submitPostInterviewDecision(interviewId, forcedDecision = "") {
+        try {
+          const application = (await api(`/api/hiring/applications/${encodeURIComponent(currentCandidateId)}`)).application;
+          await hiringMutation(`/api/hiring/applications/${encodeURIComponent(currentCandidateId)}/post-interview-decisions`, {schema_version: 1, decision: forcedDecision || document.querySelector("#postInterviewDecision").value, reason_codes: [document.querySelector("#postInterviewReason").value], interview_id: interviewId, note: document.querySelector("#postInterviewNote")?.value || "", client_request_id: `postdecision_${crypto.randomUUID().replaceAll("-", "_")}`, expected_application_version: application.version});
+          await openCandidate(currentCandidateId);
+        } catch (e) { if (e.errorCode === "step_up_required") beginHiringStepUp(); else document.querySelector("#postInterviewStatus").textContent = e.message; }
+      }
+      async function recordReferencePermission() {
+        try {
+          const detail = await api(`/api/hiring/applications/${encodeURIComponent(currentCandidateId)}`), criterionId = detail.evidence_coverage?.[0]?.criterion_id;
+          const result = await hiringMutation(`/api/hiring/applications/${encodeURIComponent(currentCandidateId)}/reference-permission`, {schema_version: 1, permission_granted: true, permission_receipt_ref: document.querySelector("#referencePermissionRef").value, reference_contact_ref: document.querySelector("#referenceContactRef").value, reference_label: document.querySelector("#referenceLabel").value, approved_questions: [document.querySelector("#referenceQuestion").value], criterion_ids: [criterionId], client_request_id: `reference_${crypto.randomUUID().replaceAll("-", "_")}`, expected_application_version: detail.application.version});
+          document.querySelector("#postInterviewStatus").textContent = result.response_token ? "Reference permission recorded. The opaque response token is available to the controlled outreach adapter." : "Reference permission already recorded.";
+          await openCandidate(currentCandidateId);
+        } catch (e) { if (e.errorCode === "step_up_required") beginHiringStepUp(); else document.querySelector("#postInterviewStatus").textContent = e.message; }
+      }
+      async function prepareExactOffer() {
+        try {
+          const detail = await api(`/api/hiring/applications/${encodeURIComponent(currentCandidateId)}`), terms = {title: document.querySelector("#offerTitle").value, start_date: document.querySelector("#offerStartDate").value, compensation: document.querySelector("#offerCompensation").value, employment_terms: document.querySelector("#offerTerms").value}, bytes = new TextEncoder().encode(JSON.stringify(terms)), digest = [...new Uint8Array(await crypto.subtle.digest("SHA-256", bytes))].map((value) => value.toString(16).padStart(2, "0")).join(""), suffix = crypto.randomUUID().replaceAll("-", "");
+          const result = await hiringMutation(`/api/hiring/applications/${encodeURIComponent(currentCandidateId)}/offers`, {schema_version: 1, ...terms, document_artifact_id: `offerartifact_${suffix}`, document_sha256: `sha256:${digest}`, client_request_id: `offer_${suffix}`, expected_application_version: detail.application.version});
+          document.querySelector("#postInterviewStatus").textContent = `Exact offer prepared. Approval ${result.approval_id} is pending.`;
+          await openCandidate(currentCandidateId);
+        } catch (e) { if (e.errorCode === "step_up_required") beginHiringStepUp(); else document.querySelector("#postInterviewStatus").textContent = e.message; }
       }
       async function loadHiringCoordination(id) {
         const host = document.querySelector("#hiringCoordination");

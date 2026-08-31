@@ -1296,11 +1296,27 @@ class HiringService:
                         list(decision.get("evidence_ids_reviewed") or [])),
                     "actor_label": "Founder",
                 }
+        post_filters = {"workspace_id": principal.workspace_id,
+                        "candidate_application_id": application_id}
+        interviews = await self.store.list(
+            "hiring_interviews", filters=post_filters, limit=50)
+        reference_checks = await self.store.list(
+            "reference_checks", filters=post_filters, limit=50)
+        offers = await self.store.list(
+            "offers", filters=post_filters, limit=50)
+        onboarding_runs = await self.store.list(
+            "onboarding_runs", filters=post_filters, limit=10)
         return {"status": "success", "application": application,
                 "assessment": assessment, "timeline": events,
                 "evidence_status": evidence_status,
                 "evidence_coverage": evidence_coverage,
                 "current_decision": current_decision,
+                "post_interview": {
+                    "interviews": interviews,
+                    "reference_checks": reference_checks,
+                    "offers": offers,
+                    "onboarding_runs": onboarding_runs,
+                },
                 "artifacts": [{key: item.get(key) for key in (
                     "artifact_id", "scope", "sensitivity", "content_type",
                     "source_kind", "created_at", "intake_mode")}

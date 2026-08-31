@@ -249,7 +249,9 @@ class HiringDataRightsService:
         for collection in (
                 "hiring_candidate_artifacts", "candidate_evidence",
                 "candidate_assessments", "hiring_decisions",
-                "hiring_candidate_requests", "founder_inbox", "external_events"):
+                "hiring_candidate_requests", "hiring_interviews",
+                "reference_checks", "offers", "onboarding_runs",
+                "onboarding_items", "founder_inbox", "external_events"):
             for row in await self.store.list(
                     collection, filters={"workspace_id": workspace_id,
                                          "candidate_application_id": application_id},

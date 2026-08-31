@@ -42,6 +42,19 @@ def founder_application_provenance() -> dict[str, str]:
     }
 
 
+def founder_onboarding_provenance() -> dict[str, str]:
+    """Production provenance for an accepted-offer onboarding child.
+
+    The child may prepare checklists, meetings and access requests.  It does
+    not inherit candidate-evidence access or authority to provision anything.
+    """
+    return {
+        "provenance_class": "FOUNDER_ONBOARDING",
+        "processing_mode": "HUMAN_OWNED_CHECKLIST_ONLY",
+        "policy_version": "founder-onboarding-v1",
+    }
+
+
 class HiringWorkflowAdapter:
     """Admit synthetic runs plus the exact non-executable Founder role draft."""
 
@@ -57,6 +70,9 @@ class HiringWorkflowAdapter:
             return {"status": "success"}
         if (definition.workflow_kind == "hiring_candidate:v1"
                 and provenance == founder_application_provenance()):
+            return {"status": "success"}
+        if (definition.workflow_kind == "hiring_onboarding:v1"
+                and provenance == founder_onboarding_provenance()):
             return {"status": "success"}
         return hiring_activation.require_synthetic({
             "synthetic": provenance.get("provenance_class") == "SYNTHETIC",

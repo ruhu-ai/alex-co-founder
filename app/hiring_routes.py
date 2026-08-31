@@ -1,4 +1,4 @@
-"""Founder and workload HTTP surfaces for Hiring H0–H4.
+"""Founder and workload HTTP surfaces for Hiring H0–H7.
 
 H4 live provider actions remain server-bound to a real advanced application and
 one fresh, bounded Founder coordination consent. Every later provider effect is
@@ -29,6 +29,15 @@ from services.durable_store import production_store
 from services.hiring_approval_service import request_approval, resolve_approval
 from services.hiring_contracts import (
     HumanDecisionInput,
+    InterviewEvidenceInput,
+    OfferApprovalInput,
+    OfferDraftInput,
+    OfferSignatureEventInput,
+    OnboardingItemResolutionInput,
+    OnboardingPlanInput,
+    PostInterviewDecisionInput,
+    ReferenceEvidenceInput,
+    ReferencePermissionInput,
     RoleContract,
     SyntheticFixtureMessage,
     stable_id,
@@ -41,6 +50,10 @@ from services.hiring_h4s_google import H4SGoogleEffectAdapter
 from services.hiring_h4s_reply import H4SReplyService
 from services.hiring_identity_vault import CandidateIdentityVault, fixture_key_wrapper
 from services.hiring_mailbox import HiringMailboxService
+from services.hiring_post_interview import (
+    HiringPostInterviewService,
+    verify_signature_webhook,
+)
 from services.hiring_public_intake import (
     MAX_RESUME_BYTES,
     HiringPublicIntakeService,
@@ -222,6 +235,11 @@ class HiringInterviewRequest(ClosedRequest):
 class HiringEffectExecutionRequest(ClosedRequest):
     coordination_id: str = Field(min_length=3, max_length=128)
     approval_id: str = Field(default="", max_length=128)
+
+
+class OnboardingApprovalRequest(ClosedRequest):
+    onboarding_run_id: str = Field(min_length=3, max_length=128)
+    approval_id: str = Field(min_length=3, max_length=128)
 
 
 class H4SConversationStartRequest(ClosedRequest):
@@ -525,6 +543,64 @@ def register(app: FastAPI) -> None:
                 "PREPARING" if dispatch.get("status") == "success"
                 else "DELAYED")
         return result
+
+    @app.post("/api/public/hiring/references/{reference_check_id}/evidence")
+    async def submit_reference_evidence(
+            request: Request, reference_check_id: str,
+            payload: ReferenceEvidenceInput):
+        """Token-bound reference response; no Founder session is accepted as authority."""
+        try:
+            content_length = int(request.headers.get("content-length", "0") or 0)
+        except ValueError:
+            content_length = -1
+        if content_length < 0 or content_length > 1_048_576:
+            return JSONResponse({
+                "status": "error", "error": True,
+                "error_code": "request_too_large",
+                "message": "Reference response exceeds the 1 MB limit."
+            }, status_code=413)
+        if payload.reference_check_id != reference_check_id:
+            return JSONResponse({
+                "status": "error", "error": True,
+                "error_code": "reference_check_mismatch",
+                "message": "Reference response does not match this request."
+            }, status_code=400)
+        check = await production_store().get("reference_checks", reference_check_id)
+        application_id = str((check or {}).get("candidate_application_id") or "")
+        if not application_id:
+            return JSONResponse({
+                "status": "error", "error": True,
+                "error_code": "reference_check_not_found",
+                "message": "Reference request does not exist."
+            }, status_code=404)
+        return _response(await HiringPostInterviewService(
+            production_store()).record_reference_evidence(
+                principal=None, application_id=application_id, payload=payload))
+
+    @app.post("/api/public/hiring/offers/{offer_id}/signature-events")
+    async def submit_offer_signature_event(
+            request: Request, offer_id: str,
+            payload: OfferSignatureEventInput):
+        """HMAC-authenticated signature-adapter terminal event."""
+        if payload.offer_id != offer_id:
+            return JSONResponse({
+                "status": "error", "error": True,
+                "error_code": "offer_event_mismatch",
+                "message": "Signature event does not match this offer."
+            }, status_code=400)
+        offer = await production_store().get("offers", offer_id)
+        application_id = str((offer or {}).get("candidate_application_id") or "")
+        if not application_id:
+            return JSONResponse({
+                "status": "error", "error": True,
+                "error_code": "offer_not_found", "message": "Offer does not exist."
+            }, status_code=404)
+        signature = request.headers.get("X-Hiring-Signature", "")
+        raw = payload.model_dump_json().encode()
+        return _response(await HiringPostInterviewService(
+            production_store()).record_signature_event(
+                principal=None, application_id=application_id, payload=payload,
+                adapter_verified=verify_signature_webhook(raw, signature)))
 
     @app.get("/api/hiring/csrf")
     async def hiring_csrf(request: Request):
@@ -1571,6 +1647,181 @@ def register(app: FastAPI) -> None:
             production_store()).reconcile(
                 principal=principal, application_id=application_id,
                 action_id=action_id))
+
+    @app.get("/api/hiring/applications/{application_id}/post-interview")
+    async def post_interview_projection(request: Request, application_id: str):
+        """Return H5-H6 interview, reference, offer and onboarding truth."""
+        principal = await _actor(request)
+        if isinstance(principal, dict):
+            return _response(principal)
+        return _response(await HiringPostInterviewService(
+            production_store()).projection(
+                principal=principal, application_id=application_id))
+
+    @app.get("/api/hiring/release/h5-h7")
+    async def hiring_h5_h7_release(request: Request):
+        """Expose the content-free H7 release posture to the Founder."""
+        principal = await _actor(request)
+        if isinstance(principal, dict):
+            return _response(principal)
+        gate = authorize(principal, "read_role")
+        if gate.get("error"):
+            return _response(gate)
+        return _response(HiringPostInterviewService(
+            production_store()).release_projection())
+
+    @app.post("/api/hiring/applications/{application_id}/interview-evidence")
+    async def record_interview_evidence(request: Request, application_id: str,
+                                        payload: InterviewEvidenceInput):
+        """Commit criterion-bound interview evidence; never score or rank."""
+        denied = _mutation_allowed(request)
+        if denied.get("error"):
+            return _response(denied)
+        principal = await _actor(request)
+        if isinstance(principal, dict):
+            return _response(principal)
+        return _response(await HiringPostInterviewService(
+            production_store()).record_interview_evidence(
+                principal=principal, application_id=application_id,
+                payload=payload))
+
+    @app.post("/api/hiring/applications/{application_id}/post-interview-decisions")
+    async def record_post_interview_decision(
+            request: Request, application_id: str,
+            payload: PostInterviewDecisionInput):
+        """Append one explicit Founder post-interview decision."""
+        denied = _mutation_allowed(request)
+        if denied.get("error"):
+            return _response(denied)
+        principal = await _actor(request)
+        if isinstance(principal, dict):
+            return _response(principal)
+        return _response(await HiringPostInterviewService(
+            production_store()).record_post_interview_decision(
+                principal=principal, application_id=application_id,
+                payload=payload))
+
+    @app.post("/api/hiring/applications/{application_id}/reference-permission")
+    async def record_reference_permission(
+            request: Request, application_id: str,
+            payload: ReferencePermissionInput):
+        """Record candidate permission and exact approved reference questions."""
+        denied = _mutation_allowed(request)
+        if denied.get("error"):
+            return _response(denied)
+        principal = await _actor(request)
+        if isinstance(principal, dict):
+            return _response(principal)
+        return _response(await HiringPostInterviewService(
+            production_store()).record_reference_permission(
+                principal=principal, application_id=application_id,
+                payload=payload))
+
+    @app.post("/api/hiring/applications/{application_id}/reference-evidence")
+    async def record_reference_evidence(
+            request: Request, application_id: str,
+            payload: ReferenceEvidenceInput):
+        """Commit one token-bound reference claim and cited report."""
+        denied = _mutation_allowed(request)
+        if denied.get("error"):
+            return _response(denied)
+        principal = await _actor(request)
+        if isinstance(principal, dict):
+            return _response(principal)
+        return _response(await HiringPostInterviewService(
+            production_store()).record_reference_evidence(
+                principal=principal, application_id=application_id,
+                payload=payload))
+
+    @app.post("/api/hiring/applications/{application_id}/offers")
+    async def prepare_offer(request: Request, application_id: str,
+                            payload: OfferDraftInput):
+        """Version and bind an exact offer document for Founder approval."""
+        denied = _mutation_allowed(request)
+        if denied.get("error"):
+            return _response(denied)
+        principal = await _actor(request)
+        if isinstance(principal, dict):
+            return _response(principal)
+        return _response(await HiringPostInterviewService(
+            production_store()).prepare_offer(
+                principal=principal, application_id=application_id,
+                payload=payload))
+
+    @app.post("/api/hiring/applications/{application_id}/offers/approve")
+    async def approve_offer(request: Request, application_id: str,
+                            payload: OfferApprovalInput):
+        """Commit a previously granted exact offer approval."""
+        denied = _mutation_allowed(request)
+        if denied.get("error"):
+            return _response(denied)
+        principal = await _actor(request)
+        if isinstance(principal, dict):
+            return _response(principal)
+        return _response(await HiringPostInterviewService(
+            production_store()).approve_offer(
+                principal=principal, application_id=application_id,
+                payload=payload))
+
+    @app.post("/api/hiring/applications/{application_id}/offers/signature-event")
+    async def record_offer_signature_event(
+            request: Request, application_id: str,
+            payload: OfferSignatureEventInput):
+        """Accept only an HMAC-verified signature-adapter terminal event."""
+        principal = await _actor(request)
+        if isinstance(principal, dict):
+            return _response(principal)
+        signature = request.headers.get("X-Hiring-Signature", "")
+        raw = payload.model_dump_json().encode()
+        return _response(await HiringPostInterviewService(
+            production_store()).record_signature_event(
+                principal=principal, application_id=application_id,
+                payload=payload,
+                adapter_verified=verify_signature_webhook(raw, signature)))
+
+    @app.post("/api/hiring/onboarding/plans")
+    async def prepare_onboarding_plan(request: Request,
+                                      payload: OnboardingPlanInput):
+        """Prepare a separate least-privilege onboarding plan for approval."""
+        denied = _mutation_allowed(request)
+        if denied.get("error"):
+            return _response(denied)
+        principal = await _actor(request)
+        if isinstance(principal, dict):
+            return _response(principal)
+        return _response(await HiringPostInterviewService(
+            production_store()).prepare_onboarding_plan(
+                principal=principal, payload=payload))
+
+    @app.post("/api/hiring/onboarding/plans/approve")
+    async def approve_onboarding_plan(request: Request,
+                                      payload: OnboardingApprovalRequest):
+        """Commit one exact Founder-approved onboarding plan."""
+        denied = _mutation_allowed(request)
+        if denied.get("error"):
+            return _response(denied)
+        principal = await _actor(request)
+        if isinstance(principal, dict):
+            return _response(principal)
+        return _response(await HiringPostInterviewService(
+            production_store()).approve_onboarding_plan(
+                principal=principal,
+                onboarding_run_id=payload.onboarding_run_id,
+                approval_id=payload.approval_id))
+
+    @app.post("/api/hiring/onboarding/items/resolve")
+    async def resolve_onboarding_item(
+            request: Request, payload: OnboardingItemResolutionInput):
+        """Record a human-owner completion or waiver; never provision access."""
+        denied = _mutation_allowed(request)
+        if denied.get("error"):
+            return _response(denied)
+        principal = await _actor(request)
+        if isinstance(principal, dict):
+            return _response(principal)
+        return _response(await HiringPostInterviewService(
+            production_store()).resolve_onboarding_item(
+                principal=principal, payload=payload))
 
     @app.post("/api/hiring/applications/{application_id}/conversations")
     async def start_candidate_conversation(request: Request, application_id: str,

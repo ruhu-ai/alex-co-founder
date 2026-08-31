@@ -155,6 +155,11 @@ TOP_LEVEL_COLLECTIONS: frozenset[str] = frozenset({
     "hiring_reply_correlations",
     "hiring_coordination_items",
     "hiring_coordination_mandates",
+    "hiring_interviews",
+    "reference_checks",
+    "offers",
+    "onboarding_runs",
+    "onboarding_items",
     # Internal controlled-demo records are durable workspace data too. They
     # must participate in export/deletion coverage even though they use the
     # generic DurableStore adapter rather than accessors in this module.

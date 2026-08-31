@@ -63,7 +63,9 @@ PUBLIC_PATHS = frozenset({
 # founder credential.
 EXEMPT_PREFIXES = ("/health", "/webhooks/", "/tasks/",  # "/health" covers /healthz
                    "/auth/", "/login.html", "/hiring-notice.html",
-                   "/api/public/hiring/roles/")
+                   "/api/public/hiring/roles/",
+                   "/api/public/hiring/references/",
+                   "/api/public/hiring/offers/")
 
 
 def configured_token() -> str:
