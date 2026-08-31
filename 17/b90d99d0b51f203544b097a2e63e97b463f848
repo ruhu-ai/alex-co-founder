@@ -1,0 +1,22 @@
+services/external_event_service.py
+  s_bf598a20bfcdaa::t_6b4bdd49e29cfc 12,175-189,304-323
+  s_bf598a20bfcdaa::t_247e214129f66d 324
+tests/unit/test_external_event_service.py
+  s_bf598a20bfcdaa::t_71f8c149409462 407-434
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "17b90d99d0b51f203544b097a2e63e97b463f848",
+  "prompts": {},
+  "sessions": {
+    "s_bf598a20bfcdaa": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a04860-dde3-79c3-b2bd-2987b04adc68",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Ijidai Lassa <ijidai@cued.app>"
+    }
+  }
+}
