@@ -1,10 +1,13 @@
 """Least-privilege Secret Manager persistence tests."""
 
+from pathlib import Path
 from types import SimpleNamespace
 
 from google.api_core import exceptions as gexc
 
 from services import secrets
+
+ROOT = Path(__file__).resolve().parents[2]
 
 
 class _SecretManagerClient:
@@ -90,3 +93,14 @@ def test_delete_destroys_enabled_versions_but_preserves_slot(monkeypatch):
         {"name": "projects/example-project/secrets/WORKSPACE_TOKEN_SLOT/versions/2"},
     ]
     assert "WORKSPACE_TOKEN_SLOT" not in secrets._cache
+
+
+def test_deploy_preprovisions_exact_connector_secret_slots():
+    deploy = (ROOT / "scripts" / "deploy.sh").read_text(encoding="utf-8")
+
+    assert 'workspace_id = "founder"' in deploy
+    assert 'credential_ref("founder", workspace_id, "drive")' in deploy
+    assert 'credential_ref("alex", workspace_id, "alex_mail")' in deploy
+    assert 'credential_ref("alex", workspace_id, "alex_calendar")' in deploy
+    assert 'credential_ref("alex", workspace_id, "alex_drive")' in deploy
+    assert "roles/secretmanager.secretVersionManager" in deploy

@@ -28,6 +28,8 @@ gcloud firestore databases describe --database="(default)" >/dev/null 2>&1 \
 "$PYTHON" scripts/deploy_firestore_ttl.py --project "$GOOGLE_CLOUD_PROJECT"
 "$PYTHON" scripts/migrate_browser_runs.py
 
+COMPUTE_SA="$(gcloud projects describe "$GOOGLE_CLOUD_PROJECT" --format='value(projectNumber)')-compute@developer.gserviceaccount.com"
+
 echo "==> Secrets (idempotent)"
 gcloud secrets describe app-auth-token >/dev/null 2>&1 \
   || gcloud secrets create app-auth-token --replication-policy=automatic
@@ -59,11 +61,34 @@ for KEY in "${SECRET_ENV_KEYS[@]}"; do
   SET_SECRETS="$SET_SECRETS,$KEY=$SNAME:latest"
 done
 # Runtime-managed connector values are fetched by their canonical name and are
-# deliberately not Cloud Run env bindings. They are created only by the in-app
-# Connect flow, so a later deployment cannot resurrect a disconnected token.
+# deliberately not Cloud Run env bindings. Pre-provision the empty containers
+# and grant the runtime version management on those exact secrets only. The
+# Connect flow can then add a version after verified consent without requiring
+# project-wide secret creation authority. A deploy never adds token material,
+# so it cannot resurrect a disconnected connector.
+while IFS= read -r SNAME; do
+  [[ -z "$SNAME" ]] && continue
+  gcloud secrets describe "$SNAME" >/dev/null 2>&1 \
+    || gcloud secrets create "$SNAME" --replication-policy=automatic
+  gcloud secrets add-iam-policy-binding "$SNAME" \
+    --member="serviceAccount:$COMPUTE_SA" \
+    --role='roles/secretmanager.secretVersionManager' \
+    --quiet --format='none' >/dev/null
+done < <("$PYTHON" - <<'PY'
+from services.google_oauth import credential_ref
+
+workspace_id = "founder"
+slots = {
+    credential_ref("founder", workspace_id, "drive"),
+    credential_ref("alex", workspace_id, "alex_mail"),
+    credential_ref("alex", workspace_id, "alex_calendar"),
+    credential_ref("alex", workspace_id, "alex_drive"),
+}
+print("\n".join(sorted(slots)))
+PY
+)
 
 echo "==> Compute SA roles (idempotent — learned the hard way, docs/13 §gotchas)"
-COMPUTE_SA="$(gcloud projects describe "$GOOGLE_CLOUD_PROJECT" --format='value(projectNumber)')-compute@developer.gserviceaccount.com"
 for ROLE in datastore.user secretmanager.secretAccessor aiplatform.user storage.objectAdmin cloudsql.client cloudbuild.builds.builder cloudtasks.enqueuer; do
   gcloud projects add-iam-policy-binding "$GOOGLE_CLOUD_PROJECT" \
     --member="serviceAccount:$COMPUTE_SA" --role="roles/$ROLE" --format="none" >/dev/null
