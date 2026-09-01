@@ -1,0 +1,25 @@
+agents/co_founder/config.py
+  s_bf598a20bfcdaa::t_15e60be1581723 3-6,21-27,29-33
+tests/unit/test_agent_config.py
+  s_bf598a20bfcdaa::t_15e60be1581723 1-21
+scripts/run_spec39_m2_promotion_measurement.py
+  s_bf598a20bfcdaa::t_0ec552ad414104 27-30,192
+services/local_pilot_store.py
+  s_bf598a20bfcdaa::t_0ec552ad414104 15,17
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "fed7f330f5e829757bff2853d5513ed4c88ea316",
+  "prompts": {},
+  "sessions": {
+    "s_bf598a20bfcdaa": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a04860-dde3-79c3-b2bd-2987b04adc68",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Ijidai Lassa <ijidai@cued.app>"
+    }
+  }
+}
