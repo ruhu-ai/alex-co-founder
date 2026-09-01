@@ -1,0 +1,21 @@
+scripts/deploy.sh
+  s_bf598a20bfcdaa::t_31d17d9e3eb486 31-32,64-89
+tests/unit/test_secrets.py
+  s_bf598a20bfcdaa::t_31d17d9e3eb486 3,10-11,96-106
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "09307884edbbef6d78ca5705312b4dbd6e90ef73",
+  "prompts": {},
+  "sessions": {
+    "s_bf598a20bfcdaa": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a04860-dde3-79c3-b2bd-2987b04adc68",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Ijidai Lassa <ijidai@cued.app>"
+    }
+  }
+}
