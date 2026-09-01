@@ -1,7 +1,9 @@
 """Shared model + environment bootstrap (docs/04 §model selection).
 
-Fails loudly at import if Vertex credentials are missing — better a clear
-error now than a mystery 401 during a demo.
+Importing the application is deliberately credential-free.  Test collection,
+static tooling, and local UI-only work must not require Google credentials;
+the provider boundary reports a clear error only when code actually attempts a
+Vertex operation.
 """
 
 import os
@@ -16,15 +18,19 @@ from services.retry_policy import gemini_retry_options
 # load_dotenv never overrides variables already present in the environment.
 load_dotenv()
 
-try:
-    _, _project_id = google.auth.default()
-except Exception as exc:  # noqa: BLE001 — fail loudly with the fix
-    raise RuntimeError(
-        "No Application Default Credentials found. Run: "
-        "`gcloud auth application-default login` (or ./scripts/setup.sh)."
-    ) from exc
+def _discover_default_project_id() -> str:
+    """Return ADC's project when available without making imports depend on it."""
+    try:
+        _, project_id = google.auth.default()
+    except Exception:  # noqa: BLE001 — missing ADC is valid until provider use
+        return ""
+    return str(project_id or "").strip()
 
-os.environ.setdefault("GOOGLE_CLOUD_PROJECT", _project_id or "")
+
+_project_id = (os.environ.get("GOOGLE_CLOUD_PROJECT", "").strip()
+               or _discover_default_project_id())
+if _project_id:
+    os.environ.setdefault("GOOGLE_CLOUD_PROJECT", _project_id)
 os.environ.setdefault("GOOGLE_CLOUD_LOCATION", "global")
 os.environ.setdefault("GOOGLE_GENAI_USE_VERTEXAI", "True")
 # gemini-3.6-flash and gemini-3.1-pro-preview are published on the `global`

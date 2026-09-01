@@ -24,10 +24,10 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from services.actor_identity import ActorPrincipal, WorkspaceRole
-from services.durable_memory import MemoryMode, configured_service
-from services.durable_memory_release import candidate_hash
-from services.workflow_contracts import stable_id
+from services.actor_identity import ActorPrincipal, WorkspaceRole  # noqa: E402
+from services.durable_memory import MemoryMode, configured_service  # noqa: E402
+from services.durable_memory_release import candidate_hash  # noqa: E402
+from services.workflow_contracts import stable_id  # noqa: E402
 
 WORKSPACE_ID = os.environ.get("SPEC39_MEASUREMENT_WORKSPACE_ID", "spec39_m2_synthetic")
 FOUNDER_ID = os.environ.get("SPEC39_MEASUREMENT_FOUNDER_ID", "spec39_synthetic_founder")
@@ -189,7 +189,7 @@ async def main() -> None:
         ),
         "old-recall",
     )
-    new_recall = _ok(
+    _ok(
         await service.recall(
             principal=principal, session_mode=MemoryMode.STANDARD.value, query="umber"
         ),

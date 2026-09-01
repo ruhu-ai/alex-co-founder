@@ -9,16 +9,15 @@ deny ledger in different SQLite files.
 from __future__ import annotations
 
 import asyncio
-from copy import deepcopy
 import json
 import os
-from pathlib import Path
 import sqlite3
+from copy import deepcopy
 from datetime import datetime
+from pathlib import Path
 from typing import Any, Sequence
 
 from services.durable_store import AtomicMutation
-
 
 ROOT = Path(__file__).resolve().parents[1]
 PILOT_ROOT = (ROOT / "tmp" / "spec39-m2-local-pilot").resolve()
