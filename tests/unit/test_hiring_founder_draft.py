@@ -149,6 +149,14 @@ def test_local_public_intake_explicit_off_and_cloud_never_auto_generate(
     assert not (tmp_path / "cofounder").exists()
 
 
+def test_cloud_public_intake_accepts_secret_manager_trailing_newline(monkeypatch):
+    key_hex = "53" * 32
+    monkeypatch.setenv("K_SERVICE", "co-founder")
+    monkeypatch.setenv("HIRING_PUBLIC_INTAKE_ENABLED", "1")
+    monkeypatch.setenv("HIRING_PUBLIC_INTAKE_KEY", key_hex + "\n")
+
+    assert hiring_public_intake._configured_intake_key() == bytes.fromhex(key_hex)
+
 def test_builder_requires_readable_job_description_and_rejects_proxies():
     package = _package()
     assert package["status"] == "success"

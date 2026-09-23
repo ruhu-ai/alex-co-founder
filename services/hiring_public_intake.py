@@ -130,7 +130,10 @@ def _load_or_create_local_intake_key() -> bytes | None:
 def _configured_intake_key() -> bytes | None:
     """Resolve a dedicated key; cloud never falls back to local key material."""
     cloud_enabled = os.environ.get("HIRING_PUBLIC_INTAKE_ENABLED") == "1"
-    cloud_raw = os.environ.get("HIRING_PUBLIC_INTAKE_KEY", "")
+    # Secret Manager CLI/file workflows commonly leave one trailing newline.
+    # Normalize surrounding whitespace before enforcing the exact 64-hex
+    # contract; never relax the length or alphabet check itself.
+    cloud_raw = os.environ.get("HIRING_PUBLIC_INTAKE_KEY", "").strip()
     if os.environ.get("K_SERVICE"):
         if not cloud_enabled or not re.fullmatch(
                 r"[0-9a-fA-F]{64}", cloud_raw):
