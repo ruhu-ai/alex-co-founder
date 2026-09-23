@@ -3,8 +3,9 @@
 
 The installer is dry-run by default. Applying requires both an exact project
 confirmation and at least one existing, enabled notification channel. It owns
-only resources labelled ``managed_by=cofounder_phase7`` and refuses to adopt a
-same-named resource created by another owner.
+label-capable resources marked ``managed_by=cofounder_phase7``. URL uptime
+checks do not persist user labels, so a same-named check is reused only when
+its complete safety-relevant fingerprint matches the desired configuration.
 """
 
 from __future__ import annotations
@@ -278,8 +279,11 @@ def desired_policies(
                             f'resource.label.location="{region}" AND '
                             f'resource.label.project_id="{project}"'
                         ),
-                        comparison="COMPARISON_GE",
-                        threshold=limit,
+                        # Cloud Monitoring threshold policies support only strict
+                        # comparisons. Queue depth is integral, so ``> limit - 1``
+                        # is exactly equivalent to ``>= limit``.
+                        comparison="COMPARISON_GT",
+                        threshold=limit - 1,
                         duration="300s",
                         aligner="ALIGN_MAX",
                     )
@@ -322,6 +326,29 @@ def _uptime_host(app_url: str) -> str:
     if parsed.scheme != "https" or not parsed.hostname or parsed.path not in {"", "/"}:
         raise ConfigurationError("app URL must be an HTTPS origin without a path")
     return parsed.hostname
+
+
+def _matches_url_uptime(value: dict[str, Any], *, project: str, host: str) -> bool:
+    """Return whether an unlabeled URL check is exactly the one we manage."""
+    resource = value.get("monitoredResource") or {}
+    http = value.get("httpCheck") or {}
+    matchers = value.get("contentMatchers") or []
+    statuses = http.get("acceptedResponseStatusCodes") or []
+    return (
+        value.get("displayName") == UPTIME_DISPLAY_NAME
+        and value.get("checkerType") == "STATIC_IP_CHECKERS"
+        and value.get("period") == "60s"
+        and value.get("timeout") == "10s"
+        and resource.get("type") == "uptime_url"
+        and resource.get("labels") == {"host": host, "project_id": project}
+        and http.get("path") == "/health"
+        and http.get("port") == 443
+        and http.get("requestMethod") == "GET"
+        and http.get("useSsl") is True
+        and http.get("validateSsl") is True
+        and statuses == [{"statusValue": 200}]
+        and matchers == [{"content": '"status":"ok"', "matcher": "CONTAINS_STRING"}]
+    )
 
 
 def _log_filter(*, project: str, path: str) -> str:
@@ -454,7 +481,7 @@ def configure(
     created_uptime = False
     if matches:
         uptime = matches[0]
-        if not _managed(uptime):
+        if not _matches_url_uptime(uptime, project=project, host=host):
             raise ConfigurationError("refusing to adopt unmanaged uptime check")
         uptime_id = str(uptime.get("name") or "").rsplit("/", 1)[-1]
         if not uptime_id:
@@ -478,9 +505,8 @@ def configure(
             '--matcher-content="status":"ok"',
             "--matcher-type=contains-string",
             "--period=1",
-            "--timeout=10s",
+            "--timeout=10",
             "--validate-ssl=true",
-            f"--user-labels=managed_by={MANAGED_BY},phase=7",
         )
         uptime_id = str(uptime.get("name") or "").rsplit("/", 1)[-1]
         if not uptime_id:

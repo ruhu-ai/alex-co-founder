@@ -4631,11 +4631,25 @@ async def tasks_hiring_renew_mailbox_watch(request: Request):
     gate = await connection_registry.authorize_connector_operation(
         FOUNDER_ID, "alex_mail")
     if gate.get("error"):
+        if gate.get("error_code") in {"auth_required", "scope_missing"}:
+            return {
+                "status": "success",
+                "watch": "not_renewed",
+                "action_required": "reconnect_alex_mail",
+                "reason": gate.get("error_code"),
+            }
         return JSONResponse(gate, status_code=503)
     result = await alex_mailbox.start_watch(topic, workspace_id=FOUNDER_ID)
     await connection_registry.record_operation_result(
         FOUNDER_ID, "alex_mail", "gmail_watch_renewal", result)
     if result.get("error"):
+        if result.get("error_code") in {"auth_required", "scope_missing"}:
+            return {
+                "status": "success",
+                "watch": "not_renewed",
+                "action_required": "reconnect_alex_mail",
+                "reason": result.get("error_code"),
+            }
         return JSONResponse(result, status_code=503)
     return {"status": "success", "watch": "renewed",
             "expiration": result.get("expiration")}

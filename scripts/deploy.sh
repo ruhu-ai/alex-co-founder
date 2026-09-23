@@ -365,7 +365,7 @@ if gcloud scheduler jobs describe command-outbox-recovery-1m --location="$REGION
   gcloud scheduler jobs update http command-outbox-recovery-1m --location="$REGION" \
     --schedule="*/15 * * * *" --uri="$APP_URL/tasks/dispatch_command_outbox" \
     --http-method=POST --oidc-service-account-email="$TIMERS_SA" \
-    --oidc-token-audience="$APP_URL" --headers="Content-Type=application/json" \
+    --oidc-token-audience="$APP_URL" --update-headers="Content-Type=application/json" \
     --message-body='{}' --attempt-deadline=120s \
     --max-retry-attempts=3 --max-retry-duration=600s \
     --min-backoff=30s --max-backoff=120s --max-doublings=2
@@ -383,7 +383,7 @@ if gcloud scheduler jobs describe alex-mail-watch-renew-daily --location="$REGIO
   gcloud scheduler jobs update http alex-mail-watch-renew-daily --location="$REGION" \
     --schedule="17 3 * * *" --uri="$APP_URL/tasks/hiring/renew_mailbox_watch" \
     --http-method=POST --oidc-service-account-email="$TIMERS_SA" \
-    --oidc-token-audience="$APP_URL" --headers="Content-Type=application/json" \
+    --oidc-token-audience="$APP_URL" --update-headers="Content-Type=application/json" \
     --message-body='{}' --attempt-deadline=120s \
     --max-retry-attempts=3 --max-retry-duration=900s \
     --min-backoff=30s --max-backoff=180s --max-doublings=2

@@ -1244,6 +1244,92 @@ class TestFounderInboxApi:
         assert seen[1][:3] == (
             appmod.FOUNDER_ID, "alex_mail", "gmail_watch_renewal")
 
+    @pytest.mark.parametrize("blocked_at_gate", [True, False])
+    def test_alex_mail_watch_renewal_acknowledges_reconnect_state(
+            self, appmod, client, monkeypatch, blocked_at_gate):
+        from services import alex_mailbox, connection_registry
+
+        async def _allow(_request):
+            return True
+
+        async def _gate(_workspace_id, _connector_id):
+            return ({
+                "status": "error",
+                "error": True,
+                "error_code": "auth_required",
+                "message": "reconnect",
+            } if blocked_at_gate else {"status": "success"})
+
+        calls = []
+
+        async def _watch(*_args, **_kwargs):
+            calls.append("watch")
+            return {
+                "status": "error",
+                "error": True,
+                "error_code": "auth_required",
+                "message": "reconnect",
+            }
+
+        async def _record(*_args):
+            calls.append("record")
+            return {"status": "success"}
+
+        monkeypatch.setenv(
+            "ALEX_MAIL_PUBSUB_TOPIC",
+            "projects/project-1/topics/alex-mail-events")
+        monkeypatch.setattr(appmod, "_verify_task_caller", _allow)
+        monkeypatch.setattr(connection_registry,
+                            "authorize_connector_operation", _gate)
+        monkeypatch.setattr(alex_mailbox, "start_watch", _watch)
+        monkeypatch.setattr(connection_registry, "record_operation_result", _record)
+
+        response = client.post("/tasks/hiring/renew_mailbox_watch")
+
+        assert response.status_code == 200
+        assert response.json() == {
+            "status": "success",
+            "watch": "not_renewed",
+            "action_required": "reconnect_alex_mail",
+            "reason": "auth_required",
+        }
+        assert calls == ([] if blocked_at_gate else ["watch", "record"])
+
+    def test_alex_mail_watch_renewal_keeps_transient_failures_retryable(
+            self, appmod, client, monkeypatch):
+        from services import alex_mailbox, connection_registry
+
+        async def _allow(_request):
+            return True
+
+        async def _gate(_workspace_id, _connector_id):
+            return {"status": "success"}
+
+        async def _watch(*_args, **_kwargs):
+            return {
+                "status": "error",
+                "error": True,
+                "error_code": "provider_unavailable",
+                "message": "retry later",
+            }
+
+        async def _record(*_args):
+            return {"status": "success"}
+
+        monkeypatch.setenv(
+            "ALEX_MAIL_PUBSUB_TOPIC",
+            "projects/project-1/topics/alex-mail-events")
+        monkeypatch.setattr(appmod, "_verify_task_caller", _allow)
+        monkeypatch.setattr(connection_registry,
+                            "authorize_connector_operation", _gate)
+        monkeypatch.setattr(alex_mailbox, "start_watch", _watch)
+        monkeypatch.setattr(connection_registry, "record_operation_result", _record)
+
+        response = client.post("/tasks/hiring/renew_mailbox_watch")
+
+        assert response.status_code == 503
+        assert response.json()["error_code"] == "provider_unavailable"
+
 
 class TestDiscoverCommandAdapter:
     @pytest.mark.asyncio

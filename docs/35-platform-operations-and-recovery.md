@@ -102,9 +102,18 @@ Cloud Tasks queue depth. A single 5xx is retained in logs and does not page;
 the generic policy requires at least three 5xx responses in five minutes and
 the workload policies require at least two in fifteen minutes. The installer
 creates content-free route log metrics, safely disables the obsolete single-5xx
-Gate-E/Phase-7 policies, is dry-run by default,
-owns only resources labelled `managed_by=cofounder_phase7`, and refuses to
-create an alert without an existing enabled, verified notification channel:
+Gate-E/Phase-7 policies, and is dry-run by default. Label-capable resources
+are owned with `managed_by=cofounder_phase7`. Because URL uptime checks do not
+persist user labels, the installer reuses a same-named URL check only when its
+complete safety-relevant fingerprint matches. It refuses to create an alert
+without an existing enabled, verified notification channel.
+
+Mailbox renewal treats durable `auth_required` and `scope_missing` connector
+states as acknowledged founder-action conditions, so Scheduler does not retry
+or page them as infrastructure failures. Transient provider failures remain
+5xx responses and are retried and alerted by the workload-specific policy.
+
+Use the installer as follows:
 
 ```bash
 .venv/bin/python scripts/configure_phase7_monitoring.py \

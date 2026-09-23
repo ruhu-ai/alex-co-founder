@@ -208,6 +208,8 @@ def test_alex_mail_push_and_watch_renewal_are_deployment_managed():
             "gcloud pubsub subscriptions describe deadline-tick-push", 1)[0]
     assert scheduler_section.count("--max-retry-attempts=3") == 4
     assert scheduler_section.count("--attempt-deadline=120s") == 4
+    assert scheduler_section.count("--update-headers=") == 2
+    assert scheduler_section.count("--headers=") == 2
     assert '"/webhooks/alex_mail": "TASKS_PROVIDER_EVENTS_SA"' in main
     watch = mailbox.split("async def start_watch", 1)[1].split(
         "async def search_messages", 1)[0]

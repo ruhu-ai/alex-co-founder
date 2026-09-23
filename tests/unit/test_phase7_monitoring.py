@@ -97,6 +97,8 @@ def test_apply_creates_uptime_and_every_policy_with_notification_channel():
     )
     assert "--period=1" in uptime_command
     assert "--period=60s" not in uptime_command
+    assert "--timeout=10" in uptime_command
+    assert "--timeout=10s" not in uptime_command
     policy_commands = [
         command for command in runner.commands if "monitoring policies create" in " ".join(command)
     ]
@@ -175,6 +177,49 @@ def test_existing_unmanaged_name_is_never_adopted():
         )
 
 
+def test_existing_exact_url_uptime_check_is_reused_without_labels():
+    runner = FakeRunner(
+        uptime=[
+            {
+                "name": "projects/project-a/uptimeCheckConfigs/check-1",
+                "displayName": monitoring.UPTIME_DISPLAY_NAME,
+                "checkerType": "STATIC_IP_CHECKERS",
+                "period": "60s",
+                "timeout": "10s",
+                "monitoredResource": {
+                    "type": "uptime_url",
+                    "labels": {"host": "app.example.com", "project_id": "project-a"},
+                },
+                "httpCheck": {
+                    "path": "/health",
+                    "port": 443,
+                    "requestMethod": "GET",
+                    "useSsl": True,
+                    "validateSsl": True,
+                    "acceptedResponseStatusCodes": [{"statusValue": 200}],
+                },
+                "contentMatchers": [
+                    {"content": '"status":"ok"', "matcher": "CONTAINS_STRING"}
+                ],
+            }
+        ]
+    )
+    result = monitoring.configure(
+        project="project-a",
+        region="us-central1",
+        app_url="https://app.example.com",
+        requested_channels=["channel-1"],
+        apply=False,
+        confirmed_project="",
+        runner=runner,
+    )
+
+    assert result["uptime_check_id"] == "check-1"
+    assert result["uptime_check_created"] is False
+    assert not any("monitoring uptime create" in " ".join(command)
+                   for command in runner.commands)
+
+
 def test_policy_filters_are_closed_to_project_region_service_and_queue():
     policies = monitoring.desired_policies(
         project="project-a",
@@ -188,6 +233,16 @@ def test_policy_filters_are_closed_to_project_region_service_and_queue():
     assert "us-central1" in serialized
     assert all(name in serialized for name in monitoring.QUEUE_DEPTH_LIMITS)
     assert all(policy["notificationChannels"] for policy in policies)
+    queue_policies = [
+        policy for policy in policies
+        if policy["displayName"].startswith("Co-Founder queue backlog:")
+    ]
+    assert len(queue_policies) == len(monitoring.QUEUE_DEPTH_LIMITS)
+    for policy in queue_policies:
+        queue_name = policy["displayName"].removeprefix("Co-Founder queue backlog: ")
+        threshold = policy["conditions"][0]["conditionThreshold"]
+        assert threshold["comparison"] == "COMPARISON_GT"
+        assert threshold["thresholdValue"] == monitoring.QUEUE_DEPTH_LIMITS[queue_name] - 1
     assert "Co-Founder service errors" not in {
         policy["displayName"] for policy in policies}
     route_policies = [
