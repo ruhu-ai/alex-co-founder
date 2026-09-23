@@ -137,7 +137,7 @@ not alter any other collection. Bootstrap the one-role workspace after reset.
 | GCS bucket | `gs://<project>-artifacts` | artifact service URI |
 | Secret Manager | application, connector and optional real-provider webhook secrets | no demo-provider credential |
 | Pub/Sub topics | `deadline-tick`, `alex-mail-events` | Gmail publishes content-free history notifications to `alex-mail-events`. Authenticated Cloud Run push and the dedicated local streaming-pull subscription consume the same idempotent event stream. Discovery is founder-invoked through Cloud Tasks; **no discovery or distill topic**. |
-| Scheduler jobs | `deadline-scan-6h` (`0 */6 * * *`), legacy-named `command-outbox-recovery-1m` (`*/15 * * * *`), `alex-mail-watch-renew-daily` (`17 3 * * *`) | The first publishes the deadline tick. The second is a low-frequency crash-window safety net for the primary event-driven dispatch. The third renews the expiring unfiltered Gmail watch through the timers workload identity; it does not poll mail or run a model. Discovery is never scheduled. |
+| Scheduler jobs | `deadline-scan-6h` (`0 */6 * * *`), legacy-named `command-outbox-recovery-1m` (`*/15 * * * *`), `alex-mail-watch-renew-daily` (`17 3 * * *`) | The first publishes the deadline tick. The second is a low-frequency crash-window safety net for the primary event-driven dispatch. The HTTP jobs use a 120-second attempt deadline and three bounded exponential-backoff retries; their handlers are idempotent. The third renews the expiring unfiltered Gmail watch through the timers workload identity; it does not poll mail or run a model. Discovery is never scheduled. |
 | Cloud Tasks queue | `co-founder-events` | Durable HTTP dispatch for portal-event/agent wakes; OIDC-authenticated as `scheduler-invoker@`, max concurrency 1, max attempts 5. Browser expiry does not share this queue. |
 | Cloud Tasks queue | `co-founder-browser-expiry` | Generation-safe `/tasks/browser_expire` dispatch only (22); OIDC-authenticated, max concurrency 4, max attempts 3. Separating it prevents an agent wake or retry from delaying resource release. |
 | Cloud Tasks queue | `co-founder-timers` | Generation-fenced workflow timer checkpoints only; max concurrency 8, max attempts 5. Long waits roll through bounded 28-day checkpoints and the durable wait remains authority. |
@@ -147,7 +147,7 @@ not alter any other collection. Bootstrap the one-role workspace after reset.
 | Cloud Tasks queue | `co-founder-interactive` | Bounded founder-triggered reasoning/distillation; route-scoped `interactive-worker@` identity, max concurrency 4, max attempts 3. |
 | Cloud Tasks queue | `co-founder-background-pilot` | Default-off founder artifact-analysis pilot only; route-scoped `background-pilot-worker@` identity, max concurrency 1, max attempts 3, zero provider/model/effect authority. |
 | Cloud Tasks queue | `co-founder-background-skill-live-v1` | Default-off Founder grounded-artifact pilot only; route-scoped `background-skill-worker@` identity, max concurrency 1, max attempts 3, one bounded model call and no external/effect authority. |
-| Cloud Run ×2 | `co-founder`, `co-founder-browser-worker` | `co-founder` scales independently (`0..10`) and reaches browser work only through the typed OIDC gateway. `co-founder-browser-worker` is private, `0..1`, concurrency 1, owns every Playwright object, and accepts only the API service identity. |
+| Cloud Run ×2 | `co-founder`, `co-founder-browser-worker` | `co-founder` keeps one warm instance and scales to 10 while cold-start hardening is active; it reaches browser work only through the typed OIDC gateway. `co-founder-browser-worker` remains private, `0..1`, concurrency 1, owns every Playwright object, and accepts only the API service identity. |
 
 Reference commands (`scripts/deploy.sh` implements them idempotently):
 
@@ -172,7 +172,7 @@ gcloud run deploy co-founder-browser-worker --source . --region=$REGION \
   --timeout=3600s --memory=2Gi
 
 gcloud run deploy co-founder --source . --region=$REGION \
-  --allow-unauthenticated --min-instances 0 --max-instances 10 --timeout=3600s --memory 2Gi \
+  --allow-unauthenticated --min-instances 1 --max-instances 10 --timeout=3600s --memory 2Gi \
   --add-cloudsql-instances <proj>:<region>:co-founder-sessions \
   --set-env-vars-from-file .env.prod
 # .env.prod must NOT set BROWSE_OPEN_WEB (or must set it false) — production
@@ -207,8 +207,9 @@ gcloud scheduler jobs create pubsub deadline-scan-6h --schedule="0 */6 * * *" \
 # founder-invoked discovery -> Cloud Tasks -> /tasks/discover
 ```
 
-Dockerfile notes: Playwright needs system Chromium — use
-`mcr.microsoft.com/playwright/python:v1.47.0-jammy` (or run
+Dockerfile notes: Playwright needs system Chromium — use the version-matched,
+Python 3.11+ Noble image
+`mcr.microsoft.com/playwright/python:v1.62.0-noble` (or run
 `playwright install --with-deps chromium` in the build). The image also
 installs `libreoffice-writer/-calc/-impress` (pinned apt — document previews
 and PDF output, docs/15 §LibreOffice) and runs as the non-root `pwuser`.
@@ -264,11 +265,11 @@ does not perform rollback deletion.
 
 ## Cost guardrails (must stay near $0 after demo)
 
-- All services `--min-instances 0`; agent sleeps between events by design.
-  **Exception:** bump the agent service to `--min-instances 1` on recording days
-  and through the judging window — cold-start + Chromium launch mid-video reads
-  as "broken" (demo-day failure mode #1). Pre-warm with a `/healthz` call before
-  rolling; still ~$0 at idle traffic.
+- The public agent service temporarily keeps `--min-instances 1` because measured
+  production cold starts caused Scheduler 5xx responses. The private browser
+  worker remains `--min-instances 0`. Revert the public service to zero only
+  after cold-start probes prove scheduled and interactive requests stay within
+  their deadlines. Minimum instances incur idle cost; keep the budget alert active.
 - Cloud SQL `db-f1-micro` is the only always-on cost (~$9/mo — fits in credits);
   alternative if needed: stop the instance between demo days, sessions persist.
 - Playwright runs are seconds-long; the deadline Scheduler fires 4 times/day.

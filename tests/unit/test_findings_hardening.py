@@ -158,7 +158,7 @@ def test_cloud_build_and_explicit_eval_gate_are_reproducible():
     requirements = (ROOT / "requirements.txt").read_text()
     ci = (ROOT / ".github/workflows/ci.yml").read_text()
     deploy = (ROOT / "scripts/deploy.sh").read_text()
-    assert "v1.62.0-jammy" in docker
+    assert "v1.62.0-noble" in docker
     assert "playwright install chromium" not in docker
     assert "pytest==" not in requirements and "ruff==" not in requirements
     assert "run_model_evals" in ci
@@ -168,7 +168,7 @@ def test_cloud_build_and_explicit_eval_gate_are_reproducible():
     assert "co-founder-browser-worker" in deploy
     assert "--no-allow-unauthenticated --min-instances 0 --max-instances 1" in deploy
     assert "--concurrency=1" in deploy
-    assert "--allow-unauthenticated --min-instances 0 --max-instances 10" in deploy
+    assert "--allow-unauthenticated --min-instances 1 --max-instances 10" in deploy
     assert "BROWSER_WORKER_URL" in deploy
     assert "--cpu-throttling" in deploy
     assert "--no-cpu-throttling" not in deploy
@@ -203,6 +203,11 @@ def test_alex_mail_push_and_watch_renewal_are_deployment_managed():
     assert "alex-mail-local-dev" in deploy
     assert "alex-mail-watch-renew-daily" in deploy
     assert "/tasks/hiring/renew_mailbox_watch" in deploy
+    scheduler_section = deploy.split(
+        'echo "==> Command outbox recovery scheduler', 1)[1].split(
+            "gcloud pubsub subscriptions describe deadline-tick-push", 1)[0]
+    assert scheduler_section.count("--max-retry-attempts=3") == 4
+    assert scheduler_section.count("--attempt-deadline=120s") == 4
     assert '"/webhooks/alex_mail": "TASKS_PROVIDER_EVENTS_SA"' in main
     watch = mailbox.split("async def start_watch", 1)[1].split(
         "async def search_messages", 1)[0]

@@ -18,15 +18,22 @@ SPEC.loader.exec_module(monitoring)
 
 
 class FakeRunner:
-    def __init__(self, *, uptime: list[dict] | None = None, policies: list[dict] | None = None):
+    def __init__(self, *, uptime: list[dict] | None = None,
+                 policies: list[dict] | None = None,
+                 log_metrics: list[dict] | None = None):
         self.commands: list[tuple[str, ...]] = []
         self.uptime = list(uptime or [])
         self.policies = list(policies or [])
+        self.log_metrics = list(log_metrics or [])
 
     def __call__(self, command: tuple[str, ...]):
         self.commands.append(command)
         text = " ".join(command)
-        if "monitoring channels list" in text:
+        if "logging metrics list" in text:
+            value = self.log_metrics
+        elif "logging metrics create" in text or "logging metrics update" in text:
+            value = {}
+        elif "monitoring channels list" in text:
             value = [
                 {
                     "name": "projects/project-a/notificationChannels/channel-1",
@@ -63,9 +70,10 @@ def test_dry_run_requires_a_real_verified_channel_and_mutates_nothing():
     )
 
     assert result["mode"] == "dry-run"
-    assert result["policy_count"] == 11
+    assert result["policy_count"] == 13
     assert result["uptime_check_id"] == "DRY_RUN_UPTIME_CHECK_ID"
-    assert len(result["policies_created"]) == 11
+    assert len(result["policies_created"]) == 13
+    assert len(result["log_metrics_created"]) == 2
     assert not any(" create " in f" {' '.join(command)} " for command in runner.commands)
 
 
@@ -86,7 +94,7 @@ def test_apply_creates_uptime_and_every_policy_with_notification_channel():
     policy_commands = [
         command for command in runner.commands if "monitoring policies create" in " ".join(command)
     ]
-    assert len(policy_commands) == 11
+    assert len(policy_commands) == 13
     for command in policy_commands:
         argument = next(item for item in command if item.startswith("--policy="))
         policy = json.loads(argument.removeprefix("--policy="))
@@ -174,3 +182,63 @@ def test_policy_filters_are_closed_to_project_region_service_and_queue():
     assert "us-central1" in serialized
     assert all(name in serialized for name in monitoring.QUEUE_DEPTH_LIMITS)
     assert all(policy["notificationChannels"] for policy in policies)
+    assert "Co-Founder service errors" not in {
+        policy["displayName"] for policy in policies}
+    route_policies = [
+        policy for policy in policies
+        if policy["displayName"].endswith("failures")]
+    assert len(route_policies) == 2
+    assert all(
+        policy["conditions"][0]["conditionThreshold"]["thresholdValue"] == 1
+        for policy in route_policies)
+
+
+def test_owned_single_error_policies_are_disabled_not_deleted():
+    policies = [
+        {
+            "name": "projects/project-a/alertPolicies/old-gate-e",
+            "displayName": "Spec 40 Gate E service 5xx",
+            "enabled": True,
+            "documentation": {"content": "stale", "mimeType": "text/markdown"},
+            "userLabels": {"managed_by": "cofounder_spec40_gate_e"},
+            "conditions": [], "combiner": "OR", "notificationChannels": [],
+        },
+        {
+            "name": "projects/project-a/alertPolicies/old-phase7",
+            "displayName": "Co-Founder service errors",
+            "enabled": True,
+            "documentation": {"content": "stale", "mimeType": "text/markdown"},
+            "userLabels": {"managed_by": monitoring.MANAGED_BY},
+            "conditions": [], "combiner": "OR", "notificationChannels": [],
+        },
+    ]
+    runner = FakeRunner(policies=policies)
+    result = monitoring.configure(
+        project="project-a", region="us-central1",
+        app_url="https://app.example.com", requested_channels=["channel-1"],
+        apply=True, confirmed_project="project-a", runner=runner)
+    assert result["policies_retired"] == [
+        "Spec 40 Gate E service 5xx", "Co-Founder service errors"]
+    updates = [
+        command for command in runner.commands
+        if "monitoring policies update" in " ".join(command)]
+    retired = []
+    for command in updates:
+        payload = json.loads(next(
+            item.removeprefix("--policy=") for item in command
+            if item.startswith("--policy=")))
+        if payload["displayName"] in monitoring.RETIRED_POLICIES:
+            retired.append(payload)
+    assert len(retired) == 2
+    assert all(policy["enabled"] is False for policy in retired)
+
+
+def test_unmanaged_log_metric_is_never_adopted():
+    runner = FakeRunner(log_metrics=[{
+        "name": "cofounder_command_outbox_5xx",
+        "description": "created elsewhere", "filter": "anything"}])
+    with pytest.raises(monitoring.ConfigurationError, match="unmanaged log metric"):
+        monitoring.configure(
+            project="project-a", region="us-central1",
+            app_url="https://app.example.com", requested_channels=["channel-1"],
+            apply=False, confirmed_project="", runner=runner)

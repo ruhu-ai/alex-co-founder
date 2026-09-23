@@ -96,8 +96,13 @@ delete. It does not claim that restoration works.
 ## Monitoring and paging
 
 Cloud Monitoring covers infrastructure-visible symptoms: public health-check
-failure or missing data, Cloud Run 5xx responses from the API/browser worker,
-and each closed Cloud Tasks queue depth. The installer is dry-run by default,
+failure or missing data, repeated Cloud Run 5xx responses from the API/browser
+worker, separate command-dispatch and mailbox-renewal failures, and each closed
+Cloud Tasks queue depth. A single 5xx is retained in logs and does not page;
+the generic policy requires at least three 5xx responses in five minutes and
+the workload policies require at least two in fifteen minutes. The installer
+creates content-free route log metrics, safely disables the obsolete single-5xx
+Gate-E/Phase-7 policies, is dry-run by default,
 owns only resources labelled `managed_by=cofounder_phase7`, and refuses to
 create an alert without an existing enabled, verified notification channel:
 

@@ -20,6 +20,22 @@ MANAGED_BY = "cofounder_phase7"
 UPTIME_DISPLAY_NAME = "Co-Founder API health"
 POLICY_PREFIX = "Co-Founder"
 
+LOG_METRICS = {
+    "cofounder_command_outbox_5xx": {
+        "description": "managed_by=cofounder_phase7; content-free command outbox 5xx count",
+        "path": "/tasks/dispatch_command_outbox",
+    },
+    "cofounder_mailbox_watch_5xx": {
+        "description": "managed_by=cofounder_phase7; content-free mailbox watch renewal 5xx count",
+        "path": "/tasks/hiring/renew_mailbox_watch",
+    },
+}
+
+RETIRED_POLICIES = {
+    "Spec 40 Gate E service 5xx": "cofounder_spec40_gate_e",
+    "Co-Founder service errors": MANAGED_BY,
+}
+
 QUEUE_DEPTH_LIMITS = {
     "co-founder-events": 10_000,
     "co-founder-browser-expiry": 500,
@@ -91,6 +107,7 @@ def _threshold_condition(
     threshold: float,
     duration: str,
     aligner: str,
+    alignment_period: str = "300s",
 ) -> dict[str, Any]:
     return {
         "displayName": display_name,
@@ -101,7 +118,7 @@ def _threshold_condition(
             "duration": duration,
             "aggregations": [
                 {
-                    "alignmentPeriod": "300s",
+                    "alignmentPeriod": alignment_period,
                     "perSeriesAligner": aligner,
                 }
             ],
@@ -189,24 +206,56 @@ def desired_policies(
                     'metric.label.response_code_class="5xx"'
                 ),
                 comparison="COMPARISON_GT",
-                threshold=0,
+                threshold=2,
                 duration="0s",
-                aligner="ALIGN_RATE",
+                aligner="ALIGN_SUM",
             )
         )
     policies.append(
         _policy(
-            display_name=f"{POLICY_PREFIX} service errors",
+            display_name=f"{POLICY_PREFIX} repeated service errors",
             severity="ERROR",
             documentation=(
-                "Cloud Run is returning server errors. Correlate the revision and "
-                "queue attempt, preserve durable receipts, and use the rollback "
-                "procedure in docs/35-platform-operations-and-recovery.md."
+                "A Cloud Run service returned at least three 5xx responses in a "
+                "five-minute alignment window. Correlate the revision and workload, "
+                "preserve durable receipts, and use the route-specific evidence and "
+                "docs/35-platform-operations-and-recovery.md before rollback."
             ),
             channels=channels,
             conditions=error_conditions,
         )
     )
+
+    for metric_name, config in LOG_METRICS.items():
+        workload = ("command dispatch" if "command_outbox" in metric_name
+                    else "mailbox renewal")
+        policies.append(
+            _policy(
+                display_name=f"{POLICY_PREFIX} {workload} failures",
+                severity="ERROR",
+                documentation=(
+                    f"The `{config['path']}` workload returned at least two 5xx "
+                    "responses in fifteen minutes. Bounded Scheduler retries may "
+                    "recover the job; inspect the exact attempts and durable receipts "
+                    "before intervention. Do not replay effects manually."
+                ),
+                channels=channels,
+                conditions=[
+                    _threshold_condition(
+                        display_name=f"Repeated {workload} 5xx responses",
+                        metric_filter=(
+                            'resource.type="cloud_run_revision" AND '
+                            f'metric.type="logging.googleapis.com/user/{metric_name}"'
+                        ),
+                        comparison="COMPARISON_GT",
+                        threshold=1,
+                        duration="0s",
+                        aligner="ALIGN_SUM",
+                        alignment_period="900s",
+                    )
+                ],
+            )
+        )
 
     for queue_name, limit in QUEUE_DEPTH_LIMITS.items():
         policies.append(
@@ -275,6 +324,101 @@ def _uptime_host(app_url: str) -> str:
     return parsed.hostname
 
 
+def _log_filter(*, project: str, path: str) -> str:
+    return (
+        'resource.type="cloud_run_revision"\n'
+        f'resource.labels.project_id="{project}"\n'
+        'resource.labels.service_name="co-founder"\n'
+        'httpRequest.requestMethod="POST"\n'
+        f'httpRequest.requestUrl:"{path}"\n'
+        'httpRequest.status>=500'
+    )
+
+
+def _configure_log_metrics(
+    *, project: str, apply: bool, runner: Runner
+) -> tuple[list[str], list[str], list[str]]:
+    existing = _json_command(runner, "logging", "metrics", "list", "--project", project)
+    if not isinstance(existing, list):
+        raise ConfigurationError("log metric list is unreadable")
+    by_name = {str(item.get("name") or ""): item for item in existing}
+    created: list[str] = []
+    updated: list[str] = []
+    unchanged: list[str] = []
+    for name, config in LOG_METRICS.items():
+        desired_filter = _log_filter(project=project, path=str(config["path"]))
+        desired_description = str(config["description"])
+        found = by_name.get(name)
+        if found and "managed_by=cofounder_phase7" not in str(found.get("description") or ""):
+            raise ConfigurationError(f"refusing to adopt unmanaged log metric: {name}")
+        if (found and str(found.get("filter") or "") == desired_filter
+                and str(found.get("description") or "") == desired_description):
+            unchanged.append(name)
+            continue
+        target = updated if found else created
+        target.append(name)
+        if not apply:
+            continue
+        verb = "update" if found else "create"
+        command = (
+            "gcloud", "logging", "metrics", verb, name,
+            "--project", project,
+            f"--description={desired_description}",
+            f"--log-filter={desired_filter}",
+            "--format=json",
+        )
+        completed = runner(command)
+        if completed.returncode:
+            message = completed.stderr.strip()[-800:] or "gcloud command failed"
+            raise ConfigurationError(message)
+    return created, updated, unchanged
+
+
+def _retire_legacy_policies(
+    *, policies: list[dict[str, Any]], apply: bool, project: str, runner: Runner
+) -> tuple[list[str], list[str]]:
+    retired: list[str] = []
+    already_disabled: list[str] = []
+    for display_name, expected_owner in RETIRED_POLICIES.items():
+        found = [item for item in policies if item.get("displayName") == display_name]
+        if len(found) > 1:
+            raise ConfigurationError(f"duplicate retired alert policies: {display_name}")
+        if not found:
+            continue
+        policy = found[0]
+        owner = str((policy.get("userLabels") or {}).get("managed_by") or "")
+        if owner != expected_owner:
+            raise ConfigurationError(f"refusing to retire unmanaged alert policy: {display_name}")
+        if not policy.get("enabled", True):
+            already_disabled.append(display_name)
+            continue
+        retired.append(display_name)
+        if not apply:
+            continue
+        resource_name = str(policy.get("name") or "")
+        if not resource_name:
+            raise ConfigurationError(f"retired alert policy has no resource name: {display_name}")
+        replacement = _without_server_fields(policy)
+        replacement.update({
+            "name": resource_name,
+            "enabled": False,
+            "documentation": {
+                "content": (
+                    "Retired single-5xx policy. Keep disabled; use Co-Founder API "
+                    "unavailable, repeated service errors, and workload-specific "
+                    "policies. See docs/35-platform-operations-and-recovery.md."
+                ),
+                "mimeType": "text/markdown",
+            },
+        })
+        _json_command(
+            runner, "monitoring", "policies", "update", resource_name,
+            "--project", project,
+            f"--policy={json.dumps(replacement, separators=(',', ':'))}",
+        )
+    return retired, already_disabled
+
+
 def configure(
     *,
     project: str,
@@ -296,6 +440,9 @@ def configure(
     channel_names = _channel_names(channels, requested_channels)
     if not channel_names:
         raise ConfigurationError("at least one notification channel is required")
+
+    log_created, log_updated, log_unchanged = _configure_log_metrics(
+        project=project, apply=apply, runner=runner)
 
     uptime_checks = _json_command(
         runner, "monitoring", "uptime", "list-configs", "--project", project)
@@ -352,6 +499,9 @@ def configure(
     for policy in existing:
         by_display.setdefault(str(policy.get("displayName") or ""), []).append(policy)
 
+    retired, retired_already_disabled = _retire_legacy_policies(
+        policies=existing, apply=apply, project=project, runner=runner)
+
     created: list[str] = []
     updated: list[str] = []
     unchanged: list[str] = []
@@ -406,6 +556,11 @@ def configure(
         "policies_created": created,
         "policies_updated": updated,
         "policies_unchanged": unchanged,
+        "policies_retired": retired,
+        "policies_already_disabled": retired_already_disabled,
+        "log_metrics_created": log_created,
+        "log_metrics_updated": log_updated,
+        "log_metrics_unchanged": log_unchanged,
         "policy_count": len(desired),
     }
 

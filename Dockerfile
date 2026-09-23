@@ -1,6 +1,6 @@
 # Cloud Run image — Day 10 (docs/13). Playwright needs system Chromium.
 # Keep this tag in lockstep with the pinned Playwright driver.
-FROM mcr.microsoft.com/playwright/python:v1.62.0-jammy
+FROM mcr.microsoft.com/playwright/python:v1.62.0-noble
 
 # Controlled LibreOffice for document previews and PDF output (docs/15
 # §LibreOffice): a pinned apt install — never the developer's desktop copy.

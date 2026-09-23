@@ -306,7 +306,7 @@ echo "    browser worker: $BROWSER_URL"
 # by tests/unit/test_findings_hardening.py) to keep scale-to-zero economics.
 echo "==> Deploy co-founder modular monolith (Playwright remote)"
 gcloud run deploy co-founder --source . --region="$REGION" \
-  --allow-unauthenticated --min-instances 0 --max-instances 10 --cpu-throttling \
+  --allow-unauthenticated --min-instances 1 --max-instances 10 --cpu-throttling \
   --memory 2Gi --timeout=3600s \
   --add-cloudsql-instances "${GOOGLE_CLOUD_PROJECT}:${REGION}:co-founder-sessions" \
   --set-secrets="$SET_SECRETS" \
@@ -366,13 +366,17 @@ if gcloud scheduler jobs describe command-outbox-recovery-1m --location="$REGION
     --schedule="*/15 * * * *" --uri="$APP_URL/tasks/dispatch_command_outbox" \
     --http-method=POST --oidc-service-account-email="$TIMERS_SA" \
     --oidc-token-audience="$APP_URL" --headers="Content-Type=application/json" \
-    --message-body='{}'
+    --message-body='{}' --attempt-deadline=120s \
+    --max-retry-attempts=3 --max-retry-duration=600s \
+    --min-backoff=30s --max-backoff=120s --max-doublings=2
 else
   gcloud scheduler jobs create http command-outbox-recovery-1m --location="$REGION" \
     --schedule="*/15 * * * *" --uri="$APP_URL/tasks/dispatch_command_outbox" \
     --http-method=POST --oidc-service-account-email="$TIMERS_SA" \
     --oidc-token-audience="$APP_URL" --headers="Content-Type=application/json" \
-    --message-body='{}'
+    --message-body='{}' --attempt-deadline=120s \
+    --max-retry-attempts=3 --max-retry-duration=600s \
+    --min-backoff=30s --max-backoff=120s --max-doublings=2
 fi
 echo "==> Alex Mail watch renewal scheduler (idempotent)"
 if gcloud scheduler jobs describe alex-mail-watch-renew-daily --location="$REGION" >/dev/null 2>&1; then
@@ -380,13 +384,17 @@ if gcloud scheduler jobs describe alex-mail-watch-renew-daily --location="$REGIO
     --schedule="17 3 * * *" --uri="$APP_URL/tasks/hiring/renew_mailbox_watch" \
     --http-method=POST --oidc-service-account-email="$TIMERS_SA" \
     --oidc-token-audience="$APP_URL" --headers="Content-Type=application/json" \
-    --message-body='{}'
+    --message-body='{}' --attempt-deadline=120s \
+    --max-retry-attempts=3 --max-retry-duration=900s \
+    --min-backoff=30s --max-backoff=180s --max-doublings=2
 else
   gcloud scheduler jobs create http alex-mail-watch-renew-daily --location="$REGION" \
     --schedule="17 3 * * *" --uri="$APP_URL/tasks/hiring/renew_mailbox_watch" \
     --http-method=POST --oidc-service-account-email="$TIMERS_SA" \
     --oidc-token-audience="$APP_URL" --headers="Content-Type=application/json" \
-    --message-body='{}'
+    --message-body='{}' --attempt-deadline=120s \
+    --max-retry-attempts=3 --max-retry-duration=900s \
+    --min-backoff=30s --max-backoff=180s --max-doublings=2
 fi
 gcloud pubsub subscriptions describe deadline-tick-push >/dev/null 2>&1 \
   || gcloud pubsub subscriptions create deadline-tick-push --topic=deadline-tick \
