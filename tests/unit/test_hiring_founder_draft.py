@@ -1330,8 +1330,8 @@ def test_cloud_public_application_route_uses_dedicated_intake_key(monkeypatch):
         "policy_hash": policy_hash, "automated_publication": False,
         "destination": "COFOUNDER_PUBLIC_ROLE_PAGE",
         "verification_status": "VERIFIED_APP_OWNED",
-        "public_url": "https://example.test/jobs/route-intake",
-        "recorded_at": "2099-01-01T00:00:00+00:00",
+        "public_url": "http://127.0.0.1:8090/hiring-notice.html?role_id=" + role_id,
+        "recorded_at": "2026-08-29T22:09:14+00:00",
     }
     asyncio.run(store.create("hiring_policy_versions", policy_id, {
         "policy_version_id": policy_id, "role_id": role_id,
@@ -1383,6 +1383,13 @@ def test_cloud_public_application_route_uses_dedicated_intake_key(monkeypatch):
     app = FastAPI()
     hiring_routes.register(app)
     client = TestClient(app)
+    hidden = client.get(f"/api/public/hiring/roles/{role_id}")
+    assert hidden.status_code == 404
+    assert hidden.headers["cache-control"] == "no-store"
+    before_repair = client.get(f"/api/hiring/roles/{role_id}")
+    assert before_repair.status_code == 200
+    assert before_repair.json()["role"]["public_page_live"] is False
+    assert before_repair.json()["role"]["publication_status"] == "REPAIR_REQUIRED"
     published = client.post(
         f"/api/hiring/roles/{role_id}/publish",
         json={
@@ -1392,8 +1399,17 @@ def test_cloud_public_application_route_uses_dedicated_intake_key(monkeypatch):
     assert published.status_code == 200
     assert published.json()["status"] == "success"
     assert published.json()["role_version"] == 2
+    repaired_role = asyncio.run(store.get("hiring_roles", role_id))
+    assert len(repaired_role["publication_receipts"]) == 2
+    assert repaired_role["publication_receipts"][0]["public_url"].startswith(
+        "http://127.0.0.1:8090/")
+    after_repair = client.get(f"/api/hiring/roles/{role_id}")
+    assert after_repair.json()["role"]["public_page_live"] is True
+    assert after_repair.json()["role"]["publication_status"] == "LIVE"
     projection = client.get(
-        f"/api/public/hiring/roles/{role_id}").json()["open_role"]["intake"]
+        f"/api/public/hiring/roles/{role_id}")
+    assert projection.headers["cache-control"] == "no-store"
+    projection = projection.json()["open_role"]["intake"]
     response = client.post(
         f"/api/public/hiring/roles/{role_id}/applications",
         data={

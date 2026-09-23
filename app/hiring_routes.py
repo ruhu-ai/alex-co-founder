@@ -470,9 +470,14 @@ def register(app: FastAPI) -> None:
     async def public_open_role(role_id: str):
         """Receipt-backed, candidate-safe projection; no internal policy data."""
         result = await get_public_role_projection(production_store(), role_id)
-        if result.get("error"):
-            return JSONResponse(result, status_code=404)
-        return result
+        # A closed projection can become live immediately after an immutable
+        # repair/publication receipt is appended. Never let a browser or edge
+        # cache preserve the earlier 404 beyond that state transition.
+        return JSONResponse(
+            result,
+            status_code=404 if result.get("error") else 200,
+            headers={"Cache-Control": "no-store"},
+        )
 
     @app.post("/api/public/hiring/roles/{role_id}/applications")
     async def submit_public_application(
@@ -1108,21 +1113,36 @@ document.querySelector('#form').addEventListener('submit',async e=>{e.preventDef
         principal = await _actor(request)
         if isinstance(principal, dict):
             return _response(principal)
-        role = await production_store().get("hiring_roles", role_id)
+        store = production_store()
+        role = await store.get("hiring_roles", role_id)
         if not role or role.get("workspace_id") != principal.workspace_id:
             return JSONResponse({"error": "not found"}, status_code=404)
         gate = authorize(principal, "read_role")
         if gate.get("error"):
             return _response(gate)
-        candidates = await production_store().list(
+        candidates = await store.list(
             "candidate_applications", filters={"workspace_id": principal.workspace_id,
                                                 "role_id": role_id}, limit=1000)
-        policies = await production_store().list(
+        policies = await store.list(
             "hiring_policy_versions", filters={"workspace_id": principal.workspace_id,
                                                 "role_id": role_id}, limit=1000)
-        impacts = await production_store().list(
+        impacts = await store.list(
             "hiring_policy_impacts", filters={"workspace_id": principal.workspace_id,
                                                "role_id": role_id}, limit=1000)
+        public_projection = await get_public_role_projection(store, role_id)
+        public_page_live = bool(
+            public_projection.get("status") == "success"
+            and public_projection.get("live") is True)
+        role = {
+            **role,
+            "public_page_live": public_page_live,
+            "publication_status": (
+                "LIVE" if public_page_live
+                else "REPAIR_REQUIRED"
+                if (role.get("role_state") == "PUBLISHED"
+                    and bool(role.get("publication_receipts")))
+                else "NOT_PUBLISHED"),
+        }
         # Candidate visibility is decided by the one code-owned workspace gate;
         # no second human-role system is reconstructed in this route.
         candidates = [
@@ -1132,7 +1152,7 @@ document.querySelector('#form').addEventListener('submit',async e=>{e.preventDef
             ).get("error")]
         async def project_candidate(row: dict[str, Any]) -> dict[str, Any]:
             assessment_id = str(row.get("current_assessment_id") or "")
-            assessment = (await production_store().get(
+            assessment = (await store.get(
                 "candidate_assessments", assessment_id)
                 if assessment_id else None)
             identity, summary = await asyncio.gather(
