@@ -44,7 +44,9 @@ SESSION_TTL_SECONDS = 60 * 60 * 24 * 14  # matches the token cookie
 # unfurlers fetch the preview card with no session at all. Keep the exemption
 # exact so a similarly prefixed application route is still gated. Every entry
 # is generated brand artwork (scripts/build_brand.py) and carries no founder
-# data — adding anything else here needs the same to be true.
+# data. The one shared stylesheet is also public because the public job page
+# depends on its design tokens; it is static presentation code and carries no
+# founder data. Adding anything else here needs the same to be true.
 PUBLIC_PATHS = frozenset({
     "/favicon.ico",
     "/favicon.svg",
@@ -56,6 +58,7 @@ PUBLIC_PATHS = frozenset({
     "/og-image.png",
     "/brand/mark.svg",
     "/brand/lockup.svg",
+    "/product-shell.css",
 })
 
 # Routes that verify their own callers (portal token, OIDC) or must stay

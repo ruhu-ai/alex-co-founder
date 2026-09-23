@@ -868,6 +868,15 @@ class TestFounderInboxApi:
         assert client.get("/brand/").status_code == 401
         assert client.get("/og-image.png/private").status_code == 401
 
+    def test_public_job_stylesheet_is_public_only_at_exact_path(
+            self, client, monkeypatch):
+        monkeypatch.setenv("APP_AUTH_TOKEN", "t0ken")
+
+        response = client.get("/product-shell.css")
+        assert response.status_code == 200
+        assert response.headers["content-type"].startswith("text/css")
+        assert client.get("/product-shell.css/private").status_code == 401
+
     def test_prod_without_token_fails_closed(self, client, monkeypatch):
         monkeypatch.setenv("K_SERVICE", "co-founder")
         assert client.get("/api/config").status_code == 503
