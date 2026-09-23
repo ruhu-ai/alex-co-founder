@@ -1,0 +1,30 @@
+tests/unit/test_hiring_founder_draft.py
+  s_77f1bb234f38de::t_71dcecd0bf6146 152-158
+  s_7fa0290736bb51::t_27b11aaea891c8 159
+services/hiring_public_intake.py
+  s_77f1bb234f38de::t_71dcecd0bf6146 133-136
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "e612aac4ca4c1563e4a9a5666b554f2eaf4de075",
+  "prompts": {},
+  "sessions": {
+    "s_77f1bb234f38de": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a046ae-fe02-7782-82b7-4676370ad1b6",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Ijidai Lassa <ijidai@cued.app>"
+    },
+    "s_7fa0290736bb51": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05c86-a0a5-7ed1-b2b1-de3e309d7dbc",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Ijidai Lassa <ijidai@cued.app>"
+    }
+  }
+}
