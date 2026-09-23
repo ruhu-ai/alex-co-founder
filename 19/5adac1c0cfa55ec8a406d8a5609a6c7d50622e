@@ -1,0 +1,31 @@
+Dockerfile
+  s_eaf7f55df36181::t_be0fd9e76be9a9 3
+docs/13-deployment.md
+  s_eaf7f55df36181::t_5b50532df665d7 140,150,175,210-212,268-272
+docs/35-platform-operations-and-recovery.md
+  s_eaf7f55df36181::t_6613b42b303cbb 99-105
+scripts/configure_phase7_monitoring.py
+  s_eaf7f55df36181::t_8bb7d78172f192 23-38,110,121,209,211,216,219-222,229-259,327-421,444-446,502-504,559-563
+scripts/deploy.sh
+  s_eaf7f55df36181::t_30fa903d1ffadb 309,369-371,377-379,387-389,395-397
+tests/unit/test_findings_hardening.py
+  s_eaf7f55df36181::t_a2587177997d0f 161,171,206-210
+tests/unit/test_phase7_monitoring.py
+  s_eaf7f55df36181::t_a20f2ec3b6fbfc 21-23,27,32-36,73,75-76,97,185-244
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "195adac1c0cfa55ec8a406d8a5609a6c7d50622e",
+  "prompts": {},
+  "sessions": {
+    "s_eaf7f55df36181": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ead55dcc-b679-4435-8214-61bfd5ec3937",
+        "model": "claude-sonnet-5"
+      },
+      "human_author": "Ijidai Lassa <ijidai@cued.app>"
+    }
+  }
+}
