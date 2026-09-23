@@ -477,7 +477,7 @@ def configure(
             "--status-codes=200",
             '--matcher-content="status":"ok"',
             "--matcher-type=contains-string",
-            "--period=60s",
+            "--period=1",
             "--timeout=10s",
             "--validate-ssl=true",
             f"--user-labels=managed_by={MANAGED_BY},phase=7",

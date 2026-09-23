@@ -91,6 +91,12 @@ def test_apply_creates_uptime_and_every_policy_with_notification_channel():
 
     assert result["uptime_check_created"] is True
     assert result["uptime_check_id"] == "check-1"
+    uptime_command = next(
+        command for command in runner.commands
+        if "monitoring uptime create" in " ".join(command)
+    )
+    assert "--period=1" in uptime_command
+    assert "--period=60s" not in uptime_command
     policy_commands = [
         command for command in runner.commands if "monitoring policies create" in " ".join(command)
     ]
