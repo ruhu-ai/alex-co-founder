@@ -1,0 +1,49 @@
+tests/unit/test_findings_hardening.py
+  s_77f1bb234f38de::t_6e0c0ab14af1d7 211-212
+app/main.py
+  s_77f1bb234f38de::t_4c443f8533aae8 4634-4640,4646-4652
+tests/unit/test_app_server.py
+  s_77f1bb234f38de::t_4c443f8533aae8 1248,1250-1255,1267-1273,1277-1283,1286-1295,1297-1332
+  s_77f1bb234f38de::t_a8cbd3987cf5e6 1247,1249,1256-1266,1274-1276,1284-1285,1296
+tests/unit/test_phase7_monitoring.py
+  s_77f1bb234f38de::t_627cca48411539 100-101
+  s_77f1bb234f38de::t_77f7f827362e39 180-222
+  s_77f1bb234f38de::t_70c74bc52c6e1b 236-245
+scripts/deploy.sh
+  s_77f1bb234f38de::t_6e0c0ab14af1d7 368
+  s_77f1bb234f38de::t_e636ed8681225b 386
+scripts/configure_phase7_monitoring.py
+  s_77f1bb234f38de::t_70c74bc52c6e1b 282-286
+  s_77f1bb234f38de::t_77f7f827362e39 6-8,331-353
+  s_77f1bb234f38de::t_627cca48411539 508
+  s_77f1bb234f38de::t_89faa2054e2f41 484
+docs/35-platform-operations-and-recovery.md
+  s_77f1bb234f38de::t_89faa2054e2f41 109,115-116
+  s_77f1bb234f38de::t_4c443f8533aae8 111-114
+  s_77f1bb234f38de::t_77f7f827362e39 105-108
+  s_7fa0290736bb51::t_6304ece6fb7714 110
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "3853bbecf59655ab0dcbf51d9d3386594bb76dcd",
+  "prompts": {},
+  "sessions": {
+    "s_77f1bb234f38de": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a046ae-fe02-7782-82b7-4676370ad1b6",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Ijidai Lassa <ijidai@cued.app>"
+    },
+    "s_7fa0290736bb51": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05c86-a0a5-7ed1-b2b1-de3e309d7dbc",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Ijidai Lassa <ijidai@cued.app>"
+    }
+  }
+}
